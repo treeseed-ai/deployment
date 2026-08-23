@@ -30,6 +30,7 @@ const stable = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', relea
 function lab(): ComponentRelease {
 	const diagnostics = process.env.TREESEED_DIAGNOSTICS_DIGEST ?? `sha256:${'0'.repeat(64)}`, mailpit = process.env.TREESEED_MAILPIT_DIGEST ?? `sha256:${'0'.repeat(64)}`;
 	if (![diagnostics, mailpit].every((value) => /^sha256:[a-f0-9]{64}$/u.test(value))) throw new Error('Lab image digests must be exact SHA-256 identities.');
+	if (process.env.TREESEED_REQUIRE_PUBLISHED_IMAGES === '1' && [diagnostics, mailpit].some((value) => value === `sha256:${'0'.repeat(64)}`)) throw new Error('Protected publication requires read-back lab image digests.');
 	const runtime = { schemaVersion: 'treeseed.package-runtime/v1' as const, componentId: 'lab', version: '0.1.0~rc1-1', compose: { projectName: 'treeseed-lab', files: ['compose.yml'] }, services: [
 		{ id: 'mailpit', composeService: 'mailpit', endpoints: [
 			{ id: 'smtp', protocol: 'tcp', port: 1025, visibility: 'private', aliasOverride: false, tls: 'none', authentication: 'none' },
@@ -46,7 +47,7 @@ function lab(): ComponentRelease {
 	write(resolve(directory, 'component-release.json'), `${JSON.stringify(release, null, 2)}\n`); write(resolve(directory, 'compose.yml'), compose);
 	return release;
 }
-const developmentComponents = [['agent', '0.13.0~rc11'], ['api', '0.8.0~rc9']].map(([id, release]) => {
+const developmentComponents = [['agent', '0.13.0~rc11'], ['api', '0.8.0~rc9'], ['treedx', '0.3.0~rc5']].map(([id, release]) => {
 	const component = readComponent(id!, release!);
 	return componentReleaseSchema.parse({ ...component, stableBase: { ...component.stableBase!, catalogDigest: stable.catalogDigest } });
 });

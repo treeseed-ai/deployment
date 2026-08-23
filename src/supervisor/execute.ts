@@ -20,6 +20,10 @@ function bundledComposeFiles(files: readonly string[]) {
 	});
 }
 
+function componentComposeArguments(componentId: string, files: readonly string[]) {
+	return ['--env-file', `/etc/treeseed/components/${componentId}/environment`, ...bundledComposeFiles(files)];
+}
+
 function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: CommandRunner) {
 	try { command('/usr/bin/docker', ['network', 'inspect', name]); }
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
@@ -37,9 +41,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
 			ensureNetwork('treeseed-edge', command);
-			command('/usr/bin/docker', ['compose', ...bundledComposeFiles(operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait']);
+			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait']);
 			break;
-		case 'compose.stop': command('/usr/bin/docker', ['compose', ...bundledComposeFiles(operation.files), '--project-name', operation.projectName, 'stop']); break;
+		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;

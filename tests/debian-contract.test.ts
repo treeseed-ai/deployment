@@ -35,6 +35,9 @@ describe('Debian and systemd contracts', () => {
 		expect(diagnostics).toContain('sensitive');
 		expect(publication).toContain('platforms: linux/amd64,linux/arm64');
 		expect(publication).toContain('Bind and read back exact lab images');
+		expect(publication).toContain('TREESEED_REQUIRE_PUBLISHED_IMAGES=1');
+		expect(publication).toContain('gh release create');
+		expect(readFileSync('scripts/prepare-artifacts.ts', 'utf8')).toContain('Protected publication requires read-back lab image digests.');
 	});
 
 	it('runs the only host edge inside the shared Docker network', () => {

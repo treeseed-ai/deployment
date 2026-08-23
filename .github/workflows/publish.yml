@@ -74,6 +74,7 @@ jobs:
           set -euo pipefail
           echo 'TREESEED_DIAGNOSTICS_DIGEST=${{ steps.diagnostics.outputs.digest }}' >> "$GITHUB_ENV"
           echo 'TREESEED_MAILPIT_DIGEST=${{ steps.mailpit.outputs.digest }}' >> "$GITHUB_ENV"
+          echo 'TREESEED_REQUIRE_PUBLISHED_IMAGES=1' >> "$GITHUB_ENV"
           for identity in \
             'treeseed/diagnostics:${{ inputs.tag }}=${{ steps.diagnostics.outputs.digest }}' \
             'treeseed/mailpit:${{ inputs.tag }}=${{ steps.mailpit.outputs.digest }}'; do
@@ -101,6 +102,17 @@ jobs:
           name: deployment-release-${{ github.sha }}
           path: release/out/**
           if-no-files-found: error
+      - name: Publish immutable GitHub release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [ "${{ inputs.suite }}" = development ]; then prerelease=(--prerelease); fi
+          gh release create "${{ inputs.tag }}" release/out/* \
+            --verify-tag \
+            --generate-notes \
+            "${prerelease[@]}"
       - name: Publish signed APT suite
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}

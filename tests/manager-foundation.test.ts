@@ -43,6 +43,14 @@ describe('unified host manager foundation', () => {
 		expect(() => executeSupervisorOperation({ operation: 'shell', command: 'id' }, () => undefined)).toThrow();
 	});
 
+	it('activates Compose with only the manager-rendered component environment', () => {
+		const calls: Array<[string, readonly string[]]> = [];
+		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent' }, (executable, arguments_) => calls.push([executable, arguments_]));
+		const activation = calls.find(([, arguments_]) => arguments_[0] === 'compose');
+		expect(activation).toEqual(['/usr/bin/docker', ['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/0.13.0~rc12/compose.yml', '--project-name', 'treeseed-agent', 'up', '--detach', '--remove-orphans', '--wait']]);
+		expect(JSON.stringify(calls)).not.toContain('process.env');
+	});
+
 	it('accepts only bounded host commands and fixed configuration or enrollment mutations', () => {
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.component.enable', arguments: ['agent'], options: { plan: true } })).toMatchObject({ handlerId: 'local.host.component.enable' });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'remote.shell', arguments: ['id'] })).toThrow();
