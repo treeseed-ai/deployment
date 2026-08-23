@@ -1,0 +1,22 @@
+[Unit]
+Description=TreeSeed privileged host supervisor
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=treeseed-manager
+ExecStartPre=/usr/bin/install -d -o root -g treeseed-manager -m 0750 /run/treeseed/manager
+ExecStart=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/supervisor.js
+Restart=on-failure
+RestartSec=3
+UMask=0007
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/treeseed /var/lib/treeseed /run/treeseed /run/lock /etc/apt/sources.list.d /var/lib/apt /var/cache/apt /var/lib/dpkg /var/log/apt
+
+[Install]
+WantedBy=multi-user.target

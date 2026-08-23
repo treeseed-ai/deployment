@@ -1,0 +1,19 @@
+[Unit]
+Description=TreeSeed Caddy edge
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/docker network inspect treeseed-edge
+ExecStart=/usr/bin/caddy run --environ --config /etc/treeseed/edge/Caddyfile
+ExecReload=/usr/bin/caddy reload --config /etc/treeseed/edge/Caddyfile
+Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/treeseed/edge /run
+
+[Install]
+WantedBy=multi-user.target

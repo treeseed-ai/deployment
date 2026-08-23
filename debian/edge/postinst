@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+install -d -o root -g root -m 0750 /etc/treeseed/edge /etc/treeseed/edge/tls /var/lib/treeseed/edge
+docker network inspect treeseed-edge >/dev/null 2>&1 || docker network create --driver bridge --internal=false treeseed-edge >/dev/null
+systemctl daemon-reload
+systemctl enable treeseed-edge.service >/dev/null
+exit 0

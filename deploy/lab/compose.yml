@@ -1,0 +1,23 @@
+name: treeseed-lab
+services:
+  mailpit:
+    image: axllent/mailpit@sha256:RELEASE_DIGEST_REQUIRED
+    restart: unless-stopped
+    networks: [private, treeseed-edge]
+    expose: ["1025", "8025"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+  diagnostics:
+    image: treeseed/diagnostics@sha256:RELEASE_DIGEST_REQUIRED
+    restart: unless-stopped
+    networks: [private, treeseed-edge]
+    expose: ["8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+networks:
+  private:
+    internal: true
+  treeseed-edge:
+    external: true
