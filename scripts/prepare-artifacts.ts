@@ -47,7 +47,7 @@ function lab(): ComponentRelease {
 	write(resolve(directory, 'component-release.json'), `${JSON.stringify(release, null, 2)}\n`); write(resolve(directory, 'compose.yml'), compose);
 	return release;
 }
-const developmentComponents = [['agent', '0.13.0~rc11'], ['api', '0.8.0~rc9'], ['treedx', '0.3.0~rc5']].map(([id, release]) => {
+const developmentComponents = [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc9'], ['treedx', '0.3.0~rc5']].map(([id, release]) => {
 	const component = readComponent(id!, release!);
 	return componentReleaseSchema.parse({ ...component, stableBase: { ...component.stableBase!, catalogDigest: stable.catalogDigest } });
 });
