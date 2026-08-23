@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "treeseed.host/v1",
+  "configurationId": "package-test",
+  "generation": 1,
+  "host": { "id": "package-test", "role": "development", "architecture": "amd64" },
+  "runtime": { "management": "managed" },
+  "updates": {
+    "defaultTrack": "stable",
+    "stable": { "metadataPollSeconds": 86400, "maintenanceWindow": { "weekday": "sunday", "localTime": "03:00", "jitterMinutes": 30 } },
+    "development": { "pollSeconds": 60 }
+  },
+  "components": {},
+  "network": { "manager": { "binding": "0.0.0.0:4790", "aliases": ["manager.treeseed.localhost"], "sans": ["manager.treeseed.localhost"], "trustedLanCidrs": [] } },
+  "secrets": {}
+}

@@ -1,0 +1,77 @@
+name: Publish protected Deployment candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact repository tag to publish
+        required: true
+      suite:
+        description: Protected APT suite
+        required: true
+        type: choice
+        options: [development, stable]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  packages: write
+
+jobs:
+  publish:
+    environment: ${{ inputs.suite }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Require exact annotated tag and allowed branch ancestry
+        run: |
+          test "$(git describe --tags --exact-match HEAD)" = "${{ inputs.tag }}"
+          test "$(git cat-file -t "refs/tags/${{ inputs.tag }}")" = tag
+          git merge-base --is-ancestor HEAD "origin/${{ inputs.suite == 'stable' && 'main' || 'staging' }}"
+          if [ "${{ inputs.suite }}" = stable ]; then
+            case "${{ inputs.tag }}" in *-*) exit 1;; esac
+          else
+            case "${{ inputs.tag }}" in *-rc.*) :;; *) exit 1;; esac
+          fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run verify:direct
+      - run: npm run verify:deb
+      - uses: anchore/sbom-action/download-syft@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+      - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
+      - name: Seal exact-head evidence
+        run: printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s"}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}" "${{ inputs.suite }}" > release/out/exact-head.json
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: release/out/*.deb
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deployment-release-${{ github.sha }}
+          path: release/out/**
+          if-no-files-found: error
+      - name: Publish signed APT suite
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          TREESEED_PAGES_ROOT: .treeseed/pages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes apt-utils dpkg-dev
+          if git fetch origin gh-pages; then
+            git worktree add --detach .treeseed/pages origin/gh-pages
+          else
+            git worktree add --detach .treeseed/pages HEAD
+            git -C .treeseed/pages checkout --orphan gh-pages
+            git -C .treeseed/pages rm -rf .
+          fi
+          node --import tsx scripts/publish-apt.ts "${{ inputs.suite }}"
+          touch .treeseed/pages/.nojekyll
+          git -C .treeseed/pages add --all
+          git -C .treeseed/pages -c user.name='TreeSeed Release Automation' -c user.email='releases@treeseed.ai' commit -m "Publish ${{ inputs.suite }} from ${{ github.sha }}"
+          git -C .treeseed/pages push origin HEAD:gh-pages
