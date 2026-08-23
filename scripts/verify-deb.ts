@@ -36,7 +36,7 @@ try {
 	const stable = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/stable.json'), 'utf8')));
 	const development = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'), 'utf8')));
 	if (development.stableBase?.catalogDigest !== stable.catalogDigest || stable.components[0]?.release !== '0.12.58') throw new Error('Installed catalogs are not bound to the exact stable base.');
-	for (const [id, release] of [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc9'], ['treedx', '0.3.0~rc5'], ['lab', '0.1.0~rc3-1']] as const) {
+	for (const [id, release] of [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc9'], ['treedx', '0.3.0~rc5'], ['lab', '0.1.0~rc4-1']] as const) {
 		const directory = resolve(root, 'usr/share/treeseed/components', id, release);
 		const component = JSON.parse(readFileSync(resolve(directory, 'component-release.json'), 'utf8')) as { componentId?: string; release?: string };
 		const compose = readFileSync(resolve(directory, 'compose.yml'), 'utf8');
