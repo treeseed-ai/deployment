@@ -9,7 +9,7 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { reconcile } from './reconcile.js';
+import { reconcile, refreshAvailableCatalogs } from './reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
 
 export const hostCommandRequestSchema = z.object({
@@ -70,6 +70,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.events': return { events: recentEvents(100) };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };
 		case 'local.host.update.check': {
+			await refreshAvailableCatalogs(host, undefined, false);
 			const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
 			return { stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest }, development: existsSync(developmentPath) ? (() => { const value = loadCatalog(developmentPath); return { release: value.release, generation: value.generation, digest: value.catalogDigest }; })() : null };
 		}

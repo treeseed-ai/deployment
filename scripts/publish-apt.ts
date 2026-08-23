@@ -11,7 +11,7 @@ const key = process.env.APT_SIGNING_KEY;
 if (!key) throw new Error('Protected APT signing key is unavailable.');
 const root = process.cwd(), pages = resolve(process.env.TREESEED_PAGES_ROOT ?? '.treeseed/pages'), apt = resolve(pages, 'apt');
 const pool = resolve(apt, 'pool', suite), binary = resolve(apt, 'dists', suite, 'main', 'binary-amd64');
-rmSync(pool, { recursive: true, force: true }); mkdirSync(pool, { recursive: true }); mkdirSync(binary, { recursive: true });
+mkdirSync(pool, { recursive: true }); mkdirSync(binary, { recursive: true });
 for (const name of readdirSync(resolve(root, 'release/out')).filter((name) => name.endsWith('.deb'))) cpSync(resolve(root, 'release/out', name), resolve(pool, name));
 const poolRelative = `pool/${suite}`;
 const packages = execFileSync('dpkg-scanpackages', ['--multiversion', poolRelative, '/dev/null'], { cwd: apt, encoding: 'utf8' });
