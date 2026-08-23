@@ -12,17 +12,17 @@
     "build": "tsc -p tsconfig.json",
     "check:source-shape": "node --import tsx scripts/check-source-shape.ts",
     "test": "vitest run",
-		"verify:direct": "npm run check:source-shape && npm run build && npm test",
-		"artifacts:fetch": "node --import tsx scripts/fetch-artifacts.ts",
-		"artifacts:prepare": "npm run artifacts:fetch && node --import tsx scripts/prepare-artifacts.ts",
-		"build:deb": "npm run artifacts:prepare && npm run build && node --import tsx scripts/package-deb.ts all",
+    "verify:direct": "npm run check:source-shape && npm run build && npm test",
+    "artifacts:fetch": "node --import tsx scripts/fetch-artifacts.ts",
+    "artifacts:prepare": "npm run artifacts:fetch && node --import tsx scripts/prepare-artifacts.ts",
+    "build:deb": "npm run artifacts:prepare && npm run build && node --import tsx scripts/package-deb.ts all",
     "verify:deb": "npm run build:deb && node --import tsx scripts/verify-deb.ts",
     "build:configured": "npm run build && node --import tsx scripts/configure-bootstrap.ts",
     "build:workstation": "npm run build && node --import tsx scripts/build-workstation-bootstrap.ts",
     "catalog:compile": "node --import tsx scripts/compile-catalog.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.27",
+    "@treeseed/sdk": "0.13.0-rc.28",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },

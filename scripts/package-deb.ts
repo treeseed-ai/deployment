@@ -49,7 +49,7 @@ const packages: Record<string, Definition> = {
 	'treeseed-manager': { architecture: 'amd64', depends: `treeseed-host-runtime (= ${deploymentVersion})`, description: 'TreeSeed host manager, reconciler, mTLS API, and fixed root supervisor', postinst: 'debian/manager/postinst', payload: managerPayload },
 	'treeseed-sdk': { architecture: 'all', depends: '', description: 'Accepted TreeSeed SDK host contracts and CLI runtime dependencies', payload(stage) {
 		const modules = resolve(stage, 'usr/lib/treeseed/cli/node_modules');
-		extractNpm('npm/sdk-0.13.0-rc.27.tgz', resolve(modules, '@treeseed/sdk'));
+		extractNpm('npm/sdk-0.13.0-rc.28.tgz', resolve(modules, '@treeseed/sdk'));
 		extractNpm('npm/treedx-0.3.0-rc.4.tgz', resolve(modules, '@treeseed/treedx'));
 		extractNpm('npm/yaml-2.9.0.tgz', resolve(modules, 'yaml'));
 		extractNpm('npm/zod-3.25.76.tgz', resolve(modules, 'zod'));

@@ -14,6 +14,14 @@ describe('unified host manager foundation', () => {
 		expect(accepted.routes.find((route) => route.alias.startsWith('manager'))).toMatchObject({ authentication: 'mtls', upstream: 'unix//run/treeseed/manager/api.sock' });
 	});
 
+	it('fails closed on unknown alias identities and applies fully qualified overrides', () => {
+		const configuration = host(), { stable, development } = catalogs();
+		configuration.components.api!.aliases = { 'api.http': 'api-canary.treeseed.localhost' };
+		expect(() => createPlan(configuration, stable, development)).toThrow(/does not identify an accepted host endpoint/u);
+		configuration.components.api!.aliases = { 'api.service.http': 'api-canary.treeseed.localhost' };
+		expect(createPlan(configuration, stable, development).routes.map((route) => route.alias)).toContain('api-canary.treeseed.localhost');
+	});
+
 	it('renders one certificate identity set and mTLS manager policy', () => {
 		const routes = [...edgeRoutes([component('api', 'stable', 'b')]), { alias: 'manager.treeseed.localhost', upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' as const }];
 		const caddyfile = renderCaddyfile(routes);
