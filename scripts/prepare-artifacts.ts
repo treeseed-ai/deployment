@@ -31,7 +31,7 @@ function lab(): ComponentRelease {
 	const diagnostics = process.env.TREESEED_DIAGNOSTICS_DIGEST ?? `sha256:${'0'.repeat(64)}`, mailpit = process.env.TREESEED_MAILPIT_DIGEST ?? `sha256:${'0'.repeat(64)}`;
 	if (![diagnostics, mailpit].every((value) => /^sha256:[a-f0-9]{64}$/u.test(value))) throw new Error('Lab image digests must be exact SHA-256 identities.');
 	if (process.env.TREESEED_REQUIRE_PUBLISHED_IMAGES === '1' && [diagnostics, mailpit].some((value) => value === `sha256:${'0'.repeat(64)}`)) throw new Error('Protected publication requires read-back lab image digests.');
-	const runtime = { schemaVersion: 'treeseed.package-runtime/v1' as const, componentId: 'lab', version: '0.1.0~rc2-1', compose: { projectName: 'treeseed-lab', files: ['compose.yml'] }, services: [
+	const runtime = { schemaVersion: 'treeseed.package-runtime/v1' as const, componentId: 'lab', version: '0.1.0~rc5-1', compose: { projectName: 'treeseed-lab', files: ['compose.yml'] }, services: [
 		{ id: 'mailpit', composeService: 'mailpit', endpoints: [
 			{ id: 'smtp', protocol: 'tcp', port: 1025, visibility: 'private', aliasOverride: false, tls: 'none', authentication: 'none' },
 			{ id: 'web', protocol: 'http', port: 8025, visibility: 'host', defaultAlias: 'mail.treeseed.localhost', aliasOverride: true, tls: 'edge', authentication: 'none', healthGate: { protocol: 'http', path: '/api/v1/info', timeoutSeconds: 60 } },
@@ -41,7 +41,7 @@ function lab(): ComponentRelease {
 	const release = componentReleaseSchema.parse({ schemaVersion: 'treeseed.component-release/v1', componentId: 'lab', release: runtime.version, track: 'development', source: { repository: 'treeseed-ai/deployment', commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }, stableBase: { releaseRange: '>=0.1.0 <0.2.0', compatibilityId: stable.compatibilityId, catalogDigest: stable.catalogDigest }, packages: [{ name: 'treeseed-lab', version: runtime.version, architecture: 'all', origin: 'TreeSeed Deployment', order: 50 }], images: [
 		{ role: 'mailpit', repository: 'treeseed/mailpit', digest: mailpit, platforms: ['linux/amd64', 'linux/arm64'], consumers: ['lab'] },
 		{ role: 'diagnostics', repository: 'treeseed/diagnostics', digest: diagnostics, platforms: ['linux/amd64', 'linux/arm64'], consumers: ['lab'] },
-	], runtime, runtimeDigest: deploymentDigest(runtime), rollback: { compatible: true, requiresBackup: false }, evidence: { provenance: ['https://hub.docker.com/r/treeseed/mailpit/tags?name=0.1.0-rc.2', 'https://hub.docker.com/r/treeseed/diagnostics/tags?name=0.1.0-rc.2'], sboms: ['https://hub.docker.com/r/treeseed/mailpit/tags?name=0.1.0-rc.2', 'https://hub.docker.com/r/treeseed/diagnostics/tags?name=0.1.0-rc.2'], vulnerabilities: [] } });
+	], runtime, runtimeDigest: deploymentDigest(runtime), rollback: { compatible: true, requiresBackup: false }, evidence: { provenance: ['https://hub.docker.com/r/treeseed/mailpit/tags?name=0.1.0-rc.5', 'https://hub.docker.com/r/treeseed/diagnostics/tags?name=0.1.0-rc.5'], sboms: ['https://hub.docker.com/r/treeseed/mailpit/tags?name=0.1.0-rc.5', 'https://hub.docker.com/r/treeseed/diagnostics/tags?name=0.1.0-rc.5'], vulnerabilities: [] } });
 	const compose = readFileSync(resolve(root, 'deploy/lab/compose.yml'), 'utf8').replace('sha256:MAILPIT_DIGEST_REQUIRED', mailpit).replace('sha256:DIAGNOSTICS_DIGEST_REQUIRED', diagnostics);
 	const directory = resolve(artifacts, 'components/lab', runtime.version);
 	write(resolve(directory, 'component-release.json'), `${JSON.stringify(release, null, 2)}\n`); write(resolve(directory, 'compose.yml'), compose);
@@ -52,7 +52,7 @@ const developmentComponents = [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc9'], [
 	return componentReleaseSchema.parse({ ...component, stableBase: { ...component.stableBase!, catalogDigest: stable.catalogDigest } });
 });
 developmentComponents.push(lab());
-const development = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release: '0.1.0~rc2', generation: 1_000_003, track: 'development', compatibilityId: stable.compatibilityId, stableBase: { release: stable.release, catalogDigest: stable.catalogDigest }, components: developmentComponents, createdAt: '2026-08-23T21:15:00.000Z' });
+const development = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release: '0.1.0~rc5', generation: 1_000_006, track: 'development', compatibilityId: stable.compatibilityId, stableBase: { release: stable.release, catalogDigest: stable.catalogDigest }, components: developmentComponents, createdAt: '2026-08-23T22:05:00.000Z' });
 write(resolve(artifacts, 'catalogs/stable.json'), `${JSON.stringify(stable, null, 2)}\n`);
 write(resolve(artifacts, 'catalogs/development.json'), `${JSON.stringify(development, null, 2)}\n`);
 console.log(JSON.stringify({ ok: true, stable: stable.catalogDigest, development: development.catalogDigest, components: development.components.map((component) => component.componentId) }));
