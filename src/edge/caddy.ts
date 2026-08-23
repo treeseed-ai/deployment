@@ -20,7 +20,7 @@ export function edgeRoutes(components: readonly ComponentRelease[], overrides: R
 
 export function renderCaddyfile(routes: readonly EdgeRoute[], certificate = '/etc/treeseed/edge/tls/host.crt', key = '/etc/treeseed/edge/tls/host.key') {
 	if (routes.length === 0) throw new Error('At least one accepted host route is required.');
-	return `${routes.map((route) => `${route.alias} {\n\ttls ${certificate} ${key}${route.authentication === 'mtls' ? ' {\n\t\tclient_auth {\n\t\t\tmode require_and_verify\n\t\t\ttrusted_ca_cert_file /etc/treeseed/edge/tls/client-ca.crt\n\t\t}\n\t}' : ''}\n\treverse_proxy ${route.upstream}\n}`).join('\n')}\n`;
+	return `${routes.map((route) => `${route.alias} {\n\ttls ${certificate} ${key}${route.authentication === 'mtls' ? ' {\n\t\tclient_auth {\n\t\t\tmode require_and_verify\n\t\t\ttrust_pool file {\n\t\t\t\tpem_file /etc/treeseed/edge/tls/client-ca.crt\n\t\t\t}\n\t\t}\n\t}' : ''}\n\treverse_proxy ${route.upstream}\n}`).join('\n')}\n`;
 }
 
 export function subjectAlternativeNames(routes: readonly EdgeRoute[]) {

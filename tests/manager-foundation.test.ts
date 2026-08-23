@@ -11,15 +11,15 @@ describe('unified host manager foundation', () => {
 		const accepted = createPlan(configuration, stable, development);
 		expect(accepted.components.map((item) => `${item.componentId}:${item.track}`)).toEqual(['agent:development', 'api:stable']);
 		expect(accepted.routes.map((route) => route.alias)).toEqual(['agent.treeseed.localhost', 'api.treeseed.localhost', 'manager.treeseed.localhost']);
-		expect(accepted.routes.find((route) => route.alias.startsWith('manager'))?.authentication).toBe('mtls');
+		expect(accepted.routes.find((route) => route.alias.startsWith('manager'))).toMatchObject({ authentication: 'mtls', upstream: 'unix//run/treeseed/manager/api.sock' });
 	});
 
 	it('renders one certificate identity set and mTLS manager policy', () => {
-		const routes = [...edgeRoutes([component('api', 'stable', 'b')]), { alias: 'manager.treeseed.localhost', upstream: 'https://127.0.0.1:4790', authentication: 'mtls' as const }];
+		const routes = [...edgeRoutes([component('api', 'stable', 'b')]), { alias: 'manager.treeseed.localhost', upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' as const }];
 		const caddyfile = renderCaddyfile(routes);
 		expect(subjectAlternativeNames(routes)).toEqual(['api.treeseed.localhost', 'manager.treeseed.localhost']);
 		expect(caddyfile).toContain('mode require_and_verify');
-		expect(caddyfile).toContain('reverse_proxy https://127.0.0.1:4790');
+		expect(caddyfile).toContain('reverse_proxy unix//run/treeseed/manager/api.sock');
 	});
 
 	it('rejects source builds, mutable images, and host port publication', () => {
