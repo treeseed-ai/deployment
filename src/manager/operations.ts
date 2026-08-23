@@ -77,12 +77,14 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.update.channel': {
 			const track = request.arguments[0];
 			if (track !== 'stable' && track !== 'development') throw new Error('Update channel must be stable or development.');
+			if (request.options.plan === true) return { track, mutation: false, nextGeneration: host.generation + 1 };
 			return replaceConfiguration((candidate) => { candidate.updates.defaultTrack = track; return candidate; });
 		}
 		case 'local.host.update.pause':
 		case 'local.host.update.resume': {
 			const track = request.options.track;
 			const selected = track === 'development' ? 'development' : 'stable';
+			if (request.options.plan === true) return { track: selected, paused: request.handlerId.endsWith('.pause'), mutation: false };
 			return updatePaused(selected, request.handlerId.endsWith('.pause'));
 		}
 		case 'local.host.component.list': return { components: host.components };
@@ -97,7 +99,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.aliases.list': return { aliases: plan().routes.map(({ alias, upstream, authentication }) => ({ alias, upstream, authentication })) };
 		case 'local.host.recovery.status': return { current: receipt(), receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [] };
-		case 'local.host.recovery.retry': return reconcile();
+		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : reconcile();
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');
@@ -107,6 +109,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.bootstrap.status': return bootstrapStatus();
 		case 'local.host.bootstrap.enroll': {
 			if (!context.local) throw new Error('Client enrollment is available only through the protected local manager socket.');
+			if (request.options.plan === true) return { action: 'enroll', mutation: false };
 			const clientId = `client-${randomUUID().toLowerCase()}`;
 			return requestSupervisor<ClientEnrollment>({ operation: 'pki.enroll', clientId });
 		}
