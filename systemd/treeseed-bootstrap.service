@@ -2,7 +2,7 @@
 Description=TreeSeed configured asynchronous host bootstrap
 After=network-online.target apt-daily.service apt-daily-upgrade.service
 Wants=network-online.target
-ConditionPathExists=!/var/lib/treeseed/bootstrap/handoff.complete
+ConditionPathExists=/var/lib/treeseed/bootstrap/seed/platform.json
 StartLimitIntervalSec=0
 
 [Service]

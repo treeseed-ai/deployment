@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -88,5 +88,12 @@ describe('unified host manager foundation', () => {
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 23, 3, 10))).toBe(true);
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 24, 3, 10))).toBe(false);
 		expect(activationEligible(configuration, 'development')).toBe(true);
+	});
+
+	it('installs selected component payloads before validating or activating them', () => {
+		const source = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
+		const install = source.indexOf("operation: 'apt.install'"), validate = source.indexOf('validateProductionCompose(component');
+		expect(install).toBeGreaterThan(0);
+		expect(validate).toBeGreaterThan(install);
 	});
 });
