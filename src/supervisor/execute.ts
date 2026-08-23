@@ -44,7 +44,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
 			ensureNetwork('treeseed-edge', command);
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait']);
+			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
 			break;
 		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;

@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('apt.refresh'), track: z.enum(['stable', 'development']), updateCore: z.boolean() }).strict(),
 	z.object({ operation: z.literal('apt.install'), packages: z.array(z.string().regex(/^treeseed(?:-[a-z0-9-]+)?=[0-9A-Za-z.+:~-]+$/u)).min(1) }).strict(),
-	z.object({ operation: z.literal('compose.activate'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), files: z.array(z.string().min(1)).min(1), projectName: z.string().regex(/^treeseed-[a-z0-9-]+$/u) }).strict(),
+	z.object({ operation: z.literal('compose.activate'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), files: z.array(z.string().min(1)).min(1), projectName: z.string().regex(/^treeseed-[a-z0-9-]+$/u), waitTimeoutSeconds: z.number().int().min(1).max(3_600) }).strict(),
 	z.object({ operation: z.literal('compose.stop'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), files: z.array(z.string().min(1)).min(1), projectName: z.string().regex(/^treeseed-[a-z0-9-]+$/u) }).strict(),
 	z.object({ operation: z.literal('component.configure'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).strict(),
 	z.object({ operation: z.literal('edge.apply'), caddyfile: z.string().min(1), aliases: z.array(z.string().endsWith('.localhost')).min(1) }).strict(),
