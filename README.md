@@ -54,3 +54,12 @@ policy; the generated package itself remains password-equivalent until the
 bootstrap handoff deletes its embedded seed.
 
 See [architecture](docs/architecture.md) and [package boundaries](docs/packages.md).
+
+## Protected publication
+
+The manually dispatched publication workflow authenticates to Docker Hub with
+the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets from the selected
+`development` or `stable` GitHub environment. The Docker Hub credential must
+have push access to the `treeseed` namespace. Deployment publishes only the
+manager-owned lab support images, `treeseed/diagnostics` and
+`treeseed/mailpit`; application projects publish their own service images.
