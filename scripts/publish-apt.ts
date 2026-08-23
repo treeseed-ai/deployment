@@ -13,7 +13,10 @@ const root = process.cwd(), pages = resolve(process.env.TREESEED_PAGES_ROOT ?? '
 const pool = resolve(apt, 'pool', suite), binary = resolve(apt, 'dists', suite, 'main', 'binary-amd64');
 rmSync(pool, { recursive: true, force: true }); mkdirSync(pool, { recursive: true }); mkdirSync(binary, { recursive: true });
 for (const name of readdirSync(resolve(root, 'release/out')).filter((name) => name.endsWith('.deb'))) cpSync(resolve(root, 'release/out', name), resolve(pool, name));
-const packages = execFileSync('dpkg-scanpackages', ['--multiversion', pool, '/dev/null'], { encoding: 'utf8' });
+const poolRelative = `pool/${suite}`;
+const packages = execFileSync('dpkg-scanpackages', ['--multiversion', poolRelative, '/dev/null'], { cwd: apt, encoding: 'utf8' });
+const filenames = packages.split('\n').filter((line) => line.startsWith('Filename: ')).map((line) => line.slice('Filename: '.length));
+if (filenames.length === 0 || filenames.some((filename) => !filename.startsWith(`${poolRelative}/`) || filename.startsWith('/') || filename.includes('..'))) throw new Error('APT package indexes must contain repository-relative pool paths.');
 writeFileSync(resolve(binary, 'Packages'), packages); writeFileSync(resolve(binary, 'Packages.gz'), gzipSync(packages, { level: 9 }));
 const distribution = resolve(apt, 'dists', suite), releasePath = resolve(distribution, 'Release');
 const relative = ['main/binary-amd64/Packages', 'main/binary-amd64/Packages.gz'];
