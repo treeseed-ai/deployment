@@ -14,7 +14,8 @@
     "test": "vitest run",
 		"verify:direct": "npm run check:source-shape && npm run build && npm test",
 		"artifacts:fetch": "node --import tsx scripts/fetch-artifacts.ts",
-		"build:deb": "npm run artifacts:fetch && npm run build && node --import tsx scripts/package-deb.ts all",
+		"artifacts:prepare": "npm run artifacts:fetch && node --import tsx scripts/prepare-artifacts.ts",
+		"build:deb": "npm run artifacts:prepare && npm run build && node --import tsx scripts/package-deb.ts all",
     "verify:deb": "npm run build:deb && node --import tsx scripts/verify-deb.ts",
     "build:configured": "npm run build && node --import tsx scripts/configure-bootstrap.ts",
     "catalog:compile": "node --import tsx scripts/compile-catalog.ts"
