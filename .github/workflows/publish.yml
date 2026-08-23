@@ -79,20 +79,33 @@ jobs:
             'treeseed/diagnostics:${{ inputs.tag }}=${{ steps.diagnostics.outputs.digest }}' \
             'treeseed/mailpit:${{ inputs.tag }}=${{ steps.mailpit.outputs.digest }}'; do
             image="${identity%%=*}"; expected="${identity#*=}"
-            actual="$(docker buildx imagetools inspect "$image" | awk '/^Digest:/{print $2;exit}')"
-            test "$actual" = "$expected"
-            raw="$(docker buildx imagetools inspect --raw "$image")"
-            grep -q '"architecture":"amd64"' <<<"$raw"
-            grep -q '"architecture":"arm64"' <<<"$raw"
-            grep -q '"vnd.docker.reference.type":"attestation-manifest"' <<<"$raw"
+            verified=0
+            for attempt in {1..12}; do
+              actual="$(docker buildx imagetools inspect "$image" 2>inspect.err | awk '/^Digest:/{print $2;exit}')" || true
+              raw="$(docker buildx imagetools inspect --raw "$image" 2>>inspect.err)" || true
+              if [ "$actual" = "$expected" ] \
+                && grep -q '"architecture":"amd64"' <<<"$raw" \
+                && grep -q '"architecture":"arm64"' <<<"$raw" \
+                && grep -q '"vnd.docker.reference.type":"attestation-manifest"' <<<"$raw"; then
+                verified=1
+                break
+              fi
+              echo "Docker Hub read-back attempt $attempt/12 has not converged for $image" >&2
+              if [ "$attempt" -lt 12 ]; then sleep 5; fi
+            done
+            if [ "$verified" -ne 1 ]; then
+              cat inspect.err >&2
+              echo "Expected $expected; observed ${actual:-unavailable}" >&2
+              exit 1
+            fi
           done
       - run: npm run verify:deb
       - uses: anchore/sbom-action/download-syft@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
       - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
       - name: Seal exact-head evidence
         run: |
-          cp .treeseed/artifacts/components/lab/0.1.0~rc2-1/component-release.json release/out/lab-component-release.json
-          cp .treeseed/artifacts/components/lab/0.1.0~rc2-1/compose.yml release/out/lab-compose.yml
+          cp .treeseed/artifacts/components/lab/0.1.0~rc3-1/component-release.json release/out/lab-component-release.json
+          cp .treeseed/artifacts/components/lab/0.1.0~rc3-1/compose.yml release/out/lab-compose.yml
           printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
