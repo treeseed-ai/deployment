@@ -31,6 +31,19 @@ describe('Debian and systemd contracts', () => {
 		expect(compose).toContain('internal: true');
 	});
 
+	it('runs the only host edge inside the shared Docker network', () => {
+		const compose = readFileSync('deploy/edge/compose.yml', 'utf8');
+		const unit = readFileSync('systemd/treeseed-edge.service', 'utf8');
+		const supervisor = readFileSync('src/supervisor/execute.ts', 'utf8');
+		expect(compose).toContain('caddy:2.10.2-alpine@sha256:');
+		expect(compose).toContain('name: treeseed-edge');
+		expect(compose).toContain('/run/treeseed/manager:/run/treeseed/manager:ro');
+		expect(unit).toContain('docker compose --file /usr/share/treeseed/edge/compose.yml');
+		expect(unit).not.toContain('/usr/bin/caddy');
+		expect(supervisor).toContain("'/usr/share/treeseed/edge/compose.yml'");
+		expect(supervisor).toContain("'validate'");
+	});
+
 	it('documents configured-package credential consumption and deletion', () => {
 		const generator = readFileSync('scripts/configure-bootstrap.ts', 'utf8');
 		const postinstall = readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8');

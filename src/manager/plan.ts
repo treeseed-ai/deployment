@@ -15,8 +15,7 @@ export function createPlan(host: HostConfiguration, stable: ReleaseCatalog, deve
 	const plan = hostPlanSchema.parse({ schemaVersion: 'treeseed.host-plan/v1', planId: `plan-${configurationDigest.slice(7, 19)}`, configurationDigest, catalogDigest, changes, blockers: [] });
 	const overrides = Object.fromEntries(Object.values(host.components).flatMap((component) => Object.entries(component.aliases)));
 	const routes = edgeRoutes(resolution.components, overrides);
-	const managerPort = host.network.manager.binding.slice(host.network.manager.binding.lastIndexOf(':') + 1);
-	for (const alias of host.network.manager.aliases) routes.push({ alias, upstream: `https://127.0.0.1:${managerPort}`, authentication: 'mtls' });
+	for (const alias of host.network.manager.aliases) routes.push({ alias, upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' });
 	const aliases = new Set<string>();
 	for (const route of routes) {
 		if (aliases.has(route.alias)) throw new Error(`Duplicate host alias ${route.alias}.`);

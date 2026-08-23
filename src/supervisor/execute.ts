@@ -33,7 +33,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			mkdirSync(dirname(target), { recursive: true, mode: 0o750 });
 			writeFileSync(temporary, operation.caddyfile, { mode: 0o640 });
 			generateEdgeCertificate(operation.aliases, command);
-			command('/usr/bin/caddy', ['validate', '--config', temporary]);
+			command('/usr/bin/docker', ['compose', '--file', '/usr/share/treeseed/edge/compose.yml', 'run', '--rm', '--no-deps', 'caddy', 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile']);
 			renameSync(temporary, target);
 			command('/usr/bin/systemctl', ['reload', 'treeseed-edge.service']);
 			break;
