@@ -65,7 +65,7 @@ const packages: Record<string, Definition> = {
 	'treeseed-component-agent-stable': { ...component('agent', '0.12.58'), packageName: 'treeseed-component-agent' },
 	'treeseed-component-treedx': { architecture: 'all', depends: `treeseed-manager (>= ${deploymentVersion})`, description: 'Exact runtime bundle for the TreeSeed treedx component' },
 	'treeseed-component-ai': { architecture: 'all', depends: `treeseed-manager (>= ${deploymentVersion})`, description: 'Exact runtime bundle for the TreeSeed ai component' },
-	'treeseed-lab': { architecture: 'all', depends: `treeseed-manager (= ${deploymentVersion}), treeseed-edge (= ${deploymentVersion})`, description: 'Optional TreeSeed development mail and read-only diagnostics services', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/components/lab')); install('deploy/lab/compose.yml', resolve(stage, 'usr/share/treeseed/components/lab/compose.yml')); } },
+	'treeseed-lab': { ...component('lab', '0.1.0~rc1-1'), depends: `treeseed-manager (= ${deploymentVersion}), treeseed-edge (= ${deploymentVersion})`, description: 'Optional TreeSeed development mail and read-only diagnostics services' },
 };
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;

@@ -27,7 +27,7 @@ const apiVersion = packageVersion(files.find((file) => file.startsWith('treeseed
 if (agentVersions.join(',') !== '0.12.58,0.13.0~rc11' || apiVersion !== '0.8.0~rc9') throw new Error('Component Debian versions do not match their exact release contracts.');
 const root = mkdtempSync(resolve(tmpdir(), 'treeseed-deb-proof-'));
 try {
-	for (const name of ['treeseed-host-runtime', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', 'treeseed-component-agent', 'treeseed-component-api']) {
+	for (const name of ['treeseed-host-runtime', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', 'treeseed-component-agent', 'treeseed-component-api', 'treeseed-lab']) {
 		const file = files.find((candidate) => candidate.startsWith(`${name}_`) && (name !== 'treeseed-component-agent' || packageVersion(candidate) === '0.13.0~rc11'))!;
 		execFileSync('dpkg-deb', ['--extract', resolve(output, file), root]);
 	}
@@ -35,7 +35,7 @@ try {
 	const stable = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/stable.json'), 'utf8')));
 	const development = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'), 'utf8')));
 	if (development.stableBase?.catalogDigest !== stable.catalogDigest || stable.components[0]?.release !== '0.12.58') throw new Error('Installed catalogs are not bound to the exact stable base.');
-	for (const [id, release] of [['agent', '0.13.0~rc11'], ['api', '0.8.0~rc9']] as const) {
+	for (const [id, release] of [['agent', '0.13.0~rc11'], ['api', '0.8.0~rc9'], ['lab', '0.1.0~rc1-1']] as const) {
 		const directory = resolve(root, 'usr/share/treeseed/components', id, release);
 		const component = JSON.parse(readFileSync(resolve(directory, 'component-release.json'), 'utf8')) as { componentId?: string; release?: string };
 		const compose = readFileSync(resolve(directory, 'compose.yml'), 'utf8');

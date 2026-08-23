@@ -26,9 +26,15 @@ describe('Debian and systemd contracts', () => {
 
 	it('keeps lab isolated from the Docker socket and host ports', () => {
 		const compose = readFileSync('deploy/lab/compose.yml', 'utf8');
+		const diagnostics = readFileSync('lab/diagnostics.mjs', 'utf8');
+		const publication = readFileSync('.github/workflows/publish.yml', 'utf8');
 		expect(compose).not.toContain('/var/run/docker.sock');
 		expect(compose).not.toMatch(/^\s+ports:/mu);
 		expect(compose).toContain('internal: true');
+		expect(diagnostics).toContain('maximumBytes = 256 * 1024');
+		expect(diagnostics).toContain('sensitive');
+		expect(publication).toContain('platforms: linux/amd64,linux/arm64');
+		expect(publication).toContain('Bind and read back exact lab images');
 	});
 
 	it('runs the only host edge inside the shared Docker network', () => {
