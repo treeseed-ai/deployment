@@ -16,6 +16,7 @@ export * from './supervisor/execute.js';
 export * from './supervisor/client.js';
 export * from './supervisor/component.js';
 export * from './supervisor/apt-helper.js';
+export * from './supervisor/backup.js';
 export * from './supervisor/protocol.js';
 export * from './supervisor/pki.js';
 export * from './supervisor/server.js';

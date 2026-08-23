@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
@@ -8,6 +8,7 @@ import { generateEdgeCertificate } from '../edge/certificates.js';
 import { assertNewGeneration, loadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
 import { configureComponent } from './component.js';
+import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[]) => void;
 const run: CommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
@@ -33,9 +34,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
+		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
+			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
 		case 'component.configure': configureComponent(operation.componentId); break;
 		case 'compose.activate':
@@ -55,7 +58,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['reload', 'treeseed-edge.service']);
 			break;
 		}
-		case 'recovery.restore': command('/usr/lib/treeseed/manager/bin/restore-generation', [String(operation.generation)]); break;
+		case 'backup.create': return createGenerationBackup(operation.generation, command);
+		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
+		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'restart', 'treeseed-manager-supervisor.service', 'treeseed-manager-api.service']); break;
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);

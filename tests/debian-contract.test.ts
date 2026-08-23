@@ -97,9 +97,21 @@ describe('Debian and systemd contracts', () => {
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
 		const bootstrap = readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8');
 		const helper = readFileSync('src/supervisor/apt-helper.ts', 'utf8');
+		const reconciliation = readFileSync('src/manager/reconcile.ts', 'utf8');
+		const supervisor = readFileSync('src/supervisor/execute.ts', 'utf8');
+		const backup = readFileSync('src/supervisor/backup.ts', 'utf8');
+		const publisher = readFileSync('scripts/publish-apt.ts', 'utf8');
 		expect(bootstrap).not.toContain('treeseed-component-$component');
 		expect(helper).toContain("'--allow-downgrades'");
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
 		expect(helper).toContain("'--no-remove'");
+		expect(helper).toContain("'--target-release'");
+		expect(reconciliation).toContain("operation: 'apt.refresh'");
+		expect(reconciliation).toContain("operation: 'backup.create'");
+		expect(reconciliation).toContain("operation: 'recovery.restore'");
+		expect(reconciliation).toContain('reconcile.rollback-complete');
+		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
+		expect(backup).toContain("'var/lib/treeseed/components'");
+		expect(publisher).not.toContain('rmSync(pool');
 	});
 });
