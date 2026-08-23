@@ -1,0 +1,6 @@
+Types: deb
+URIs: https://treeseed-ai.github.io/deployment/apt
+Suites: stable
+Components: main
+Architectures: amd64 all
+Signed-By: /etc/apt/keyrings/treeseed-deployment-stable.gpg

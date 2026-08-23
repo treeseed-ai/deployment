@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily TreeSeed stable metadata check
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=treeseed-manager-stable.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "treeseed.host-js-runtime/v1",
+  "version": "24.6.0",
+  "platform": "linux-x64",
+  "url": "https://nodejs.org/dist/v24.6.0/node-v24.6.0-linux-x64.tar.xz",
+  "sha256": "fda6f6a00759eea0a27e34fcdfdd09c2b0413855edaa7f746246cf81c0186e26"
+}
