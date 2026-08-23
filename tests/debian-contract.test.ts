@@ -54,4 +54,15 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
 	});
+
+	it('locks every external component and host payload by SHA-256', () => {
+		const lock = JSON.parse(readFileSync('release/artifacts.lock.json', 'utf8')) as { schemaVersion: string; artifacts: Array<{ id: string; url: string; sha256: string; target: string }> };
+		expect(lock.schemaVersion).toBe('treeseed.deployment-artifacts/v1');
+		expect(new Set(lock.artifacts.map((artifact) => artifact.id)).size).toBe(lock.artifacts.length);
+		for (const artifact of lock.artifacts) {
+			expect(artifact.url).toMatch(/^https:\/\/(?:github\.com|registry\.npmjs\.org)\//u);
+			expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/u);
+			expect(artifact.target).not.toContain('..');
+		}
+	});
 });
