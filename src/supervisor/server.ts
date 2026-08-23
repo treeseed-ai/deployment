@@ -19,9 +19,9 @@ export function createSupervisorServer() {
 		connection.on('end', () => {
 			try {
 				const request = JSON.parse(input) as unknown;
-				executeSupervisorOperation(request);
+				const result = executeSupervisorOperation(request);
 				recordEvent('supervisor.operation-complete', { operation: (request as { operation?: unknown }).operation });
-				connection.end('{"ok":true}\n');
+				connection.end(`${JSON.stringify({ ok: true, result: result ?? null })}\n`);
 			} catch (error) {
 				recordEvent('supervisor.operation-failed', { message: error instanceof Error ? error.message : String(error) });
 				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed' })}\n`);

@@ -5,6 +5,8 @@ import { supervisorOperationSchema, type SupervisorOperation } from './protocol.
 import { paths } from '../core/paths.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
+import { assertNewGeneration, loadHostConfiguration } from '../core/configuration.js';
+import { enrollClient } from './pki.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[]) => void;
 const run: CommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
@@ -39,5 +41,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		}
 		case 'recovery.restore': command('/usr/lib/treeseed/manager/bin/restore-generation', [String(operation.generation)]); break;
+		case 'configuration.replace': {
+			const current = loadHostConfiguration();
+			assertNewGeneration(current, operation.configuration);
+			atomicJson(paths.configuration, operation.configuration, 0o640);
+			break;
+		}
+		case 'pki.enroll': return enrollClient(operation.clientId, command);
 	}
 }
