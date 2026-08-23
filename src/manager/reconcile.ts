@@ -81,7 +81,6 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const developmentPath = `${paths.catalogs}/development.json`;
 	const accepted = createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, previous);
 	if (accepted.plan.blockers.length) throw new Error(`Host plan is blocked: ${accepted.plan.blockers.map((item) => item.code).join(', ')}`);
-	for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 	if (track === 'stable' && previous && !activationEligible(host, 'stable')) {
 		recordEvent('update.metadata-current', { track, eligible: false, catalogDigest: stable.catalogDigest });
 		return previous;
@@ -104,6 +103,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
+		for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		for (const component of configurationChanged ? accepted.components : changed) await activate(component);
 		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(accepted.routes), aliases: subjectAlternativeNames(accepted.routes) });
 	} catch (error) {

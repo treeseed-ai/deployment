@@ -6,7 +6,8 @@ Requires=treeseed-manager-supervisor.service
 [Service]
 Type=simple
 User=treeseed-manager
-Group=treeseed-manager
+Group=treeseed-operators
+SupplementaryGroups=treeseed-manager
 ExecStart=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/api.js
 Restart=on-failure
 RestartSec=3

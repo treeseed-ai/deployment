@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { resolve } from 'node:path';
 import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
 
@@ -12,7 +12,9 @@ function value(name: string) {
 
 const configurationPath = value('--configuration'), authPath = value('--codex-auth-file');
 const suite = value('--suite') ?? 'development';
+const operatorUser = value('--operator-user') ?? userInfo().username;
 if (!configurationPath || !authPath || (suite !== 'stable' && suite !== 'development')) throw new Error('Usage: build-workstation-bootstrap --configuration HOST.json --codex-auth-file AUTH.json [--suite development|stable]');
+if (!/^[a-zA-Z0-9._-]+$/u.test(operatorUser) || operatorUser === 'root') throw new Error('A non-root local operator username is required.');
 const authStat = lstatSync(resolve(authPath));
 if (!authStat.isFile() || authStat.isSymbolicLink() || (authStat.mode & 0o077) !== 0 || authStat.size < 2 || authStat.size > 65_536) throw new Error('Codex authentication must be a private regular file no larger than 64 KiB.');
 const auth = readFileSync(resolve(authPath), 'utf8');
@@ -33,7 +35,7 @@ const temporary = mkdtempSync(resolve(tmpdir(), 'treeseed-bootstrap-input-'));
 try {
 	const credentialPath = resolve(temporary, 'credentials.json');
 	writeFileSync(credentialPath, JSON.stringify(credentials), { mode: 0o600 });
-	execFileSync(process.execPath, ['--import', 'tsx', 'scripts/configure-bootstrap.ts', '--configuration', resolve(configurationPath), '--credentials', credentialPath, '--consume-credentials', '--suite', suite], { stdio: 'inherit' });
+	execFileSync(process.execPath, ['--import', 'tsx', 'scripts/configure-bootstrap.ts', '--configuration', resolve(configurationPath), '--credentials', credentialPath, '--consume-credentials', '--suite', suite, '--operator-user', operatorUser], { stdio: 'inherit' });
 } finally {
 	rmSync(temporary, { recursive: true, force: true });
 }

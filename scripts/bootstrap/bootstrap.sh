@@ -21,6 +21,7 @@ apt-get -o DPkg::Lock::Timeout=600 update
 packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-release-catalog treeseed-manager treeseed-edge'
 apt-get -o DPkg::Lock::Timeout=600 --no-remove --no-install-recommends install -y $packages
 install -o root -g treeseed-manager -m 0640 "$seed" /etc/treeseed/platform.json
+rm -f "$seed"
 if [ -f "$state/seed/credentials.json" ]; then
   install -d -o root -g root -m 0700 /etc/treeseed/credentials
   jq -e 'type == "object" and all(keys[]; test("^[a-z][a-z0-9.-]{1,63}$")) and all(.[]; type == "string" and length > 0 and length <= 65536)' "$state/seed/credentials.json" >/dev/null
@@ -32,6 +33,7 @@ if [ -f "$state/seed/credentials.json" ]; then
   done
   rm -f "$state/seed/credentials.json"
 fi
+rm -f "$state/seed/operator"
 /usr/lib/treeseed/manager/bin/initialize-pki
 systemctl enable --now treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer
 systemctl start treeseed-manager-reconcile.service || printf '%s initial reconciliation degraded; inspect manager receipts\n' "$(date -u +%FT%TZ)" >>"$log"

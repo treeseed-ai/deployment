@@ -22,6 +22,10 @@ describe('Debian and systemd contracts', () => {
 		const aptHelper = readFileSync('systemd/treeseed-manager-apt-helper.service', 'utf8');
 		expect(aptHelper).toContain('Type=oneshot');
 		expect(aptHelper).toContain('ProtectSystem=false');
+		const api = readFileSync('systemd/treeseed-manager-api.service', 'utf8');
+		expect(api).toContain('Group=treeseed-operators');
+		expect(api).toContain('SupplementaryGroups=treeseed-manager');
+		expect(supervisor).toContain('-g treeseed-operators -m 0770 /run/treeseed/manager');
 	});
 
 	it('keeps lab isolated from the Docker socket and host ports', () => {
@@ -63,6 +67,11 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
 		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
+		expect(postinstall).toContain('rm -f "$seed"');
+		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('systemctl --no-block start treeseed-bootstrap.service');
+		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).not.toContain('enable --now');
+		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('adduser "$operator" treeseed-operators');
+		expect(readFileSync('systemd/treeseed-bootstrap.service', 'utf8')).toContain('ConditionPathExists=/var/lib/treeseed/bootstrap/seed/platform.json');
 		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-stable.sources');
 		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-development.sources');
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
