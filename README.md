@@ -34,4 +34,23 @@ The generator consumes the credential input, emits a checksum without echoing
 secret data, and marks the resulting package mode `0600`. After installation,
 the operator must securely delete the downloaded configured package.
 
+The workstation canary has a stricter convenience entrypoint. It accepts a
+private Codex login cache, generates the API database and session secrets in
+memory, packages the declared manager-owned credential files, and consumes its
+temporary credential envelope:
+
+```sh
+npm run build:workstation -- \
+  --configuration /path/to/workstation-canary.json \
+  --codex-auth-file "$HOME/.codex/auth.json" \
+  --suite development
+```
+
+The login cache must be a regular, non-symlink file with no group or world
+permissions. The command never prints credentials. A website configuration
+handler must apply the same no-store response, redacted request logging,
+ephemeral generation, immediate server deletion, and root-only installation
+policy; the generated package itself remains password-equivalent until the
+bootstrap handoff deletes its embedded seed.
+
 See [architecture](docs/architecture.md) and [package boundaries](docs/packages.md).

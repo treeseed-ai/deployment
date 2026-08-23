@@ -7,6 +7,7 @@ import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
 import { assertNewGeneration, loadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
+import { configureComponent } from './component.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[]) => void;
 const run: CommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
@@ -19,6 +20,15 @@ function bundledComposeFiles(files: readonly string[]) {
 	});
 }
 
+function componentComposeArguments(componentId: string, files: readonly string[]) {
+	return ['--env-file', `/etc/treeseed/components/${componentId}/environment`, ...bundledComposeFiles(files)];
+}
+
+function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: CommandRunner) {
+	try { command('/usr/bin/docker', ['network', 'inspect', name]); }
+	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
+}
+
 export function executeSupervisorOperation(input: unknown, command: CommandRunner = run) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
@@ -27,8 +37,13 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
 			break;
-		case 'compose.activate': command('/usr/bin/docker', ['compose', ...bundledComposeFiles(operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait']); break;
-		case 'compose.stop': command('/usr/bin/docker', ['compose', ...bundledComposeFiles(operation.files), '--project-name', operation.projectName, 'stop']); break;
+		case 'component.configure': configureComponent(operation.componentId); break;
+		case 'compose.activate':
+			ensureNetwork('treeseed-platform', command);
+			ensureNetwork('treeseed-edge', command);
+			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait']);
+			break;
+		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;

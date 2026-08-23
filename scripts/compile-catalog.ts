@@ -13,6 +13,15 @@ function argument(name: string) {
 	return index < 0 ? undefined : process.argv[index + 1];
 }
 
+function compatibleRange(range: string, release: string) {
+	const match = range.match(/^>=([0-9]+)\.([0-9]+)\.([0-9]+) <([0-9]+)\.([0-9]+)\.([0-9]+)$/u);
+	const version = release.match(/^([0-9]+)\.([0-9]+)\.([0-9]+)/u);
+	if (!match || !version) return false;
+	const value = version.slice(1).map(Number), minimum = match.slice(1, 4).map(Number), maximum = match.slice(4, 7).map(Number);
+	const compare = (left: number[], right: number[]) => { for (let index = 0; index < left.length; index += 1) if (left[index] !== right[index]) return left[index]! - right[index]!; return 0; };
+	return compare(value, minimum) >= 0 && compare(value, maximum) < 0;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 	const track = argument('--track');
 	if (track !== 'stable' && track !== 'development') throw new Error('Usage: compile-catalog --track stable|development --release VERSION --generation NUMBER --component FILE... --output FILE [--stable FILE]');
@@ -28,7 +37,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 		if (!stablePath) throw new Error('Development catalogs require an exact stable catalog.');
 		const stable = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(stablePath), 'utf8')));
 		stableBase = { release: stable.release, catalogDigest: stable.catalogDigest };
-		for (const component of components) if (component.stableBase?.catalogDigest !== stable.catalogDigest || component.stableBase.compatibilityId !== stable.compatibilityId) throw new Error(`Development component ${component.componentId} does not bind the selected stable base.`);
+		for (const [index, component] of components.entries()) {
+			if (!component.stableBase || component.stableBase.compatibilityId !== stable.compatibilityId || !compatibleRange(component.stableBase.releaseRange, stable.release)) throw new Error(`Development component ${component.componentId} is incompatible with the selected stable base.`);
+			if (component.stableBase.catalogDigest && component.stableBase.catalogDigest !== stable.catalogDigest) throw new Error(`Development component ${component.componentId} is already bound to a different stable base.`);
+			components[index] = componentReleaseSchema.parse({ ...component, stableBase: { ...component.stableBase, catalogDigest: stable.catalogDigest } });
+		}
 	}
 	const catalog = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release, generation, track, compatibilityId: 'treeseed-linux-amd64-v1', stableBase, components, createdAt: new Date().toISOString() });
 	mkdirSync(dirname(resolve(output)), { recursive: true });
