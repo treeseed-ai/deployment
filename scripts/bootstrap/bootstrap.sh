@@ -8,10 +8,14 @@ printf '%s bootstrap starting\n' "$(date -u +%FT%TZ)" >>"$log"
 install -d -m 0755 /etc/apt/keyrings /etc/apt/preferences.d
 install -m 0644 /usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-stable.gpg /etc/apt/keyrings/treeseed-deployment-stable.gpg
 install -m 0644 /usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-development.gpg /etc/apt/keyrings/treeseed-deployment-development.gpg
-install -m 0644 /usr/share/treeseed/bootstrap/stable.sources /etc/apt/sources.list.d/treeseed-deployment-stable.sources
 install -m 0644 /usr/share/treeseed/bootstrap/preferences /etc/apt/preferences.d/treeseed-deployment
-if [ "$(cat /usr/share/treeseed/bootstrap/suite)" = development ]; then
+suite=$(cat /usr/share/treeseed/bootstrap/suite)
+if [ "$suite" = development ]; then
   install -m 0644 /usr/share/treeseed/bootstrap/development.sources /etc/apt/sources.list.d/treeseed-deployment-development.sources
+  rm -f /etc/apt/sources.list.d/treeseed-deployment-stable.sources
+else
+  install -m 0644 /usr/share/treeseed/bootstrap/stable.sources /etc/apt/sources.list.d/treeseed-deployment-stable.sources
+  rm -f /etc/apt/sources.list.d/treeseed-deployment-development.sources
 fi
 apt-get -o DPkg::Lock::Timeout=600 update
 packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-release-catalog treeseed-manager treeseed-edge'

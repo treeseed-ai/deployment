@@ -26,6 +26,8 @@ try {
 	const listing = execFileSync('gpg', ['--batch', '--homedir', home, '--with-colons', '--list-secret-keys'], { encoding: 'utf8' });
 	const fingerprint = listing.split('\n').find((line) => line.startsWith('fpr:'))?.split(':')[9];
 	if (!fingerprint) throw new Error('APT signing key has no fingerprint.');
+	const expectedFingerprint = readFileSync(resolve(root, `release/apt/${suite}.fingerprint`), 'utf8').trim();
+	if (fingerprint !== expectedFingerprint) throw new Error(`Protected ${suite} APT signing key does not match its published keyring.`);
 	execFileSync('gpg', ['--batch', '--yes', '--homedir', home, '--local-user', fingerprint, '--clearsign', '--output', resolve(distribution, 'InRelease'), releasePath]);
 	execFileSync('gpg', ['--batch', '--yes', '--homedir', home, '--local-user', fingerprint, '--armor', '--detach-sign', '--output', resolve(distribution, 'Release.gpg'), releasePath]);
 	console.log(JSON.stringify({ ok: true, suite, fingerprint, packages: readdirSync(pool).length }));

@@ -63,10 +63,13 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
 		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
+		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-stable.sources');
+		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-development.sources');
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
 		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
 		expect(workstation).toContain("'--consume-credentials'");
 		expect(workstation).not.toContain('console.log');
+		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
 	});
 
 	it('locks every external component and host payload by SHA-256', () => {
@@ -78,6 +81,17 @@ describe('Debian and systemd contracts', () => {
 			expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/u);
 			expect(artifact.target).not.toContain('..');
 		}
+	});
+
+	it('binds each protected APT suite to its independent signing identity', () => {
+		const publisher = readFileSync('scripts/publish-apt.ts', 'utf8');
+		expect(publisher).toContain('release/apt/${suite}.fingerprint');
+		expect(publisher).toContain('does not match its published keyring');
+		const stable = readFileSync('release/apt/stable.fingerprint', 'utf8').trim();
+		const development = readFileSync('release/apt/development.fingerprint', 'utf8').trim();
+		expect(stable).toMatch(/^[A-F0-9]{40}$/u);
+		expect(development).toMatch(/^[A-F0-9]{40}$/u);
+		expect(stable).not.toBe(development);
 	});
 
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
