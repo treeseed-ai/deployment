@@ -15,9 +15,6 @@ if [ "$(cat /usr/share/treeseed/bootstrap/suite)" = development ]; then
 fi
 apt-get -o DPkg::Lock::Timeout=600 update
 packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-release-catalog treeseed-manager treeseed-edge'
-for component in $(jq -r '.components | to_entries[] | select(.value.enabled == true) | .key' "$seed"); do
-  case "$component" in api|agent|treedx|ai) packages="$packages treeseed-component-$component";; lab) packages="$packages treeseed-lab";; esac
-done
 apt-get -o DPkg::Lock::Timeout=600 --no-remove --no-install-recommends install -y $packages
 install -o root -g treeseed-manager -m 0640 "$seed" /etc/treeseed/platform.json
 if [ -f "$state/seed/credentials.json" ]; then

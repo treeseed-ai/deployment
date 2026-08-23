@@ -65,4 +65,13 @@ describe('Debian and systemd contracts', () => {
 			expect(artifact.target).not.toContain('..');
 		}
 	});
+
+	it('lets the manager choose exact component versions and supports governed rollback', () => {
+		const bootstrap = readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8');
+		const helper = readFileSync('src/supervisor/apt-helper.ts', 'utf8');
+		expect(bootstrap).not.toContain('treeseed-component-$component');
+		expect(helper).toContain("'--allow-downgrades'");
+		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
+		expect(helper).toContain("'--no-remove'");
+	});
 });
