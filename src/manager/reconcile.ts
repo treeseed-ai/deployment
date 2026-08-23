@@ -58,12 +58,14 @@ async function stop(component: ComponentRelease) {
 }
 
 async function activate(component: ComponentRelease) {
+	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId });
-	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
+	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), waitTimeoutSeconds });
 }
 
-function routesFor(host: HostConfiguration, components: ComponentRelease[]) {
-	const overrides = Object.fromEntries(Object.values(host.components).flatMap((component) => Object.entries(component.aliases)));
+export function rollbackRoutes(host: HostConfiguration, components: ComponentRelease[]) {
+	const activeIds = new Set(components.map((component) => component.componentId));
+	const overrides = Object.fromEntries(Object.entries(host.components).filter(([componentId]) => activeIds.has(componentId)).flatMap(([, component]) => Object.entries(component.aliases)));
 	const routes = edgeRoutes(components, overrides);
 	for (const alias of host.network.manager.aliases) routes.push({ alias, upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' as const });
 	return routes.sort((left, right) => left.alias.localeCompare(right.alias));
@@ -115,8 +117,8 @@ export async function reconcile(track?: 'stable' | 'development') {
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		for (const component of active) await activate(component);
-		const rollbackRoutes = await routesFor(host, active);
-		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(rollbackRoutes), aliases: subjectAlternativeNames(rollbackRoutes) });
+		const previousRoutes = rollbackRoutes(host, active);
+		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		throw error;
 	}

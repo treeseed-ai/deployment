@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, subjectAlternativeNames, supervisorOperationSchema, validateProductionCompose } from '../src/index.js';
+import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, subjectAlternativeNames, supervisorOperationSchema, validateProductionCompose } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -28,6 +28,10 @@ describe('unified host manager foundation', () => {
 		expect(subjectAlternativeNames(routes)).toEqual(['api.treeseed.localhost', 'manager.treeseed.localhost']);
 		expect(caddyfile).toContain('mode require_and_verify');
 		expect(caddyfile).toContain('reverse_proxy unix//run/treeseed/manager/api.sock');
+	});
+
+	it('rolls an empty first generation back to the manager route only', () => {
+		expect(rollbackRoutes(host(), [])).toEqual([{ alias: 'manager.treeseed.localhost', upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' }]);
 	});
 
 	it('rejects source builds, mutable images, and host port publication', () => {
@@ -57,9 +61,9 @@ describe('unified host manager foundation', () => {
 
 	it('activates Compose with only the manager-rendered component environment', () => {
 		const calls: Array<[string, readonly string[]]> = [];
-		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent' }, (executable, arguments_) => calls.push([executable, arguments_]));
+		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent', waitTimeoutSeconds: 120 }, (executable, arguments_) => calls.push([executable, arguments_]));
 		const activation = calls.find(([, arguments_]) => arguments_[0] === 'compose');
-		expect(activation).toEqual(['/usr/bin/docker', ['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/0.13.0~rc12/compose.yml', '--project-name', 'treeseed-agent', 'up', '--detach', '--remove-orphans', '--wait']]);
+		expect(activation).toEqual(['/usr/bin/docker', ['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/0.13.0~rc12/compose.yml', '--project-name', 'treeseed-agent', 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '120']]);
 		expect(JSON.stringify(calls)).not.toContain('process.env');
 	});
 
