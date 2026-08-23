@@ -1,0 +1,20 @@
+[Unit]
+Description=TreeSeed Caddy edge
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/lib/treeseed/edge/bin/ensure-network
+ExecStart=/usr/bin/docker compose --file /usr/share/treeseed/edge/compose.yml up --detach --remove-orphans --wait
+ExecReload=/usr/bin/docker compose --file /usr/share/treeseed/edge/compose.yml exec --no-TTY caddy caddy reload --config /etc/treeseed/edge/Caddyfile --adapter caddyfile
+ExecStop=/usr/bin/docker compose --file /usr/share/treeseed/edge/compose.yml down
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/treeseed/edge /run /etc/treeseed/edge
+
+[Install]
+WantedBy=multi-user.target

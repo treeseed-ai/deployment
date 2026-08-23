@@ -1,0 +1,13 @@
+[Unit]
+Description=Continuous development-track TreeSeed polling
+
+[Timer]
+OnActiveSec=60s
+OnUnitInactiveSec=60s
+RandomizedDelaySec=5s
+AccuracySec=1s
+Persistent=true
+Unit=treeseed-manager-development.service
+
+[Install]
+WantedBy=timers.target
