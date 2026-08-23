@@ -12,6 +12,15 @@ if (credentialsPath && !process.argv.includes('--consume-credentials')) throw ne
 const configuration = hostConfigurationSchema.parse(JSON.parse(readFileSync(resolve(configurationPath), 'utf8')));
 const credentials = credentialsPath ? JSON.parse(readFileSync(resolve(credentialsPath), 'utf8')) as unknown : undefined;
 if (credentials !== undefined && (!credentials || typeof credentials !== 'object' || Array.isArray(credentials))) throw new Error('Bootstrap credentials must be a JSON object.');
+if (credentials !== undefined) {
+	const values = credentials as Record<string, unknown>;
+	for (const [id, secret] of Object.entries(configuration.secrets)) {
+		if (secret.provider !== 'file') continue;
+		if (secret.reference !== `/etc/treeseed/credentials/${id}`) throw new Error(`Bootstrap file secret ${id} must use the manager-owned credential path.`);
+		if (typeof values[id] !== 'string' || values[id].length === 0 || values[id].length > 65_536) throw new Error(`Bootstrap credential ${id} is missing or invalid.`);
+	}
+	for (const [id, secret] of Object.entries(values)) if (!configuration.secrets[id] || typeof secret !== 'string') throw new Error(`Bootstrap credential ${id} is undeclared or invalid.`);
+}
 if (credentialsPath) unlinkSync(resolve(credentialsPath));
 const digest = createHash('sha256').update(canonicalDeploymentJson({ configuration, credentials: credentials ?? null })).digest('hex');
 const temporary = mkdtempSync(resolve(tmpdir(), 'treeseed-configured-'));

@@ -52,6 +52,7 @@ describe('Debian and systemd contracts', () => {
 		expect(generator).not.toContain('console.log(credentials');
 		expect(generator).toContain('containsPlaintextBootstrapCredentials: credentials !== undefined');
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
+		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
 	});
 
