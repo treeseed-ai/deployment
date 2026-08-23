@@ -63,6 +63,10 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
 		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
+		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
+		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
+		expect(workstation).toContain("'--consume-credentials'");
+		expect(workstation).not.toContain('console.log');
 	});
 
 	it('locks every external component and host payload by SHA-256', () => {

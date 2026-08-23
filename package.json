@@ -18,6 +18,7 @@
 		"build:deb": "npm run artifacts:prepare && npm run build && node --import tsx scripts/package-deb.ts all",
     "verify:deb": "npm run build:deb && node --import tsx scripts/verify-deb.ts",
     "build:configured": "npm run build && node --import tsx scripts/configure-bootstrap.ts",
+    "build:workstation": "npm run build && node --import tsx scripts/build-workstation-bootstrap.ts",
     "catalog:compile": "node --import tsx scripts/compile-catalog.ts"
   },
   "dependencies": {
