@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
+import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -121,5 +121,14 @@ describe('unified host manager foundation', () => {
 		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
 		expect(bootstrap).toContain('elif [ ! -f /etc/treeseed/platform.json ]');
 		for (const unit of ['reconcile', 'development', 'stable']) expect(readFileSync(resolve(process.cwd(), `systemd/treeseed-manager-${unit}.service`), 'utf8')).toContain('/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock');
+	});
+
+	it('serializes API reconciliation through the same cross-process lock as systemd', () => {
+		const arguments_ = serializedReconcileArguments('development');
+		expect(arguments_.slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
+		expect(arguments_.at(-1)).toBe('--track=development');
+		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
+		expect(operations).not.toMatch(/\breconcile\(\)/u);
+		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(4);
 	});
 });

@@ -9,7 +9,8 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { reconcile, refreshAvailableCatalogs } from './reconcile.js';
+import { refreshAvailableCatalogs } from './reconcile.js';
+import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
 
 export const hostCommandRequestSchema = z.object({
@@ -35,7 +36,7 @@ async function replaceConfiguration(mutate: (host: HostConfiguration) => HostCon
 	const candidate = mutate(structuredClone(current));
 	candidate.generation = current.generation + 1;
 	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
-	return reconcile();
+	return serializedReconcile();
 }
 
 function componentId(request: HostCommandRequest) {
@@ -72,7 +73,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.plan': return plan();
 		case 'local.host.apply':
-		case 'local.host.reconcile': return request.options.plan === true ? plan() : reconcile();
+		case 'local.host.reconcile': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.events': return { events: recentEvents(100) };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };
 		case 'local.host.update.check': {
@@ -80,7 +81,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
 			return { stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest }, development: existsSync(developmentPath) ? (() => { const value = loadCatalog(developmentPath); return { release: value.release, generation: value.generation, digest: value.catalogDigest }; })() : null };
 		}
-		case 'local.host.update.apply': return request.options.plan === true ? plan() : reconcile();
+		case 'local.host.update.apply': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.update.channel': {
 			const track = request.arguments[0];
 			if (track !== 'stable' && track !== 'development') throw new Error('Update channel must be stable or development.');
@@ -105,7 +106,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.aliases.list': return { aliases: plan().routes.map(({ alias, upstream, authentication }) => ({ alias, upstream, authentication })) };
 		case 'local.host.recovery.status': return { current: receipt(), receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [] };
-		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : reconcile();
+		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');

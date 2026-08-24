@@ -14,6 +14,10 @@ for (const name of expected) {
 	for (const file of matches) {
 		const path = resolve(output, file), declared = execFileSync('dpkg-deb', ['--field', path, 'Package'], { encoding: 'utf8' }).trim();
 		if (declared !== name) throw new Error(`${file} declares unexpected package ${declared}.`);
+		if (name.startsWith('treeseed-component-') || name === 'treeseed-lab') {
+			const depends = execFileSync('dpkg-deb', ['--field', path, 'Depends'], { encoding: 'utf8' }).trim();
+			if (/treeseed-(?:manager|edge)\s*\(/u.test(depends)) throw new Error(`${file} can force a core package version through ${depends}.`);
+		}
 		const listing = execFileSync('dpkg-deb', ['--contents', path], { encoding: 'utf8' });
 		for (const line of listing.split('\n').filter(Boolean)) {
 			const mode = line.slice(0, 10);
@@ -36,7 +40,7 @@ try {
 	const stable = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/stable.json'), 'utf8')));
 	const development = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'), 'utf8')));
 	if (development.stableBase?.catalogDigest !== stable.catalogDigest || stable.components[0]?.release !== '0.12.58') throw new Error('Installed catalogs are not bound to the exact stable base.');
-	for (const [id, release] of [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc10'], ['treedx', '0.3.0~rc5'], ['lab', '0.1.0~rc13-1']] as const) {
+	for (const [id, release] of [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc10'], ['treedx', '0.3.0~rc5'], ['lab', '0.1.0~rc14-1']] as const) {
 		const directory = resolve(root, 'usr/share/treeseed/components', id, release);
 		const component = JSON.parse(readFileSync(resolve(directory, 'component-release.json'), 'utf8')) as { componentId?: string; release?: string };
 		const compose = readFileSync(resolve(directory, 'compose.yml'), 'utf8');
