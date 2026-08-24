@@ -61,11 +61,11 @@ const packages: Record<string, Definition> = {
 	} },
 	'treeseed-release-catalog': { architecture: 'all', depends: '', description: 'Signed compatible TreeSeed release catalogs', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); for (const track of ['stable', 'development']) copyFileSync(resolve(artifacts, `catalogs/${track}.json`), resolve(stage, `usr/share/treeseed/catalogs/${track}.json`)); } },
 	'treeseed-edge': { architecture: 'all', depends: 'docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Manager-owned TreeSeed Caddy edge and local TLS aliases', postinst: 'debian/edge/postinst', payload(stage) { unit(stage, 'treeseed-edge.service'); directory(resolve(stage, 'etc/treeseed/edge')); writeFileSync(resolve(stage, 'etc/treeseed/edge/Caddyfile'), ':443 { abort }\n'); install('deploy/edge/compose.yml', resolve(stage, 'usr/share/treeseed/edge/compose.yml')); install('scripts/edge/ensure-network.sh', resolve(stage, 'usr/lib/treeseed/edge/bin/ensure-network'), 0o755); } },
-	'treeseed-component-api': component('api', '0.8.0~rc9'), 'treeseed-component-agent': component('agent', '0.13.0~rc13'),
+	'treeseed-component-api': component('api', '0.8.0~rc10'), 'treeseed-component-agent': component('agent', '0.13.0~rc13'),
 	'treeseed-component-agent-stable': { ...component('agent', '0.12.58'), packageName: 'treeseed-component-agent' },
 	'treeseed-component-treedx': component('treedx', '0.3.0~rc5'),
 	'treeseed-component-ai': { architecture: 'all', depends: `treeseed-manager (>= ${deploymentVersion})`, description: 'Exact runtime bundle for the TreeSeed ai component' },
-	'treeseed-lab': { ...component('lab', '0.1.0~rc12-1'), depends: `treeseed-manager (= ${deploymentVersion}), treeseed-edge (= ${deploymentVersion})`, description: 'Optional TreeSeed development mail and read-only diagnostics services' },
+	'treeseed-lab': { ...component('lab', '0.1.0~rc13-1'), depends: `treeseed-manager (= ${deploymentVersion}), treeseed-edge (= ${deploymentVersion})`, description: 'Optional TreeSeed development mail and read-only diagnostics services' },
 };
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
