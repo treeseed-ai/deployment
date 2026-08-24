@@ -7,7 +7,7 @@ import { supervisorOperationSchema } from './protocol.js';
 export type AptCommandRunner = (executable: string, arguments_: readonly string[]) => void;
 const run: AptCommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
 const transactionOptions = ['--yes', '--allow-downgrades', '--no-remove', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=600', '-o', 'Dpkg::Options::=--force-confold'] as const;
-const corePackages = ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-edge'] as const;
+const corePackages = ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli'] as const;
 
 export function packageFromTrack(name: string, track: 'stable' | 'development') {
 	if (!/^[a-z0-9][a-z0-9+.-]*$/u.test(name)) throw new Error('APT package name is invalid.');

@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.22",
+  "version": "0.1.0-rc.23",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
@@ -22,7 +22,7 @@
     "catalog:compile": "node --import tsx scripts/compile-catalog.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.28",
+    "@treeseed/sdk": "0.13.0-rc.32",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },

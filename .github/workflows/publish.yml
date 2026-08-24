@@ -11,6 +11,12 @@ on:
         required: true
         type: choice
         options: [development, stable]
+      stable_lock_url:
+        description: Exact-commit raw URL for the Platform stable integration release
+        required: true
+      development_lock_url:
+        description: Exact-commit raw URL for the Platform development integration release
+        required: false
 
 permissions:
   contents: write
@@ -24,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TREESEED_APT_SUITE: ${{ inputs.suite }}
+      TREESEED_INTEGRATION_RELEASES: ${{ inputs.stable_lock_url }},${{ inputs.development_lock_url }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -38,6 +45,7 @@ jobs:
             case "${{ inputs.tag }}" in *-*) exit 1;; esac
           else
             case "${{ inputs.tag }}" in *-rc.*) :;; *) exit 1;; esac
+            test -n "${{ inputs.development_lock_url }}"
           fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:

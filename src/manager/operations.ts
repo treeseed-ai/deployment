@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { hostReceiptSchema, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
+import { hostConfigurationSchema, hostReceiptSchema, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { loadCatalog } from '../catalog/load.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -22,6 +22,7 @@ export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.host(?:\.[a-z]+)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
 	options: z.record(z.union([z.string().max(4_096), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
+	configuration: hostConfigurationSchema.optional(),
 }).strict();
 
 export type HostCommandRequest = z.infer<typeof hostCommandRequestSchema>;
@@ -34,6 +35,16 @@ function receipt(): HostReceipt | null {
 function plan() {
 	const host = loadHostConfiguration(), stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
 	return createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, receipt() ?? undefined);
+}
+
+function configurationPlan(configuration: HostConfiguration) {
+	const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
+	return createPlan(configuration, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, receipt() ?? undefined);
+}
+
+function requiredConfiguration(request: HostCommandRequest) {
+	if (!request.configuration) throw new Error('A current-format host configuration is required.');
+	return request.configuration;
 }
 
 async function replaceConfiguration(mutate: (host: HostConfiguration) => HostConfiguration) {
@@ -83,6 +94,31 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.apply':
 		case 'local.host.reconcile': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.events': return { events: recentEvents(100) };
+		case 'local.host.config.show': return host;
+		case 'local.host.config.plan': return configurationPlan(requiredConfiguration(request));
+		case 'local.host.config.apply': {
+			const candidate = requiredConfiguration(request);
+			if (request.options.plan === true) return configurationPlan(candidate);
+			await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
+			return serializedReconcile();
+		}
+		case 'local.host.config.adopt': {
+			const candidate = requiredConfiguration(request);
+			if (request.options.plan === true) return configurationPlan(candidate);
+			if (request.options.confirm !== true) throw new Error('Configuration adoption requires --confirm.');
+			await requestSupervisor({ operation: 'configuration.adopt', configuration: candidate });
+			return serializedReconcile();
+		}
+		case 'local.host.topology': {
+			const accepted = plan();
+			return { host: host.host, rolloutGroup: host.fleet.rolloutGroup, components: accepted.components.map(({ componentId, release, runtime }) => ({ componentId, release, dependencies: runtime.dependencies })), routes: accepted.routes, blockers: accepted.plan.blockers };
+		}
+		case 'local.host.connections': return { connections: Object.entries(host.components).filter(([, component]) => component.enabled).flatMap(([componentId, component]) => Object.entries(component.connections).map(([dependencyId, connection]) => ({ componentId, dependencyId, connection }))) };
+		case 'local.host.provider.status': {
+			const agent = host.components.agent;
+			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
+		}
+		case 'local.host.fleet.status': return { hostId: host.host.id, rolloutGroup: host.fleet.rolloutGroup, reporting: host.fleet.receiptReporting, receipt: receipt() };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };
 		case 'local.host.update.check': {
 			await refreshAvailableCatalogs(host, undefined, false);

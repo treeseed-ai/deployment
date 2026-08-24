@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,10 +17,10 @@ describe('unified host manager foundation', () => {
 
 	it('fails closed on unknown alias identities and applies fully qualified overrides', () => {
 		const configuration = host(), { stable, development } = catalogs();
-		configuration.components.api!.aliases = { 'api.http': 'api-canary.treeseed.localhost' };
+		configuration.components.api!.aliases = { 'api.http': 'api-preview.treeseed.localhost' };
 		expect(() => createPlan(configuration, stable, development)).toThrow(/does not identify an accepted host endpoint/u);
-		configuration.components.api!.aliases = { 'api.service.http': 'api-canary.treeseed.localhost' };
-		expect(createPlan(configuration, stable, development).routes.map((route) => route.alias)).toContain('api-canary.treeseed.localhost');
+		configuration.components.api!.aliases = { 'api.service.http': 'api-preview.treeseed.localhost' };
+		expect(createPlan(configuration, stable, development).routes.map((route) => route.alias)).toContain('api-preview.treeseed.localhost');
 	});
 
 	it('renders one certificate identity set and mTLS manager policy', () => {
@@ -37,13 +38,18 @@ describe('unified host manager foundation', () => {
 	it('rejects source builds, mutable images, and host port publication', () => {
 		const release = component('api', 'stable', 'b'), root = mkdtempSync(resolve(tmpdir(), 'treeseed-compose-'));
 		const file = resolve(root, 'compose.yml');
+		const bindCompose = () => { release.runtime.compose.files[0]!.digest = `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`; };
 		writeFileSync(file, `services:\n  service:\n    image: treeseed/api@${hash('b')}\n`);
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).not.toThrow();
 		writeFileSync(file, `services:\n  service:\n    build: .\n    image: treeseed/api@${hash('b')}\n`);
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/forbidden Compose build/u);
 		writeFileSync(file, 'services:\n  service:\n    image: treeseed/api:latest\n');
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/immutable image digest/u);
 		writeFileSync(file, `services:\n  service:\n    image: treeseed/api@${hash('b')}\n    ports: ["3000:3000"]\n`);
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/publishes a host port/u);
 	});
 
@@ -79,7 +85,7 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.replace', configuration: host() })).toMatchObject({ operation: 'configuration.replace' });
 		expect(supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: 'client-12345678' })).toEqual({ operation: 'pki.enroll', clientId: 'client-12345678' });
 		expect(() => supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: '../../root' })).toThrow();
-		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'api' })).toEqual({ operation: 'component.configure', componentId: 'api' });
+		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'api', connectionEnvironment: {} })).toEqual({ operation: 'component.configure', componentId: 'api', connectionEnvironment: {} });
 		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', componentId: '../api' })).toThrow();
 	});
 
@@ -145,7 +151,7 @@ describe('unified host manager foundation', () => {
 		expect(arguments_.at(-1)).toBe('--track=development');
 		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
 		expect(operations).not.toMatch(/\breconcile\(\)/u);
-		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(4);
+		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(6);
 	});
 
 	it('defers manager self-restart long enough to return the accepted receipt', () => {
