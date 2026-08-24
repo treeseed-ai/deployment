@@ -75,6 +75,7 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-stable.sources');
 		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-development.sources');
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
+		expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['build:workstation']).toContain('artifacts:prepare');
 		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
 		expect(workstation).toContain("'--consume-credentials'");
 		expect(workstation).toContain("generateKeyPairSync('rsa', { modulusLength: 2048 })");
