@@ -9,6 +9,7 @@ export * from './manager/plan.js';
 export * from './manager/api.js';
 export * from './manager/operations.js';
 export * from './manager/reconcile.js';
+export * from './manager/serialized-reconcile.js';
 export * from './manager/update-policy.js';
 export * from './manager/update-state.js';
 export * from './runtime/compose.js';

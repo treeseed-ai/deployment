@@ -80,6 +80,7 @@ describe('Debian and systemd contracts', () => {
 		expect(workstation).toContain("'--consume-credentials'");
 		expect(workstation).toContain("generateKeyPairSync('rsa', { modulusLength: 2048 })");
 		expect(workstation).toContain("'api-treedx-delegation-private-key'");
+		expect(workstation).toContain("'treedx-credential-broker-assertion'");
 		expect(workstation).not.toContain('console.log');
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
 	});
@@ -128,5 +129,12 @@ describe('Debian and systemd contracts', () => {
 		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
 		expect(backup).toContain("'var/lib/treeseed/components'");
 		expect(publisher).not.toContain('rmSync(pool');
+	});
+
+	it('does not let development component packages force a core manager upgrade', () => {
+		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packager).toContain("version: release, depends: 'treeseed-manager'");
+		expect(packager).not.toContain('treeseed-manager (>= ${deploymentVersion})');
+		expect(packager).not.toContain('treeseed-manager (= ${deploymentVersion})');
 	});
 });
