@@ -8,7 +8,7 @@ Type=oneshot
 User=treeseed-manager
 Group=treeseed-manager
 SupplementaryGroups=treeseed-operators
-ExecStart=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/reconcile.js --track=stable
+ExecStart=/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock /usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/reconcile.js --track=stable
 TimeoutStartSec=1h
 NoNewPrivileges=yes
 ProtectHome=yes

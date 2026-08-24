@@ -11,6 +11,7 @@ function value(name: string) {
 }
 
 const configurationPath = value('--configuration'), authPath = value('--codex-auth-file');
+const resetUnacceptedComponents = value('--reset-unaccepted-components');
 const suite = value('--suite') ?? 'development';
 const operatorUser = value('--operator-user') ?? userInfo().username;
 if (!configurationPath || !authPath || (suite !== 'stable' && suite !== 'development')) throw new Error('Usage: build-workstation-bootstrap --configuration HOST.json --codex-auth-file AUTH.json [--suite development|stable]');
@@ -35,7 +36,7 @@ const temporary = mkdtempSync(resolve(tmpdir(), 'treeseed-bootstrap-input-'));
 try {
 	const credentialPath = resolve(temporary, 'credentials.json');
 	writeFileSync(credentialPath, JSON.stringify(credentials), { mode: 0o600 });
-	execFileSync(process.execPath, ['--import', 'tsx', 'scripts/configure-bootstrap.ts', '--configuration', resolve(configurationPath), '--credentials', credentialPath, '--consume-credentials', '--suite', suite, '--operator-user', operatorUser], { stdio: 'inherit' });
+	execFileSync(process.execPath, ['--import', 'tsx', 'scripts/configure-bootstrap.ts', '--configuration', resolve(configurationPath), '--credentials', credentialPath, '--consume-credentials', '--suite', suite, '--operator-user', operatorUser, ...(resetUnacceptedComponents ? ['--reset-unaccepted-components', resetUnacceptedComponents] : [])], { stdio: 'inherit' });
 } finally {
 	rmSync(temporary, { recursive: true, force: true });
 }
