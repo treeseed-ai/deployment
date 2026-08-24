@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
+import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -152,5 +152,18 @@ describe('unified host manager foundation', () => {
 		const unit = readFileSync(resolve(process.cwd(), 'systemd/treeseed-manager-restart.service'), 'utf8');
 		expect(unit).toContain('ExecStart=/usr/bin/sleep 5');
 		expect(unit).toContain('ExecStart=/usr/bin/systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
+	});
+
+	it('schedules exactly one deferred restart after every post-refresh outcome', async () => {
+		let restarts = 0;
+		const schedule = async () => { restarts += 1; };
+		await expect(withDeferredManagerRestart(true, async () => 'accepted', schedule)).resolves.toBe('accepted');
+		expect(restarts).toBe(1);
+		await expect(withDeferredManagerRestart(false, async () => 'unchanged', schedule)).resolves.toBe('unchanged');
+		expect(restarts).toBe(1);
+		const failure = new Error('planning failed');
+		await expect(withDeferredManagerRestart(true, async () => { throw failure; }, schedule)).rejects.toBe(failure);
+		expect(restarts).toBe(2);
+		await expect(withDeferredManagerRestart(true, async () => 'accepted', async () => { throw new Error('restart unavailable'); })).resolves.toBe('accepted');
 	});
 });
