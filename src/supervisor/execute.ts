@@ -41,6 +41,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
+		case 'supervisor.ping': return { ready: true };
 		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);

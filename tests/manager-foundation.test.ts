@@ -49,6 +49,7 @@ describe('unified host manager foundation', () => {
 
 	it('keeps root execution within the fixed protocol', () => {
 		const calls: Array<[string, readonly string[]]> = [];
+		expect(executeSupervisorOperation({ operation: 'supervisor.ping' }, (executable, arguments_) => calls.push([executable, arguments_]))).toEqual({ ready: true });
 		executeSupervisorOperation({ operation: 'systemd.control', unit: 'treeseed-edge.service', action: 'reload' }, (executable, arguments_) => calls.push([executable, arguments_]));
 		expect(calls).toEqual([['/usr/bin/systemctl', ['reload', 'treeseed-edge.service']]]);
 		expect(() => executeSupervisorOperation({ operation: 'systemd.control', unit: 'ssh.service', action: 'restart' }, () => undefined)).toThrow();
@@ -56,6 +57,7 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'development', updateCore: false })).toEqual({ operation: 'apt.refresh', track: 'development', updateCore: false });
 		expect(supervisorOperationSchema.parse({ operation: 'backup.create', generation: 42 })).toEqual({ operation: 'backup.create', generation: 42 });
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
+		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
 		expect(() => supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'nightly', updateCore: true })).toThrow();
 	});
@@ -109,6 +111,8 @@ describe('unified host manager foundation', () => {
 		expect(initialReconcile).toBeGreaterThan(stopTimers);
 		expect(startTimers).toBeGreaterThan(initialReconcile);
 		expect(readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8')).toContain("['reload-or-restart', 'treeseed-edge.service']");
+		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
+		expect(bootstrap).toContain('elif [ ! -f /etc/treeseed/platform.json ]');
 		for (const unit of ['reconcile', 'development', 'stable']) expect(readFileSync(resolve(process.cwd(), `systemd/treeseed-manager-${unit}.service`), 'utf8')).toContain('/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock');
 	});
 });
