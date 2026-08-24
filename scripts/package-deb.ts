@@ -67,7 +67,7 @@ const packages: Record<string, Definition> = {
 	'treeseed-component-agent-stable': { ...component('agent', '0.12.58'), packageName: 'treeseed-component-agent' },
 	'treeseed-component-treedx': component('treedx', '0.3.0~rc6'),
 	'treeseed-component-ai': { architecture: 'all', depends: 'treeseed-manager', description: 'Exact runtime bundle for the TreeSeed ai component' },
-	'treeseed-lab': { ...component('lab', '0.1.0~rc19-1'), depends: 'treeseed-manager, treeseed-edge', description: 'Optional TreeSeed development mail and read-only diagnostics services' },
+	'treeseed-lab': { ...component('lab', '0.1.0~rc20-1'), depends: 'treeseed-manager, treeseed-edge', description: 'Optional TreeSeed development mail and read-only diagnostics services' },
 };
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
