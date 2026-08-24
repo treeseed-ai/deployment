@@ -14,6 +14,12 @@ export function packageFromTrack(name: string, track: 'stable' | 'development') 
 	return `${name}/${track}`;
 }
 
+export function catalogPackagesForTrack(track: 'stable' | 'development') {
+	const packages = [packageFromTrack('treeseed-release-catalog', track)];
+	if (track === 'development') packages.push(packageFromTrack('treeseed-release-catalog-development', track));
+	return packages;
+}
+
 function installedCoreVersions() {
 	return Object.fromEntries(corePackages.map((name) => {
 		try { return [name, execFileSync('/usr/bin/dpkg-query', ['--show', '--showformat=${Version}', name], { encoding: 'utf8' }).trim()]; }
@@ -29,9 +35,9 @@ export function applyPendingPackages(command: AptCommandRunner = run) {
 	else if (operation.operation === 'apt.refresh') {
 		const before = operation.updateCore ? installedCoreVersions() : {};
 		command('/usr/bin/apt-get', ['-o', 'DPkg::Lock::Timeout=600', 'update']);
-		const packages = ['treeseed-release-catalog'];
-		if (operation.updateCore) packages.push(...corePackages);
-		command('/usr/bin/apt-get', [...transactionOptions, '--only-upgrade', '--target-release', operation.track, 'install', ...packages.map((name) => packageFromTrack(name, operation.track))]);
+		const packages = catalogPackagesForTrack(operation.track);
+		if (operation.updateCore) packages.push(...corePackages.map((name) => packageFromTrack(name, operation.track)));
+		command('/usr/bin/apt-get', [...transactionOptions, '--target-release', operation.track, 'install', ...packages]);
 		const after = operation.updateCore ? installedCoreVersions() : {};
 		atomicJson(`${paths.managerState}/last-apt-result.json`, { track: operation.track, coreUpdated: operation.updateCore && JSON.stringify(before) !== JSON.stringify(after), before, after }, 0o600);
 	} else throw new Error('Pending operation is not an APT transaction.');

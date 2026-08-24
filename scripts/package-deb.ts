@@ -3,12 +3,15 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
-interface Definition { architecture: 'all' | 'amd64'; depends: string; description: string; packageName?: string; version?: string; payload?: (stage: string) => void; postinst?: string }
+interface Definition { architecture: 'all' | 'amd64'; depends: string; description: string; packageName?: string; version?: string; replaces?: string; breaks?: string; payload?: (stage: string) => void; postinst?: string }
 const root = process.cwd(), output = resolve(root, 'release/out'), cache = resolve(root, '.treeseed/cache'), artifacts = resolve(root, '.treeseed/artifacts');
 const npmVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version as string;
 const deploymentVersion = process.env.TREESEED_DEBIAN_VERSION ?? npmVersion.replace(/-rc\.(\d+)$/u, '~rc$1') + '-1';
 const aptSuite = process.env.TREESEED_APT_SUITE;
 if (aptSuite !== undefined && aptSuite !== 'stable' && aptSuite !== 'development') throw new Error('TREESEED_APT_SUITE must be stable or development.');
+const stableCatalogRelease = (JSON.parse(readFileSync(resolve(artifacts, 'catalogs/stable.json'), 'utf8')) as { release: string }).release;
+if (!/^\d+\.\d+\.\d+$/u.test(stableCatalogRelease)) throw new Error('Stable catalog release is not a Debian-compatible version.');
+const stableCatalogVersion = `${stableCatalogRelease}-1`;
 function directory(path: string) { mkdirSync(path, { recursive: true }); }
 function install(source: string, target: string, mode?: number) { directory(resolve(target, '..')); copyFileSync(resolve(root, source), target); if (mode) chmodSync(target, mode); }
 function unit(stage: string, name: string) { install(`systemd/${name}`, resolve(stage, `usr/lib/systemd/system/${name}`)); }
@@ -61,20 +64,21 @@ const packages: Record<string, Definition> = {
 		extractNpm('npm/cli-0.13.0-rc.12.tgz', resolve(stage, 'usr/lib/treeseed/cli'));
 		install('scripts/cli-wrapper.sh', resolve(stage, 'usr/bin/trsd'), 0o755);
 	} },
-	'treeseed-release-catalog': { architecture: 'all', depends: '', description: 'Signed compatible TreeSeed release catalogs', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); const tracks = aptSuite === 'stable' ? ['stable'] : ['stable', 'development']; for (const track of tracks) copyFileSync(resolve(artifacts, `catalogs/${track}.json`), resolve(stage, `usr/share/treeseed/catalogs/${track}.json`)); } },
+	'treeseed-release-catalog': { architecture: 'all', version: stableCatalogVersion, depends: '', description: 'Signed compatible TreeSeed stable-base release catalog', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); copyFileSync(resolve(artifacts, 'catalogs/stable.json'), resolve(stage, 'usr/share/treeseed/catalogs/stable.json')); } },
+	'treeseed-release-catalog-development': { architecture: 'all', depends: `treeseed-release-catalog (= ${stableCatalogVersion})`, replaces: `treeseed-release-catalog (<< ${stableCatalogVersion})`, breaks: `treeseed-release-catalog (<< ${stableCatalogVersion})`, description: 'Signed compatible TreeSeed development release overlay', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); copyFileSync(resolve(artifacts, 'catalogs/development.json'), resolve(stage, 'usr/share/treeseed/catalogs/development.json')); } },
 	'treeseed-edge': { architecture: 'all', depends: 'docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Manager-owned TreeSeed Caddy edge and local TLS aliases', postinst: 'debian/edge/postinst', payload(stage) { unit(stage, 'treeseed-edge.service'); directory(resolve(stage, 'etc/treeseed/edge')); writeFileSync(resolve(stage, 'etc/treeseed/edge/Caddyfile'), ':443 { abort }\n'); install('deploy/edge/compose.yml', resolve(stage, 'usr/share/treeseed/edge/compose.yml')); install('scripts/edge/ensure-network.sh', resolve(stage, 'usr/lib/treeseed/edge/bin/ensure-network'), 0o755); } },
 	'treeseed-component-api': component('api', '0.8.0~rc11'), 'treeseed-component-agent': component('agent', '0.13.0~rc13'),
 	'treeseed-component-agent-stable': { ...component('agent', '0.12.58'), packageName: 'treeseed-component-agent' },
 	'treeseed-component-treedx': component('treedx', '0.3.0~rc6'),
 	'treeseed-component-ai': { architecture: 'all', depends: 'treeseed-manager', description: 'Exact runtime bundle for the TreeSeed ai component' },
-	'treeseed-lab': { ...component('lab', '0.1.0~rc20-1'), depends: 'treeseed-manager, treeseed-edge', description: 'Optional TreeSeed development mail and read-only diagnostics services' },
+	'treeseed-lab': { ...component('lab', '0.1.0~rc21-1'), depends: 'treeseed-manager, treeseed-edge', description: 'Optional TreeSeed development mail and read-only diagnostics services' },
 };
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
 	const stage = resolve(output, '.stage', name); rmSync(stage, { recursive: true, force: true }); directory(resolve(stage, 'DEBIAN'));
 	const packageVersion = definition.version ?? deploymentVersion;
 	if (clean) for (const stale of readdirSync(output).filter((candidate) => candidate.startsWith(`${name}_`) && candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
-	const control = [`Package: ${name}`, `Version: ${packageVersion}`, 'Section: admin', 'Priority: optional', `Architecture: ${definition.architecture}`, 'Maintainer: TreeSeed Releases <releases@treeseed.ai>', ...(definition.depends ? [`Depends: ${definition.depends}`] : []), `Description: ${definition.description}`, ' Managed by the unified TreeSeed deployment system.', ''].join('\n');
+	const control = [`Package: ${name}`, `Version: ${packageVersion}`, 'Section: admin', 'Priority: optional', `Architecture: ${definition.architecture}`, 'Maintainer: TreeSeed Releases <releases@treeseed.ai>', ...(definition.depends ? [`Depends: ${definition.depends}`] : []), ...(definition.replaces ? [`Replaces: ${definition.replaces}`] : []), ...(definition.breaks ? [`Breaks: ${definition.breaks}`] : []), `Description: ${definition.description}`, ' Managed by the unified TreeSeed deployment system.', ''].join('\n');
 	writeFileSync(resolve(stage, 'DEBIAN/control'), control);
 	if (definition.postinst) install(definition.postinst, resolve(stage, 'DEBIAN/postinst'), 0o755);
 	definition.payload?.(stage);
