@@ -1,31 +1,49 @@
 import { createHash } from 'node:crypto';
+import { basename, dirname, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
+import { integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
 
-interface Artifact { id: string; url: string; sha256: string; target: string }
 const root = process.cwd(), cache = resolve(root, '.treeseed/artifacts');
-const lock = JSON.parse(readFileSync(resolve(root, 'release/artifacts.lock.json'), 'utf8')) as { schemaVersion: string; artifacts: Artifact[] };
-if (lock.schemaVersion !== 'treeseed.deployment-artifacts/v1' || !Array.isArray(lock.artifacts)) throw new Error('Deployment artifact lock is malformed.');
+const inputs = process.argv.slice(2).length ? process.argv.slice(2) : (process.env.TREESEED_INTEGRATION_RELEASES ?? '').split(',').filter(Boolean);
+if (inputs.length === 0) throw new Error('Usage: fetch-artifacts INTEGRATION_RELEASE...');
 
 function digest(value: Uint8Array) { return createHash('sha256').update(value).digest('hex'); }
-function target(artifact: Artifact) {
-	if (!/^[a-z0-9][a-zA-Z0-9._~/-]+$/u.test(artifact.target) || artifact.target.includes('..')) throw new Error(`Unsafe artifact target ${artifact.target}.`);
-	const path = resolve(cache, artifact.target);
-	if (!path.startsWith(`${cache}${sep}`)) throw new Error(`Artifact ${artifact.id} escapes the cache.`);
+function safeTarget(relative: string) {
+	const path = resolve(cache, relative);
+	if (!path.startsWith(`${cache}${sep}`) || relative.includes('..')) throw new Error(`Artifact target escapes the cache: ${relative}.`);
+	return path;
+}
+async function acquire(url: string, sha256: string, relative: string) {
+	if (!/^https:\/\/(?:github\.com|registry\.npmjs\.org)\//u.test(url) || !/^[a-f0-9]{64}$/u.test(sha256)) throw new Error(`Artifact ${url} has an invalid immutable identity.`);
+	const path = safeTarget(relative);
+	if (existsSync(path) && digest(readFileSync(path)) === sha256) return path;
+	const response = await fetch(url, { redirect: 'follow' });
+	if (!response.ok) throw new Error(`Artifact ${url} download failed with ${response.status}.`);
+	const value = new Uint8Array(await response.arrayBuffer());
+	if (digest(value) !== sha256) throw new Error(`Artifact ${url} digest mismatch.`);
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(`${path}.new`, value, { mode: 0o644 }); renameSync(`${path}.new`, path);
 	return path;
 }
 
-for (const artifact of lock.artifacts) {
-	if (!/^https:\/\/(?:github\.com|registry\.npmjs\.org)\//u.test(artifact.url) || !/^[a-f0-9]{64}$/u.test(artifact.sha256)) throw new Error(`Artifact ${artifact.id} has an invalid identity.`);
-	const path = target(artifact);
-	if (existsSync(path) && digest(readFileSync(path)) === artifact.sha256) continue;
-	const response = await fetch(artifact.url, { redirect: 'follow' });
-	if (!response.ok) throw new Error(`Artifact ${artifact.id} download failed with ${response.status}.`);
-	const value = new Uint8Array(await response.arrayBuffer());
-	if (digest(value) !== artifact.sha256) throw new Error(`Artifact ${artifact.id} digest mismatch.`);
-	mkdirSync(dirname(path), { recursive: true });
-	const temporary = `${path}.new`;
-	writeFileSync(temporary, value, { mode: 0o644 });
-	renameSync(temporary, path);
+const integrations: IntegrationRelease[] = [];
+for (const input of inputs) {
+	let raw: string;
+	if (input.startsWith('https://')) {
+		if (!/^https:\/\/raw\.githubusercontent\.com\/treeseed-ai\/platform\/[a-f0-9]{40}\//u.test(input)) throw new Error('Remote integration locks must use an exact Platform commit URL.');
+		const response = await fetch(input);
+		if (!response.ok) throw new Error(`Integration lock ${input} download failed with ${response.status}.`);
+		raw = await response.text();
+	} else raw = readFileSync(resolve(input), 'utf8');
+	const integration = integrationReleaseSchema.parse(JSON.parse(raw));
+	for (const payload of integration.hostPayloads) await acquire(payload.artifact.url, payload.artifact.sha256, `payloads/${payload.id}/${basename(new URL(payload.artifact.url).pathname)}`);
+	for (const component of integration.components) {
+		await acquire(component.manifest.url, component.manifest.sha256, `components/${component.componentId}/${component.release}/component-release.json`);
+		for (const file of component.files) await acquire(file.artifact.url, file.artifact.sha256, `components/${component.componentId}/${component.release}/${file.path}`);
+	}
+	mkdirSync(resolve(cache, 'integrations'), { recursive: true });
+	writeFileSync(resolve(cache, 'integrations', `${integration.track}.json`), `${JSON.stringify(integration, null, 2)}\n`);
+	integrations.push(integration);
 }
-console.log(JSON.stringify({ ok: true, artifacts: lock.artifacts.length, cache }));
+if (new Set(integrations.map((integration) => integration.track)).size !== integrations.length) throw new Error('Only one integration release per track may be fetched.');
+console.log(JSON.stringify({ ok: true, integrations: integrations.map(({ track, release, generation }) => ({ track, release, generation })), cache }));

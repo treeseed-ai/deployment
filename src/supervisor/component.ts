@@ -13,15 +13,16 @@ function record(value: unknown, label: string): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-export function renderComponentEnvironment(host: HostConfiguration, componentId: string) {
+export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}) {
 	const selection = host.components[componentId];
 	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
 	const configuration = record(selection.configuration, 'Component configuration');
 	const environment = record(configuration.environment, 'Component environment');
 	const secretEnvironment = record(configuration.secretEnvironment, 'Component secret environment');
-	const values = new Map<string, string>();
+	const values = new Map<string, string>(Object.entries(connectionEnvironment));
 	for (const [key, value] of Object.entries(environment)) {
 		if (!environmentKey.test(key) || typeof value !== 'string' || value.length > 16_384) throw new Error(`Invalid environment entry ${key}.`);
+		if (values.has(key)) throw new Error(`Environment entry ${key} is reserved for a managed connection.`);
 		values.set(key, value);
 	}
 	for (const [key, secretId] of Object.entries(secretEnvironment)) {
@@ -39,14 +40,14 @@ function atomicText(path: string, value: string, mode = 0o600) {
 	renameSync(temporary, path);
 }
 
-export function configureComponent(componentId: string) {
+export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection || !(componentId in stateDirectories)) throw new Error(`Unsupported configured component ${componentId}.`);
 	const configurationRoot = `/etc/treeseed/components/${componentId}`, stateRoot = `/var/lib/treeseed/components/${componentId}`;
 	mkdirSync(configurationRoot, { recursive: true, mode: 0o700 });
 	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
 	for (const name of stateDirectories[componentId]!) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
-	atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId));
+	atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment));
 	const files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
 	for (const [name, value] of Object.entries(files)) {
 		if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
