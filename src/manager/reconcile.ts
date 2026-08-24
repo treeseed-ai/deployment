@@ -71,6 +71,19 @@ export function rollbackRoutes(host: HostConfiguration, components: ComponentRel
 	return routes.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
+export async function withDeferredManagerRestart<T>(coreUpdated: boolean, operation: () => Promise<T>, scheduleRestart: () => Promise<unknown> = () => requestSupervisor({ operation: 'manager.restart' })) {
+	try { return await operation(); }
+	finally {
+		if (coreUpdated) {
+			try { await scheduleRestart(); }
+			catch (error) {
+				try { recordEvent('manager.restart-schedule-failed', { message: error instanceof Error ? error.message : String(error) }); }
+				catch { /* preserve the reconciliation result when restart scheduling cannot be recorded */ }
+			}
+		}
+	}
+}
+
 export async function reconcile(track?: 'stable' | 'development') {
 	const host = loadHostConfiguration();
 	const previous = previousReceipt();
@@ -79,6 +92,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		return previous;
 	}
 	const refresh = await refreshAvailableCatalogs(host, track);
+	return withDeferredManagerRestart(refresh.coreUpdated, async () => {
 	const stable = loadCatalog(`${paths.catalogs}/stable.json`);
 	const developmentPath = `${paths.catalogs}/development.json`;
 	const accepted = createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, previous);
@@ -95,7 +109,6 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
-		if (refresh.coreUpdated) await requestSupervisor({ operation: 'manager.restart' });
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
@@ -127,6 +140,6 @@ export async function reconcile(track?: 'stable' | 'development') {
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
 	atomicJson(`${paths.managerState}/active-components.json`, accepted.components);
 	recordEvent('reconcile.complete', { receiptId: receipt.receiptId, planId: receipt.planId });
-	if (refresh.coreUpdated) await requestSupervisor({ operation: 'manager.restart' });
 	return receipt;
+	});
 }
