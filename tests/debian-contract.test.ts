@@ -77,6 +77,8 @@ describe('Debian and systemd contracts', () => {
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
 		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
 		expect(workstation).toContain("'--consume-credentials'");
+		expect(workstation).toContain("generateKeyPairSync('rsa', { modulusLength: 2048 })");
+		expect(workstation).toContain("'api-treedx-delegation-private-key'");
 		expect(workstation).not.toContain('console.log');
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
 	});
