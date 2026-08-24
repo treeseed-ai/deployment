@@ -76,6 +76,8 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('treeseed-deployment-development.sources');
 		expect(postinstall).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
 		expect(postinstall).toContain('--target-release "$suite"');
+		expect(postinstall).toContain('$package/$suite');
+		expect(postinstall).toContain('--allow-downgrades');
 		expect(postinstall).toContain('bootstrap-status.json');
 		expect(postinstall).toContain('-o root -g treeseed-manager -m 0640');
 		expect(postinstall).toContain('"complete":true,"installerCredentialsRetained":false');
@@ -134,6 +136,7 @@ describe('Debian and systemd contracts', () => {
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
+		expect(helper).toContain('packageFromTrack(name, operation.track)');
 		expect(reconciliation).toContain("operation: 'apt.refresh'");
 		expect(reconciliation).toContain("operation: 'backup.create'");
 		expect(reconciliation).toContain("operation: 'recovery.restore'");

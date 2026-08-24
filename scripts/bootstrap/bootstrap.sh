@@ -19,7 +19,9 @@ install -m 0644 /usr/share/treeseed/bootstrap/stable.sources /etc/apt/sources.li
 install -m 0644 /usr/share/treeseed/bootstrap/development.sources /etc/apt/sources.list.d/treeseed-deployment-development.sources
 apt-get -o DPkg::Lock::Timeout=600 update
 packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-release-catalog treeseed-manager treeseed-edge'
-apt-get -o DPkg::Lock::Timeout=600 --no-remove --no-install-recommends --target-release "$suite" install -y $packages
+suite_packages=
+for package in $packages; do suite_packages="$suite_packages $package/$suite"; done
+apt-get -o DPkg::Lock::Timeout=600 --allow-downgrades --no-remove --no-install-recommends --target-release "$suite" install -y $suite_packages
 install -d -o treeseed-manager -g treeseed-manager -m 0750 "$manager_state"
 credentials_retained=false
 if [ -f "$state/seed/credentials.json" ]; then credentials_retained=true; fi
