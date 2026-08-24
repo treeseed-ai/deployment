@@ -16,6 +16,7 @@ export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('manager.restart') }).strict(),
 	z.object({ operation: z.literal('configuration.replace'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.adopt'), configuration: hostConfigurationSchema }).strict(),
+	z.object({ operation: z.literal('configuration.recover'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('pki.enroll'), clientId: z.string().regex(/^client-[a-z0-9-]{8,64}$/u) }).strict(),
 ]);
 
