@@ -32,7 +32,7 @@ try {
 	writeFileSync(normalizedConfiguration, canonicalDeploymentJson(configuration), { mode: 0o600 });
 	let normalizedCredentials: string | undefined;
 	if (credentials !== undefined) { normalizedCredentials = resolve(temporary, 'credentials.json'); writeFileSync(normalizedCredentials, canonicalDeploymentJson(credentials), { mode: 0o600 }); }
-	const debianVersion = `0.1.0~rc15-1+cfg.${digest.slice(0, 12)}`;
+	const debianVersion = `0.1.0~rc16-1+cfg.${digest.slice(0, 12)}`;
 	execFileSync(process.execPath, ['--import', 'tsx', 'scripts/package-deb.ts', 'treeseed'], { stdio: 'inherit', env: { ...process.env, TREESEED_CONFIGURATION_FILE: normalizedConfiguration, ...(normalizedCredentials ? { TREESEED_CREDENTIALS_FILE: normalizedCredentials } : {}), ...(operatorUser ? { TREESEED_OPERATOR_USER: operatorUser } : {}), ...(resetUnacceptedComponents.length ? { TREESEED_RESET_UNACCEPTED_COMPONENTS: resetUnacceptedComponents.join(',') } : {}), TREESEED_BOOTSTRAP_SUITE: suite, TREESEED_DEBIAN_VERSION: debianVersion } });
 	const packagePath = resolve('release/out', `treeseed_${debianVersion}_amd64.deb`);
 	const checksum = createHash('sha256').update(readFileSync(packagePath)).digest('hex');
