@@ -5,6 +5,7 @@ seed="$state/seed/platform.json"
 log="$state/bootstrap.log"
 install -d -o root -g root -m 0700 "$state" "$state/seed"
 printf '%s bootstrap starting\n' "$(date -u +%FT%TZ)" >>"$log"
+systemctl stop treeseed-manager-development.timer treeseed-manager-stable.timer treeseed-manager-development.service treeseed-manager-stable.service treeseed-manager-reconcile.service >/dev/null 2>&1 || true
 install -d -m 0755 /etc/apt/keyrings /etc/apt/preferences.d
 install -m 0644 /usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-stable.gpg /etc/apt/keyrings/treeseed-deployment-stable.gpg
 install -m 0644 /usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-development.gpg /etc/apt/keyrings/treeseed-deployment-development.gpg
@@ -35,8 +36,19 @@ if [ -f "$state/seed/credentials.json" ]; then
 fi
 rm -f "$state/seed/operator"
 /usr/lib/treeseed/manager/bin/initialize-pki
-systemctl enable --now treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer
+systemctl enable treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer
+systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service
+attempt=0
+while [ ! -S /run/treeseed/manager/supervisor.sock ]; do
+  attempt=$((attempt + 1))
+  [ "$attempt" -le 30 ] || { printf '%s supervisor socket did not become ready\n' "$(date -u +%FT%TZ)" >>"$log"; exit 1; }
+  sleep 1
+done
+if [ -f "$state/seed/reset-unaccepted-components.json" ]; then
+  /usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/bootstrap-reset.js
+fi
 systemctl start treeseed-manager-reconcile.service || printf '%s initial reconciliation degraded; inspect manager receipts\n' "$(date -u +%FT%TZ)" >>"$log"
+systemctl start treeseed-manager-stable.timer treeseed-manager-development.timer
 touch "$state/handoff.complete"
 chmod 0600 "$state/handoff.complete"
 systemctl disable treeseed-bootstrap.service >/dev/null 2>&1 || true
