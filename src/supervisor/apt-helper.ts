@@ -9,6 +9,11 @@ const run: AptCommandRunner = (executable, arguments_) => { execFileSync(executa
 const transactionOptions = ['--yes', '--allow-downgrades', '--no-remove', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=600', '-o', 'Dpkg::Options::=--force-confold'] as const;
 const corePackages = ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-edge'] as const;
 
+export function packageFromTrack(name: string, track: 'stable' | 'development') {
+	if (!/^[a-z0-9][a-z0-9+.-]*$/u.test(name)) throw new Error('APT package name is invalid.');
+	return `${name}/${track}`;
+}
+
 function installedCoreVersions() {
 	return Object.fromEntries(corePackages.map((name) => {
 		try { return [name, execFileSync('/usr/bin/dpkg-query', ['--show', '--showformat=${Version}', name], { encoding: 'utf8' }).trim()]; }
@@ -26,7 +31,7 @@ export function applyPendingPackages(command: AptCommandRunner = run) {
 		command('/usr/bin/apt-get', ['-o', 'DPkg::Lock::Timeout=600', 'update']);
 		const packages = ['treeseed-release-catalog'];
 		if (operation.updateCore) packages.push(...corePackages);
-		command('/usr/bin/apt-get', [...transactionOptions, '--only-upgrade', '--target-release', operation.track, 'install', ...packages]);
+		command('/usr/bin/apt-get', [...transactionOptions, '--only-upgrade', '--target-release', operation.track, 'install', ...packages.map((name) => packageFromTrack(name, operation.track))]);
 		const after = operation.updateCore ? installedCoreVersions() : {};
 		atomicJson(`${paths.managerState}/last-apt-result.json`, { track: operation.track, coreUpdated: operation.updateCore && JSON.stringify(before) !== JSON.stringify(after), before, after }, 0o600);
 	} else throw new Error('Pending operation is not an APT transaction.');
