@@ -31,7 +31,7 @@ function lab(): ComponentRelease {
 	const diagnostics = process.env.TREESEED_DIAGNOSTICS_DIGEST ?? `sha256:${'0'.repeat(64)}`, mailpit = process.env.TREESEED_MAILPIT_DIGEST ?? `sha256:${'0'.repeat(64)}`;
 	if (![diagnostics, mailpit].every((value) => /^sha256:[a-f0-9]{64}$/u.test(value))) throw new Error('Lab image digests must be exact SHA-256 identities.');
 	if (process.env.TREESEED_REQUIRE_PUBLISHED_IMAGES === '1' && [diagnostics, mailpit].some((value) => value === `sha256:${'0'.repeat(64)}`)) throw new Error('Protected publication requires read-back lab image digests.');
-	const runtime = { schemaVersion: 'treeseed.package-runtime/v1' as const, componentId: 'lab', version: '0.1.0~rc18-1', compose: { projectName: 'treeseed-lab', files: ['compose.yml'] }, services: [
+	const runtime = { schemaVersion: 'treeseed.package-runtime/v1' as const, componentId: 'lab', version: '0.1.0~rc19-1', compose: { projectName: 'treeseed-lab', files: ['compose.yml'] }, services: [
 		{ id: 'mailpit', composeService: 'mailpit', endpoints: [
 			{ id: 'smtp', protocol: 'tcp', port: 1025, visibility: 'private', aliasOverride: false, tls: 'none', authentication: 'none' },
 			{ id: 'web', protocol: 'http', port: 8025, visibility: 'host', defaultAlias: 'mail.treeseed.localhost', aliasOverride: true, tls: 'edge', authentication: 'none', healthGate: { protocol: 'http', path: '/api/v1/info', timeoutSeconds: 60 } },
@@ -53,7 +53,7 @@ const developmentComponents = [['agent', '0.13.0~rc13'], ['api', '0.8.0~rc11'], 
 	return componentReleaseSchema.parse({ ...component, stableBase: { ...component.stableBase!, catalogDigest: stable.catalogDigest } });
 });
 developmentComponents.push(lab());
-const development = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release: '0.1.0~rc18', generation: 1_000_019, track: 'development', compatibilityId: stable.compatibilityId, stableBase: { release: stable.release, catalogDigest: stable.catalogDigest }, components: developmentComponents, createdAt: '2026-08-24T10:00:00.000Z' });
+const development = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release: '0.1.0~rc19', generation: 1_000_020, track: 'development', compatibilityId: stable.compatibilityId, stableBase: { release: stable.release, catalogDigest: stable.catalogDigest }, components: developmentComponents, createdAt: '2026-08-24T11:00:00.000Z' });
 write(resolve(artifacts, 'catalogs/stable.json'), `${JSON.stringify(stable, null, 2)}\n`);
 write(resolve(artifacts, 'catalogs/development.json'), `${JSON.stringify(development, null, 2)}\n`);
 console.log(JSON.stringify({ ok: true, stable: stable.catalogDigest, development: development.catalogDigest, components: development.components.map((component) => component.componentId) }));
