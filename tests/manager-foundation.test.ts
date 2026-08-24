@@ -59,6 +59,8 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
+		executeSupervisorOperation({ operation: 'manager.restart' }, (executable, arguments_) => calls.push([executable, arguments_]));
+		expect(calls.at(-1)).toEqual(['/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']]);
 		expect(() => supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'nightly', updateCore: true })).toThrow();
 	});
 
@@ -130,5 +132,11 @@ describe('unified host manager foundation', () => {
 		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
 		expect(operations).not.toMatch(/\breconcile\(\)/u);
 		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(4);
+	});
+
+	it('defers manager self-restart long enough to return the accepted receipt', () => {
+		const unit = readFileSync(resolve(process.cwd(), 'systemd/treeseed-manager-restart.service'), 'utf8');
+		expect(unit).toContain('ExecStart=/usr/bin/sleep 5');
+		expect(unit).toContain('ExecStart=/usr/bin/systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 });
