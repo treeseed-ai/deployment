@@ -96,6 +96,7 @@ describe('Debian and systemd contracts', () => {
 
 	it('binds each protected APT suite to its independent signing identity', () => {
 		const publisher = readFileSync('scripts/publish-apt.ts', 'utf8');
+		const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 		expect(publisher).toContain('release/apt/${suite}.fingerprint');
 		expect(publisher).toContain('does not match its published keyring');
 		const stable = readFileSync('release/apt/stable.fingerprint', 'utf8').trim();
@@ -103,6 +104,8 @@ describe('Debian and systemd contracts', () => {
 		expect(stable).toMatch(/^[A-F0-9]{40}$/u);
 		expect(development).toMatch(/^[A-F0-9]{40}$/u);
 		expect(stable).not.toBe(development);
+		expect(workflow).toContain('find .treeseed/artifacts/components/lab');
+		expect(workflow).not.toMatch(/components\/lab\/0\.1\.0~rc\d+-1\/component-release/u);
 	});
 
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
