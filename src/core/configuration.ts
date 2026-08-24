@@ -2,8 +2,13 @@ import { readFileSync } from 'node:fs';
 import { hostConfigurationSchema, type HostConfiguration } from '@treeseed/sdk/deployment';
 import { paths } from './paths.js';
 
-export function loadHostConfiguration(path = paths.configuration): HostConfiguration {
+export function loadHostConfiguration(path: string = paths.configuration): HostConfiguration {
 	return hostConfigurationSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+}
+
+export function tryLoadHostConfiguration(path: string = paths.configuration): HostConfiguration | undefined {
+	try { return loadHostConfiguration(path); }
+	catch { return undefined; }
 }
 
 export function assertNewGeneration(current: HostConfiguration | undefined, candidate: HostConfiguration) {
