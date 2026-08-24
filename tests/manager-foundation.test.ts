@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -83,10 +83,24 @@ describe('unified host manager foundation', () => {
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'remote.shell', arguments: ['id'] })).toThrow();
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'local.host.status', arguments: ['x'.repeat(257)] })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.replace', configuration: host() })).toMatchObject({ operation: 'configuration.replace' });
+		expect(supervisorOperationSchema.parse({ operation: 'configuration.recover', configuration: host() })).toMatchObject({ operation: 'configuration.recover' });
 		expect(supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: 'client-12345678' })).toEqual({ operation: 'pki.enroll', clientId: 'client-12345678' });
 		expect(() => supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: '../../root' })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'api', connectionEnvironment: {} })).toEqual({ operation: 'component.configure', componentId: 'api', connectionEnvironment: {} });
 		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', componentId: '../api' })).toThrow();
+	});
+
+	it('recovers only an invalid configuration without decoding the old bytes', () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-config-recovery-')), configurationPath = resolve(root, 'platform.json'), archiveRoot = resolve(root, 'invalid');
+		writeFileSync(configurationPath, '{"obsolete":true}\n');
+		expect(tryLoadHostConfiguration(configurationPath)).toBeUndefined();
+		const result = recoverInvalidConfiguration({ operation: 'configuration.recover', configuration: host() }, configurationPath, archiveRoot);
+		expect(readFileSync(result.archive, 'utf8')).toBe('{"obsolete":true}\n');
+		expect(tryLoadHostConfiguration(configurationPath)).toEqual(host());
+		expect(() => recoverInvalidConfiguration({ operation: 'configuration.recover', configuration: host() }, configurationPath, archiveRoot)).toThrow(/only available when/u);
+		const api = readFileSync(resolve(process.cwd(), 'src/manager/api.ts'), 'utf8');
+		expect(api).toContain('remote: undefined');
+		expect(api).toContain('recoveryRequired: !host');
 	});
 
 	it('renders deterministic component environments without embedding secret references', () => {

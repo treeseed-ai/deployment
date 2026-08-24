@@ -5,7 +5,7 @@ import { supervisorOperationSchema, type SupervisorOperation } from './protocol.
 import { paths } from '../core/paths.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
-import { assertNewGeneration, loadHostConfiguration } from '../core/configuration.js';
+import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
 import { configureComponent } from './component.js';
 import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
@@ -35,6 +35,16 @@ function resetUnacceptedComponentState(componentId: string) {
 	const root = resolve(paths.components), target = resolve(root, componentId);
 	if (!target.startsWith(`${root}${sep}`)) throw new Error('Component state reset escaped the managed state root.');
 	rmSync(target, { recursive: true, force: true });
+}
+
+export function recoverInvalidConfiguration(configuration: SupervisorOperation & { operation: 'configuration.recover' }, configurationPath: string = paths.configuration, archiveRoot: string = `${paths.managerState}/invalid-configurations`) {
+	if (tryLoadHostConfiguration(configurationPath)) throw new Error('Configuration recovery is only available when the installed configuration is invalid.');
+	const raw = readFileSync(configurationPath, 'utf8');
+	mkdirSync(archiveRoot, { recursive: true, mode: 0o700 });
+	const archive = `${archiveRoot}/${Date.now()}-${process.pid}.json.invalid`;
+	writeFileSync(archive, raw, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+	atomicJson(configurationPath, configuration.configuration, 0o640);
+	return { recovered: true, archive };
 }
 
 export function executeSupervisorOperation(input: unknown, command: CommandRunner = run) {
@@ -82,6 +92,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}
+		case 'configuration.recover': return recoverInvalidConfiguration(operation);
 		case 'pki.enroll': return enrollClient(operation.clientId, command);
 	}
 }

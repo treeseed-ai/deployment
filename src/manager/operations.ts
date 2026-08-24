@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { hostConfigurationSchema, hostReceiptSchema, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { loadCatalog } from '../catalog/load.js';
-import { loadHostConfiguration } from '../core/configuration.js';
+import { loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { recentEvents } from '../core/events.js';
 import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
@@ -76,7 +76,16 @@ function bootstrapStatus() {
 }
 
 export async function executeHostCommand(input: unknown, context: { local: boolean }) {
-	const request = hostCommandRequestSchema.parse(input), host = loadHostConfiguration();
+	const request = hostCommandRequestSchema.parse(input), host = tryLoadHostConfiguration();
+	if (!host) {
+		if (!context.local || request.handlerId !== 'local.host.config.adopt') throw new Error('Current host configuration is invalid; adopt a current-format configuration through the protected local manager socket.');
+		const candidate = requiredConfiguration(request);
+		if (request.options.plan === true) return { recoveryRequired: true, configurationId: candidate.configurationId, generation: candidate.generation, mutation: false };
+		if (request.options.confirm !== true) throw new Error('Configuration adoption requires --confirm.');
+		await requestSupervisor({ operation: 'configuration.recover', configuration: candidate });
+		await requestSupervisor({ operation: 'manager.restart' });
+		return { adopted: true, recoveredInvalidConfiguration: true, configurationId: candidate.configurationId, generation: candidate.generation };
+	}
 	switch (request.handlerId) {
 		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
 		case 'local.host.doctor': {

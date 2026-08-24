@@ -2,7 +2,7 @@ import { chmodSync, readFileSync, unlinkSync } from 'node:fs';
 import { createServer as createHttpServer, type RequestListener } from 'node:http';
 import { createServer, type Server } from 'node:https';
 import type { TLSSocket } from 'node:tls';
-import { loadHostConfiguration } from '../core/configuration.js';
+import { loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { recentEvents } from '../core/events.js';
 import { paths } from '../core/paths.js';
 import { executeHostCommand } from './operations.js';
@@ -31,7 +31,10 @@ async function readJson(request: import('node:http').IncomingMessage) {
 function managerHandler(requireMtls: boolean, local: boolean): RequestListener {
 	return async (request, response) => {
 		if (requireMtls && !(request.socket as TLSSocket).authorized) return json(response, 401, { ok: false, error: 'mtls_required' });
-		if (request.method === 'GET' && request.url === '/v1/health') return json(response, 200, { ok: true, service: 'treeseed-manager', configuration: loadHostConfiguration().configurationId });
+		if (request.method === 'GET' && request.url === '/v1/health') {
+			const host = tryLoadHostConfiguration();
+			return json(response, host ? 200 : 503, { ok: Boolean(host), service: 'treeseed-manager', configurationReady: Boolean(host), configuration: host?.configurationId ?? null, recoveryRequired: !host });
+		}
 		if (request.method === 'GET' && request.url === '/v1/status') {
 			const host = loadHostConfiguration();
 			return json(response, 200, { ok: true, configurationId: host.configurationId, generation: host.generation, components: host.components, events: recentEvents(20) });
@@ -62,11 +65,12 @@ export function createManagerApi(): Server {
 }
 
 export function startManagerApi() {
-	const host = loadHostConfiguration();
-	const [hostname, port] = host.network.manager.binding.split(':');
 	const socket = '/run/treeseed/manager/api.sock';
 	try { unlinkSync(socket); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 	const local = createHttpServer(managerHandler(false, true)).listen(socket, () => chmodSync(socket, 0o660));
+	const host = tryLoadHostConfiguration();
+	if (!host) return { local, remote: undefined, configurationReady: false as const };
+	const [hostname, port] = host.network.manager.binding.split(':');
 	const remote = createManagerApi().listen(Number(port), hostname);
-	return { local, remote };
+	return { local, remote, configurationReady: true as const };
 }
