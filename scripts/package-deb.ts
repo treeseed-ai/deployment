@@ -90,6 +90,10 @@ const packages: Record<string, Definition> = {
 		if (!sdkPayload) throw new Error('No integration lock selects the SDK host payload.');
 		const modules = resolve(stage, 'usr/lib/treeseed/cli/node_modules');
 		extractNpm(sdkPayload.archive, resolve(modules, '@treeseed/sdk'));
+		for (const [id, target] of [['treedx', '@treeseed/treedx'], ['yaml', 'yaml'], ['zod', 'zod']] as const) {
+			const payload = hostPayload(id, packageIntegration!);
+			extractNpm(payload.archive, resolve(modules, target));
+		}
 		cpSync(resolve(modules, '@treeseed/sdk'), resolve(stage, 'usr/share/treeseed/sdk'), { recursive: true });
 	} },
 	'treeseed-cli': { architecture: 'all', ...(cliPayload ? { version: debianVersion(cliPayload.version) } : {}), depends: `treeseed-sdk (= ${sdkPayload ? debianVersion(sdkPayload.version) : deploymentVersion}), treeseed-host-runtime (= ${deploymentVersion})`, description: 'TreeSeed trsd host client payload', payload(stage) {
