@@ -4,6 +4,7 @@ state=/var/lib/treeseed/bootstrap
 seed="$state/seed/platform.json"
 log="$state/bootstrap.log"
 install -d -o root -g root -m 0700 "$state" "$state/seed"
+rm -f "$state/handoff.complete"
 printf '%s bootstrap starting\n' "$(date -u +%FT%TZ)" >>"$log"
 systemctl stop treeseed-manager-development.timer treeseed-manager-stable.timer treeseed-manager-development.service treeseed-manager-stable.service treeseed-manager-reconcile.service >/dev/null 2>&1 || true
 install -d -m 0755 /etc/apt/keyrings /etc/apt/preferences.d
@@ -21,8 +22,13 @@ fi
 apt-get -o DPkg::Lock::Timeout=600 update
 packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-release-catalog treeseed-manager treeseed-edge'
 apt-get -o DPkg::Lock::Timeout=600 --no-remove --no-install-recommends install -y $packages
-install -o root -g treeseed-manager -m 0640 "$seed" /etc/treeseed/platform.json
-rm -f "$seed"
+if [ -f "$seed" ]; then
+  install -o root -g treeseed-manager -m 0640 "$seed" /etc/treeseed/platform.json
+  rm -f "$seed"
+elif [ ! -f /etc/treeseed/platform.json ]; then
+  printf '%s neither bootstrap nor installed host configuration exists\n' "$(date -u +%FT%TZ)" >>"$log"
+  exit 1
+fi
 if [ -f "$state/seed/credentials.json" ]; then
   install -d -o root -g root -m 0700 /etc/treeseed/credentials
   jq -e 'type == "object" and all(keys[]; test("^[a-z][a-z0-9.-]{1,63}$")) and all(.[]; type == "string" and length > 0 and length <= 65536)' "$state/seed/credentials.json" >/dev/null
@@ -38,12 +44,7 @@ rm -f "$state/seed/operator"
 /usr/lib/treeseed/manager/bin/initialize-pki
 systemctl enable treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer
 systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service
-attempt=0
-while [ ! -S /run/treeseed/manager/supervisor.sock ]; do
-  attempt=$((attempt + 1))
-  [ "$attempt" -le 30 ] || { printf '%s supervisor socket did not become ready\n' "$(date -u +%FT%TZ)" >>"$log"; exit 1; }
-  sleep 1
-done
+/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js
 if [ -f "$state/seed/reset-unaccepted-components.json" ]; then
   /usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/bootstrap-reset.js
 fi

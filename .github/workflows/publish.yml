@@ -102,8 +102,8 @@ jobs:
       - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
       - name: Seal exact-head evidence
         run: |
-          cp .treeseed/artifacts/components/lab/0.1.0~rc9-1/component-release.json release/out/lab-component-release.json
-          cp .treeseed/artifacts/components/lab/0.1.0~rc9-1/compose.yml release/out/lab-compose.yml
+          cp .treeseed/artifacts/components/lab/0.1.0~rc10-1/component-release.json release/out/lab-component-release.json
+          cp .treeseed/artifacts/components/lab/0.1.0~rc10-1/compose.yml release/out/lab-compose.yml
           printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
