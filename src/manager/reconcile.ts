@@ -58,12 +58,14 @@ async function stop(component: ComponentRelease) {
 }
 
 async function activate(component: ComponentRelease) {
+	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId });
-	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
+	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), waitTimeoutSeconds });
 }
 
-function routesFor(host: HostConfiguration, components: ComponentRelease[]) {
-	const overrides = Object.fromEntries(Object.values(host.components).flatMap((component) => Object.entries(component.aliases)));
+export function rollbackRoutes(host: HostConfiguration, components: ComponentRelease[]) {
+	const activeIds = new Set(components.map((component) => component.componentId));
+	const overrides = Object.fromEntries(Object.entries(host.components).filter(([componentId]) => activeIds.has(componentId)).flatMap(([, component]) => Object.entries(component.aliases)));
 	const routes = edgeRoutes(components, overrides);
 	for (const alias of host.network.manager.aliases) routes.push({ alias, upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' as const });
 	return routes.sort((left, right) => left.alias.localeCompare(right.alias));
@@ -81,7 +83,6 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const developmentPath = `${paths.catalogs}/development.json`;
 	const accepted = createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, previous);
 	if (accepted.plan.blockers.length) throw new Error(`Host plan is blocked: ${accepted.plan.blockers.map((item) => item.code).join(', ')}`);
-	for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 	if (track === 'stable' && previous && !activationEligible(host, 'stable')) {
 		recordEvent('update.metadata-current', { track, eligible: false, catalogDigest: stable.catalogDigest });
 		return previous;
@@ -104,6 +105,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
+		for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		for (const component of configurationChanged ? accepted.components : changed) await activate(component);
 		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(accepted.routes), aliases: subjectAlternativeNames(accepted.routes) });
 	} catch (error) {
@@ -115,8 +117,8 @@ export async function reconcile(track?: 'stable' | 'development') {
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		for (const component of active) await activate(component);
-		const rollbackRoutes = await routesFor(host, active);
-		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(rollbackRoutes), aliases: subjectAlternativeNames(rollbackRoutes) });
+		const previousRoutes = rollbackRoutes(host, active);
+		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		throw error;
 	}

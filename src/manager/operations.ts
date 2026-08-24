@@ -9,8 +9,14 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { reconcile, refreshAvailableCatalogs } from './reconcile.js';
+import { refreshAvailableCatalogs } from './reconcile.js';
+import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
+
+const bootstrapHandoffSchema = z.object({
+	complete: z.boolean(),
+	installerCredentialsRetained: z.boolean(),
+}).strict();
 
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.host(?:\.[a-z]+)+$/u),
@@ -35,7 +41,7 @@ async function replaceConfiguration(mutate: (host: HostConfiguration) => HostCon
 	const candidate = mutate(structuredClone(current));
 	candidate.generation = current.generation + 1;
 	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
-	return reconcile();
+	return serializedReconcile();
 }
 
 function componentId(request: HostCommandRequest) {
@@ -44,9 +50,18 @@ function componentId(request: HostCommandRequest) {
 	return value;
 }
 
+export function updateTrack(request: Pick<HostCommandRequest, 'arguments' | 'options'>): 'stable' | 'development' {
+	const value = request.options.track ?? request.arguments[0] ?? 'stable';
+	if (value !== 'stable' && value !== 'development') throw new Error('Update track must be stable or development.');
+	return value;
+}
+
 function bootstrapStatus() {
-	const complete = existsSync('/var/lib/treeseed/bootstrap/handoff.complete');
-	return { complete, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`), installerCredentialsRetained: existsSync('/var/lib/treeseed/bootstrap/seed/credentials.json') };
+	const marker = `${paths.managerState}/bootstrap-status.json`;
+	const handoff = existsSync(marker)
+		? bootstrapHandoffSchema.parse(JSON.parse(readFileSync(marker, 'utf8')))
+		: { complete: false, installerCredentialsRetained: false };
+	return { ...handoff, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`) };
 }
 
 export async function executeHostCommand(input: unknown, context: { local: boolean }) {
@@ -66,7 +81,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.plan': return plan();
 		case 'local.host.apply':
-		case 'local.host.reconcile': return request.options.plan === true ? plan() : reconcile();
+		case 'local.host.reconcile': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.events': return { events: recentEvents(100) };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };
 		case 'local.host.update.check': {
@@ -74,7 +89,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
 			return { stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest }, development: existsSync(developmentPath) ? (() => { const value = loadCatalog(developmentPath); return { release: value.release, generation: value.generation, digest: value.catalogDigest }; })() : null };
 		}
-		case 'local.host.update.apply': return request.options.plan === true ? plan() : reconcile();
+		case 'local.host.update.apply': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.update.channel': {
 			const track = request.arguments[0];
 			if (track !== 'stable' && track !== 'development') throw new Error('Update channel must be stable or development.');
@@ -83,8 +98,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.update.pause':
 		case 'local.host.update.resume': {
-			const track = request.options.track;
-			const selected = track === 'development' ? 'development' : 'stable';
+			const selected = updateTrack(request);
 			if (request.options.plan === true) return { track: selected, paused: request.handlerId.endsWith('.pause'), mutation: false };
 			return updatePaused(selected, request.handlerId.endsWith('.pause'));
 		}
@@ -100,7 +114,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.aliases.list': return { aliases: plan().routes.map(({ alias, upstream, authentication }) => ({ alias, upstream, authentication })) };
 		case 'local.host.recovery.status': return { current: receipt(), receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [] };
-		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : reconcile();
+		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');

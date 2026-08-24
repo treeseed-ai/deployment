@@ -4,9 +4,11 @@ getent group treeseed-manager >/dev/null || addgroup --system treeseed-manager
 getent passwd treeseed-manager >/dev/null || adduser --system --ingroup treeseed-manager --home /var/lib/treeseed/manager --no-create-home treeseed-manager
 getent group treeseed-operators >/dev/null || addgroup --system treeseed-operators
 install -d -o root -g root -m 0711 /etc/treeseed /var/lib/treeseed
-install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/manager /etc/treeseed/manager/tls /run/treeseed/manager
+install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/manager /etc/treeseed/manager/tls
+install -d -o root -g treeseed-operators -m 0770 /run/treeseed/manager
 install -d -o treeseed-manager -g treeseed-manager -m 0750 /var/lib/treeseed/manager /var/lib/treeseed/manager/receipts
 if [ -f /etc/treeseed/platform.json ]; then chown root:treeseed-manager /etc/treeseed/platform.json; chmod 0640 /etc/treeseed/platform.json; fi
 systemctl daemon-reload
 systemctl enable treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer >/dev/null
+systemctl --no-block try-restart treeseed-manager-supervisor.service treeseed-manager-api.service >/dev/null 2>&1 || true
 exit 0

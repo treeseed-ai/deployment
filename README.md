@@ -34,6 +34,21 @@ The generator consumes the credential input, emits a checksum without echoing
 secret data, and marks the resulting package mode `0600`. After installation,
 the operator must securely delete the downloaded configured package.
 
+APT normally reads local packages through its unprivileged `_apt` account. To
+keep a configured package private without triggering an unsandboxed-download
+warning, stage a root-controlled copy owned by `_apt`, install that copy, and
+remove it after manager handoff:
+
+```sh
+sudo install -o _apt -g root -m 0600 /path/to/treeseed-configured.deb \
+  /var/cache/apt/archives/treeseed-configured.deb
+sudo apt install /var/cache/apt/archives/treeseed-configured.deb
+sudo rm -f /var/cache/apt/archives/treeseed-configured.deb
+```
+
+Do not make the credential-bearing package world-readable or loosen the
+operator home-directory permissions merely to suppress the APT warning.
+
 The workstation canary has a stricter convenience entrypoint. It accepts a
 private Codex login cache, generates the API database and session secrets in
 memory, packages the declared manager-owned credential files, and consumes its
@@ -46,12 +61,21 @@ npm run build:workstation -- \
   --suite development
 ```
 
+A failed first-adoption canary may be rebuilt with
+`--reset-unaccepted-components api`. This recovery request is embedded in the
+root-only bootstrap seed and fails closed once any known-good receipt or active
+component set exists. It is not an upgrade-time state reset and must never be
+used for migrated or accepted data.
+
 The login cache must be a regular, non-symlink file with no group or world
 permissions. The command never prints credentials. A website configuration
 handler must apply the same no-store response, redacted request logging,
 ephemeral generation, immediate server deletion, and root-only installation
 policy; the generated package itself remains password-equivalent until the
-bootstrap handoff deletes its embedded seed.
+bootstrap handoff deletes its embedded seed. Bootstrap pauses scheduled
+reconciliation, restarts the newly installed manager payload, performs any
+explicit unaccepted-state recovery, runs one initial reconciliation, and only
+then resumes the stable and development timers.
 
 See [architecture](docs/architecture.md) and [package boundaries](docs/packages.md).
 

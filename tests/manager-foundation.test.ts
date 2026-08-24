@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, subjectAlternativeNames, supervisorOperationSchema, validateProductionCompose } from '../src/index.js';
+import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -30,6 +30,10 @@ describe('unified host manager foundation', () => {
 		expect(caddyfile).toContain('reverse_proxy unix//run/treeseed/manager/api.sock');
 	});
 
+	it('rolls an empty first generation back to the manager route only', () => {
+		expect(rollbackRoutes(host(), [])).toEqual([{ alias: 'manager.treeseed.localhost', upstream: 'unix//run/treeseed/manager/api.sock', authentication: 'mtls' }]);
+	});
+
 	it('rejects source builds, mutable images, and host port publication', () => {
 		const release = component('api', 'stable', 'b'), root = mkdtempSync(resolve(tmpdir(), 'treeseed-compose-'));
 		const file = resolve(root, 'compose.yml');
@@ -45,6 +49,7 @@ describe('unified host manager foundation', () => {
 
 	it('keeps root execution within the fixed protocol', () => {
 		const calls: Array<[string, readonly string[]]> = [];
+		expect(executeSupervisorOperation({ operation: 'supervisor.ping' }, (executable, arguments_) => calls.push([executable, arguments_]))).toEqual({ ready: true });
 		executeSupervisorOperation({ operation: 'systemd.control', unit: 'treeseed-edge.service', action: 'reload' }, (executable, arguments_) => calls.push([executable, arguments_]));
 		expect(calls).toEqual([['/usr/bin/systemctl', ['reload', 'treeseed-edge.service']]]);
 		expect(() => executeSupervisorOperation({ operation: 'systemd.control', unit: 'ssh.service', action: 'restart' }, () => undefined)).toThrow();
@@ -52,14 +57,18 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'development', updateCore: false })).toEqual({ operation: 'apt.refresh', track: 'development', updateCore: false });
 		expect(supervisorOperationSchema.parse({ operation: 'backup.create', generation: 42 })).toEqual({ operation: 'backup.create', generation: 42 });
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
+		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
+		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
+		executeSupervisorOperation({ operation: 'manager.restart' }, (executable, arguments_) => calls.push([executable, arguments_]));
+		expect(calls.at(-1)).toEqual(['/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']]);
 		expect(() => supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'nightly', updateCore: true })).toThrow();
 	});
 
 	it('activates Compose with only the manager-rendered component environment', () => {
 		const calls: Array<[string, readonly string[]]> = [];
-		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent' }, (executable, arguments_) => calls.push([executable, arguments_]));
+		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent', waitTimeoutSeconds: 120 }, (executable, arguments_) => calls.push([executable, arguments_]));
 		const activation = calls.find(([, arguments_]) => arguments_[0] === 'compose');
-		expect(activation).toEqual(['/usr/bin/docker', ['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/0.13.0~rc12/compose.yml', '--project-name', 'treeseed-agent', 'up', '--detach', '--remove-orphans', '--wait']]);
+		expect(activation).toEqual(['/usr/bin/docker', ['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/0.13.0~rc12/compose.yml', '--project-name', 'treeseed-agent', 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '120']]);
 		expect(JSON.stringify(calls)).not.toContain('process.env');
 	});
 
@@ -88,5 +97,46 @@ describe('unified host manager foundation', () => {
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 23, 3, 10))).toBe(true);
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 24, 3, 10))).toBe(false);
 		expect(activationEligible(configuration, 'development')).toBe(true);
+	});
+
+	it('selects an explicit update track without silently falling back to stable', () => {
+		expect(updateTrack({ arguments: ['development'], options: {} })).toBe('development');
+		expect(updateTrack({ arguments: [], options: { track: 'development' } })).toBe('development');
+		expect(updateTrack({ arguments: [], options: {} })).toBe('stable');
+		expect(() => updateTrack({ arguments: ['nightly'], options: {} })).toThrow(/stable or development/u);
+	});
+
+	it('installs selected component payloads before validating or activating them', () => {
+		const source = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
+		const install = source.indexOf("operation: 'apt.install'"), validate = source.indexOf('validateProductionCompose(component');
+		expect(install).toBeGreaterThan(0);
+		expect(validate).toBeGreaterThan(install);
+	});
+
+	it('serializes bootstrap reconciliation and starts an inactive edge', () => {
+		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
+		const stopTimers = bootstrap.indexOf('systemctl stop treeseed-manager-development.timer'), initialReconcile = bootstrap.indexOf('systemctl start treeseed-manager-reconcile.service'), startTimers = bootstrap.indexOf('systemctl start treeseed-manager-stable.timer');
+		expect(stopTimers).toBeGreaterThan(0);
+		expect(initialReconcile).toBeGreaterThan(stopTimers);
+		expect(startTimers).toBeGreaterThan(initialReconcile);
+		expect(readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8')).toContain("['reload-or-restart', 'treeseed-edge.service']");
+		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
+		expect(bootstrap).toContain('elif [ ! -f /etc/treeseed/platform.json ]');
+		for (const unit of ['reconcile', 'development', 'stable']) expect(readFileSync(resolve(process.cwd(), `systemd/treeseed-manager-${unit}.service`), 'utf8')).toContain('/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock');
+	});
+
+	it('serializes API reconciliation through the same cross-process lock as systemd', () => {
+		const arguments_ = serializedReconcileArguments('development');
+		expect(arguments_.slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
+		expect(arguments_.at(-1)).toBe('--track=development');
+		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
+		expect(operations).not.toMatch(/\breconcile\(\)/u);
+		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(4);
+	});
+
+	it('defers manager self-restart long enough to return the accepted receipt', () => {
+		const unit = readFileSync(resolve(process.cwd(), 'systemd/treeseed-manager-restart.service'), 'utf8');
+		expect(unit).toContain('ExecStart=/usr/bin/sleep 5');
+		expect(unit).toContain('ExecStart=/usr/bin/systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 });

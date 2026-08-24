@@ -14,7 +14,7 @@ describe('Debian and systemd contracts', () => {
 		const units = readdirSync('systemd').filter((name) => name.endsWith('.service'));
 		const supervisor = readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8');
 		expect(supervisor).toContain('ProtectSystem=strict');
-		for (const unit of units.filter((name) => name.startsWith('treeseed-manager-') && !['treeseed-manager-supervisor.service', 'treeseed-manager-apt-helper.service'].includes(name))) {
+		for (const unit of units.filter((name) => name.startsWith('treeseed-manager-') && !['treeseed-manager-supervisor.service', 'treeseed-manager-apt-helper.service', 'treeseed-manager-restart.service'].includes(name))) {
 			const value = readFileSync(`systemd/${unit}`, 'utf8');
 			expect(value).toContain('User=treeseed-manager');
 			expect(value).toContain('NoNewPrivileges=yes');
@@ -22,6 +22,10 @@ describe('Debian and systemd contracts', () => {
 		const aptHelper = readFileSync('systemd/treeseed-manager-apt-helper.service', 'utf8');
 		expect(aptHelper).toContain('Type=oneshot');
 		expect(aptHelper).toContain('ProtectSystem=false');
+		const api = readFileSync('systemd/treeseed-manager-api.service', 'utf8');
+		expect(api).toContain('Group=treeseed-operators');
+		expect(api).toContain('SupplementaryGroups=treeseed-manager');
+		expect(supervisor).toContain('-g treeseed-operators -m 0770 /run/treeseed/manager');
 	});
 
 	it('keeps lab isolated from the Docker socket and host ports', () => {
@@ -63,13 +67,31 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
 		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
-		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-stable.sources');
-		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-development.sources');
+		expect(postinstall).toContain('rm -f "$seed"');
+		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('systemctl --no-block start treeseed-bootstrap.service');
+		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).not.toContain('enable --now');
+		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('adduser "$operator" treeseed-operators');
+		expect(readFileSync('systemd/treeseed-bootstrap.service', 'utf8')).toContain('ConditionPathExists=/var/lib/treeseed/bootstrap/seed/platform.json');
+		expect(postinstall).toContain('treeseed-deployment-stable.sources');
+		expect(postinstall).toContain('treeseed-deployment-development.sources');
+		expect(postinstall).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
+		expect(postinstall).toContain('--target-release "$suite"');
+		expect(postinstall).toContain('bootstrap-status.json');
+		expect(postinstall).toContain('-o root -g treeseed-manager -m 0640');
+		expect(postinstall).toContain('"complete":true,"installerCredentialsRetained":false');
+		expect(readFileSync('src/manager/operations.ts', 'utf8')).not.toContain('/var/lib/treeseed/bootstrap/');
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
+		expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['build:workstation']).toContain('artifacts:prepare');
 		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
 		expect(workstation).toContain("'--consume-credentials'");
+		expect(workstation).toContain("generateKeyPairSync('rsa', { modulusLength: 2048 })");
+		expect(workstation).toContain("'api-treedx-delegation-private-key'");
+		expect(workstation).toContain("'treedx-credential-broker-assertion'");
 		expect(workstation).not.toContain('console.log');
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
+		const readme = readFileSync('README.md', 'utf8');
+		expect(readme).toContain('install -o _apt -g root -m 0600');
+		expect(readme).not.toContain('chmod 644');
 	});
 
 	it('locks every external component and host payload by SHA-256', () => {
@@ -85,6 +107,7 @@ describe('Debian and systemd contracts', () => {
 
 	it('binds each protected APT suite to its independent signing identity', () => {
 		const publisher = readFileSync('scripts/publish-apt.ts', 'utf8');
+		const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 		expect(publisher).toContain('release/apt/${suite}.fingerprint');
 		expect(publisher).toContain('does not match its published keyring');
 		const stable = readFileSync('release/apt/stable.fingerprint', 'utf8').trim();
@@ -92,6 +115,11 @@ describe('Debian and systemd contracts', () => {
 		expect(stable).toMatch(/^[A-F0-9]{40}$/u);
 		expect(development).toMatch(/^[A-F0-9]{40}$/u);
 		expect(stable).not.toBe(development);
+		expect(workflow).toContain('find .treeseed/artifacts/components/lab');
+		expect(workflow).not.toMatch(/components\/lab\/0\.1\.0~rc\d+-1\/component-release/u);
+		expect(workflow).toContain('TREESEED_APT_SUITE: ${{ inputs.suite }}');
+		expect(workflow).toContain("if: inputs.suite == 'development'");
+		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || stablePackages.has(name)");
 	});
 
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
@@ -113,5 +141,12 @@ describe('Debian and systemd contracts', () => {
 		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
 		expect(backup).toContain("'var/lib/treeseed/components'");
 		expect(publisher).not.toContain('rmSync(pool');
+	});
+
+	it('does not let development component packages force a core manager upgrade', () => {
+		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packager).toContain("version: release, depends: 'treeseed-manager'");
+		expect(packager).not.toContain('treeseed-manager (>= ${deploymentVersion})');
+		expect(packager).not.toContain('treeseed-manager (= ${deploymentVersion})');
 	});
 });

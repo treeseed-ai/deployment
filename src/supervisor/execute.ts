@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
@@ -30,10 +30,18 @@ function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: Com
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
 }
 
+function resetUnacceptedComponentState(componentId: string) {
+	if (existsSync(`${paths.managerState}/current-receipt.json`) || existsSync(`${paths.managerState}/active-components.json`)) throw new Error('Accepted component state cannot be reset by bootstrap recovery.');
+	const root = resolve(paths.components), target = resolve(root, componentId);
+	if (!target.startsWith(`${root}${sep}`)) throw new Error('Component state reset escaped the managed state root.');
+	rmSync(target, { recursive: true, force: true });
+}
+
 export function executeSupervisorOperation(input: unknown, command: CommandRunner = run) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
+		case 'supervisor.ping': return { ready: true };
 		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
@@ -41,10 +49,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
 		case 'component.configure': configureComponent(operation.componentId); break;
+		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
 			ensureNetwork('treeseed-edge', command);
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait']);
+			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
 			break;
 		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
@@ -55,12 +64,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			generateEdgeCertificate(operation.aliases, command);
 			command('/usr/bin/docker', ['compose', '--file', '/usr/share/treeseed/edge/compose.yml', 'run', '--rm', '--no-deps', 'caddy', 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile']);
 			renameSync(temporary, target);
-			command('/usr/bin/systemctl', ['reload', 'treeseed-edge.service']);
+			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
 		case 'backup.create': return createGenerationBackup(operation.generation, command);
 		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
-		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'restart', 'treeseed-manager-supervisor.service', 'treeseed-manager-api.service']); break;
+		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
