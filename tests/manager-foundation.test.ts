@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
+import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -110,9 +110,14 @@ describe('unified host manager foundation', () => {
 		expect(packageFromTrack('treeseed-release-catalog', 'development')).toBe('treeseed-release-catalog/development');
 		expect(packageFromTrack('treeseed-manager', 'stable')).toBe('treeseed-manager/stable');
 		expect(() => packageFromTrack('../manager', 'stable')).toThrow(/invalid/u);
+		expect(catalogPackagesForTrack('stable')).toEqual(['treeseed-release-catalog/stable']);
+		expect(catalogPackagesForTrack('development')).toEqual(['treeseed-release-catalog/development', 'treeseed-release-catalog-development/development']);
 		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
 		expect(bootstrap).toContain('$package/$suite');
+		expect(bootstrap).toContain('treeseed-release-catalog-development/development');
 		expect(bootstrap).toContain('--allow-downgrades');
+		const aptHelper = readFileSync(resolve(process.cwd(), 'src/supervisor/apt-helper.ts'), 'utf8');
+		expect(aptHelper).not.toContain("'--only-upgrade'");
 	});
 
 	it('installs selected component payloads before validating or activating them', () => {

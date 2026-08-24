@@ -4,7 +4,8 @@
 - `treeseed-manager`: unprivileged reconciler, mTLS API, receipts, and fixed root supervisor.
 - `treeseed-host-runtime`: Node 24 runtime, Docker Engine/Compose integration, directories, users, and systemd units.
 - `treeseed-sdk` and `treeseed-cli`: signed host payloads for the exact accepted SDK and `trsd` client.
-- `treeseed-release-catalog`: signed catalog and compatibility metadata.
+- `treeseed-release-catalog`: signed stable-base catalog and compatibility metadata.
+- `treeseed-release-catalog-development`: co-installable signed development overlay; stable refreshes cannot remove it.
 - `treeseed-edge`: Caddy package/configuration and the dedicated edge network.
 - `treeseed-component-api`, `-agent`, `-treedx`, and `-ai`: thin exact-digest runtime bundles.
 - `treeseed-lab`: optional Mailpit, read-only diagnostics, smoke clients, and development-only routes.
