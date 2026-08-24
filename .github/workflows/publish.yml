@@ -22,6 +22,8 @@ jobs:
   publish:
     environment: ${{ inputs.suite }}
     runs-on: ubuntu-latest
+    env:
+      TREESEED_APT_SUITE: ${{ inputs.suite }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -44,12 +46,16 @@ jobs:
       - run: npm ci
       - run: npm run verify:direct
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+        if: inputs.suite == 'development'
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        if: inputs.suite == 'development'
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        if: inputs.suite == 'development'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - id: diagnostics
+        if: inputs.suite == 'development'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
@@ -60,6 +66,7 @@ jobs:
           sbom: true
           provenance: mode=max
       - id: mailpit
+        if: inputs.suite == 'development'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
@@ -70,6 +77,7 @@ jobs:
           sbom: true
           provenance: mode=max
       - name: Bind and read back exact lab images
+        if: inputs.suite == 'development'
         run: |
           set -euo pipefail
           echo 'TREESEED_DIAGNOSTICS_DIGEST=${{ steps.diagnostics.outputs.digest }}' >> "$GITHUB_ENV"
@@ -102,10 +110,12 @@ jobs:
       - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
       - name: Seal exact-head evidence
         run: |
-          mapfile -t lab_bundles < <(find .treeseed/artifacts/components/lab -mindepth 2 -maxdepth 2 -name component-release.json -type f)
-          test "${#lab_bundles[@]}" -eq 1
-          cp "${lab_bundles[0]}" release/out/lab-component-release.json
-          cp "$(dirname "${lab_bundles[0]}")/compose.yml" release/out/lab-compose.yml
+          if [ "${{ inputs.suite }}" = development ]; then
+            mapfile -t lab_bundles < <(find .treeseed/artifacts/components/lab -mindepth 2 -maxdepth 2 -name component-release.json -type f)
+            test "${#lab_bundles[@]}" -eq 1
+            cp "${lab_bundles[0]}" release/out/lab-component-release.json
+            cp "$(dirname "${lab_bundles[0]}")/compose.yml" release/out/lab-compose.yml
+          fi
           printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:

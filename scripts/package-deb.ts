@@ -7,6 +7,8 @@ interface Definition { architecture: 'all' | 'amd64'; depends: string; descripti
 const root = process.cwd(), output = resolve(root, 'release/out'), cache = resolve(root, '.treeseed/cache'), artifacts = resolve(root, '.treeseed/artifacts');
 const npmVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version as string;
 const deploymentVersion = process.env.TREESEED_DEBIAN_VERSION ?? npmVersion.replace(/-rc\.(\d+)$/u, '~rc$1') + '-1';
+const aptSuite = process.env.TREESEED_APT_SUITE;
+if (aptSuite !== undefined && aptSuite !== 'stable' && aptSuite !== 'development') throw new Error('TREESEED_APT_SUITE must be stable or development.');
 function directory(path: string) { mkdirSync(path, { recursive: true }); }
 function install(source: string, target: string, mode?: number) { directory(resolve(target, '..')); copyFileSync(resolve(root, source), target); if (mode) chmodSync(target, mode); }
 function unit(stage: string, name: string) { install(`systemd/${name}`, resolve(stage, `usr/lib/systemd/system/${name}`)); }
@@ -59,13 +61,13 @@ const packages: Record<string, Definition> = {
 		extractNpm('npm/cli-0.13.0-rc.12.tgz', resolve(stage, 'usr/lib/treeseed/cli'));
 		install('scripts/cli-wrapper.sh', resolve(stage, 'usr/bin/trsd'), 0o755);
 	} },
-	'treeseed-release-catalog': { architecture: 'all', depends: '', description: 'Signed compatible TreeSeed release catalogs', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); for (const track of ['stable', 'development']) copyFileSync(resolve(artifacts, `catalogs/${track}.json`), resolve(stage, `usr/share/treeseed/catalogs/${track}.json`)); } },
+	'treeseed-release-catalog': { architecture: 'all', depends: '', description: 'Signed compatible TreeSeed release catalogs', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); const tracks = aptSuite === 'stable' ? ['stable'] : ['stable', 'development']; for (const track of tracks) copyFileSync(resolve(artifacts, `catalogs/${track}.json`), resolve(stage, `usr/share/treeseed/catalogs/${track}.json`)); } },
 	'treeseed-edge': { architecture: 'all', depends: 'docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Manager-owned TreeSeed Caddy edge and local TLS aliases', postinst: 'debian/edge/postinst', payload(stage) { unit(stage, 'treeseed-edge.service'); directory(resolve(stage, 'etc/treeseed/edge')); writeFileSync(resolve(stage, 'etc/treeseed/edge/Caddyfile'), ':443 { abort }\n'); install('deploy/edge/compose.yml', resolve(stage, 'usr/share/treeseed/edge/compose.yml')); install('scripts/edge/ensure-network.sh', resolve(stage, 'usr/lib/treeseed/edge/bin/ensure-network'), 0o755); } },
 	'treeseed-component-api': component('api', '0.8.0~rc11'), 'treeseed-component-agent': component('agent', '0.13.0~rc13'),
 	'treeseed-component-agent-stable': { ...component('agent', '0.12.58'), packageName: 'treeseed-component-agent' },
 	'treeseed-component-treedx': component('treedx', '0.3.0~rc6'),
 	'treeseed-component-ai': { architecture: 'all', depends: 'treeseed-manager', description: 'Exact runtime bundle for the TreeSeed ai component' },
-	'treeseed-lab': { ...component('lab', '0.1.0~rc16-1'), depends: 'treeseed-manager, treeseed-edge', description: 'Optional TreeSeed development mail and read-only diagnostics services' },
+	'treeseed-lab': { ...component('lab', '0.1.0~rc17-1'), depends: 'treeseed-manager, treeseed-edge', description: 'Optional TreeSeed development mail and read-only diagnostics services' },
 };
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
@@ -82,8 +84,9 @@ function build(name: string, definition: Definition, clean = true) {
 }
 directory(output); const requested = process.argv[2] ?? 'all';
 if (requested === 'all') {
-	const entries = Object.entries(packages).filter(([name]) => name !== 'treeseed');
-	for (const name of new Set(entries.map(([key, definition]) => definition.packageName ?? key))) for (const stale of readdirSync(output).filter((candidate) => candidate.startsWith(`${name}_`) && candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
+	const stablePackages = new Set(['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', 'treeseed-edge', 'treeseed-component-agent-stable']);
+	const entries = Object.entries(packages).filter(([name]) => name !== 'treeseed' && (aptSuite !== 'stable' || stablePackages.has(name)));
+	for (const stale of readdirSync(output).filter((candidate) => candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
 	for (const [name, definition] of entries) build(name, definition, false);
 }
 else { const definition = packages[requested]; if (!definition) throw new Error(`Unknown Debian package ${requested}.`); build(requested, definition); }

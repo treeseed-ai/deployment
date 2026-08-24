@@ -13,6 +13,11 @@ import { refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
 
+const bootstrapHandoffSchema = z.object({
+	complete: z.boolean(),
+	installerCredentialsRetained: z.boolean(),
+}).strict();
+
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.host(?:\.[a-z]+)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
@@ -52,8 +57,11 @@ export function updateTrack(request: Pick<HostCommandRequest, 'arguments' | 'opt
 }
 
 function bootstrapStatus() {
-	const complete = existsSync('/var/lib/treeseed/bootstrap/handoff.complete');
-	return { complete, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`), installerCredentialsRetained: existsSync('/var/lib/treeseed/bootstrap/seed/credentials.json') };
+	const marker = `${paths.managerState}/bootstrap-status.json`;
+	const handoff = existsSync(marker)
+		? bootstrapHandoffSchema.parse(JSON.parse(readFileSync(marker, 'utf8')))
+		: { complete: false, installerCredentialsRetained: false };
+	return { ...handoff, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`) };
 }
 
 export async function executeHostCommand(input: unknown, context: { local: boolean }) {

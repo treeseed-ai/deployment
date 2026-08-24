@@ -72,8 +72,14 @@ describe('Debian and systemd contracts', () => {
 		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).not.toContain('enable --now');
 		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('adduser "$operator" treeseed-operators');
 		expect(readFileSync('systemd/treeseed-bootstrap.service', 'utf8')).toContain('ConditionPathExists=/var/lib/treeseed/bootstrap/seed/platform.json');
-		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-stable.sources');
-		expect(postinstall).toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-development.sources');
+		expect(postinstall).toContain('treeseed-deployment-stable.sources');
+		expect(postinstall).toContain('treeseed-deployment-development.sources');
+		expect(postinstall).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
+		expect(postinstall).toContain('--target-release "$suite"');
+		expect(postinstall).toContain('bootstrap-status.json');
+		expect(postinstall).toContain('-o root -g treeseed-manager -m 0640');
+		expect(postinstall).toContain('"complete":true,"installerCredentialsRetained":false');
+		expect(readFileSync('src/manager/operations.ts', 'utf8')).not.toContain('/var/lib/treeseed/bootstrap/');
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
 		expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['build:workstation']).toContain('artifacts:prepare');
 		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
@@ -111,6 +117,9 @@ describe('Debian and systemd contracts', () => {
 		expect(stable).not.toBe(development);
 		expect(workflow).toContain('find .treeseed/artifacts/components/lab');
 		expect(workflow).not.toMatch(/components\/lab\/0\.1\.0~rc\d+-1\/component-release/u);
+		expect(workflow).toContain('TREESEED_APT_SUITE: ${{ inputs.suite }}');
+		expect(workflow).toContain("if: inputs.suite == 'development'");
+		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || stablePackages.has(name)");
 	});
 
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
