@@ -44,6 +44,12 @@ function componentId(request: HostCommandRequest) {
 	return value;
 }
 
+export function updateTrack(request: Pick<HostCommandRequest, 'arguments' | 'options'>): 'stable' | 'development' {
+	const value = request.options.track ?? request.arguments[0] ?? 'stable';
+	if (value !== 'stable' && value !== 'development') throw new Error('Update track must be stable or development.');
+	return value;
+}
+
 function bootstrapStatus() {
 	const complete = existsSync('/var/lib/treeseed/bootstrap/handoff.complete');
 	return { complete, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`), installerCredentialsRetained: existsSync('/var/lib/treeseed/bootstrap/seed/credentials.json') };
@@ -83,8 +89,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.update.pause':
 		case 'local.host.update.resume': {
-			const track = request.options.track;
-			const selected = track === 'development' ? 'development' : 'stable';
+			const selected = updateTrack(request);
 			if (request.options.plan === true) return { track: selected, paused: request.handlerId.endsWith('.pause'), mutation: false };
 			return updatePaused(selected, request.handlerId.endsWith('.pause'));
 		}

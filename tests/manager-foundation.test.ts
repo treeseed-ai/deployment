@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, subjectAlternativeNames, supervisorOperationSchema, validateProductionCompose } from '../src/index.js';
+import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -95,6 +95,13 @@ describe('unified host manager foundation', () => {
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 23, 3, 10))).toBe(true);
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 24, 3, 10))).toBe(false);
 		expect(activationEligible(configuration, 'development')).toBe(true);
+	});
+
+	it('selects an explicit update track without silently falling back to stable', () => {
+		expect(updateTrack({ arguments: ['development'], options: {} })).toBe('development');
+		expect(updateTrack({ arguments: [], options: { track: 'development' } })).toBe('development');
+		expect(updateTrack({ arguments: [], options: {} })).toBe('stable');
+		expect(() => updateTrack({ arguments: ['nightly'], options: {} })).toThrow(/stable or development/u);
 	});
 
 	it('installs selected component payloads before validating or activating them', () => {
