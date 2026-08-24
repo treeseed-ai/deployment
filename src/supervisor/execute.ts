@@ -48,11 +48,10 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
-		case 'component.configure': configureComponent(operation.componentId); break;
+		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment); break;
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
-			ensureNetwork('treeseed-edge', command);
 			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
 			break;
 		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
@@ -73,6 +72,13 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
+			atomicJson(paths.configuration, operation.configuration, 0o640);
+			break;
+		}
+		case 'configuration.adopt': {
+			const current = loadHostConfiguration();
+			if (current.configurationId === operation.configuration.configurationId) throw new Error('Configuration adoption requires a different configuration identity.');
+			atomicJson(`${paths.managerState}/adopted-configurations/${current.configurationId}-${current.generation}.json`, current, 0o600);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}

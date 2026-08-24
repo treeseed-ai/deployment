@@ -10,5 +10,4 @@ install -d -o treeseed-manager -g treeseed-manager -m 0750 /var/lib/treeseed/man
 if [ -f /etc/treeseed/platform.json ]; then chown root:treeseed-manager /etc/treeseed/platform.json; chmod 0640 /etc/treeseed/platform.json; fi
 systemctl daemon-reload
 systemctl enable treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer >/dev/null
-systemctl --no-block try-restart treeseed-manager-supervisor.service treeseed-manager-api.service >/dev/null 2>&1 || true
 exit 0

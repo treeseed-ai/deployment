@@ -50,16 +50,40 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 }
 
 function composeFiles(component: ComponentRelease) {
-	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file}`);
+	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
+}
+
+function managedConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+	const selection = host.components[component.componentId]!, selected = new Map(releases.map((release) => [release.componentId, release]));
+	const values: Record<string, string> = {};
+	for (const dependency of component.runtime.dependencies) {
+		const connection = selection.connections[dependency.id];
+		if (!connection) continue;
+		const prefix = `TREESEED_${dependency.id.replaceAll('-', '_').toUpperCase()}`;
+		if (connection.kind === 'remote') {
+			values[`${prefix}_URL`] = connection.url.replace(/\/$/u, '');
+			values[`${prefix}_AUDIENCE`] = connection.audience;
+			if (connection.tls.caSecretRef) values[`${prefix}_CA_FILE`] = host.secrets[connection.tls.caSecretRef]!.reference;
+			if (connection.authentication.secretRef) values[`${prefix}_CREDENTIAL_FILE`] = host.secrets[connection.authentication.secretRef]!.reference;
+			continue;
+		}
+		const target = selected.get(connection.componentId)!, service = target.runtime.services.find((candidate) => candidate.id === connection.serviceId)!;
+		const endpoint = service.endpoints.find((candidate) => candidate.id === connection.endpointId)!;
+		values[`${prefix}_URL`] = `${endpoint.protocol}://${service.composeService}:${endpoint.port}`;
+		const identity = `${target.componentId}.${service.id}.${endpoint.id}`;
+		const alias = host.components[target.componentId]?.aliases[identity] ?? endpoint.defaultAlias;
+		values[`${prefix}_AUDIENCE`] = alias ? `https://${alias}` : values[`${prefix}_URL`]!;
+	}
+	return values;
 }
 
 async function stop(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-async function activate(component: ComponentRelease) {
+async function activate(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId });
+	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment: managedConnectionEnvironment(host, component, releases) });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), waitTimeoutSeconds });
 }
 
@@ -71,6 +95,19 @@ export function rollbackRoutes(host: HostConfiguration, components: ComponentRel
 	return routes.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
+export async function withDeferredManagerRestart<T>(coreUpdated: boolean, operation: () => Promise<T>, scheduleRestart: () => Promise<unknown> = () => requestSupervisor({ operation: 'manager.restart' })) {
+	try { return await operation(); }
+	finally {
+		if (coreUpdated) {
+			try { await scheduleRestart(); }
+			catch (error) {
+				try { recordEvent('manager.restart-schedule-failed', { message: error instanceof Error ? error.message : String(error) }); }
+				catch { /* preserve the reconciliation result when restart scheduling cannot be recorded */ }
+			}
+		}
+	}
+}
+
 export async function reconcile(track?: 'stable' | 'development') {
 	const host = loadHostConfiguration();
 	const previous = previousReceipt();
@@ -79,6 +116,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		return previous;
 	}
 	const refresh = await refreshAvailableCatalogs(host, track);
+	return withDeferredManagerRestart(refresh.coreUpdated, async () => {
 	const stable = loadCatalog(`${paths.catalogs}/stable.json`);
 	const developmentPath = `${paths.catalogs}/development.json`;
 	const accepted = createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, previous);
@@ -95,10 +133,10 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
-		if (refresh.coreUpdated) await requestSupervisor({ operation: 'manager.restart' });
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
+	if (accepted.routes.length) packages.unshift('treeseed-edge');
 	const impacted = configurationChanged ? active : active.filter((component) => changedIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const generation = Date.now();
 	for (const component of impacted) await stop(component);
@@ -106,8 +144,8 @@ export async function reconcile(track?: 'stable' | 'development') {
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of configurationChanged ? accepted.components : changed) await activate(component);
-		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(accepted.routes), aliases: subjectAlternativeNames(accepted.routes) });
+		for (const component of configurationChanged ? accepted.components : changed) await activate(host, component, accepted.components);
+		if (accepted.routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(accepted.routes), aliases: subjectAlternativeNames(accepted.routes) });
 	} catch (error) {
 		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of changed) {
@@ -116,17 +154,17 @@ export async function reconcile(track?: 'stable' | 'development') {
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		await requestSupervisor({ operation: 'recovery.restore', generation });
-		for (const component of active) await activate(component);
+		for (const component of active) await activate(host, component, active);
 		const previousRoutes = rollbackRoutes(host, active);
-		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
+		if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		throw error;
 	}
-	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', configurationDigest: accepted.plan.configurationDigest, catalogDigest: accepted.plan.catalogDigest, packages: accepted.components.flatMap((component) => component.packages), images: accepted.components.flatMap((component) => component.images), completedAt: new Date().toISOString() });
+	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: accepted.plan.catalogDigest, packages: accepted.components.flatMap((component) => component.packages), images: accepted.components.flatMap((component) => component.images), runtimes: accepted.components.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
 	atomicJson(`${paths.managerState}/active-components.json`, accepted.components);
 	recordEvent('reconcile.complete', { receiptId: receipt.receiptId, planId: receipt.planId });
-	if (refresh.coreUpdated) await requestSupervisor({ operation: 'manager.restart' });
 	return receipt;
+	});
 }

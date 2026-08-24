@@ -20,6 +20,9 @@ jobs:
       - run: npm ci
       - run: npm run verify:direct
       - run: npm run verify:deb
+        env:
+          TREESEED_APT_SUITE: development
+          TREESEED_INTEGRATION_RELEASES: tests/integration-locks/stable.json,tests/integration-locks/development.json
       - uses: anchore/sbom-action/download-syft@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
       - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
       - name: Seal exact-head evidence

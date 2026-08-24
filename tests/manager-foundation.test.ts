@@ -1,8 +1,9 @@
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose } from '../src/index.js';
+import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -16,10 +17,10 @@ describe('unified host manager foundation', () => {
 
 	it('fails closed on unknown alias identities and applies fully qualified overrides', () => {
 		const configuration = host(), { stable, development } = catalogs();
-		configuration.components.api!.aliases = { 'api.http': 'api-canary.treeseed.localhost' };
+		configuration.components.api!.aliases = { 'api.http': 'api-preview.treeseed.localhost' };
 		expect(() => createPlan(configuration, stable, development)).toThrow(/does not identify an accepted host endpoint/u);
-		configuration.components.api!.aliases = { 'api.service.http': 'api-canary.treeseed.localhost' };
-		expect(createPlan(configuration, stable, development).routes.map((route) => route.alias)).toContain('api-canary.treeseed.localhost');
+		configuration.components.api!.aliases = { 'api.service.http': 'api-preview.treeseed.localhost' };
+		expect(createPlan(configuration, stable, development).routes.map((route) => route.alias)).toContain('api-preview.treeseed.localhost');
 	});
 
 	it('renders one certificate identity set and mTLS manager policy', () => {
@@ -37,13 +38,18 @@ describe('unified host manager foundation', () => {
 	it('rejects source builds, mutable images, and host port publication', () => {
 		const release = component('api', 'stable', 'b'), root = mkdtempSync(resolve(tmpdir(), 'treeseed-compose-'));
 		const file = resolve(root, 'compose.yml');
+		const bindCompose = () => { release.runtime.compose.files[0]!.digest = `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`; };
 		writeFileSync(file, `services:\n  service:\n    image: treeseed/api@${hash('b')}\n`);
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).not.toThrow();
 		writeFileSync(file, `services:\n  service:\n    build: .\n    image: treeseed/api@${hash('b')}\n`);
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/forbidden Compose build/u);
 		writeFileSync(file, 'services:\n  service:\n    image: treeseed/api:latest\n');
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/immutable image digest/u);
 		writeFileSync(file, `services:\n  service:\n    image: treeseed/api@${hash('b')}\n    ports: ["3000:3000"]\n`);
+		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/publishes a host port/u);
 	});
 
@@ -79,7 +85,7 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.replace', configuration: host() })).toMatchObject({ operation: 'configuration.replace' });
 		expect(supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: 'client-12345678' })).toEqual({ operation: 'pki.enroll', clientId: 'client-12345678' });
 		expect(() => supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: '../../root' })).toThrow();
-		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'api' })).toEqual({ operation: 'component.configure', componentId: 'api' });
+		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'api', connectionEnvironment: {} })).toEqual({ operation: 'component.configure', componentId: 'api', connectionEnvironment: {} });
 		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', componentId: '../api' })).toThrow();
 	});
 
@@ -104,6 +110,20 @@ describe('unified host manager foundation', () => {
 		expect(updateTrack({ arguments: [], options: { track: 'development' } })).toBe('development');
 		expect(updateTrack({ arguments: [], options: {} })).toBe('stable');
 		expect(() => updateTrack({ arguments: ['nightly'], options: {} })).toThrow(/stable or development/u);
+	});
+
+	it('selects archive-qualified packages when track versions cross', () => {
+		expect(packageFromTrack('treeseed-release-catalog', 'development')).toBe('treeseed-release-catalog/development');
+		expect(packageFromTrack('treeseed-manager', 'stable')).toBe('treeseed-manager/stable');
+		expect(() => packageFromTrack('../manager', 'stable')).toThrow(/invalid/u);
+		expect(catalogPackagesForTrack('stable')).toEqual(['treeseed-release-catalog/stable']);
+		expect(catalogPackagesForTrack('development')).toEqual(['treeseed-release-catalog/development', 'treeseed-release-catalog-development/development']);
+		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
+		expect(bootstrap).toContain('$package/$suite');
+		expect(bootstrap).toContain('treeseed-release-catalog-development/development');
+		expect(bootstrap).toContain('--allow-downgrades');
+		const aptHelper = readFileSync(resolve(process.cwd(), 'src/supervisor/apt-helper.ts'), 'utf8');
+		expect(aptHelper).not.toContain("'--only-upgrade'");
 	});
 
 	it('installs selected component payloads before validating or activating them', () => {
@@ -131,12 +151,25 @@ describe('unified host manager foundation', () => {
 		expect(arguments_.at(-1)).toBe('--track=development');
 		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
 		expect(operations).not.toMatch(/\breconcile\(\)/u);
-		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(4);
+		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(6);
 	});
 
 	it('defers manager self-restart long enough to return the accepted receipt', () => {
 		const unit = readFileSync(resolve(process.cwd(), 'systemd/treeseed-manager-restart.service'), 'utf8');
 		expect(unit).toContain('ExecStart=/usr/bin/sleep 5');
 		expect(unit).toContain('ExecStart=/usr/bin/systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
+	});
+
+	it('schedules exactly one deferred restart after every post-refresh outcome', async () => {
+		let restarts = 0;
+		const schedule = async () => { restarts += 1; };
+		await expect(withDeferredManagerRestart(true, async () => 'accepted', schedule)).resolves.toBe('accepted');
+		expect(restarts).toBe(1);
+		await expect(withDeferredManagerRestart(false, async () => 'unchanged', schedule)).resolves.toBe('unchanged');
+		expect(restarts).toBe(1);
+		const failure = new Error('planning failed');
+		await expect(withDeferredManagerRestart(true, async () => { throw failure; }, schedule)).rejects.toBe(failure);
+		expect(restarts).toBe(2);
+		await expect(withDeferredManagerRestart(true, async () => 'accepted', async () => { throw new Error('restart unavailable'); })).resolves.toBe('accepted');
 	});
 });

@@ -26,6 +26,10 @@ describe('Debian and systemd contracts', () => {
 		expect(api).toContain('Group=treeseed-operators');
 		expect(api).toContain('SupplementaryGroups=treeseed-manager');
 		expect(supervisor).toContain('-g treeseed-operators -m 0770 /run/treeseed/manager');
+		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
+		expect(managerPostinstall).not.toContain('try-restart');
+		expect(managerPostinstall).not.toContain('restart treeseed-manager');
+		expect(readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8')).toContain('systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 
 	it('keeps lab isolated from the Docker socket and host ports', () => {
@@ -41,7 +45,7 @@ describe('Debian and systemd contracts', () => {
 		expect(publication).toContain('Bind and read back exact lab images');
 		expect(publication).toContain('TREESEED_REQUIRE_PUBLISHED_IMAGES=1');
 		expect(publication).toContain('gh release create');
-		expect(readFileSync('scripts/prepare-artifacts.ts', 'utf8')).toContain('Protected publication requires read-back lab image digests.');
+		expect(readFileSync('scripts/prepare-artifacts.ts', 'utf8')).toContain('Integration selection');
 	});
 
 	it('runs the only host edge inside the shared Docker network', () => {
@@ -76,6 +80,8 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('treeseed-deployment-development.sources');
 		expect(postinstall).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
 		expect(postinstall).toContain('--target-release "$suite"');
+		expect(postinstall).toContain('$package/$suite');
+		expect(postinstall).toContain('--allow-downgrades');
 		expect(postinstall).toContain('bootstrap-status.json');
 		expect(postinstall).toContain('-o root -g treeseed-manager -m 0640');
 		expect(postinstall).toContain('"complete":true,"installerCredentialsRetained":false');
@@ -94,15 +100,12 @@ describe('Debian and systemd contracts', () => {
 		expect(readme).not.toContain('chmod 644');
 	});
 
-	it('locks every external component and host payload by SHA-256', () => {
-		const lock = JSON.parse(readFileSync('release/artifacts.lock.json', 'utf8')) as { schemaVersion: string; artifacts: Array<{ id: string; url: string; sha256: string; target: string }> };
-		expect(lock.schemaVersion).toBe('treeseed.deployment-artifacts/v1');
-		expect(new Set(lock.artifacts.map((artifact) => artifact.id)).size).toBe(lock.artifacts.length);
-		for (const artifact of lock.artifacts) {
-			expect(artifact.url).toMatch(/^https:\/\/(?:github\.com|registry\.npmjs\.org)\//u);
-			expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/u);
-			expect(artifact.target).not.toContain('..');
-		}
+	it('locks every external component and host payload through exact Platform integration releases', () => {
+		const fetcher = readFileSync('scripts/fetch-artifacts.ts', 'utf8');
+		expect(fetcher).toContain('integrationReleaseSchema.parse');
+		expect(fetcher).toContain('raw\\.githubusercontent\\.com');
+		expect(fetcher).toContain('digest(value) !== sha256');
+		expect(readFileSync('scripts/package-deb.ts', 'utf8')).not.toMatch(/component\('(api|agent|treedx)',\s*'\d/u);
 	});
 
 	it('binds each protected APT suite to its independent signing identity', () => {
@@ -118,8 +121,8 @@ describe('Debian and systemd contracts', () => {
 		expect(workflow).toContain('find .treeseed/artifacts/components/lab');
 		expect(workflow).not.toMatch(/components\/lab\/0\.1\.0~rc\d+-1\/component-release/u);
 		expect(workflow).toContain('TREESEED_APT_SUITE: ${{ inputs.suite }}');
-		expect(workflow).toContain("if: inputs.suite == 'development'");
-		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || stablePackages.has(name)");
+		expect(readFileSync('.github/workflows/publish-lab.yml', 'utf8')).toContain('environment: development');
+		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'");
 	});
 
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
@@ -134,6 +137,7 @@ describe('Debian and systemd contracts', () => {
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
+		expect(helper).toContain('packageFromTrack(name, operation.track)');
 		expect(reconciliation).toContain("operation: 'apt.refresh'");
 		expect(reconciliation).toContain("operation: 'backup.create'");
 		expect(reconciliation).toContain("operation: 'recovery.restore'");
@@ -145,7 +149,7 @@ describe('Debian and systemd contracts', () => {
 
 	it('does not let development component packages force a core manager upgrade', () => {
 		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
-		expect(packager).toContain("version: release, depends: 'treeseed-manager'");
+		expect(packager).toContain("depends: 'treeseed-manager'");
 		expect(packager).not.toContain('treeseed-manager (>= ${deploymentVersion})');
 		expect(packager).not.toContain('treeseed-manager (= ${deploymentVersion})');
 	});

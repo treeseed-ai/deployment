@@ -11,6 +11,12 @@ on:
         required: true
         type: choice
         options: [development, stable]
+      stable_lock_url:
+        description: Exact-commit raw URL for the Platform stable integration release
+        required: true
+      development_lock_url:
+        description: Exact-commit raw URL for the Platform development integration release
+        required: false
 
 permissions:
   contents: write
@@ -24,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TREESEED_APT_SUITE: ${{ inputs.suite }}
+      TREESEED_INTEGRATION_RELEASES: ${{ inputs.stable_lock_url }},${{ inputs.development_lock_url }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -38,6 +45,7 @@ jobs:
             case "${{ inputs.tag }}" in *-*) exit 1;; esac
           else
             case "${{ inputs.tag }}" in *-rc.*) :;; *) exit 1;; esac
+            test -n "${{ inputs.development_lock_url }}"
           fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -46,16 +54,16 @@ jobs:
       - run: npm ci
       - run: npm run verify:direct
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
-        if: inputs.suite == 'development'
+        if: ${{ false }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
-        if: inputs.suite == 'development'
+        if: ${{ false }}
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
-        if: inputs.suite == 'development'
+        if: ${{ false }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - id: diagnostics
-        if: inputs.suite == 'development'
+        if: ${{ false }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
@@ -66,7 +74,7 @@ jobs:
           sbom: true
           provenance: mode=max
       - id: mailpit
-        if: inputs.suite == 'development'
+        if: ${{ false }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
@@ -77,7 +85,7 @@ jobs:
           sbom: true
           provenance: mode=max
       - name: Bind and read back exact lab images
-        if: inputs.suite == 'development'
+        if: ${{ false }}
         run: |
           set -euo pipefail
           echo 'TREESEED_DIAGNOSTICS_DIGEST=${{ steps.diagnostics.outputs.digest }}' >> "$GITHUB_ENV"
@@ -132,10 +140,11 @@ jobs:
           set -euo pipefail
           prerelease=()
           if [ "${{ inputs.suite }}" = development ]; then prerelease=(--prerelease); fi
-          gh release create "${{ inputs.tag }}" release/out/* \
-            --verify-tag \
-            --generate-notes \
-            "${prerelease[@]}"
+          if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.tag }}" release/out/*
+          else
+            gh release create "${{ inputs.tag }}" release/out/* --verify-tag --generate-notes "${prerelease[@]}"
+          fi
       - name: Publish signed APT suite
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
