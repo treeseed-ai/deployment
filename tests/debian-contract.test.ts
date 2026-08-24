@@ -26,6 +26,10 @@ describe('Debian and systemd contracts', () => {
 		expect(api).toContain('Group=treeseed-operators');
 		expect(api).toContain('SupplementaryGroups=treeseed-manager');
 		expect(supervisor).toContain('-g treeseed-operators -m 0770 /run/treeseed/manager');
+		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
+		expect(managerPostinstall).not.toContain('try-restart');
+		expect(managerPostinstall).not.toContain('restart treeseed-manager');
+		expect(readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8')).toContain('systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 
 	it('keeps lab isolated from the Docker socket and host ports', () => {
