@@ -1,0 +1,21 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: TreeSeed Deployment
+Label: TreeSeed Deployment
+Suite: stable
+Codename: stable
+Date: Mon, 24 Aug 2026 04:54:18 GMT
+Architectures: amd64 all
+Components: main
+Description: Signed TreeSeed Deployment packages
+SHA256:
+ 23fe35ab13b2ae425dcfc205736989988826a85088d8752fda806ad305652dd0 3856 main/binary-amd64/Packages
+ 1ff0e7df448a7adb9ce3c613113bcecdd6c0ddafaa25b9c60e6c582aed5d963c 1335 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQQJe6jqbBZ+EIB+oSEGjoScnlJTDAUCaovOegAKCRAGjoScnlJT
+DFvrAQCcW4WDs/4Gqt4qfZW76Ujom+nB/loRHWA4ecH5BbQLtQD+O5xls9BUg0lp
+WtRCZICjnTt9QADV7vLTnWrdN7MTJAc=
+=D3P0
+-----END PGP SIGNATURE-----
