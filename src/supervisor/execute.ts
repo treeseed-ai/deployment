@@ -69,7 +69,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'backup.create': return createGenerationBackup(operation.generation, command);
 		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
-		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'restart', 'treeseed-manager-supervisor.service', 'treeseed-manager-api.service']); break;
+		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);

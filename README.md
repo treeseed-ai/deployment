@@ -34,6 +34,21 @@ The generator consumes the credential input, emits a checksum without echoing
 secret data, and marks the resulting package mode `0600`. After installation,
 the operator must securely delete the downloaded configured package.
 
+APT normally reads local packages through its unprivileged `_apt` account. To
+keep a configured package private without triggering an unsandboxed-download
+warning, stage a root-controlled copy owned by `_apt`, install that copy, and
+remove it after manager handoff:
+
+```sh
+sudo install -o _apt -g root -m 0600 /path/to/treeseed-configured.deb \
+  /var/cache/apt/archives/treeseed-configured.deb
+sudo apt install /var/cache/apt/archives/treeseed-configured.deb
+sudo rm -f /var/cache/apt/archives/treeseed-configured.deb
+```
+
+Do not make the credential-bearing package world-readable or loosen the
+operator home-directory permissions merely to suppress the APT warning.
+
 The workstation canary has a stricter convenience entrypoint. It accepts a
 private Codex login cache, generates the API database and session secrets in
 memory, packages the declared manager-owned credential files, and consumes its

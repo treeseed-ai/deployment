@@ -14,7 +14,7 @@ describe('Debian and systemd contracts', () => {
 		const units = readdirSync('systemd').filter((name) => name.endsWith('.service'));
 		const supervisor = readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8');
 		expect(supervisor).toContain('ProtectSystem=strict');
-		for (const unit of units.filter((name) => name.startsWith('treeseed-manager-') && !['treeseed-manager-supervisor.service', 'treeseed-manager-apt-helper.service'].includes(name))) {
+		for (const unit of units.filter((name) => name.startsWith('treeseed-manager-') && !['treeseed-manager-supervisor.service', 'treeseed-manager-apt-helper.service', 'treeseed-manager-restart.service'].includes(name))) {
 			const value = readFileSync(`systemd/${unit}`, 'utf8');
 			expect(value).toContain('User=treeseed-manager');
 			expect(value).toContain('NoNewPrivileges=yes');
@@ -83,6 +83,9 @@ describe('Debian and systemd contracts', () => {
 		expect(workstation).toContain("'treedx-credential-broker-assertion'");
 		expect(workstation).not.toContain('console.log');
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
+		const readme = readFileSync('README.md', 'utf8');
+		expect(readme).toContain('install -o _apt -g root -m 0600');
+		expect(readme).not.toContain('chmod 644');
 	});
 
 	it('locks every external component and host payload by SHA-256', () => {
