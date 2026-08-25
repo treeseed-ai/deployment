@@ -98,6 +98,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			// The supervisor performs deletion as root, but reconciliation and the
 			// local manager API deliberately run as treeseed-manager. Restore their
 			// custody before the supervisor records completion or reset continues.
+			// Materialize the ledger first so the root completion event appends to
+			// the manager-owned inode instead of recreating it as root.
+			writeFileSync(`${paths.managerState}/events.jsonl`, '', { encoding: 'utf8', mode: 0o640 });
 			command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState]);
 			return result;
 		}
