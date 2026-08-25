@@ -143,7 +143,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
 	const changed = targets.filter((component) => changedIds.has(component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && previous) {
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}

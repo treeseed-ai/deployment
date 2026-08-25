@@ -1,7 +1,7 @@
-Package: *
+Package: treeseed-*
 Pin: release o=TreeSeed Deployment,a=stable
-Pin-Priority: 700
+Pin-Priority: 1001
 
-Package: *
+Package: treeseed-*
 Pin: release o=TreeSeed Deployment,a=development
 Pin-Priority: 100

@@ -1,0 +1,7 @@
+Package: treeseed-*
+Pin: release o=TreeSeed Deployment,a=development
+Pin-Priority: 1001
+
+Package: treeseed-*
+Pin: release o=TreeSeed Deployment,a=stable
+Pin-Priority: 100

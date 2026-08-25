@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, renameSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { paths } from '../core/paths.js';
 import { atomicJson } from '../core/files.js';
 import { supervisorOperationSchema } from './protocol.js';
@@ -13,6 +13,11 @@ const optionalCorePackages = ['treeseed-edge'] as const;
 export function packageFromTrack(name: string, track: 'stable' | 'development') {
 	if (!/^[a-z0-9][a-z0-9+.-]*$/u.test(name)) throw new Error('APT package name is invalid.');
 	return `${name}/${track}`;
+}
+
+export function aptPreferencesForTrack(track: 'stable' | 'development') {
+	const other = track === 'stable' ? 'development' : 'stable';
+	return `Package: treeseed-*\nPin: release o=TreeSeed Deployment,a=${track}\nPin-Priority: 1001\n\nPackage: treeseed-*\nPin: release o=TreeSeed Deployment,a=${other}\nPin-Priority: 100\n`;
 }
 
 export function catalogPackagesForTrack(track: 'stable' | 'development') {
@@ -42,6 +47,7 @@ export function applyPendingPackages(command: AptCommandRunner = run) {
 	if (operation.operation === 'apt.install') command('/usr/bin/apt-get', [...transactionOptions, 'install', ...operation.packages]);
 	else if (operation.operation === 'apt.refresh') {
 		const before = operation.updateCore ? installedCoreVersions() : {};
+		if (operation.updateCore) writeFileSync('/etc/apt/preferences.d/treeseed-deployment', aptPreferencesForTrack(operation.track), { encoding: 'utf8', mode: 0o644 });
 		command('/usr/bin/apt-get', ['-o', 'DPkg::Lock::Timeout=600', 'update']);
 		const packages = catalogPackagesForTrack(operation.track);
 		if (operation.updateCore) packages.push(...corePackagesForTrack(operation.track, before));

@@ -56,10 +56,13 @@ describe('Debian and systemd contracts', () => {
 		expect(compose).toContain('caddy:2.10.2-alpine@sha256:');
 		expect(compose).toContain('name: treeseed-edge');
 		expect(compose).toContain('/run/treeseed/manager:/run/treeseed/manager:ro');
+		expect(compose).toContain('caddy", "validate"');
 		expect(unit).toContain('docker compose --file /usr/share/treeseed/edge/compose.yml');
 		expect(unit).not.toContain('/usr/bin/caddy');
 		expect(supervisor).toContain("'/usr/share/treeseed/edge/compose.yml'");
 		expect(supervisor).toContain("'validate'");
+		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("':443 {\\n\\tabort\\n}\\n'");
+		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('RuntimeDirectory=treeseed/manager');
 	});
 
 	it('documents configured-package credential consumption and deletion', () => {
