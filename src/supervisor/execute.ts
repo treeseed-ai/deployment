@@ -97,6 +97,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'cli.configure': {
 			mkdirSync(paths.cli, { recursive: true, mode: 0o755 });
 			writeFileSync(`${paths.cli}/api-base-url`, `${operation.controlPlaneUrl}\n`, { encoding: 'utf8', mode: 0o644 });
+			writeFileSync(`${paths.cli}/localhost-ca.crt`, readFileSync(`${paths.tls}/ca.crt`), { mode: 0o644 });
 			break;
 		}
 		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;

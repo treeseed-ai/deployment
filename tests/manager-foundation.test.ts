@@ -237,6 +237,14 @@ describe('unified host manager foundation', () => {
 		expect(reconciliation).not.toContain("packages.unshift('treeseed-edge')");
 	});
 
+	it('repairs CLI endpoint and CA custody before unchanged no-op convergence', () => {
+		const source = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
+		expect(source.indexOf("operation: 'cli.configure'")).toBeLessThan(source.indexOf("recordEvent('reconcile.noop'"));
+		const supervisor = readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8');
+		expect(supervisor).toContain("readFileSync(`${paths.tls}/ca.crt`)");
+		expect(supervisor).toContain("`${paths.cli}/localhost-ca.crt`");
+	});
+
 	it('installs selected component payloads before validating or activating them', () => {
 		const source = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
 		const install = source.indexOf("operation: 'apt.install'"), validate = source.indexOf('validateProductionCompose(component');

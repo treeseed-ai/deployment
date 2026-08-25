@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { hostReceiptSchema, type ComponentRelease, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
 import { loadCatalog } from '../catalog/load.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -161,6 +161,10 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const changed = targets.filter((component) => changedIds.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
+	const cliControlPlaneUrl = managedCliControlPlaneUrl(host, effective);
+	const cliUrlPath = `${paths.cli}/api-base-url`, cliCaPath = `${paths.cli}/localhost-ca.crt`;
+	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
+	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
@@ -174,8 +178,6 @@ export async function reconcile(track?: 'stable' | 'development') {
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		const cliControlPlaneUrl = managedCliControlPlaneUrl(host, effective);
-		if (cliControlPlaneUrl) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
 		for (const component of configurationChanged ? effective : changed) await activate(host, component, effective);
 		for (const component of configurationChanged ? effective : changed) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
