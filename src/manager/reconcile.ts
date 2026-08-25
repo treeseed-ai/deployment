@@ -19,6 +19,10 @@ function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
 }
 
+export function aptSuiteForRefresh(hostDefaultTrack: 'stable' | 'development', requestedTrack: 'stable' | 'development') {
+	return hostDefaultTrack === 'development' || requestedTrack === 'development' ? 'development' : 'stable';
+}
+
 export async function refreshAvailableCatalogs(host: HostConfiguration, requestedTrack?: 'stable' | 'development', allowCoreUpdate = true, forceMetadata = false) {
 	const tracks = requestedTrack ? [requestedTrack] : [...new Set([host.updates.defaultTrack, ...Object.values(host.components).filter((component) => component.enabled).map((component) => component.track)])];
 	let coreUpdated = false;
@@ -28,16 +32,17 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 			recordEvent('update.metadata-not-due', { track });
 			continue;
 		}
-		if (!existsSync(configuredAptSource(track))) {
-			recordEvent('update.source-unconfigured', { track });
+		const suite = aptSuiteForRefresh(host.updates.defaultTrack, track);
+		if (!existsSync(configuredAptSource(suite))) {
+			recordEvent('update.source-unconfigured', { track, suite });
 			continue;
 		}
 		const updateCore = allowCoreUpdate && track === host.updates.defaultTrack && activationEligible(host, track);
-		const result = await requestSupervisor<AptRefreshResult>({ operation: 'apt.refresh', track, updateCore });
+		const result = await requestSupervisor<AptRefreshResult>({ operation: 'apt.refresh', track: suite, updateCore });
 		metadataChecked(track);
 		coreUpdated ||= result.coreUpdated;
 		for (const [name, version] of Object.entries(result.before)) if (version) previousCore.set(name, version);
-		recordEvent('update.metadata-refreshed', { track, updateCore, coreUpdated: result.coreUpdated });
+		recordEvent('update.metadata-refreshed', { track, suite, updateCore, coreUpdated: result.coreUpdated });
 	}
 	return { coreUpdated, previousCore };
 }
