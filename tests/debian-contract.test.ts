@@ -5,8 +5,9 @@ describe('Debian and systemd contracts', () => {
 	it('ships independent stable and development schedulers', () => {
 		const stable = readFileSync('systemd/treeseed-manager-stable.timer', 'utf8');
 		const development = readFileSync('systemd/treeseed-manager-development.timer', 'utf8');
-		expect(stable).toContain('OnCalendar=*-*-* 03:00:00');
-		expect(stable).toContain('RandomizedDelaySec=30m');
+		expect(stable).toContain('OnUnitInactiveSec=5m');
+		expect(stable).not.toContain('OnCalendar=');
+		expect(stable).toContain('RandomizedDelaySec=15s');
 		expect(development).toContain('OnUnitInactiveSec=60s');
 	});
 

@@ -130,7 +130,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.fleet.status': return { hostId: host.host.id, rolloutGroup: host.fleet.rolloutGroup, reporting: host.fleet.receiptReporting, receipt: receipt() };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };
 		case 'local.host.update.check': {
-			await refreshAvailableCatalogs(host, undefined, false);
+			await refreshAvailableCatalogs(host, undefined, false, true);
 			const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
 			return { stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest }, development: existsSync(developmentPath) ? (() => { const value = loadCatalog(developmentPath); return { release: value.release, generation: value.generation, digest: value.catalogDigest }; })() : null };
 		}

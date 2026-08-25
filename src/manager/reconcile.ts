@@ -7,10 +7,10 @@ import { recordEvent } from '../core/events.js';
 import { paths } from '../core/paths.js';
 import { edgeRoutes, renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 import { createPlan } from './plan.js';
-import { activationEligible } from './update-policy.js';
+import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
-import { trackPaused } from './update-state.js';
+import { loadUpdateState, metadataChecked, trackPaused } from './update-state.js';
 
 function previousReceipt(): HostReceipt | undefined {
 	const path = `${paths.managerState}/current-receipt.json`;
@@ -31,17 +31,22 @@ function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
 }
 
-export async function refreshAvailableCatalogs(host: HostConfiguration, requestedTrack?: 'stable' | 'development', allowCoreUpdate = true) {
+export async function refreshAvailableCatalogs(host: HostConfiguration, requestedTrack?: 'stable' | 'development', allowCoreUpdate = true, forceMetadata = false) {
 	const tracks = requestedTrack ? [requestedTrack] : [...new Set([host.updates.defaultTrack, ...Object.values(host.components).filter((component) => component.enabled).map((component) => component.track)])];
 	let coreUpdated = false;
 	const previousCore = new Map<string, string>();
 	for (const track of tracks) {
+		if (!forceMetadata && !metadataRefreshDue(host, track, loadUpdateState())) {
+			recordEvent('update.metadata-not-due', { track });
+			continue;
+		}
 		if (!existsSync(configuredAptSource(track))) {
 			recordEvent('update.source-unconfigured', { track });
 			continue;
 		}
 		const updateCore = allowCoreUpdate && track === host.updates.defaultTrack && activationEligible(host, track);
 		const result = await requestSupervisor<AptRefreshResult>({ operation: 'apt.refresh', track, updateCore });
+		metadataChecked(track);
 		coreUpdated ||= result.coreUpdated;
 		for (const [name, version] of Object.entries(result.before)) if (version) previousCore.set(name, version);
 		recordEvent('update.metadata-refreshed', { track, updateCore, coreUpdated: result.coreUpdated });
