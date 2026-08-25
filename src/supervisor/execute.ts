@@ -11,8 +11,20 @@ import { configureComponent } from './component.js';
 import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
 
-export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => void;
-const run: CommandRunner = (executable, arguments_, input) => { execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'], ...(input === undefined ? {} : { input }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
+export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
+const run: CommandRunner = (executable, arguments_, input) => {
+	const output = execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'pipe', 'inherit'], ...(input === undefined ? {} : { input, encoding: 'utf8' }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } });
+	return typeof output === 'string' ? output : undefined;
+};
+
+function enrollmentReceipt(output: unknown, connectionId: string) {
+	if (typeof output !== 'string' || output.trim().length === 0) throw new Error('Provider enrollment returned no receipt.');
+	const receipt = JSON.parse(output) as unknown;
+	if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) throw new Error('Provider enrollment returned an invalid receipt.');
+	const result = receipt as Record<string, unknown>;
+	if (result.connectionId !== connectionId) throw new Error('Provider enrollment receipt did not match the requested connection.');
+	return result;
+}
 
 function bundledComposeFiles(files: readonly string[]) {
 	return files.flatMap((file) => {
@@ -76,8 +88,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'provider.enrollment-handoff': {
 			const input = `${JSON.stringify(operation.payload)}\n`;
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
-			return { connectionId: operation.payload.connectionId, state: operation.payload.action === 'begin' ? 'pending-approval' : 'connected' };
+			const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			return enrollmentReceipt(output, operation.payload.connectionId);
 		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
