@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -210,6 +210,13 @@ describe('unified host manager foundation', () => {
 		expect(metadataRefreshDue(configuration, 'stable', state, new Date('2026-08-25T11:59:59.999Z'))).toBe(false);
 		expect(metadataRefreshDue(configuration, 'stable', state, new Date('2026-08-25T12:00:00.000Z'))).toBe(true);
 		expect(metadataRefreshDue(configuration, 'development', state, checkedAt)).toBe(true);
+	});
+
+	it('refreshes both catalogs from the development suite on a development-default host', () => {
+		expect(aptSuiteForRefresh('development', 'stable')).toBe('development');
+		expect(aptSuiteForRefresh('development', 'development')).toBe('development');
+		expect(aptSuiteForRefresh('stable', 'stable')).toBe('stable');
+		expect(aptSuiteForRefresh('stable', 'development')).toBe('development');
 	});
 
 	it('selects an explicit update track without silently falling back to stable', () => {
