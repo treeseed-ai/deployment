@@ -5,7 +5,7 @@ import { parse } from 'yaml';
 import type { ComponentRelease } from '@treeseed/sdk/deployment';
 
 interface ComposeVolume { type?: string; source?: string; target?: string; read_only?: boolean }
-interface ComposeService { build?: unknown; image?: string; ports?: unknown; network_mode?: string; volumes?: Array<string | ComposeVolume>; healthcheck?: unknown }
+interface ComposeService { build?: unknown; image?: string; ports?: unknown; network_mode?: string; volumes?: Array<string | ComposeVolume>; healthcheck?: unknown; restart?: string }
 interface ComposeDocument { services?: Record<string, ComposeService>; networks?: Record<string, unknown> }
 
 const managedBindRoots = ['/etc/treeseed', '/run/treeseed', '/var/lib/treeseed'] as const;
@@ -46,7 +46,7 @@ export function validateProductionCompose(release: ComponentRelease, bundleRoot:
 			if (!service.image || !acceptedImages.has(service.image)) throw new Error(`${name} does not use an accepted immutable image digest.`);
 			if ('ports' in service) throw new Error(`${name} publishes a host port; manager-owned edge routing is required.`);
 			if (service.network_mode === 'host') throw new Error(`${name} uses forbidden host networking.`);
-			if (!service.healthcheck) throw new Error(`${name} has no Compose health gate.`);
+			if (!service.healthcheck && service.restart !== 'no') throw new Error(`${name} has neither a Compose health gate nor a one-shot completion gate.`);
 			validateVolumes(name, service.volumes);
 		}
 		for (const service of services) if (!document.services[service]) throw new Error(`Declared service ${service} is absent from ${file}.`);

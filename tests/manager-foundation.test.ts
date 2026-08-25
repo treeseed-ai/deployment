@@ -64,7 +64,10 @@ describe('unified host manager foundation', () => {
 		expect(() => validateProductionCompose(release, root)).not.toThrow();
 		writeFileSync(file, `services:\n  service:\n    image: ${image}\n`);
 		bindCompose();
-		expect(() => validateProductionCompose(release, root)).toThrow(/no Compose health gate/u);
+		expect(() => validateProductionCompose(release, root)).toThrow(/neither a Compose health gate nor a one-shot completion gate/u);
+		writeFileSync(file, `services:\n  service:\n    image: ${image}\n    restart: "no"\n`);
+		bindCompose();
+		expect(() => validateProductionCompose(release, root)).not.toThrow();
 	});
 
 	it('keeps root execution within the fixed protocol', () => {
