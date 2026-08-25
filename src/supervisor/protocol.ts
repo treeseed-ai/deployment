@@ -19,7 +19,10 @@ export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('systemd.control'), unit: z.enum(['treeseed-manager-api.service', 'treeseed-manager-reconcile.service', 'treeseed-edge.service']), action: z.enum(['start', 'stop', 'restart', 'reload']) }).strict(),
 	z.object({ operation: z.literal('recovery.restore'), generation: z.number().int().positive() }).strict(),
 	z.object({ operation: z.literal('backup.create'), generation: z.number().int().positive() }).strict(),
-	z.object({ operation: z.literal('platform.reset') }).strict(),
+	z.object({ operation: z.literal('platform.reset'), componentDataRoot: z.union([
+		z.literal('/var/lib/treeseed/components'),
+		z.string().startsWith('/').regex(/\/\.treeseed\/data$/u),
+	]) }).strict(),
 	z.object({ operation: z.literal('cli.configure'), controlPlaneUrl: z.string().url().refine((value) => value.startsWith('https://') || value.startsWith('http://127.0.0.1'), 'Control-plane URL must use HTTPS or loopback HTTP.') }).strict(),
 	z.object({ operation: z.literal('manager.restart') }).strict(),
 	z.object({ operation: z.literal('configuration.replace'), configuration: hostConfigurationSchema }).strict(),

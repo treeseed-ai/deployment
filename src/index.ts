@@ -11,6 +11,7 @@ export * from './manager/operations.js';
 export * from './manager/reconcile.js';
 export * from './manager/serialized-reconcile.js';
 export * from './manager/serialized-reset.js';
+export * from './manager/reset-safety.js';
 export * from './manager/update-policy.js';
 export * from './manager/update-state.js';
 export * from './runtime/compose.js';
