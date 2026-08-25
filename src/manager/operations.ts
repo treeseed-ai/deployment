@@ -12,7 +12,8 @@ import { createPlan } from './plan.js';
 import { refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
-import { loadCurrentReceipt } from './current-state.js';
+import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
+import { serializedReset } from './serialized-reset.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -170,6 +171,13 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (request.options.plan === true) return { action: 'enroll', mutation: false };
 			const clientId = `client-${randomUUID().toLowerCase()}`;
 			return requestSupervisor<ClientEnrollment>({ operation: 'pki.enroll', clientId });
+		}
+		case 'local.host.reset': {
+			if (!context.local) throw new Error('Host reset is available only through the protected local manager socket.');
+			const affected = loadActiveComponents().map((component) => component.componentId).sort();
+			if (request.options.plan === true) return { mutation: false, affected, removes: ['component-data', 'component-configuration', 'manager-receipts', 'provider-enrollments', 'update-state', 'backups'] };
+			if (request.options.confirm !== true) throw new Error('Host reset requires --confirm.');
+			return serializedReset();
 		}
 		default: throw new Error(`Unsupported host command ${request.handlerId}.`);
 	}

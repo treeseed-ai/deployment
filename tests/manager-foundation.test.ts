@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -85,9 +85,38 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
+		expect(supervisorOperationSchema.parse({ operation: 'platform.reset' })).toEqual({ operation: 'platform.reset' });
+		expect(supervisorOperationSchema.parse({ operation: 'cli.configure', controlPlaneUrl: 'https://api.treeseed.localhost' })).toEqual({ operation: 'cli.configure', controlPlaneUrl: 'https://api.treeseed.localhost' });
+		expect(() => supervisorOperationSchema.parse({ operation: 'cli.configure', controlPlaneUrl: 'http://api.example.test' })).toThrow();
 		executeSupervisorOperation({ operation: 'manager.restart' }, (executable, arguments_) => calls.push([executable, arguments_]));
 		expect(calls.at(-1)).toEqual(['/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']]);
 		expect(() => supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'nightly', updateCore: true })).toThrow();
+	});
+
+	it('removes only resettable platform state and recreates empty managed roots', () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-platform-reset-'));
+		const targets = { components: resolve(root, 'var/lib/treeseed/components'), componentConfiguration: resolve(root, 'etc/treeseed/components'), managerState: resolve(root, 'var/lib/treeseed/manager'), backups: resolve(root, 'var/lib/treeseed/backups') };
+		for (const directory of [targets.components, targets.componentConfiguration, targets.managerState, targets.backups]) mkdirSync(directory, { recursive: true });
+		writeFileSync(resolve(targets.components, 'database'), 'state');
+		writeFileSync(resolve(targets.componentConfiguration, 'environment'), 'config');
+		writeFileSync(resolve(targets.managerState, 'current-receipt.json'), '{}');
+		writeFileSync(resolve(targets.managerState, 'bootstrap-status.json'), '{"complete":true}');
+		writeFileSync(resolve(targets.backups, 'generation-1.tar.gz'), 'backup');
+		const result = resetPlatformState(targets);
+		expect(result.reset).toBe(true);
+		expect(readdirSync(targets.components)).toEqual([]);
+		expect(readdirSync(targets.componentConfiguration)).toEqual([]);
+		expect(readdirSync(targets.backups)).toEqual([]);
+		expect(existsSync(resolve(targets.managerState, 'current-receipt.json'))).toBe(false);
+		expect(readFileSync(resolve(targets.managerState, 'bootstrap-status.json'), 'utf8')).toBe('{"complete":true}');
+	});
+
+	it('serializes reset with reconciliation and resolves the packaged API alias', () => {
+		expect(serializedResetArguments().slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
+		const configuration = host(), releases = [component('api', 'stable', 'b')];
+		expect(managedCliControlPlaneUrl(configuration, releases)).toBe('https://api.treeseed.localhost');
+		configuration.components.api!.aliases['api.service.http'] = 'control.treeseed.localhost';
+		expect(managedCliControlPlaneUrl(configuration, releases)).toBe('https://control.treeseed.localhost');
 	});
 
 	it('activates Compose with only the manager-rendered component environment', () => {
@@ -101,6 +130,7 @@ describe('unified host manager foundation', () => {
 	it('accepts only bounded host commands and fixed configuration or enrollment mutations', () => {
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.component.enable', arguments: ['agent'], options: { plan: true } })).toMatchObject({ handlerId: 'local.host.component.enable' });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'remote.shell', arguments: ['id'] })).toThrow();
+		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.reset', options: { confirm: true } })).toMatchObject({ handlerId: 'local.host.reset', options: { confirm: true } });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'local.host.status', arguments: ['x'.repeat(257)] })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.replace', configuration: host() })).toMatchObject({ operation: 'configuration.replace' });
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.recover', configuration: host() })).toMatchObject({ operation: 'configuration.recover' });

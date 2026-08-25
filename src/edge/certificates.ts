@@ -18,5 +18,8 @@ export function generateEdgeCertificate(aliases: readonly string[], command: Cer
 	renameSync(key, `${tls}/host.key`); renameSync(certificate, `${tls}/host.crt`);
 	unlinkSync(request); unlinkSync(extensions);
 	copyFileSync(`${managerTls}/ca.crt`, `${tls}/client-ca.crt`);
+	mkdirSync(paths.cli, { recursive: true, mode: 0o755 });
+	copyFileSync(`${managerTls}/ca.crt`, `${paths.cli}/localhost-ca.crt`);
+	chmodSync(`${paths.cli}/localhost-ca.crt`, 0o644);
 	for (const path of [`${tls}/host.key`, `${tls}/host.crt`, `${tls}/client-ca.crt`]) chmodSync(path, 0o640);
 }
