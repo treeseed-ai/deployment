@@ -111,6 +111,13 @@ describe('unified host manager foundation', () => {
 		expect(readFileSync(resolve(targets.managerState, 'bootstrap-status.json'), 'utf8')).toBe('{"complete":true}');
 	});
 
+	it('returns reset manager state to the unprivileged manager account', () => {
+		const supervisor = readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8');
+		const postinst = readFileSync(resolve(process.cwd(), 'debian/manager/postinst'), 'utf8');
+		expect(supervisor).toContain("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])");
+		expect(postinst).toContain('chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager');
+	});
+
 	it('serializes reset with reconciliation and resolves the packaged API alias', () => {
 		expect(serializedResetArguments().slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
 		const configuration = host(), releases = [component('api', 'stable', 'b')];
