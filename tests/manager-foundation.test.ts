@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -114,9 +114,25 @@ describe('unified host manager foundation', () => {
 		const configuration = host();
 		expect(pollIntervalSeconds(configuration, 'development')).toBe(60);
 		expect(pollIntervalSeconds(configuration, 'stable')).toBe(86_400);
-		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 23, 3, 10))).toBe(true);
+		const sunday = new Date(2026, 7, 23, 3, 0), window = stableActivationWindow(configuration, sunday);
+		expect(window.startsAt).toEqual(sunday);
+		expect(window.jitterSeconds).toBeGreaterThanOrEqual(0);
+		expect(window.jitterSeconds).toBeLessThanOrEqual(1_800);
+		expect(activationEligible(configuration, 'stable', new Date(window.eligibleAt.getTime() - 1))).toBe(false);
+		expect(activationEligible(configuration, 'stable', window.eligibleAt)).toBe(true);
+		expect(activationEligible(configuration, 'stable', new Date(window.closesAt.getTime() - 1))).toBe(true);
+		expect(activationEligible(configuration, 'stable', window.closesAt)).toBe(false);
 		expect(activationEligible(configuration, 'stable', new Date(2026, 7, 24, 3, 10))).toBe(false);
 		expect(activationEligible(configuration, 'development')).toBe(true);
+		expect(stableActivationWindow(configuration, new Date(2026, 7, 30, 3, 0)).startsAt).toEqual(new Date(2026, 7, 30, 3, 0));
+	});
+
+	it('refreshes stable metadata only when its persisted cadence is due', () => {
+		const configuration = host(), checkedAt = new Date('2026-08-24T12:00:00.000Z');
+		const state = { stablePaused: false, developmentPaused: false, changedAt: checkedAt.toISOString(), metadataCheckedAt: { stable: checkedAt.toISOString(), development: null } };
+		expect(metadataRefreshDue(configuration, 'stable', state, new Date('2026-08-25T11:59:59.999Z'))).toBe(false);
+		expect(metadataRefreshDue(configuration, 'stable', state, new Date('2026-08-25T12:00:00.000Z'))).toBe(true);
+		expect(metadataRefreshDue(configuration, 'development', state, checkedAt)).toBe(true);
 	});
 
 	it('selects an explicit update track without silently falling back to stable', () => {
