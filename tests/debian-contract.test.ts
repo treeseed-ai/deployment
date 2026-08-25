@@ -63,6 +63,8 @@ describe('Debian and systemd contracts', () => {
 		expect(supervisor).toContain("'validate'");
 		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("':443 {\\n\\tabort\\n}\\n'");
 		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('RuntimeDirectory=treeseed/manager');
+		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('Group=treeseed-operators');
+		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('SupplementaryGroups=treeseed-manager');
 	});
 
 	it('documents configured-package credential consumption and deletion', () => {
