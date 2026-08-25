@@ -148,7 +148,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
-	if (accepted.routes.length) packages.unshift('treeseed-edge');
+	if (accepted.routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
 	const impacted = configurationChanged ? active : active.filter((component) => changedIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const generation = Date.now();
 	for (const component of impacted) await stop(component);
