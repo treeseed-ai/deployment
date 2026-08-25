@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { hostConfigurationSchema, hostReceiptSchema, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
+import { hostConfigurationSchema, type HostConfiguration } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { loadCatalog } from '../catalog/load.js';
 import { loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
@@ -12,6 +12,7 @@ import { createPlan } from './plan.js';
 import { refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
+import { loadCurrentReceipt } from './current-state.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -27,10 +28,7 @@ export const hostCommandRequestSchema = z.object({
 
 export type HostCommandRequest = z.infer<typeof hostCommandRequestSchema>;
 
-function receipt(): HostReceipt | null {
-	const file = `${paths.managerState}/current-receipt.json`;
-	return existsSync(file) ? hostReceiptSchema.parse(JSON.parse(readFileSync(file, 'utf8'))) : null;
-}
+function receipt() { return loadCurrentReceipt() ?? null; }
 
 function plan() {
 	const host = loadHostConfiguration(), stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;

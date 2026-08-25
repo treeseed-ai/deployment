@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -123,6 +124,20 @@ describe('unified host manager foundation', () => {
 		const api = readFileSync(resolve(process.cwd(), 'src/manager/api.ts'), 'utf8');
 		expect(api).toContain('remote: undefined');
 		expect(api).toContain('recoveryRequired: !host');
+	});
+
+	it('quarantines obsolete manager state without decoding an old format', () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-state-recovery-')), invalidRoot = resolve(root, 'invalid');
+		const receiptPath = resolve(root, 'current-receipt.json'), componentsPath = resolve(root, 'active-components.json');
+		writeFileSync(receiptPath, '{"schemaVersion":"obsolete.receipt/v0"}\n');
+		writeFileSync(componentsPath, '{"obsolete":true}\n');
+		expect(loadCurrentReceipt(receiptPath, invalidRoot, () => undefined)).toBeUndefined();
+		expect(loadActiveComponents(componentsPath, invalidRoot, () => undefined)).toEqual([]);
+		expect(existsSync(receiptPath)).toBe(false);
+		expect(existsSync(componentsPath)).toBe(false);
+		const archived = readdirSync(invalidRoot).sort();
+		expect(archived).toHaveLength(2);
+		expect(archived.every((name) => name.endsWith('.invalid'))).toBe(true);
 	});
 
 	it('renders deterministic component environments without embedding secret references', () => {
