@@ -23,6 +23,10 @@ const state = vi.hoisted(() => ({
 	root: `/tmp/treeseed-update-qualification-${process.pid}`,
 }));
 
+vi.mock('node:fs', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('node:fs')>();
+	return { ...actual, existsSync: (path: import('node:fs').PathLike) => String(path).startsWith('/etc/apt/sources.list.d/treeseed-deployment-') || actual.existsSync(path) };
+});
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.host }));
 vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager` } }));
 vi.mock('../src/catalog/load.js', () => ({ loadCatalog: (path: string) => path.endsWith('stable.json') ? state.stable : state.development }));
