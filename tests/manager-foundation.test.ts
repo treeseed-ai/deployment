@@ -114,6 +114,7 @@ describe('unified host manager foundation', () => {
 	it('returns reset manager state to the unprivileged manager account', () => {
 		const supervisor = readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8');
 		const postinst = readFileSync(resolve(process.cwd(), 'debian/manager/postinst'), 'utf8');
+		expect(supervisor.indexOf("writeFileSync(`${paths.managerState}/events.jsonl`, ''")).toBeLessThan(supervisor.indexOf("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])"));
 		expect(supervisor).toContain("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])");
 		expect(postinst).toContain('chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager');
 	});
