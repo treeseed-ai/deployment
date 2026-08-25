@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -30,6 +30,8 @@ describe('unified host manager foundation', () => {
 		expect(subjectAlternativeNames(routes)).toEqual(['api.treeseed.localhost', 'manager.treeseed.localhost']);
 		expect(caddyfile).toContain('mode require_and_verify');
 		expect(caddyfile).toContain('reverse_proxy unix//run/treeseed/manager/api.sock');
+		expect(caddyfile.match(/\{/gu)).toHaveLength(caddyfile.match(/\}/gu)!.length);
+		expect(caddyfile).toMatch(/reverse_proxy unix\/\/run\/treeseed\/manager\/api\.sock\n\}\n$/u);
 	});
 
 	it('rolls an empty first generation back to the manager route only', () => {
@@ -193,6 +195,10 @@ describe('unified host manager foundation', () => {
 		expect(bootstrap).toContain('--allow-downgrades');
 		const aptHelper = readFileSync(resolve(process.cwd(), 'src/supervisor/apt-helper.ts'), 'utf8');
 		expect(aptHelper).not.toContain("'--only-upgrade'");
+		expect(aptPreferencesForTrack('development')).toContain('a=development\nPin-Priority: 1001');
+		expect(aptPreferencesForTrack('development')).toContain('a=stable\nPin-Priority: 100');
+		expect(aptPreferencesForTrack('stable')).toContain('a=stable\nPin-Priority: 1001');
+		for (const track of ['stable', 'development'] as const) expect(readFileSync(resolve(process.cwd(), `deploy/bootstrap/preferences.${track}`), 'utf8')).toBe(aptPreferencesForTrack(track));
 	});
 
 	it('keeps the manager-owned edge on the host default track', () => {
