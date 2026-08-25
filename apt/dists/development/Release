@@ -2,10 +2,10 @@ Origin: TreeSeed Deployment
 Label: TreeSeed Deployment
 Suite: development
 Codename: development
-Date: Tue, 25 Aug 2026 23:23:18 GMT
+Date: Tue, 25 Aug 2026 23:45:01 GMT
 Architectures: amd64 all
 Components: main
 Description: Signed TreeSeed Deployment packages
 SHA256:
- 41e72f04e2bcd0e501c793a5522edcebb4037f12ab8219e596f59a1cfa506161 207845 main/binary-amd64/Packages
- d4dadafbd5585d4708a09991f4ea7a9c7cf4e7c5fc2e9144c635bef6c5248dda 34224 main/binary-amd64/Packages.gz
+ 90e35d0c67026071a6514c8bc9aa943fc470e91ccef2ba9787c36b9966eed850 210979 main/binary-amd64/Packages
+ 7e4110f8a31d1b696e126f86817dab6334f175257f8ba4045e116f229fc35e7e 34692 main/binary-amd64/Packages.gz
