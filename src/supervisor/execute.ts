@@ -93,7 +93,14 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'backup.create': return createGenerationBackup(operation.generation, command);
 		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
-		case 'platform.reset': return resetPlatformState();
+		case 'platform.reset': {
+			const result = resetPlatformState();
+			// The supervisor performs deletion as root, but reconciliation and the
+			// local manager API deliberately run as treeseed-manager. Restore their
+			// custody before the supervisor records completion or reset continues.
+			command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState]);
+			return result;
+		}
 		case 'cli.configure': {
 			mkdirSync(paths.cli, { recursive: true, mode: 0o755 });
 			writeFileSync(`${paths.cli}/api-base-url`, `${operation.controlPlaneUrl}\n`, { encoding: 'utf8', mode: 0o644 });
