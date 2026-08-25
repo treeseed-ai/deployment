@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
@@ -10,8 +10,8 @@ import { enrollClient } from './pki.js';
 import { configureComponent } from './component.js';
 import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
 
-export type CommandRunner = (executable: string, arguments_: readonly string[]) => void;
-const run: CommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
+export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => void;
+const run: CommandRunner = (executable, arguments_, input) => { execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'], ...(input === undefined ? {} : { input }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
 
 function bundledComposeFiles(files: readonly string[]) {
 	return files.flatMap((file) => {
@@ -60,6 +60,19 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment); break;
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
+		case 'provider.enroll': {
+			const marker = `${paths.managerState}/provider-enrollments/${operation.connectionId}.json`;
+			if (existsSync(marker)) return JSON.parse(readFileSync(marker, 'utf8')) as unknown;
+			const secretPath = `/etc/treeseed/credentials/${operation.registrationSecretId}`;
+			const enrollmentToken = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
+			if (!enrollmentToken) throw new Error('Provider registration credential is empty.');
+			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, teamId: operation.teamId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, enrollmentToken })}\n`;
+			command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			unlinkSync(secretPath);
+			const result = { connectionId: operation.connectionId, state: 'pending-approval', oneTimeCredentialRemoved: true };
+			atomicJson(marker, result, 0o600);
+			return result;
+		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
 			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
