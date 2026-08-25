@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -28,7 +28,7 @@ vi.mock('node:fs', async (importOriginal) => {
 	return { ...actual, existsSync: (path: import('node:fs').PathLike) => String(path).startsWith('/etc/apt/sources.list.d/treeseed-deployment-') || actual.existsSync(path) };
 });
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.host }));
-vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager` } }));
+vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager`, cli: `${state.root}/cli` } }));
 vi.mock('../src/catalog/load.js', () => ({ loadCatalog: (path: string) => path.endsWith('stable.json') ? state.stable : state.development }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: () => undefined }));
 vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
@@ -75,6 +75,9 @@ function receipt(components: any[]) {
 }
 
 beforeEach(() => {
+	mkdirSync(`${state.root}/cli`, { recursive: true });
+	writeFileSync(`${state.root}/cli/api-base-url`, 'https://api.treeseed.localhost\n');
+	writeFileSync(`${state.root}/cli/localhost-ca.crt`, 'test-ca');
 	state.host = host();
 	const api = release('api', 'stable', 'b', '1.0.0-1'), oldAgent = release('agent', 'development', 'c', '1.1.0~rc1-1'), newAgent = release('agent', 'development', 'd', '1.1.0~rc2-1');
 	state.stable = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [api], createdAt: '2026-08-25T00:00:00.000Z' };
@@ -111,7 +114,7 @@ describe('isolated update fault qualification', () => {
 		state.activationFailure = new Error('isolated registry or health-gate failure');
 		await expect(reconcile('development')).rejects.toThrow('health-gate failure');
 		const operations = state.operations.map((item) => item.operation);
-		expect(operations).toEqual(['apt.refresh', 'compose.stop', 'backup.create', 'apt.install', 'cli.configure', 'component.configure', 'compose.activate', 'compose.stop', 'apt.install', 'recovery.restore', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'edge.apply']);
+		expect(operations).toEqual(['apt.refresh', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'apt.install', 'recovery.restore', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'edge.apply']);
 		expect(state.events.map((item) => item.type)).toContain('reconcile.rollback-complete');
 		state.operations = []; state.events = [];
 		const recovered = await reconcile('development');
@@ -166,6 +169,16 @@ describe('isolated update fault qualification', () => {
 		expect(await reconcile('development')).toBe(accepted);
 		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh']);
 		state.evidence.push({ case: 'pause-resume-noop', result: 'passed', activationCount, unchangedRestartCount: 0 });
+	});
+
+	it('repairs managed CLI custody during an otherwise unchanged tick', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		unlinkSync(`${state.root}/cli/api-base-url`); unlinkSync(`${state.root}/cli/localhost-ca.crt`);
+		const unchanged = await reconcile('development');
+		expect(unchanged).toBe(state.previous);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'cli.configure']);
+		state.evidence.push({ case: 'post-self-update-cli-custody', result: 'passed', componentRestartCount: 0, endpointAndCaRepaired: true });
 	});
 });
 
