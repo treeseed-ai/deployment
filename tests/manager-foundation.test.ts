@@ -1,9 +1,10 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -85,7 +86,9 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
-		expect(supervisorOperationSchema.parse({ operation: 'platform.reset' })).toEqual({ operation: 'platform.reset' });
+		expect(supervisorOperationSchema.parse({ operation: 'platform.reset', componentDataRoot: '/var/lib/treeseed/components' })).toEqual({ operation: 'platform.reset', componentDataRoot: '/var/lib/treeseed/components' });
+		expect(supervisorOperationSchema.parse({ operation: 'platform.reset', componentDataRoot: '/work/platform/.treeseed/data' })).toEqual({ operation: 'platform.reset', componentDataRoot: '/work/platform/.treeseed/data' });
+		expect(() => supervisorOperationSchema.parse({ operation: 'platform.reset', componentDataRoot: '/home' })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'cli.configure', controlPlaneUrl: 'https://api.treeseed.localhost' })).toEqual({ operation: 'cli.configure', controlPlaneUrl: 'https://api.treeseed.localhost' });
 		expect(() => supervisorOperationSchema.parse({ operation: 'cli.configure', controlPlaneUrl: 'http://api.example.test' })).toThrow();
 		executeSupervisorOperation({ operation: 'manager.restart' }, (executable, arguments_) => calls.push([executable, arguments_]));
@@ -109,6 +112,21 @@ describe('unified host manager foundation', () => {
 		expect(readdirSync(targets.backups)).toEqual([]);
 		expect(existsSync(resolve(targets.managerState, 'current-receipt.json'))).toBe(false);
 		expect(readFileSync(resolve(targets.managerState, 'bootstrap-status.json'), 'utf8')).toBe('{"complete":true}');
+	});
+
+	it('blocks reset when TreeDX has active or unpublished authoring', async () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-reset-safety-'));
+		const active = resolve(root, 'treedx/data/workspaces/active/ws-active');
+		mkdirSync(active, { recursive: true });
+		await expect(assertTreeDxResetSafe(root)).rejects.toThrow(/active TreeDX workspace/u);
+		const cleanRoot = mkdtempSync(resolve(tmpdir(), 'treeseed-reset-safety-'));
+		const repository = resolve(cleanRoot, 'treedx/data/repos/bare/repo.git');
+		mkdirSync(repository, { recursive: true });
+		execFileSync('/usr/bin/git', ['init', '--bare', repository]);
+		const tree = execFileSync('/usr/bin/git', ['--git-dir', repository, 'mktree'], { input: '', encoding: 'utf8' }).trim();
+		const commit = execFileSync('/usr/bin/git', ['--git-dir', repository, 'commit-tree', tree, '-m', 'unpublished'], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'TreeSeed test', GIT_AUTHOR_EMAIL: 'test@treeseed.local', GIT_COMMITTER_NAME: 'TreeSeed test', GIT_COMMITTER_EMAIL: 'test@treeseed.local' } }).trim();
+		execFileSync('/usr/bin/git', ['--git-dir', repository, 'update-ref', 'refs/heads/agent/unpublished', commit]);
+		await expect(assertTreeDxResetSafe(cleanRoot)).rejects.toThrow(/unpublished TreeDX branch/u);
 	});
 
 	it('returns reset manager state to the unprivileged manager account', () => {

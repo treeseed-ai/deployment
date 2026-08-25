@@ -99,7 +99,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'backup.create': return createGenerationBackup(operation.generation, command);
 		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
 		case 'platform.reset': {
-			const result = resetPlatformState();
+			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });
 			// The supervisor performs deletion as root, but reconciliation and the
 			// local manager API deliberately run as treeseed-manager. Restore their
 			// custody before the supervisor records completion or reset continues.
