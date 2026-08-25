@@ -70,6 +70,20 @@ function managedConnectionEnvironment(host: HostConfiguration, component: Compon
 	return values;
 }
 
+export function managedCliControlPlaneUrl(host: HostConfiguration, releases: ComponentRelease[]) {
+	const api = releases.find((component) => component.componentId === 'api');
+	if (api) {
+		for (const service of api.runtime.services) for (const endpoint of service.endpoints) {
+			if (endpoint.visibility !== 'host') continue;
+			const identity = `api.${service.id}.${endpoint.id}`;
+			const alias = host.components.api?.aliases[identity] ?? endpoint.defaultAlias;
+			if (alias) return `https://${alias}`;
+		}
+	}
+	const remote = host.components.agent?.connections['control-plane'];
+	return remote?.kind === 'remote' ? remote.url.replace(/\/$/u, '') : undefined;
+}
+
 function record(value: unknown, label: string) {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`);
 	return value as Record<string, unknown>;
@@ -137,28 +151,34 @@ export async function reconcile(track?: 'stable' | 'development') {
 		recordEvent('update.metadata-current', { track, eligible: false, catalogDigest: stable.catalogDigest });
 		return previous;
 	}
-	const targets = previous && track ? accepted.components.filter((component) => host.components[component.componentId]?.track === track) : accepted.components;
-	const active = loadActiveComponents(), selectedIds = new Set(accepted.components.map((component) => component.componentId));
+	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
+	const effective = previous && track ? accepted.components.map((component) => host.components[component.componentId]?.track === track ? component : activeById.get(component.componentId) ?? component) : accepted.components;
+	const routes = rollbackRoutes(host, effective);
+	const targets = previous && track ? effective.filter((component) => host.components[component.componentId]?.track === track) : effective;
+	const selectedIds = new Set(effective.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
 	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
 	const changed = targets.filter((component) => changedIds.has(component.componentId));
+	const changedTargetIds = new Set(changed.map((component) => component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
-	if (accepted.routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
-	const impacted = configurationChanged ? active : active.filter((component) => changedIds.has(component.componentId) || !selectedIds.has(component.componentId));
+	if (routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
+	const impacted = configurationChanged ? active : active.filter((component) => changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const generation = Date.now();
 	for (const component of impacted) await stop(component);
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
-		for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of configurationChanged ? accepted.components : changed) await activate(host, component, accepted.components);
-		for (const component of configurationChanged ? accepted.components : changed) await enrollProvider(host, component);
-		if (accepted.routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(accepted.routes), aliases: subjectAlternativeNames(accepted.routes) });
+		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
+		const cliControlPlaneUrl = managedCliControlPlaneUrl(host, effective);
+		if (cliControlPlaneUrl) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
+		for (const component of configurationChanged ? effective : changed) await activate(host, component, effective);
+		for (const component of configurationChanged ? effective : changed) await enrollProvider(host, component);
+		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
 		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of changed) {
@@ -173,10 +193,10 @@ export async function reconcile(track?: 'stable' | 'development') {
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		throw error;
 	}
-	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: accepted.plan.catalogDigest, packages: accepted.components.flatMap((component) => component.packages), images: accepted.components.flatMap((component) => component.images), runtimes: accepted.components.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
+	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
-	atomicJson(`${paths.managerState}/active-components.json`, accepted.components);
+	atomicJson(`${paths.managerState}/active-components.json`, effective);
 	recordEvent('reconcile.complete', { receiptId: receipt.receiptId, planId: receipt.planId });
 	return receipt;
 	});

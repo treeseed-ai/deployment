@@ -10,5 +10,6 @@ export const paths = {
 	bundles: '/usr/share/treeseed/components',
 	catalogs: '/usr/share/treeseed/catalogs',
 	edge: '/etc/treeseed/edge',
+	cli: '/etc/treeseed/cli',
 	socket: '/run/treeseed/manager/supervisor.sock',
 } as const;
