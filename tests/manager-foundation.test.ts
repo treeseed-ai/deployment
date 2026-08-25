@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -194,6 +194,15 @@ describe('unified host manager foundation', () => {
 		configuration.components.api!.configuration = { environment: { TREESEED_ENVIRONMENT: 'local', TREESEED_API_BASE_URL: 'https://api.treeseed.localhost' } };
 		expect(renderComponentEnvironment(configuration, 'api')).toBe('TREESEED_API_BASE_URL="https://api.treeseed.localhost"\nTREESEED_ENVIRONMENT="local"\n');
 		expect(() => renderComponentEnvironment({ ...configuration, components: { api: { ...configuration.components.api!, configuration: { environment: { bad: 'value' } } } } }, 'api')).toThrow(/Invalid environment/u);
+	});
+
+	it('places development state under the workspace-visible data root', () => {
+		const configuration = host();
+		configuration.runtime = { management: 'managed', environment: 'development', dataRoot: '/work/platform/.treeseed/data' };
+		expect(componentStateRoot(configuration, 'treedx')).toBe('/work/platform/.treeseed/data/treedx');
+		expect(renderComponentEnvironment(configuration, 'api')).toContain('TREESEED_COMPONENT_DATA_ROOT="/work/platform/.treeseed/data"');
+		expect(renderComponentEnvironment(configuration, 'api')).toContain('TREESEED_ENVIRONMENT="local"');
+		expect(renderComponentEnvironment(configuration, 'api')).toContain('TREESEED_LOCAL_DEV_MODE="1"');
 	});
 
 	it('polls development every minute and gates stable activation to Sunday 03:00', () => {

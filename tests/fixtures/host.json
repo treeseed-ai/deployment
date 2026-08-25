@@ -3,7 +3,7 @@
   "configurationId": "package-test",
   "generation": 1,
   "host": { "id": "package-test", "role": "development", "architecture": "amd64" },
-  "runtime": { "management": "managed" },
+  "runtime": { "management": "managed", "environment": "production" },
   "updates": {
     "defaultTrack": "stable",
     "stable": { "metadataPollSeconds": 86400, "maintenanceWindow": { "weekday": "sunday", "localTime": "03:00", "jitterMinutes": 30 } },

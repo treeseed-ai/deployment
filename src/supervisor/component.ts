@@ -5,7 +5,13 @@ import { loadHostConfiguration } from '../core/configuration.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
-const stateDirectories: Record<string, string[]> = { api: ['postgres', 'operations-runner'], agent: [], treedx: ['data'], ai: ['data'], lab: ['data'] };
+const stateDirectories: Record<string, string[]> = { api: ['postgres', 'operations-runner'], agent: [], treedx: ['data'], ai: ['data/models', 'data/inference', 'data/training', 'data/archive'], lab: ['data'] };
+
+export function componentStateRoot(host: HostConfiguration, componentId: string) {
+	const root = host.runtime.environment === 'development' ? host.runtime.dataRoot : '/var/lib/treeseed/components';
+	if (!root || !root.startsWith('/') || root === '/' || root === '/home' || root === '/var') throw new Error('Configured component data root is unsafe.');
+	return resolve(root, componentId);
+}
 
 function record(value: unknown, label: string): Record<string, unknown> {
 	if (value === undefined) return {};
@@ -31,6 +37,12 @@ export function renderComponentEnvironment(host: HostConfiguration, componentId:
 		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
 		values.set(key, readFileSync(secret.reference, 'utf8').replace(/\r?\n$/u, ''));
 	}
+	if (host.runtime.environment === 'development') {
+		if (!values.has('TREESEED_ENVIRONMENT')) values.set('TREESEED_ENVIRONMENT', 'local');
+		if (!values.has('TREESEED_LOCAL_DEV_MODE')) values.set('TREESEED_LOCAL_DEV_MODE', '1');
+		if (!values.has('LOCAL_DEV_MODE')) values.set('LOCAL_DEV_MODE', '1');
+		values.set('TREESEED_COMPONENT_DATA_ROOT', host.runtime.dataRoot!);
+	}
 	return [...values].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + (values.size ? '\n' : '');
 }
 
@@ -43,7 +55,7 @@ function atomicText(path: string, value: string, mode = 0o600) {
 export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection || !(componentId in stateDirectories)) throw new Error(`Unsupported configured component ${componentId}.`);
-	const configurationRoot = `/etc/treeseed/components/${componentId}`, stateRoot = `/var/lib/treeseed/components/${componentId}`;
+	const configurationRoot = `/etc/treeseed/components/${componentId}`, stateRoot = componentStateRoot(host, componentId);
 	mkdirSync(configurationRoot, { recursive: true, mode: 0o700 });
 	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
 	for (const name of stateDirectories[componentId]!) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
