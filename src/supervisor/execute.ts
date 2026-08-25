@@ -74,6 +74,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			atomicJson(marker, result, 0o600);
 			return result;
 		}
+		case 'provider.enrollment-handoff': {
+			const input = `${JSON.stringify(operation.payload)}\n`;
+			command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			return { connectionId: operation.payload.connectionId, state: operation.payload.action === 'begin' ? 'pending-approval' : 'connected' };
+		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
 			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);

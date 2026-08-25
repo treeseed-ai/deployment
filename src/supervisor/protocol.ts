@@ -11,6 +11,10 @@ export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('component.configure'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), connectionEnvironment: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().max(16_384)) }).strict(),
 	z.object({ operation: z.literal('component.reset-unaccepted'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).strict(),
 	z.object({ operation: z.literal('provider.enroll'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), teamId: z.string().min(1).max(256), controlPlaneUrl: z.string().url().startsWith('https://'), controlPlaneAudience: z.string().url().startsWith('https://'), registrationSecretId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), offer: z.object({ maxConcurrentRunners: z.number().int().positive().max(1_024), capabilities: z.array(z.string().min(1).max(128)).max(256), metadata: z.record(z.union([z.string(), z.number(), z.boolean()])).optional() }).strict(), files: z.array(z.string().min(1)).min(1), projectName: z.literal('treeseed-agent') }).strict(),
+	z.object({ operation: z.literal('provider.enrollment-handoff'), payload: z.discriminatedUnion('action', [
+		z.object({ action: z.literal('begin'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), teamId: z.string().min(1).max(256), controlPlaneUrl: z.string().url(), controlPlaneAudience: z.string().url(), enrollmentToken: z.string().min(1).max(16_384) }).strict(),
+		z.object({ action: z.literal('complete'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).strict(),
+	]), files: z.array(z.string().min(1)).min(1), projectName: z.literal('treeseed-agent') }).strict(),
 	z.object({ operation: z.literal('edge.apply'), caddyfile: z.string().min(1), aliases: z.array(z.string().endsWith('.localhost')).min(1) }).strict(),
 	z.object({ operation: z.literal('systemd.control'), unit: z.enum(['treeseed-manager-api.service', 'treeseed-manager-reconcile.service', 'treeseed-edge.service']), action: z.enum(['start', 'stop', 'restart', 'reload']) }).strict(),
 	z.object({ operation: z.literal('recovery.restore'), generation: z.number().int().positive() }).strict(),

@@ -135,6 +135,15 @@ describe('unified host manager foundation', () => {
 		expect(JSON.stringify(calls)).not.toContain('process.env');
 	});
 
+	it('hands provider enrollment to the fixed packaged Agent entrypoint without token arguments', () => {
+		const calls: Array<{ executable: string; arguments: readonly string[]; input: string | undefined }> = [];
+		const result = executeSupervisorOperation({ operation: 'provider.enrollment-handoff', payload: { action: 'begin', connectionId: 'local-team', teamId: 'team-id', controlPlaneUrl: 'http://api:3000', controlPlaneAudience: 'https://api.treeseed.localhost', enrollmentToken: 'one-time-secret' }, files: ['agent/release/compose.yml'], projectName: 'treeseed-agent' }, (executable, arguments_, input) => { calls.push({ executable, arguments: arguments_, input }); });
+		expect(result).toEqual({ connectionId: 'local-team', state: 'pending-approval' });
+		expect(calls[0]?.arguments).toEqual(['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/release/compose.yml', '--project-name', 'treeseed-agent', 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json']);
+		expect(calls[0]?.arguments.join(' ')).not.toContain('one-time-secret');
+		expect(JSON.parse(calls[0]!.input!)).toMatchObject({ action: 'begin', connectionId: 'local-team', enrollmentToken: 'one-time-secret' });
+	});
+
 	it('accepts only bounded host commands and fixed configuration or enrollment mutations', () => {
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.component.enable', arguments: ['agent'], options: { plan: true } })).toMatchObject({ handlerId: 'local.host.component.enable' });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'remote.shell', arguments: ['id'] })).toThrow();

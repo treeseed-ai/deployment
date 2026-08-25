@@ -9,7 +9,7 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { refreshAvailableCatalogs } from './reconcile.js';
+import { composeFiles, managedConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
@@ -23,7 +23,7 @@ const bootstrapHandoffSchema = z.object({
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.host(?:\.[a-z]+)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
-	options: z.record(z.union([z.string().max(4_096), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
+	options: z.record(z.union([z.string().max(32_768), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
 	configuration: hostConfigurationSchema.optional(),
 }).strict();
 
@@ -125,6 +125,22 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.provider.status': {
 			const agent = host.components.agent;
 			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
+		}
+		case 'local.host.provider.enrollment': {
+			if (!context.local) throw new Error('Provider enrollment is available only through the protected local manager socket.');
+			const payload = z.discriminatedUnion('action', [
+				z.object({ action: z.literal('begin'), connectionId: z.string().optional(), teamId: z.string().min(1).max(256), enrollmentToken: z.string().min(1).max(16_384) }).passthrough(),
+				z.object({ action: z.literal('complete'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).passthrough(),
+			]).parse(JSON.parse(String(request.options.payload ?? '')));
+			const releases = loadActiveComponents(), agent = releases.find((component) => component.componentId === 'agent');
+			if (!agent || !host.components.agent?.enabled) throw new Error('The managed Agent component is not active on this host.');
+			if (payload.action === 'complete') return requestSupervisor({ operation: 'provider.enrollment-handoff', payload: { action: 'complete', connectionId: payload.connectionId }, files: composeFiles(agent), projectName: 'treeseed-agent' });
+			const connectionId = payload.connectionId ?? `local-${payload.teamId}`;
+			const environment = managedConnectionEnvironment(host, agent, releases);
+			const controlPlaneUrl = environment.TREESEED_CONTROL_PLANE_URL;
+			const controlPlaneAudience = environment.TREESEED_CONTROL_PLANE_AUDIENCE;
+			if (!controlPlaneUrl || !controlPlaneAudience) throw new Error('The managed Agent control-plane connection is incomplete.');
+			return requestSupervisor({ operation: 'provider.enrollment-handoff', payload: { action: 'begin', connectionId, teamId: payload.teamId, controlPlaneUrl, controlPlaneAudience, enrollmentToken: payload.enrollmentToken }, files: composeFiles(agent), projectName: 'treeseed-agent' });
 		}
 		case 'local.host.fleet.status': return { hostId: host.host.id, rolloutGroup: host.fleet.rolloutGroup, reporting: host.fleet.receiptReporting, receipt: receipt() };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };

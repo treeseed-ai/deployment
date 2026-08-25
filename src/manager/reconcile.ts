@@ -47,11 +47,11 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 	return { coreUpdated, previousCore };
 }
 
-function composeFiles(component: ComponentRelease) {
+export function composeFiles(component: ComponentRelease) {
 	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
 }
 
-function managedConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+export function managedConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const selection = host.components[component.componentId]!, selected = new Map(releases.map((release) => [release.componentId, release]));
 	const values: Record<string, string> = {};
 	for (const dependency of component.runtime.dependencies) {
