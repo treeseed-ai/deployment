@@ -15,6 +15,8 @@ describe('Debian and systemd contracts', () => {
 		const units = readdirSync('systemd').filter((name) => name.endsWith('.service'));
 		const supervisor = readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8');
 		expect(supervisor).toContain('ProtectSystem=strict');
+		expect(supervisor).toContain('ProtectHome=no');
+		expect(supervisor).toContain('workspace-visible .treeseed/data root');
 		for (const unit of units.filter((name) => name.startsWith('treeseed-manager-') && !['treeseed-manager-supervisor.service', 'treeseed-manager-apt-helper.service', 'treeseed-manager-restart.service'].includes(name))) {
 			const value = readFileSync(`systemd/${unit}`, 'utf8');
 			expect(value).toContain('User=treeseed-manager');

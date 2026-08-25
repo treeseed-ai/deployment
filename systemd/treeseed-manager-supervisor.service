@@ -18,7 +18,9 @@ RestartSec=3
 UMask=0007
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectHome=yes
+# Development hosts may select a validated workspace-visible .treeseed/data root.
+# The supervisor protocol remains a strict allowlist and validates that root.
+ProtectHome=no
 ProtectSystem=strict
 ReadWritePaths=/etc/treeseed /var/lib/treeseed /run/treeseed /run/lock /etc/apt/sources.list.d /var/lib/apt /var/cache/apt /var/lib/dpkg /var/log/apt
 
