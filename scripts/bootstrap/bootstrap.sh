@@ -12,9 +12,9 @@ systemctl stop treeseed-manager-development.timer treeseed-manager-stable.timer 
 install -d -m 0755 /etc/apt/keyrings /etc/apt/preferences.d
 install -m 0644 /usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-stable.gpg /etc/apt/keyrings/treeseed-deployment-stable.gpg
 install -m 0644 /usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-development.gpg /etc/apt/keyrings/treeseed-deployment-development.gpg
-install -m 0644 /usr/share/treeseed/bootstrap/preferences /etc/apt/preferences.d/treeseed-deployment
 suite=$(cat /usr/share/treeseed/bootstrap/suite)
 case "$suite" in stable|development) ;; *) printf '%s invalid bootstrap suite %s\n' "$(date -u +%FT%TZ)" "$suite" >>"$log"; exit 1 ;; esac
+install -m 0644 "/usr/share/treeseed/bootstrap/preferences.$suite" /etc/apt/preferences.d/treeseed-deployment
 install -m 0644 /usr/share/treeseed/bootstrap/stable.sources /etc/apt/sources.list.d/treeseed-deployment-stable.sources
 install -m 0644 /usr/share/treeseed/bootstrap/development.sources /etc/apt/sources.list.d/treeseed-deployment-development.sources
 apt-get -o DPkg::Lock::Timeout=600 update
