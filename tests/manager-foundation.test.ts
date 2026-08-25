@@ -127,6 +127,11 @@ describe('unified host manager foundation', () => {
 		const commit = execFileSync('/usr/bin/git', ['--git-dir', repository, 'commit-tree', tree, '-m', 'unpublished'], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'TreeSeed test', GIT_AUTHOR_EMAIL: 'test@treeseed.local', GIT_COMMITTER_NAME: 'TreeSeed test', GIT_COMMITTER_EMAIL: 'test@treeseed.local' } }).trim();
 		execFileSync('/usr/bin/git', ['--git-dir', repository, 'update-ref', 'refs/heads/agent/unpublished', commit]);
 		await expect(assertTreeDxResetSafe(cleanRoot)).rejects.toThrow(/unpublished TreeDX branch/u);
+		execFileSync('/usr/bin/git', ['--git-dir', repository, 'update-ref', '-d', 'refs/heads/agent/unpublished']);
+		execFileSync('/usr/bin/git', ['--git-dir', repository, 'update-ref', 'refs/heads/main', commit]);
+		await expect(assertTreeDxResetSafe(cleanRoot)).rejects.toThrow(/unpublished TreeDX branch/u);
+		execFileSync('/usr/bin/git', ['--git-dir', repository, 'update-ref', 'refs/remotes/origin/main', commit]);
+		await expect(assertTreeDxResetSafe(cleanRoot)).resolves.toEqual({ activeWorkspaces: 0, unpublishedBranches: 0 });
 	});
 
 	it('returns reset manager state to the unprivileged manager account', () => {
