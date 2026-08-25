@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, catalogPackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, catalogPackagesForTrack, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, rollbackRoutes, serializedReconcileArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -185,12 +185,20 @@ describe('unified host manager foundation', () => {
 		expect(() => packageFromTrack('../manager', 'stable')).toThrow(/invalid/u);
 		expect(catalogPackagesForTrack('stable')).toEqual(['treeseed-release-catalog/stable']);
 		expect(catalogPackagesForTrack('development')).toEqual(['treeseed-release-catalog/development', 'treeseed-release-catalog-development/development']);
+		expect(corePackagesForTrack('development', { 'treeseed-edge': '0.1.0-1' })).toContain('treeseed-edge/development');
+		expect(corePackagesForTrack('development', { 'treeseed-edge': null })).not.toContain('treeseed-edge/development');
 		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
 		expect(bootstrap).toContain('$package/$suite');
 		expect(bootstrap).toContain('treeseed-release-catalog-development/development');
 		expect(bootstrap).toContain('--allow-downgrades');
 		const aptHelper = readFileSync(resolve(process.cwd(), 'src/supervisor/apt-helper.ts'), 'utf8');
 		expect(aptHelper).not.toContain("'--only-upgrade'");
+	});
+
+	it('keeps the manager-owned edge on the host default track', () => {
+		const reconciliation = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
+		expect(reconciliation).toContain('`treeseed-edge/${host.updates.defaultTrack}`');
+		expect(reconciliation).not.toContain("packages.unshift('treeseed-edge')");
 	});
 
 	it('installs selected component payloads before validating or activating them', () => {
