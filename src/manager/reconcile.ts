@@ -82,6 +82,25 @@ function managedConnectionEnvironment(host: HostConfiguration, component: Compon
 	return values;
 }
 
+function record(value: unknown, label: string) {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`);
+	return value as Record<string, unknown>;
+}
+
+async function enrollProvider(host: HostConfiguration, component: ComponentRelease) {
+	if (component.componentId !== 'agent') return;
+	const configuration = record(host.components.agent?.configuration, 'Agent configuration');
+	if (configuration.providerEnrollment === undefined) return;
+	const enrollment = record(configuration.providerEnrollment, 'Provider enrollment');
+	const connection = host.components.agent?.connections['control-plane'];
+	if (!connection || connection.kind !== 'remote') throw new Error('Provider enrollment requires an explicit remote control-plane connection.');
+	const connectionId = enrollment.connectionId, teamId = enrollment.teamId, offer = record(enrollment.offer, 'Provider enrollment offer');
+	if (typeof connectionId !== 'string' || typeof teamId !== 'string' || typeof offer.maxConcurrentRunners !== 'number' || !Array.isArray(offer.capabilities) || !offer.capabilities.every((item) => typeof item === 'string')) throw new Error('Provider enrollment configuration is invalid.');
+	const registrationSecretId = connection.authentication.secretRef;
+	if (!registrationSecretId) throw new Error('Provider enrollment requires a one-time registration secret reference.');
+	await requestSupervisor({ operation: 'provider.enroll', connectionId, teamId, controlPlaneUrl: connection.url, controlPlaneAudience: connection.audience, registrationSecretId, offer: { maxConcurrentRunners: offer.maxConcurrentRunners, capabilities: offer.capabilities, metadata: { hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup } }, files: composeFiles(component), projectName: 'treeseed-agent' });
+}
+
 async function stop(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
@@ -150,6 +169,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of accepted.components) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		for (const component of configurationChanged ? accepted.components : changed) await activate(host, component, accepted.components);
+		for (const component of configurationChanged ? accepted.components : changed) await enrollProvider(host, component);
 		if (accepted.routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(accepted.routes), aliases: subjectAlternativeNames(accepted.routes) });
 	} catch (error) {
 		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
