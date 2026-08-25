@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const canonicalLibraryBranches = new Set(['refs/heads/main', 'refs/heads/staging']);
+const canonicalLibraryBranches = new Map([
+	['refs/heads/main', 'refs/remotes/origin/main'],
+	['refs/heads/staging', 'refs/remotes/origin/staging'],
+]);
 
 function directories(path: string) {
 	if (!existsSync(path)) return [];
@@ -12,8 +15,15 @@ function directories(path: string) {
 }
 
 async function unpublishedBranches(repositoryPath: string) {
-	const { stdout } = await execFileAsync('/usr/bin/git', ['--git-dir', repositoryPath, 'for-each-ref', '--format=%(refname)', 'refs/heads']);
-	return stdout.split('\n').map((line) => line.trim()).filter((ref) => ref && !canonicalLibraryBranches.has(ref));
+	const { stdout } = await execFileAsync('/usr/bin/git', ['--git-dir', repositoryPath, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/remotes/origin']);
+	const refs = new Map(stdout.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+		const separator = line.indexOf(' '); return [line.slice(0, separator), line.slice(separator + 1)] as const;
+	}));
+	return [...refs].filter(([ref, head]) => {
+		if (!ref.startsWith('refs/heads/')) return false;
+		const upstream = canonicalLibraryBranches.get(ref);
+		return !upstream || refs.get(upstream) !== head;
+	}).map(([ref]) => ref);
 }
 
 /** Fail closed before reset can erase TreeDX authoring that has not reached an upstream library. */
