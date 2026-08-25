@@ -126,6 +126,13 @@ describe('Debian and systemd contracts', () => {
 		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'");
 	});
 
+	it('versions stable catalog packages by immutable catalog generation', () => {
+		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packager).toContain('stableCatalog.generation');
+		expect(packager).toContain('`${stableCatalogRelease}-${stableCatalog.generation}`');
+		expect(packager).not.toContain('const stableCatalogVersion = `${stableCatalogRelease}-1`');
+	});
+
 	it('lets the manager choose exact component versions and supports governed rollback', () => {
 		const bootstrap = readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8');
 		const helper = readFileSync('src/supervisor/apt-helper.ts', 'utf8');
