@@ -39,18 +39,32 @@ describe('unified host manager foundation', () => {
 		const release = component('api', 'stable', 'b'), root = mkdtempSync(resolve(tmpdir(), 'treeseed-compose-'));
 		const file = resolve(root, 'compose.yml');
 		const bindCompose = () => { release.runtime.compose.files[0]!.digest = `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`; };
-		writeFileSync(file, `services:\n  service:\n    image: treeseed/api@${hash('b')}\n`);
+		const image = `treeseed/api@${hash('b')}`;
+		const valid = (extra = '') => `services:\n  service:\n    image: ${image}\n    healthcheck: { test: ["CMD", "true"] }\n${extra}`;
+		writeFileSync(file, valid());
 		bindCompose();
 		expect(() => validateProductionCompose(release, root)).not.toThrow();
-		writeFileSync(file, `services:\n  service:\n    build: .\n    image: treeseed/api@${hash('b')}\n`);
+		writeFileSync(file, `services:\n  service:\n    build: .\n    image: ${image}\n    healthcheck: { test: ["CMD", "true"] }\n`);
 		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/forbidden Compose build/u);
 		writeFileSync(file, 'services:\n  service:\n    image: treeseed/api:latest\n');
 		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/immutable image digest/u);
-		writeFileSync(file, `services:\n  service:\n    image: treeseed/api@${hash('b')}\n    ports: ["3000:3000"]\n`);
+		writeFileSync(file, valid('    ports: ["3000:3000"]\n'));
 		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/publishes a host port/u);
+		writeFileSync(file, valid('    volumes: ["./source:/app"]\n'));
+		bindCompose();
+		expect(() => validateProductionCompose(release, root)).toThrow(/relative source mount/u);
+		writeFileSync(file, valid('    volumes: ["/home/developer/project:/app"]\n'));
+		bindCompose();
+		expect(() => validateProductionCompose(release, root)).toThrow(/outside manager-owned roots/u);
+		writeFileSync(file, valid('    volumes: ["/var/lib/treeseed/components/api:/data", "api-cache:/cache"]\n'));
+		bindCompose();
+		expect(() => validateProductionCompose(release, root)).not.toThrow();
+		writeFileSync(file, `services:\n  service:\n    image: ${image}\n`);
+		bindCompose();
+		expect(() => validateProductionCompose(release, root)).toThrow(/no Compose health gate/u);
 	});
 
 	it('keeps root execution within the fixed protocol', () => {
