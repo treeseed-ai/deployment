@@ -10,9 +10,11 @@ const npmVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'
 const deploymentVersion = process.env.TREESEED_DEBIAN_VERSION ?? npmVersion.replace(/-rc\.(\d+)$/u, '~rc$1') + '-1';
 const aptSuite = process.env.TREESEED_APT_SUITE;
 if (aptSuite !== undefined && aptSuite !== 'stable' && aptSuite !== 'development') throw new Error('TREESEED_APT_SUITE must be stable or development.');
-const stableCatalogRelease = (JSON.parse(readFileSync(resolve(artifacts, 'catalogs/stable.json'), 'utf8')) as { release: string }).release;
+const stableCatalog = JSON.parse(readFileSync(resolve(artifacts, 'catalogs/stable.json'), 'utf8')) as { release: string; generation: number };
+const stableCatalogRelease = stableCatalog.release;
 if (!/^\d+\.\d+\.\d+$/u.test(stableCatalogRelease)) throw new Error('Stable catalog release is not a Debian-compatible version.');
-const stableCatalogVersion = `${stableCatalogRelease}-1`;
+if (!Number.isInteger(stableCatalog.generation) || stableCatalog.generation < 1) throw new Error('Stable catalog generation is not a positive integer.');
+const stableCatalogVersion = `${stableCatalogRelease}-${stableCatalog.generation}`;
 function readIntegration(track: 'stable' | 'development') {
 	const path = resolve(artifacts, 'integrations', `${track}.json`);
 	return existsSync(path) ? integrationReleaseSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined;
