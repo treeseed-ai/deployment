@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { componentReleaseSchema, hostReceiptSchema, type ComponentRelease, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
+import { existsSync } from 'node:fs';
+import { hostReceiptSchema, type ComponentRelease, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
 import { loadCatalog } from '../catalog/load.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { atomicJson } from '../core/files.js';
@@ -11,19 +11,7 @@ import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, trackPaused } from './update-state.js';
-
-function previousReceipt(): HostReceipt | undefined {
-	const path = `${paths.managerState}/current-receipt.json`;
-	return existsSync(path) ? hostReceiptSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined;
-}
-
-function previousComponents(): ComponentRelease[] {
-	const path = `${paths.managerState}/active-components.json`;
-	if (!existsSync(path)) return [];
-	const value = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-	if (!Array.isArray(value)) throw new Error('Active component state is malformed.');
-	return value.map((component) => componentReleaseSchema.parse(component));
-}
+import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -134,7 +122,7 @@ export async function withDeferredManagerRestart<T>(coreUpdated: boolean, operat
 
 export async function reconcile(track?: 'stable' | 'development') {
 	const host = loadHostConfiguration();
-	const previous = previousReceipt();
+	const previous = loadCurrentReceipt();
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
 		return previous;
@@ -150,7 +138,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		return previous;
 	}
 	const targets = previous && track ? accepted.components.filter((component) => host.components[component.componentId]?.track === track) : accepted.components;
-	const active = previousComponents(), selectedIds = new Set(accepted.components.map((component) => component.componentId));
+	const active = loadActiveComponents(), selectedIds = new Set(accepted.components.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
 	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
 	const changed = targets.filter((component) => changedIds.has(component.componentId));
