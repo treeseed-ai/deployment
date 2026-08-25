@@ -9,3 +9,11 @@ The unprivileged manager plans and observes. A root supervisor accepts only a fi
 One Caddy instance owns host ingress. Only declared `.localhost` aliases are emitted. Databases, workers, runners, raw inference services, object stores, migration jobs, and control sockets stay on private Compose networks.
 
 Stable metadata is checked daily and activated in the configured weekly window. Development components poll every 60 seconds and may replace only their own compatible overlay. A host-wide lock serializes initial, stable, and development reconciliation. Catalog refreshes never upgrade the manager from a component overlay track. Before a changing composition is activated, the manager stops its writers and records a root-only generation archive of the bind-mounted component state, configuration, and receipts. A failed package transaction, migration, edge activation, or Compose health gate downgrades the retained Debian versions, restores the last known-good generation, and reactivates its prior composition. The ten newest generation archives are retained. An explicitly configured bootstrap recovery may clear only a named manager-owned component while no known-good receipt or active component set exists; accepted or migrated state cannot use that path.
+
+The irreversible host reset is a distinct current-format operation available
+only on the protected local socket. It acquires the same reconciliation lock,
+removes every active Compose project, clears all manager-owned application and
+receipt state, restores the manager-only edge route, and reconciles clean
+component storage from installed signed packages. It does not replace the host
+configuration, APT trust, manager PKI, or credentials and it does not silently
+apply a Platform seed or grant provider authority.

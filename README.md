@@ -49,19 +49,19 @@ sudo rm -f /var/cache/apt/archives/treeseed-configured.deb
 Do not make the credential-bearing package world-readable or loosen the
 operator home-directory permissions merely to suppress the APT warning.
 
-The workstation canary has a stricter convenience entrypoint. It accepts a
+The development workstation has a stricter convenience entrypoint. It accepts a
 private Codex login cache, generates the API database and session secrets in
 memory, packages the declared manager-owned credential files, and consumes its
 temporary credential envelope:
 
 ```sh
 npm run build:workstation -- \
-  --configuration /path/to/workstation-canary.json \
+  --configuration /path/to/development-workstation.json \
   --codex-auth-file "$HOME/.codex/auth.json" \
   --suite development
 ```
 
-A failed first-adoption canary may be rebuilt with
+A failed first adoption may be rebuilt with
 `--reset-unaccepted-components api`. This recovery request is embedded in the
 root-only bootstrap seed and fails closed once any known-good receipt or active
 component set exists. It is not an upgrade-time state reset and must never be
@@ -76,6 +76,21 @@ bootstrap handoff deletes its embedded seed. Bootstrap pauses scheduled
 reconciliation, restarts the newly installed manager payload, performs any
 explicit unaccepted-state recovery, runs one initial reconciliation, and only
 then resumes the stable and development timers.
+
+An accepted host can be returned to a fresh, unseeded application state through
+the protected local manager socket:
+
+```sh
+trsd host reset --plan
+trsd host reset --confirm
+```
+
+Reset removes manager-owned component databases and files, rendered component
+configuration, provider enrollment state, receipts, update state, and backups.
+It preserves the signed APT configuration, installed packages, host identity,
+host configuration, TLS authority, and credential files, then immediately
+reconciles clean services from the accepted catalog. The Platform seed and
+capacity-provider enrollment are deliberately separate post-reset operations.
 
 See [architecture](docs/architecture.md) and [package boundaries](docs/packages.md).
 

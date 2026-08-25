@@ -9,6 +9,7 @@ import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } 
 import { enrollClient } from './pki.js';
 import { configureComponent } from './component.js';
 import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
+import { resetPlatformState } from './reset.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => void;
 const run: CommandRunner = (executable, arguments_, input) => { execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'], ...(input === undefined ? {} : { input }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
@@ -78,6 +79,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
 			break;
 		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
+		case 'compose.remove': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;
@@ -91,6 +93,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'backup.create': return createGenerationBackup(operation.generation, command);
 		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
+		case 'platform.reset': return resetPlatformState();
+		case 'cli.configure': {
+			mkdirSync(paths.cli, { recursive: true, mode: 0o755 });
+			writeFileSync(`${paths.cli}/api-base-url`, `${operation.controlPlaneUrl}\n`, { encoding: 'utf8', mode: 0o644 });
+			break;
+		}
 		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
