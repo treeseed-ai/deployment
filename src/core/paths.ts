@@ -4,6 +4,7 @@ export const paths = {
 	tls: '/etc/treeseed/manager/tls',
 	state: '/var/lib/treeseed',
 	managerState: '/var/lib/treeseed/manager',
+	developmentSessions: '/var/lib/treeseed/manager/development-sessions',
 	components: '/var/lib/treeseed/components',
 	receipts: '/var/lib/treeseed/manager/receipts',
 	backups: '/var/lib/treeseed/backups',
