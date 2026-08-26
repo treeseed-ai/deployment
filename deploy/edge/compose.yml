@@ -9,6 +9,8 @@ services:
     volumes:
       - /etc/treeseed/edge:/etc/treeseed/edge:ro
       - /run/treeseed/manager:/run/treeseed/manager:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [treeseed-edge]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
