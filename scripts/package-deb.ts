@@ -75,7 +75,7 @@ function componentDefinitions(integration: IntegrationRelease) {
 const packageIntegration = aptSuite ? selectedIntegration() : developmentIntegration ?? stableIntegration;
 const sdkPayload = packageIntegration && hostPayload('sdk', packageIntegration);
 const cliPayload = packageIntegration && hostPayload('cli', packageIntegration);
-const cliPackageVersion = cliPayload ? debianVersion(cliPayload.version).replace(/-1$/u, '-2') : deploymentVersion;
+const cliPackageVersion = cliPayload ? `${debianVersion(cliPayload.version).replace(/-1$/u, '-2')}+deployment${deploymentVersion.replace(/-1$/u, '')}` : deploymentVersion;
 function writeBootstrapEdgePolicy(stage: string, configurationPath: string) {
 	if (!packageIntegration) throw new Error('A configured bootstrap requires an integration lock.');
 	const configuration = hostConfigurationSchema.parse(JSON.parse(readFileSync(configurationPath, 'utf8')));
