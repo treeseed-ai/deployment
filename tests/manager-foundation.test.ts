@@ -16,6 +16,11 @@ describe('unified host manager foundation', () => {
 		expect(managedConnectionEnvironment(configuration, agent, [agent, api])).toMatchObject({ TREESEED_PROVIDER_ENVIRONMENT: 'local', TREESEED_CONTROL_PLANE_URL: 'http://service:3000' });
 		configuration.components.agent!.connections['control-plane'] = { kind: 'remote', url: 'https://api.example.test', audience: 'https://api.example.test', tls: { trust: 'system' }, authentication: { mode: 'none' }, healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 30 } };
 		expect(managedConnectionEnvironment(configuration, agent, [agent, api])).toMatchObject({ TREESEED_PROVIDER_ENVIRONMENT: 'managed', TREESEED_CONTROL_PLANE_URL: 'https://api.example.test' });
+		const admin = { ...agent, componentId: 'admin', runtime: { ...agent.runtime,
+			dependencies: [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }] } } as any;
+		configuration.components.admin = { enabled: true, track: 'development', aliases: {},
+			connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
+		expect(managedConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({ TREESEED_API_BASE_URL: 'http://service:3000' });
 	});
 
 	it('plans a stable base with only explicit development overlays', () => {

@@ -63,6 +63,7 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 		const prefix = `TREESEED_${dependency.id.replaceAll('-', '_').toUpperCase()}`;
 		if (connection.kind === 'remote') {
 			values[`${prefix}_URL`] = connection.url.replace(/\/$/u, '');
+			if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = values[`${prefix}_URL`]!;
 			values[`${prefix}_AUDIENCE`] = connection.audience;
 			if (connection.tls.caSecretRef) values[`${prefix}_CA_FILE`] = host.secrets[connection.tls.caSecretRef]!.reference;
 			if (connection.authentication.secretRef) values[`${prefix}_CREDENTIAL_FILE`] = host.secrets[connection.authentication.secretRef]!.reference;
@@ -71,6 +72,7 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 		const target = selected.get(connection.componentId)!, service = target.runtime.services.find((candidate) => candidate.id === connection.serviceId)!;
 		const endpoint = service.endpoints.find((candidate) => candidate.id === connection.endpointId)!;
 		values[`${prefix}_URL`] = `${endpoint.protocol}://${service.composeService}:${endpoint.port}`;
+		if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = values[`${prefix}_URL`]!;
 		const identity = `${target.componentId}.${service.id}.${endpoint.id}`;
 		const alias = host.components[target.componentId]?.aliases[identity] ?? endpoint.defaultAlias;
 		values[`${prefix}_AUDIENCE`] = alias ? `https://${alias}` : values[`${prefix}_URL`]!;
