@@ -12,6 +12,7 @@ import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
+import { DevelopmentSessionStore } from './development-sessions.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -76,6 +77,22 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 		const identity = `${target.componentId}.${service.id}.${endpoint.id}`;
 		const alias = host.components[target.componentId]?.aliases[identity] ?? endpoint.defaultAlias;
 		values[`${prefix}_AUDIENCE`] = alias ? `https://${alias}` : values[`${prefix}_URL`]!;
+	}
+	return values;
+}
+
+export function managedDevelopmentConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+	const values = managedConnectionEnvironment(host, component, releases), selection = host.components[component.componentId], selected = new Map(releases.map((release) => [release.componentId, release]));
+	for (const dependency of component.runtime.dependencies) {
+		const connection = selection?.connections[dependency.id]; if (!connection || connection.kind !== 'local') continue;
+		const target = selected.get(connection.componentId), service = target?.runtime.services.find((candidate) => candidate.id === connection.serviceId), endpoint = service?.endpoints.find((candidate) => candidate.id === connection.endpointId);
+		if (!target || !service || !endpoint) continue;
+		const identity = `${target.componentId}.${service.id}.${endpoint.id}`, alias = host.components[target.componentId]?.aliases[identity] ?? endpoint.defaultAlias;
+		if (!alias) continue;
+		const prefix = `TREESEED_${dependency.id.replaceAll('-', '_').toUpperCase()}`, url = `https://${alias}`;
+		values[`${prefix}_URL`] = url; values[`${prefix}_AUDIENCE`] = url;
+		if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = url;
+		values.NODE_EXTRA_CA_CERTS = '/etc/treeseed/cli/localhost-ca.crt';
 	}
 	return values;
 }
@@ -163,7 +180,9 @@ export async function reconcile(track?: 'stable' | 'development') {
 	}
 	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
 	const effective = previous && track ? accepted.components.map((component) => host.components[component.componentId]?.track === track ? component : activeById.get(component.componentId) ?? component) : accepted.components;
-	const routes = rollbackRoutes(host, effective);
+	const developmentSessions = new DevelopmentSessionStore();
+	const expiredDevelopmentSessions = developmentSessions.expire();
+	const routes = developmentSessions.activeRoutes(rollbackRoutes(host, effective));
 	const targets = previous && track ? effective.filter((component) => host.components[component.componentId]?.track === track) : effective;
 	const selectedIds = new Set(effective.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
@@ -175,8 +194,13 @@ export async function reconcile(track?: 'stable' | 'development') {
 	const cliUrlPath = `${paths.cli}/api-base-url`, cliCaPath = `${paths.cli}/localhost-ca.crt`;
 	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && previous) {
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
+		return previous;
+	}
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length > 0 && previous) {
+		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+		recordEvent('development.sessions-expired', { sessions: expiredDevelopmentSessions.map((record) => record.session.sessionId) });
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
@@ -200,7 +224,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		for (const component of active) await activate(host, component, active);
-		const previousRoutes = rollbackRoutes(host, active);
+		const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 		if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		throw error;

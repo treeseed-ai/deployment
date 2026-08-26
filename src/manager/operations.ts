@@ -9,11 +9,13 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { composeFiles, managedConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
+import { composeFiles, managedConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
+import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
+import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -34,6 +36,18 @@ function receipt() { return loadCurrentReceipt() ?? null; }
 function plan() {
 	const host = loadHostConfiguration(), stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
 	return createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, receipt() ?? undefined);
+}
+
+function developmentPayload(request: HostCommandRequest) {
+	const payload = request.options.payload;
+	if (typeof payload !== 'string') throw new Error('Development command requires a JSON payload.');
+	return JSON.parse(payload) as unknown;
+}
+
+async function applyDevelopmentRoutes(store: DevelopmentSessionStore) {
+	const routes = store.activeRoutes(plan().routes);
+	if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+	return routes;
 }
 
 function configurationPlan(configuration: HostConfiguration) {
@@ -86,6 +100,64 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		return { adopted: true, recoveredInvalidConfiguration: true, configurationId: candidate.configurationId, generation: candidate.generation };
 	}
 	switch (request.handlerId) {
+		case 'local.dev.session.start': {
+			if (!context.local) throw new Error('Development sessions may be started only through the protected local manager socket.');
+			const payload = z.object({ session: z.unknown(), runtimes: z.array(z.unknown()).min(1) }).strict().parse(developmentPayload(request));
+			return new DevelopmentSessionStore().start(payload.session, payload.runtimes);
+		}
+		case 'local.dev.session.stop': {
+			if (!context.local) throw new Error('Development sessions may be stopped only through the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().min(1) }).strict().parse(developmentPayload(request));
+			const store = new DevelopmentSessionStore(), stopped = store.stop(payload.sessionId);
+			await applyDevelopmentRoutes(store); return stopped;
+		}
+		case 'local.dev.status': {
+			const payload = z.object({ sessionId: z.string().min(1).optional(), all: z.boolean().default(false) }).strict().parse(developmentPayload(request));
+			const store = new DevelopmentSessionStore();
+			return payload.sessionId ? store.load(payload.sessionId) : { sessions: store.list(payload.all) };
+		}
+		case 'local.dev.plan': {
+			const payload = z.object({ sessionId: z.string().min(1), selected: z.array(z.string().min(3)).default([]) }).strict().parse(developmentPayload(request));
+			const record = new DevelopmentSessionStore().load(payload.sessionId);
+			return { sessionId: payload.sessionId, affected: affectedDevelopmentClosure(record.runtimes, payload.selected.length ? payload.selected : record.session.targets.map((target) => `${target.projectId}.${target.targetId}`)) };
+		}
+		case 'local.dev.environment': {
+			if (!context.local) throw new Error('Development runtime environment is available only through the protected local manager socket.');
+			const payload = z.object({ projectId: z.string().min(1) }).strict().parse(developmentPayload(request));
+			const releases = loadActiveComponents(), component = releases.find((release) => release.componentId === payload.projectId);
+			return { environment: component ? managedDevelopmentConnectionEnvironment(host, component, releases) : {} };
+		}
+		case 'local.dev.candidate.register': {
+			if (!context.local) throw new Error('Development candidates may be registered only through the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().min(1), candidate: z.unknown() }).strict().parse(developmentPayload(request));
+			return new DevelopmentSessionStore().registerCandidate(payload.sessionId, payload.candidate);
+		}
+		case 'local.dev.use': {
+			if (!context.local) throw new Error('Development targets may be attached only through the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().min(1), projectId: z.string().min(1), targetId: z.string().min(1), mode: z.enum(['released', 'candidate', 'live']), port: z.number().int().positive().max(65_535).optional() }).strict().parse(developmentPayload(request));
+			const store = new DevelopmentSessionStore(); store.setMode(payload.sessionId, payload.projectId, payload.targetId, payload.mode);
+			if (payload.mode !== 'released' && payload.port) await store.attach(payload.sessionId, payload.projectId, payload.targetId, payload.port);
+			if (payload.mode !== 'released' && !payload.port) store.markReady(payload.sessionId, payload.projectId, payload.targetId);
+			await applyDevelopmentRoutes(store);
+			if (payload.mode !== 'released' && payload.port && !await store.verifyRouted(payload.sessionId, payload.projectId, payload.targetId)) {
+				store.stop(payload.sessionId); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; released routes were restored.');
+			}
+			return store.load(payload.sessionId);
+		}
+		case 'local.dev.rebuild': {
+			const payload = z.object({ sessionId: z.string().min(1), projectId: z.string().min(1), targetId: z.string().min(1) }).strict().parse(developmentPayload(request));
+			const store = new DevelopmentSessionStore(), record = store.load(payload.sessionId);
+			const target = record.session.targets.find((entry) => entry.projectId === payload.projectId && entry.targetId === payload.targetId);
+			if (!target) throw new Error('Development rebuild target is outside the selected session.');
+			target.generation += 1; target.health = 'pending'; store.save(record); return { target, requested: true };
+		}
+		case 'local.dev.logs': {
+			const payload = z.object({ sessionId: z.string().min(1), targetId: z.string().min(1).optional() }).strict().parse(developmentPayload(request));
+			const record = new DevelopmentSessionStore().load(payload.sessionId);
+			return { sessionId: payload.sessionId, targets: record.runtimes.flatMap((runtime) => runtime.targets.filter((target) => !payload.targetId || target.id === payload.targetId).map((target) => ({ projectId: runtime.project.id, targetId: target.id, logs: target.logs }))) };
+		}
+		case 'local.dev.freeze':
+		case 'local.dev.verify': throw new Error('Candidate freeze and verification execute unprivileged through trsd.');
 		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
 		case 'local.host.doctor': {
 			const checks = [

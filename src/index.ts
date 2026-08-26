@@ -8,6 +8,7 @@ export * from './edge/certificates.js';
 export * from './manager/plan.js';
 export * from './manager/api.js';
 export * from './manager/operations.js';
+export * from './manager/development-sessions.js';
 export * from './manager/reconcile.js';
 export * from './manager/serialized-reconcile.js';
 export * from './manager/serialized-reset.js';
