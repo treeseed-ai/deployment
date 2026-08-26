@@ -9,6 +9,13 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging).not.toContain('treeseed-host-runtime (= ${deploymentVersion})`, description: \'TreeSeed trsd host client payload\'');
 	});
 
+	it('bootstraps component configuration before an upgraded manager activates it', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");
+		expect(packaging).toContain('if [ ! -e ${configurationRoot}/environment ]');
+		expect(packaging).toContain('-o root -g treeseed-manager -m 0640');
+	});
+
 	it('ships independent stable and development schedulers', () => {
 		const stable = readFileSync('systemd/treeseed-manager-stable.timer', 'utf8');
 		const development = readFileSync('systemd/treeseed-manager-development.timer', 'utf8');

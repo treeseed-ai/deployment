@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -363,5 +363,14 @@ describe('unified host manager foundation', () => {
 		await expect(withDeferredManagerRestart(true, async () => { throw failure; }, schedule)).rejects.toBe(failure);
 		expect(restarts).toBe(2);
 		await expect(withDeferredManagerRestart(true, async () => 'accepted', async () => { throw new Error('restart unavailable'); })).resolves.toBe('accepted');
+	});
+
+	it('hands a core upgrade to the new manager without planning in the stale process', async () => {
+		let operations = 0, handoffs = 0;
+		const operate = async () => { operations += 1; return 'new'; };
+		await expect(withCoreUpgradeHandoff(true, 'previous', operate, () => { handoffs += 1; })).resolves.toBe('previous');
+		expect({ operations, handoffs }).toEqual({ operations: 0, handoffs: 1 });
+		await expect(withCoreUpgradeHandoff(false, 'previous', operate, () => { handoffs += 1; })).resolves.toBe('new');
+		expect({ operations, handoffs }).toEqual({ operations: 1, handoffs: 1 });
 	});
 });
