@@ -5,7 +5,7 @@ import { loadHostConfiguration } from '../core/configuration.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
-const stateDirectories: Record<string, string[]> = { api: ['postgres', 'operations-runner'], agent: [], treedx: ['data'], ai: ['data/models', 'data/inference', 'data/training', 'data/archive'], lab: ['data'] };
+const stateDirectories: Record<string, string[]> = { api: ['postgres', 'operations-runner'], admin: [], agent: [], treedx: ['data'], ai: ['data/models', 'data/inference', 'data/training', 'data/archive'], lab: ['data'] };
 
 export function componentStateRoot(host: HostConfiguration, componentId: string) {
 	const root = host.runtime.environment === 'development' ? host.runtime.dataRoot : '/var/lib/treeseed/components';
