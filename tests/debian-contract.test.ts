@@ -2,6 +2,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('Debian and systemd contracts', () => {
+	it('revises the repackaged CLI independently of the host runtime', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packaging).toContain("const cliPackageVersion = cliPayload ? debianVersion(cliPayload.version).replace(/-1$/u, '-2')");
+		expect(packaging).toContain('treeseed-host-runtime`, description: \'TreeSeed trsd host client payload\'');
+		expect(packaging).not.toContain('treeseed-host-runtime (= ${deploymentVersion})`, description: \'TreeSeed trsd host client payload\'');
+	});
+
 	it('ships independent stable and development schedulers', () => {
 		const stable = readFileSync('systemd/treeseed-manager-stable.timer', 'utf8');
 		const development = readFileSync('systemd/treeseed-manager-development.timer', 'utf8');
