@@ -4,11 +4,20 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
+	it('declares local provider synthesis only for an explicit local control-plane connection', () => {
+		const configuration = host(), agent = component('agent', 'development', 'c'), api = component('api', 'stable', 'b');
+		agent.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
+		configuration.components.agent!.connections['control-plane'] = { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' };
+		expect(managedConnectionEnvironment(configuration, agent, [agent, api])).toMatchObject({ TREESEED_PROVIDER_ENVIRONMENT: 'local', TREESEED_CONTROL_PLANE_URL: 'http://service:3000' });
+		configuration.components.agent!.connections['control-plane'] = { kind: 'remote', url: 'https://api.example.test', audience: 'https://api.example.test', tls: { trust: 'system' }, authentication: { mode: 'none' }, healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 30 } };
+		expect(managedConnectionEnvironment(configuration, agent, [agent, api])).toMatchObject({ TREESEED_PROVIDER_ENVIRONMENT: 'managed', TREESEED_CONTROL_PLANE_URL: 'https://api.example.test' });
+	});
+
 	it('plans a stable base with only explicit development overlays', () => {
 		const configuration = host(), { stable, development } = catalogs();
 		const accepted = createPlan(configuration, stable, development);
