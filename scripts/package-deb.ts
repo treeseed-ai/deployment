@@ -67,7 +67,11 @@ function component(id: string, release: string): Definition {
 	if (manifest.componentId !== id || manifest.release !== release) throw new Error(`Locked ${id} component identity does not match its package.`);
 	const accepted = componentReleaseSchema.parse(manifest), declaredPackage = accepted.packages[0];
 	if (!declaredPackage) throw new Error(`Component ${id}@${release} does not declare a Debian package.`);
-	return { architecture: declaredPackage.architecture, packageName: declaredPackage.name, version: declaredPackage.version, depends: 'treeseed-manager', description: `Exact runtime bundle for the TreeSeed ${id} component`, payload(stage) { cpSync(source, resolve(stage, `usr/share/treeseed/components/${id}/${release}`), { recursive: true }); } };
+	return { architecture: declaredPackage.architecture, packageName: declaredPackage.name, version: declaredPackage.version, depends: 'treeseed-manager', description: `Exact runtime bundle for the TreeSeed ${id} component`, payload(stage) {
+		cpSync(source, resolve(stage, `usr/share/treeseed/components/${id}/${release}`), { recursive: true });
+		const configurationRoot = `/etc/treeseed/components/${id}`;
+		writeFileSync(resolve(stage, 'DEBIAN/postinst'), `#!/bin/sh\nset -eu\ninstall -d -o root -g treeseed-manager -m 0750 ${configurationRoot}\nif [ ! -e ${configurationRoot}/environment ]; then install -o root -g treeseed-manager -m 0640 /dev/null ${configurationRoot}/environment; fi\nexit 0\n`, { mode: 0o755 });
+	} };
 }
 function componentDefinitions(integration: IntegrationRelease) {
 	return Object.fromEntries(integration.components.map(({ componentId, release }) => [`treeseed-component-${componentId}`, component(componentId, release)]));

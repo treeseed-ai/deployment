@@ -161,6 +161,12 @@ export async function withDeferredManagerRestart<T>(coreUpdated: boolean, operat
 	}
 }
 
+export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: T, operation: () => Promise<T>, noteHandoff: () => void = () => recordEvent('manager.core-upgrade-handoff', {})) {
+	if (!coreUpdated) return operation();
+	noteHandoff();
+	return previous;
+}
+
 export async function reconcile(track?: 'stable' | 'development') {
 	const host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
@@ -169,7 +175,7 @@ export async function reconcile(track?: 'stable' | 'development') {
 		return previous;
 	}
 	const refresh = await refreshAvailableCatalogs(host, track);
-	return withDeferredManagerRestart(refresh.coreUpdated, async () => {
+	return withDeferredManagerRestart(refresh.coreUpdated, () => withCoreUpgradeHandoff(refresh.coreUpdated, previous, async () => {
 	const stable = loadCatalog(`${paths.catalogs}/stable.json`);
 	const developmentPath = `${paths.catalogs}/development.json`;
 	const accepted = createPlan(host, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, previous);
@@ -235,5 +241,5 @@ export async function reconcile(track?: 'stable' | 'development') {
 	atomicJson(`${paths.managerState}/active-components.json`, effective);
 	recordEvent('reconcile.complete', { receiptId: receipt.receiptId, planId: receipt.planId });
 	return receipt;
-	});
+	}, () => recordEvent('manager.core-upgrade-handoff', { track: track ?? 'all' })));
 }
