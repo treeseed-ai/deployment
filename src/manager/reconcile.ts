@@ -54,6 +54,9 @@ export function composeFiles(component: ComponentRelease) {
 export function managedConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const selection = host.components[component.componentId]!, selected = new Map(releases.map((release) => [release.componentId, release]));
 	const values: Record<string, string> = {};
+	if (component.componentId === 'agent') {
+		values.TREESEED_PROVIDER_ENVIRONMENT = selection.connections['control-plane']?.kind === 'local' ? 'local' : 'managed';
+	}
 	for (const dependency of component.runtime.dependencies) {
 		const connection = selection.connections[dependency.id];
 		if (!connection) continue;
