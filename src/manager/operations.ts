@@ -23,13 +23,19 @@ const bootstrapHandoffSchema = z.object({
 }).strict();
 
 export const hostCommandRequestSchema = z.object({
-	handlerId: z.string().regex(/^local\.host(?:\.[a-z]+)+$/u),
+	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z]+)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
 	options: z.record(z.union([z.string().max(32_768), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
 	configuration: hostConfigurationSchema.optional(),
 }).strict();
 
 export type HostCommandRequest = z.infer<typeof hostCommandRequestSchema>;
+
+export const developmentEnvironmentPayloadSchema = z.object({
+	sessionId: z.string().min(1),
+	projectId: z.string().min(1),
+	targetId: z.string().min(1),
+}).strict();
 
 function receipt() { return loadCurrentReceipt() ?? null; }
 
@@ -123,7 +129,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.dev.environment': {
 			if (!context.local) throw new Error('Development runtime environment is available only through the protected local manager socket.');
-			const payload = z.object({ projectId: z.string().min(1) }).strict().parse(developmentPayload(request));
+			const payload = developmentEnvironmentPayloadSchema.parse(developmentPayload(request));
+			const record = new DevelopmentSessionStore().load(payload.sessionId);
+			const selected = record.session.targets.some((target) => target.projectId === payload.projectId && target.targetId === payload.targetId);
+			const declared = record.runtimes.some((runtime) => runtime.project.id === payload.projectId && runtime.targets.some((target) => target.id === payload.targetId));
+			if (!selected || !declared) throw new Error('Development environment target is outside the selected session.');
 			const releases = loadActiveComponents(), component = releases.find((release) => release.componentId === payload.projectId);
 			return { environment: component ? managedDevelopmentConnectionEnvironment(host, component, releases) : {} };
 		}
