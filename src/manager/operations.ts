@@ -11,7 +11,7 @@ import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
-import { loadUpdateState, updatePaused } from './update-state.js';
+import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
@@ -109,12 +109,15 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.session.start': {
 			if (!context.local) throw new Error('Development sessions may be started only through the protected local manager socket.');
 			const payload = z.object({ session: z.unknown(), runtimes: z.array(z.unknown()).min(1) }).strict().parse(developmentPayload(request));
-			return new DevelopmentSessionStore().start(payload.session, payload.runtimes);
+			const started = new DevelopmentSessionStore().start(payload.session, payload.runtimes);
+			noteDevelopmentPauseOwner(started.session.sessionId, true);
+			return started;
 		}
 		case 'local.dev.session.stop': {
 			if (!context.local) throw new Error('Development sessions may be stopped only through the protected local manager socket.');
 			const payload = z.object({ sessionId: z.string().min(1) }).strict().parse(developmentPayload(request));
 			const store = new DevelopmentSessionStore(), stopped = store.stop(payload.sessionId);
+			noteDevelopmentPauseOwner(payload.sessionId, false);
 			await applyDevelopmentRoutes(store); return stopped;
 		}
 		case 'local.dev.status': {
@@ -155,7 +158,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (payload.mode !== 'released' && !payload.port) store.markReady(payload.sessionId, payload.projectId, payload.targetId);
 			await applyDevelopmentRoutes(store);
 			if (payload.mode !== 'released' && payload.port && !await store.verifyRouted(payload.sessionId, payload.projectId, payload.targetId)) {
-				store.stop(payload.sessionId); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; released routes were restored.');
+				store.stop(payload.sessionId); noteDevelopmentPauseOwner(payload.sessionId, false); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; released routes were restored.');
 			}
 			return store.load(payload.sessionId);
 		}

@@ -321,7 +321,7 @@ describe('unified host manager foundation', () => {
 
 	it('refreshes stable metadata only when its persisted cadence is due', () => {
 		const configuration = host(), checkedAt = new Date('2026-08-24T12:00:00.000Z');
-		const state = { stablePaused: false, developmentPaused: false, changedAt: checkedAt.toISOString(), metadataCheckedAt: { stable: checkedAt.toISOString(), development: null } };
+		const state = { stablePaused: false, developmentPaused: false, developmentPauseOwners: [], changedAt: checkedAt.toISOString(), metadataCheckedAt: { stable: checkedAt.toISOString(), development: null } };
 		expect(metadataRefreshDue(configuration, 'stable', state, new Date('2026-08-25T11:59:59.999Z'))).toBe(false);
 		expect(metadataRefreshDue(configuration, 'stable', state, new Date('2026-08-25T12:00:00.000Z'))).toBe(true);
 		expect(metadataRefreshDue(configuration, 'development', state, checkedAt)).toBe(true);

@@ -35,8 +35,10 @@ vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: u
 vi.mock('../src/runtime/compose.js', () => ({ validateProductionCompose: () => undefined }));
 vi.mock('../src/manager/current-state.js', () => ({ loadCurrentReceipt: () => state.previous, loadActiveComponents: () => state.active }));
 vi.mock('../src/manager/update-state.js', () => ({
-	loadUpdateState: () => ({ stablePaused: false, developmentPaused: state.paused, changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } }),
+	loadUpdateState: () => ({ stablePaused: false, developmentPaused: state.paused, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } }),
 	metadataChecked: () => undefined,
+	noteDevelopmentPauseOwner: () => undefined,
+	recoverDevelopmentPauseOwners: () => undefined,
 	trackPaused: () => state.paused,
 }));
 vi.mock('../src/manager/update-policy.js', () => ({ activationEligible: () => state.eligible, metadataRefreshDue: () => true }));
