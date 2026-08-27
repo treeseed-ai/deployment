@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
-import { connect } from 'node:net';
+import { connect, type LookupFunction } from 'node:net';
 import {
 	developmentCandidateSchema, developmentRuntimeSchema, developmentSessionSchema, type DevelopmentCandidate, type DevelopmentRuntime,
 	type DevelopmentSession, type DevelopmentTarget,
@@ -43,9 +43,15 @@ async function defaultDirectHealth(target: DevelopmentTarget, port: number) {
 	} catch { return false; }
 }
 
+export const loopbackLookup: LookupFunction = (_hostname, options, callback) => {
+	const address = { address: '127.0.0.1', family: 4 };
+	if (options.all) callback(null, [address]);
+	else callback(null, address.address, address.family);
+};
+
 async function routedHealthAttempt(alias: string, path: string) {
 	return new Promise<boolean>((resolveResult) => {
-		const request = httpsRequest({ hostname: alias, servername: alias, port: 443, path, method: 'GET', ca: readFileSync(`${paths.tls}/ca.crt`), lookup: (_hostname, _options, callback) => callback(null, '127.0.0.1', 4), timeout: 2_000 }, (response) => {
+		const request = httpsRequest({ hostname: alias, servername: alias, port: 443, path, method: 'GET', ca: readFileSync(`${paths.tls}/ca.crt`), lookup: loopbackLookup, timeout: 2_000 }, (response) => {
 			response.resume(); resolveResult(Boolean(response.statusCode && response.statusCode < 500));
 		});
 		request.once('timeout', () => { request.destroy(); resolveResult(false); });

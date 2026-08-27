@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { request as httpsRequest } from 'node:https';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore } from '../src/manager/development-sessions.js';
+import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore, loopbackLookup } from '../src/manager/development-sessions.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -36,6 +38,27 @@ describe('development session manager', () => {
 		let attempts = 0;
 		expect(await boundedRoutedHealth(async () => ++attempts === 3, 100, 1)).toBe(true);
 		expect(attempts).toBe(3);
+	});
+
+	it('returns an address list when the HTTPS client requests all lookup results', async () => {
+		const server = createServer((socket) => socket.destroy());
+		await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+		const address = server.address();
+		if (!address || typeof address === 'string') throw new Error('Expected an ephemeral TCP port.');
+		let allAddressesRequested = false;
+		const error = await new Promise<Error>((resolvePromise) => {
+			const request = httpsRequest({
+				hostname: 'readiness.treeseed.localhost', port: address.port, rejectUnauthorized: false,
+				lookup: (hostname, options, callback) => {
+					allAddressesRequested = options.all === true;
+					loopbackLookup(hostname, options, callback);
+				},
+			}, () => resolvePromise(new Error('Plain TCP test server unexpectedly completed TLS.')));
+			request.once('error', resolvePromise); request.end();
+		});
+		await new Promise<void>((resolvePromise, rejectPromise) => server.close((closeError) => closeError ? rejectPromise(closeError) : resolvePromise()));
+		expect(allAddressesRequested).toBe(true);
+		expect((error as NodeJS.ErrnoException).code).not.toBe('ERR_INVALID_IP_ADDRESS');
 	});
 
 	it('leases a canonical route only after direct readiness', async () => {
