@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentActivationOrder, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentActivationOrder, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -39,6 +39,25 @@ describe('unified host manager foundation', () => {
 		configuration.components.admin = { enabled: true, track: 'development', aliases: {},
 			connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
 		expect(managedConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({ TREESEED_API_BASE_URL: 'http://service:3000' });
+	});
+
+	it('resolves containerized development consumers to released or live private dependencies', () => {
+		const configuration = host(), api = component('api', 'stable', 'a'), admin = component('admin', 'development', 'b');
+		admin.runtime.dependencies = [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }];
+		configuration.components.admin = { enabled: true, track: 'development', aliases: {}, connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
+		expect(managedContainerDevelopmentConnectionEnvironment(configuration, admin, [admin, api], [])).toMatchObject({
+			TREESEED_API_BASE_URL: 'http://service:3000', TREESEED_API_AUDIENCE: 'https://api.treeseed.localhost',
+		});
+		expect(managedContainerDevelopmentConnectionEnvironment(configuration, admin, [admin, api], [{ alias: 'api.treeseed.localhost', upstream: 'http://api-live:3000', authentication: 'application' }])).toMatchObject({
+			TREESEED_API_BASE_URL: 'http://api-live:3000', TREESEED_API_AUDIENCE: 'https://api.treeseed.localhost',
+		});
+		expect(managedDevelopmentConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({
+			TREESEED_API_BASE_URL: 'https://api.treeseed.localhost', NODE_EXTRA_CA_CERTS: '/etc/treeseed/cli/localhost-ca.crt',
+		});
+		configuration.components.admin!.connections.api = { kind: 'remote', url: 'https://api.example.test/', audience: 'https://api.example.test', tls: { trust: 'system' }, authentication: { mode: 'none' }, healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 30 } };
+		expect(managedContainerDevelopmentConnectionEnvironment(configuration, admin, [admin, api], [{ alias: 'api.treeseed.localhost', upstream: 'http://api-live:3000', authentication: 'application' }])).toMatchObject({
+			TREESEED_API_BASE_URL: 'https://api.example.test', TREESEED_API_AUDIENCE: 'https://api.example.test',
+		});
 	});
 
 	it('plans a stable base with only explicit development overlays', () => {

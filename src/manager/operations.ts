@@ -9,7 +9,7 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { composeFiles, managedConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
+import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
 import { loadUpdateState, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
@@ -136,7 +136,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (!selected || !declared) throw new Error('Development environment target is outside the selected session.');
 			const releases = loadActiveComponents(), component = releases.find((release) => release.componentId === payload.projectId);
 			if (!component) return { environment: {} };
-			return requestSupervisor<{ environment: Record<string, string> }>({ operation: 'development.environment', componentId: component.componentId, connectionEnvironment: managedDevelopmentConnectionEnvironment(host, component, releases), secretRefs: declared.secretRefs });
+			const containerized = declared.operations.start?.environment.TREESEED_DEVELOPMENT_EDGE_HOST !== undefined;
+			const connectionEnvironment = containerized
+				? managedContainerDevelopmentConnectionEnvironment(host, component, releases, record.routes)
+				: managedDevelopmentConnectionEnvironment(host, component, releases);
+			return requestSupervisor<{ environment: Record<string, string> }>({ operation: 'development.environment', componentId: component.componentId, connectionEnvironment, secretRefs: declared.secretRefs });
 		}
 		case 'local.dev.candidate.register': {
 			if (!context.local) throw new Error('Development candidates may be registered only through the protected local manager socket.');
