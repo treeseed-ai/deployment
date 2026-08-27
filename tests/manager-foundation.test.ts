@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -100,6 +100,8 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
+		expect(supervisorOperationSchema.parse({ operation: 'development.environment', componentId: 'api', secretRefs: { TREESEED_DATABASE_URL: 'api-database-url' } })).toEqual({ operation: 'development.environment', componentId: 'api', secretRefs: { TREESEED_DATABASE_URL: 'api-database-url' } });
+		expect(() => supervisorOperationSchema.parse({ operation: 'development.environment', componentId: 'api', secretRefs: { TREESEED_DATABASE_URL: '../other-secret' } })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'platform.reset', componentDataRoot: '/var/lib/treeseed/components' })).toEqual({ operation: 'platform.reset', componentDataRoot: '/var/lib/treeseed/components' });
 		expect(supervisorOperationSchema.parse({ operation: 'platform.reset', componentDataRoot: '/work/platform/.treeseed/data' })).toEqual({ operation: 'platform.reset', componentDataRoot: '/work/platform/.treeseed/data' });
 		expect(() => supervisorOperationSchema.parse({ operation: 'platform.reset', componentDataRoot: '/home' })).toThrow();
@@ -238,6 +240,20 @@ describe('unified host manager foundation', () => {
 		configuration.components.api!.configuration = { environment: { TREESEED_ENVIRONMENT: 'local', TREESEED_API_BASE_URL: 'https://api.treeseed.localhost' } };
 		expect(renderComponentEnvironment(configuration, 'api')).toBe('TREESEED_API_BASE_URL="https://api.treeseed.localhost"\nTREESEED_ENVIRONMENT="local"\n');
 		expect(() => renderComponentEnvironment({ ...configuration, components: { api: { ...configuration.components.api!, configuration: { environment: { bad: 'value' } } } } }, 'api')).toThrow(/Invalid environment/u);
+	});
+
+	it('resolves only the component secret mapping declared for a development target', () => {
+		const configuration = host();
+		configuration.components.api!.configuration = { secretEnvironment: { TREESEED_DATABASE_URL: 'api-database-url' } };
+		configuration.secrets['api-database-url'] = { provider: 'file', reference: '/etc/treeseed/credentials/api-database-url' };
+		configuration.secrets['agent-token'] = { provider: 'file', reference: '/etc/treeseed/credentials/agent-token' };
+		const requested = { TREESEED_DATABASE_URL: 'api-database-url' };
+		expect(resolveDevelopmentSecretEnvironment(configuration, 'api', requested, (path) => {
+			expect(path).toBe('/etc/treeseed/credentials/api-database-url');
+			return 'postgresql://local\n';
+		})).toEqual({ TREESEED_DATABASE_URL: 'postgresql://local' });
+		expect(() => resolveDevelopmentSecretEnvironment(configuration, 'api', { TREESEED_DATABASE_URL: 'agent-token' }, () => 'secret')).toThrow(/not configured/u);
+		expect(() => resolveDevelopmentSecretEnvironment(configuration, 'api', { TREESEED_OTHER_TOKEN: 'agent-token' }, () => 'secret')).toThrow(/not configured/u);
 	});
 
 	it('places development state under the workspace-visible data root', () => {

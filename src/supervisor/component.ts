@@ -6,6 +6,7 @@ import { loadHostConfiguration } from '../core/configuration.js';
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
 const stateDirectories: Record<string, string[]> = { api: ['postgres', 'operations-runner'], admin: [], agent: [], treedx: ['data'], ai: ['data/models', 'data/inference', 'data/training', 'data/archive'], lab: ['data'] };
+type SecretReader = (path: string) => string;
 
 export function componentStateRoot(host: HostConfiguration, componentId: string) {
 	const root = host.runtime.environment === 'development' ? host.runtime.dataRoot : '/var/lib/treeseed/components';
@@ -17,6 +18,23 @@ function record(value: unknown, label: string): Record<string, unknown> {
 	if (value === undefined) return {};
 	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`);
 	return value as Record<string, unknown>;
+}
+
+export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, componentId: string, requested: Record<string, string>, readSecret: SecretReader = (path) => readFileSync(path, 'utf8')) {
+	const selection = host.components[componentId];
+	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
+	const configured = record(record(selection.configuration, 'Component configuration').secretEnvironment, 'Component secret environment');
+	const values: Record<string, string> = {};
+	for (const [key, secretId] of Object.entries(requested).sort(([left], [right]) => left.localeCompare(right))) {
+		if (!environmentKey.test(key) || !fileName.test(secretId)) throw new Error(`Invalid development secret entry ${key}.`);
+		if (configured[key] !== secretId) throw new Error(`Development secret ${key} is not configured for component ${componentId}.`);
+		const secret = host.secrets[secretId];
+		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
+		const value = readSecret(secret.reference).replace(/\r?\n$/u, '');
+		if (value.length > 16_384) throw new Error(`Development secret ${key} exceeds the environment limit.`);
+		values[key] = value;
+	}
+	return values;
 }
 
 export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}) {
