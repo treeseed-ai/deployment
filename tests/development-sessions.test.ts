@@ -7,11 +7,11 @@ import { affectedDevelopmentClosure, DevelopmentSessionStore } from '../src/mana
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function runtime(project = 'admin', target = 'web', dependency?: { id: string; target: string; reaction: string }) {
+function runtime(project = 'admin', target = 'web', dependency?: { id: string; target: string; reaction: string }, edgeHost?: string) {
 	return {
 		schemaVersion: 'treeseed.development-runtime/v1', project: { id: project, repository: `treeseed-ai/${project}` }, defaults: { leaseSeconds: 3_600, restoreOnFailure: true },
 		targets: [{ id: target, kind: project === 'agent' ? 'rebuild-restart' : project === 'sdk' ? 'package-watch' : 'live-web', platforms: ['linux-amd64'], runtimeRequirements: ['node>=22'], sourceRoots: ['src'], ignoredPaths: [],
-			operations: project === 'sdk' ? { watch: { command: 'npm', args: ['run', 'build:watch'], environment: {}, timeoutSeconds: 600 } } : { start: { command: 'npm', args: ['run', 'dev'], environment: {}, timeoutSeconds: 600 } },
+			operations: project === 'sdk' ? { watch: { command: 'npm', args: ['run', 'build:watch'], environment: {}, timeoutSeconds: 600 } } : { start: { command: 'npm', args: ['run', 'dev'], environment: edgeHost ? { TREESEED_DEVELOPMENT_EDGE_HOST: edgeHost } : {}, timeoutSeconds: 600 } },
 			ready: project === 'sdk' ? { kind: 'marker', path: 'dist/.complete', timeoutSeconds: 30 } : { kind: 'http', path: '/healthz', expectedStatus: 200, timeoutSeconds: 30 },
 			outputs: [], endpoints: project === 'sdk' ? [] : [{ id: 'http', protocol: 'http', port: 4322, canonicalAlias: `${project}.treeseed.localhost`, visibility: 'host', authentication: 'application' }],
 			dependencies: dependency ? [{ ...dependency, locality: 'either' }] : [], statePolicy: 'stateless', migrationPolicy: 'none', secretRefs: {}, shutdown: { graceSeconds: 30, activeWorkPolicy: 'block' }, resources: {}, logs: [], forbiddenOperations: [], promotion: { liveAdmissible: false, candidateRequiresVerification: true } }],
@@ -48,6 +48,19 @@ describe('development session manager', () => {
 		expect(() => sessions.start(session(now, 'session-2'), [runtime()])).toThrow(/conflict/i);
 		await sessions.attach('session-1', 'admin', 'web', 4322); sessions.stop('session-1');
 		expect(sessions.activeRoutes([{ alias: 'admin.treeseed.localhost', upstream: 'admin:4322', authentication: 'application' }])[0]?.upstream).toBe('admin:4322');
+	});
+
+	it('routes a declared source container through its private edge-network identity', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime('admin', 'web', undefined, 'admin-live')]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(sessions.activeRoutes([])[0]?.upstream).toBe('http://admin-live:4322');
+	});
+
+	it('rejects an unsafe development edge host', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime('admin', 'web', undefined, '127.0.0.1')]);
+		await expect(sessions.attach('session-1', 'admin', 'web', 4322)).rejects.toThrow(/private container DNS identity/u);
 	});
 
 	it('expires bounded leases and removes their routes', async () => {

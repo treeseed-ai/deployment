@@ -54,6 +54,13 @@ async function defaultRoutedHealth(alias: string, path: string) {
 }
 
 function targetKey(projectId: string, targetId: string) { return `${projectId}.${targetId}`; }
+
+function developmentEdgeHost(target: DevelopmentTarget) {
+	const declared = target.operations.start?.environment.TREESEED_DEVELOPMENT_EDGE_HOST;
+	if (declared === undefined) return 'host.docker.internal';
+	if (!/^[a-z][a-z0-9-]{0,62}$/u.test(declared)) throw new Error('Development edge host must be a private container DNS identity.');
+	return declared;
+}
 function recordPath(root: string, sessionId: string) { return `${root}/${sessionId}.json`; }
 
 function validateRecord(value: unknown): ManagedDevelopmentSession {
@@ -149,7 +156,8 @@ export class DevelopmentSessionStore {
 		if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('Development endpoint port is invalid.');
 		if (!await this.#deps.directHealth(target, port)) throw new Error(`Direct readiness failed for ${targetKey(projectId, targetId)}.`);
 		record.routes = record.routes.filter((route) => targetKey(route.projectId, route.targetId) !== targetKey(projectId, targetId));
-		for (const endpoint of target.endpoints.filter((entry) => entry.visibility === 'host')) record.routes.push({ alias: endpoint.canonicalAlias!, upstream: `${endpoint.protocol === 'https' ? 'https' : 'http'}://host.docker.internal:${port}`, authentication: endpoint.authentication, projectId, targetId });
+		const edgeHost = developmentEdgeHost(target);
+		for (const endpoint of target.endpoints.filter((entry) => entry.visibility === 'host')) record.routes.push({ alias: endpoint.canonicalAlias!, upstream: `${endpoint.protocol === 'https' ? 'https' : 'http'}://${edgeHost}:${port}`, authentication: endpoint.authentication, projectId, targetId });
 		selected.health = 'ready'; selected.generation += 1;
 		return this.save(record);
 	}
