@@ -72,7 +72,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
 		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment); break;
-		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs) };
+		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {
 			const marker = `${paths.managerState}/provider-enrollments/${operation.connectionId}.json`;
