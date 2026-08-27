@@ -11,8 +11,8 @@ const stateDirectories: Record<string, string[]> = {
 	agent: [],
 	treedx: ['data'],
 	lab: ['data'],
-	'ai-inference': ['data/models', 'data/inference'],
-	'ai-training': ['data/training', 'data/archive', 'data/models'],
+	'ai-inference': ['data/postgres', 'data/models', 'data/inference'],
+	'ai-training': ['data/postgres', 'data/training', 'data/archive', 'data/models'],
 	'ai-lab': ['data/state', 'data/hermes', 'data/workspace', 'data/open-webui'],
 };
 type SecretReader = (path: string) => string;
