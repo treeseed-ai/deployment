@@ -303,8 +303,8 @@ describe('unified host manager foundation', () => {
 	});
 
 	it('creates the state roots declared by the three TreeAI components', () => {
-		expect(componentStateDirectories('ai-inference')).toEqual(['data/models', 'data/inference']);
-		expect(componentStateDirectories('ai-training')).toEqual(['data/training', 'data/archive', 'data/models']);
+		expect(componentStateDirectories('ai-inference')).toEqual(['data/postgres', 'data/models', 'data/inference']);
+		expect(componentStateDirectories('ai-training')).toEqual(['data/postgres', 'data/training', 'data/archive', 'data/models']);
 		expect(componentStateDirectories('ai-lab')).toEqual(['data/state', 'data/hermes', 'data/workspace', 'data/open-webui']);
 		expect(() => componentStateDirectories('ai')).toThrow(/Unsupported configured component/u);
 	});
