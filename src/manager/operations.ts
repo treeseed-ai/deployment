@@ -132,10 +132,17 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const payload = developmentEnvironmentPayloadSchema.parse(developmentPayload(request));
 			const record = new DevelopmentSessionStore().load(payload.sessionId);
 			const selected = record.session.targets.some((target) => target.projectId === payload.projectId && target.targetId === payload.targetId);
-			const declared = record.runtimes.some((runtime) => runtime.project.id === payload.projectId && runtime.targets.some((target) => target.id === payload.targetId));
+			const declared = record.runtimes.find((runtime) => runtime.project.id === payload.projectId)?.targets.find((target) => target.id === payload.targetId);
 			if (!selected || !declared) throw new Error('Development environment target is outside the selected session.');
 			const releases = loadActiveComponents(), component = releases.find((release) => release.componentId === payload.projectId);
-			return { environment: component ? managedDevelopmentConnectionEnvironment(host, component, releases) : {} };
+			if (!component) return { environment: {} };
+			const environment = managedDevelopmentConnectionEnvironment(host, component, releases);
+			const resolved = await requestSupervisor<{ environment: Record<string, string> }>({ operation: 'development.environment', componentId: component.componentId, secretRefs: declared.secretRefs });
+			for (const [key, value] of Object.entries(resolved.environment)) {
+				if (environment[key] !== undefined) throw new Error(`Development secret ${key} conflicts with a managed connection.`);
+				environment[key] = value;
+			}
+			return { environment };
 		}
 		case 'local.dev.candidate.register': {
 			if (!context.local) throw new Error('Development candidates may be registered only through the protected local manager socket.');
