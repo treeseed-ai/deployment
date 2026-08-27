@@ -20,19 +20,33 @@ function record(value: unknown, label: string): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, componentId: string, requested: Record<string, string>, readSecret: SecretReader = (path) => readFileSync(path, 'utf8')) {
+export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, componentId: string, requested: Record<string, string>, connectionEnvironment: Record<string, string> = {}, readSecret: SecretReader = (path) => readFileSync(path, 'utf8')) {
 	const selection = host.components[componentId];
 	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
-	const configured = record(record(selection.configuration, 'Component configuration').secretEnvironment, 'Component secret environment');
-	const values: Record<string, string> = {};
+	const configuration = record(selection.configuration, 'Component configuration');
+	const environment = record(configuration.environment, 'Component environment');
+	const configured = record(configuration.secretEnvironment, 'Component secret environment');
+	const values: Record<string, string> = { ...connectionEnvironment };
+	for (const [key, value] of Object.entries(environment)) {
+		if (!environmentKey.test(key) || typeof value !== 'string' || value.length > 16_384) throw new Error(`Invalid environment entry ${key}.`);
+		if (values[key] !== undefined) throw new Error(`Environment entry ${key} is reserved for a managed connection.`);
+		values[key] = value;
+	}
 	for (const [key, secretId] of Object.entries(requested).sort(([left], [right]) => left.localeCompare(right))) {
 		if (!environmentKey.test(key) || !fileName.test(secretId)) throw new Error(`Invalid development secret entry ${key}.`);
 		if (configured[key] !== secretId) throw new Error(`Development secret ${key} is not configured for component ${componentId}.`);
+		if (values[key] !== undefined) throw new Error(`Development secret ${key} conflicts with a managed or configured environment entry.`);
 		const secret = host.secrets[secretId];
 		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
 		const value = readSecret(secret.reference).replace(/\r?\n$/u, '');
 		if (value.length > 16_384) throw new Error(`Development secret ${key} exceeds the environment limit.`);
 		values[key] = value;
+	}
+	if (host.runtime.environment === 'development') {
+		values.TREESEED_ENVIRONMENT ??= 'local';
+		values.TREESEED_LOCAL_DEV_MODE ??= '1';
+		values.LOCAL_DEV_MODE ??= '1';
+		values.TREESEED_COMPONENT_DATA_ROOT = host.runtime.dataRoot!;
 	}
 	return values;
 }

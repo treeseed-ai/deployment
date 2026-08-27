@@ -136,13 +136,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (!selected || !declared) throw new Error('Development environment target is outside the selected session.');
 			const releases = loadActiveComponents(), component = releases.find((release) => release.componentId === payload.projectId);
 			if (!component) return { environment: {} };
-			const environment = managedDevelopmentConnectionEnvironment(host, component, releases);
-			const resolved = await requestSupervisor<{ environment: Record<string, string> }>({ operation: 'development.environment', componentId: component.componentId, secretRefs: declared.secretRefs });
-			for (const [key, value] of Object.entries(resolved.environment)) {
-				if (environment[key] !== undefined) throw new Error(`Development secret ${key} conflicts with a managed connection.`);
-				environment[key] = value;
-			}
-			return { environment };
+			return requestSupervisor<{ environment: Record<string, string> }>({ operation: 'development.environment', componentId: component.componentId, connectionEnvironment: managedDevelopmentConnectionEnvironment(host, component, releases), secretRefs: declared.secretRefs });
 		}
 		case 'local.dev.candidate.register': {
 			if (!context.local) throw new Error('Development candidates may be registered only through the protected local manager socket.');
