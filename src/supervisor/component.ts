@@ -1,10 +1,11 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
+const credentialPath = /^\/etc\/treeseed\/credentials\/[a-z0-9][a-z0-9._-]{0,127}$/u;
 const stateDirectories: Record<string, string[]> = {
 	api: ['postgres', 'operations-runner'],
 	admin: [],
@@ -66,7 +67,7 @@ export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, com
 	return values;
 }
 
-export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}) {
+export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}, readSecret: SecretReader = (path) => readFileSync(path, 'utf8')) {
 	const selection = host.components[componentId];
 	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
 	const configuration = record(selection.configuration, 'Component configuration');
@@ -82,7 +83,7 @@ export function renderComponentEnvironment(host: HostConfiguration, componentId:
 		if (!environmentKey.test(key) || typeof secretId !== 'string') throw new Error(`Invalid secret environment entry ${key}.`);
 		const secret = host.secrets[secretId];
 		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
-		values.set(key, readFileSync(secret.reference, 'utf8').replace(/\r?\n$/u, ''));
+		values.set(key, readSecret(secret.reference).replace(/\r?\n$/u, ''));
 	}
 	if (host.runtime.environment === 'development') {
 		if (!values.has('TREESEED_ENVIRONMENT')) values.set('TREESEED_ENVIRONMENT', 'local');
@@ -99,7 +100,67 @@ function atomicText(path: string, value: string, mode = 0o600) {
 	renameSync(temporary, path);
 }
 
-export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}) {
+export interface SecretFileOperations {
+	runtimeGid(): number;
+	inspect(path: string): { uid: number; gid: number; mode: number; isFile(): boolean; isSymbolicLink(): boolean };
+	secure(path: string, gid: number): void;
+	restore(path: string, uid: number, gid: number, mode: number): void;
+	load(componentId: string): SecretCustodyReceipt | undefined;
+	save(receipt: SecretCustodyReceipt): void;
+	remove(componentId: string): void;
+}
+
+interface SecretCustodyReceipt { componentId: string; files: Array<{ id: string; path: string; uid: number; gid: number; mode: number }> }
+const secretCustodyRoot = '/var/lib/treeseed/secret-custody';
+
+const secretFileOperations: SecretFileOperations = {
+	runtimeGid: () => statSync('/var/lib/treeseed/component-secrets').gid,
+	inspect: (path) => lstatSync(path),
+	secure: (path, gid) => { chownSync(path, 0, gid); chmodSync(path, 0o640); },
+	restore: (path, uid, gid, mode) => { chownSync(path, uid, gid); chmodSync(path, mode); },
+	load: (componentId) => {
+		const path = resolve(secretCustodyRoot, `${componentId}.json`);
+		return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as SecretCustodyReceipt : undefined;
+	},
+	save: (receipt) => { mkdirSync(secretCustodyRoot, { recursive: true, mode: 0o700 }); atomicText(resolve(secretCustodyRoot, `${receipt.componentId}.json`), `${JSON.stringify(receipt)}\n`); },
+	remove: (componentId) => { const path = resolve(secretCustodyRoot, `${componentId}.json`); if (existsSync(path)) unlinkSync(path); },
+};
+
+export function restoreComponentSecretFiles(componentId: string, operations: SecretFileOperations = secretFileOperations) {
+	if (!/^[a-z][a-z0-9.-]+$/u.test(componentId)) throw new Error('Invalid component secret-custody identity.');
+	const receipt = operations.load(componentId);
+	if (!receipt) return [];
+	for (const file of receipt.files) operations.restore(file.path, file.uid, file.gid, file.mode);
+	operations.remove(componentId);
+	return receipt.files.map(({ id }) => id);
+}
+
+export function prepareComponentSecretFiles(host: HostConfiguration, componentId: string, secretFileIds: readonly string[], operations: SecretFileOperations = secretFileOperations) {
+	if (!/^[a-z][a-z0-9.-]+$/u.test(componentId)) throw new Error('Invalid component secret-custody identity.');
+	const gid = operations.runtimeGid();
+	const files = [...secretFileIds].sort().map((secretId) => {
+		if (!fileName.test(secretId)) throw new Error(`Invalid component secret ${secretId}.`);
+		const secret = host.secrets[secretId];
+		if (!secret || secret.provider !== 'file' || !credentialPath.test(secret.reference)) throw new Error(`Component secret ${secretId} is outside fixed file custody.`);
+		const metadata = operations.inspect(secret.reference);
+		if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`Component secret ${secretId} must be a regular file.`);
+		return { id: secretId, path: secret.reference, uid: metadata.uid, gid: metadata.gid, mode: metadata.mode & 0o7777 };
+	});
+	const existing = operations.load(componentId);
+	if (existing && JSON.stringify(existing.files.map(({ id, path }) => ({ id, path }))) !== JSON.stringify(files.map(({ id, path }) => ({ id, path })))) throw new Error(`Component ${componentId} fixed secret custody changed while active.`);
+	const receipt = existing ?? { componentId, files };
+	if (!existing) operations.save(receipt);
+	try {
+		for (const file of files) operations.secure(file.path, gid);
+	} catch (error) {
+		for (const file of receipt.files) operations.restore(file.path, file.uid, file.gid, file.mode);
+		operations.remove(componentId);
+		throw error;
+	}
+	return files.map(({ id }) => id);
+}
+
+export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = []) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	const directories = componentStateDirectories(componentId);
@@ -107,11 +168,15 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	mkdirSync(configurationRoot, { recursive: true, mode: 0o700 });
 	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
-	atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment));
-	const files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
-	for (const [name, value] of Object.entries(files)) {
-		if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
-		atomicText(resolve(configurationRoot, name), value);
-	}
-	return { componentId, configured: true, environmentKeys: Object.keys(record(record(selection.configuration, 'Component configuration').environment, 'Component environment')).length + Object.keys(record(record(selection.configuration, 'Component configuration').secretEnvironment, 'Component secret environment')).length, files: Object.keys(files).sort() };
+	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
+	let files: Record<string, unknown>;
+	try {
+		atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment));
+		files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
+		for (const [name, value] of Object.entries(files)) {
+			if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
+			atomicText(resolve(configurationRoot, name), value);
+		}
+	} catch (error) { restoreComponentSecretFiles(componentId); throw error; }
+	return { componentId, configured: true, environmentKeys: Object.keys(record(record(selection.configuration, 'Component configuration').environment, 'Component environment')).length + Object.keys(record(record(selection.configuration, 'Component configuration').secretEnvironment, 'Component secret environment')).length, files: Object.keys(files).sort(), secretFiles };
 }

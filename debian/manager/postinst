@@ -3,10 +3,12 @@ set -eu
 getent group treeseed-manager >/dev/null || addgroup --system treeseed-manager
 getent passwd treeseed-manager >/dev/null || adduser --system --ingroup treeseed-manager --home /var/lib/treeseed/manager --no-create-home treeseed-manager
 getent group treeseed-operators >/dev/null || addgroup --system treeseed-operators
+getent group treeseed-component-secrets >/dev/null || addgroup --system treeseed-component-secrets
 install -d -o root -g root -m 0711 /etc/treeseed /var/lib/treeseed
 install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/manager /etc/treeseed/manager/tls
 install -d -o root -g treeseed-operators -m 0770 /run/treeseed/manager
 install -d -o treeseed-manager -g treeseed-manager -m 0750 /var/lib/treeseed/manager /var/lib/treeseed/manager/receipts
+install -d -o root -g treeseed-component-secrets -m 0710 /var/lib/treeseed/component-secrets
 chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager
 if [ -f /etc/treeseed/platform.json ]; then chown root:treeseed-manager /etc/treeseed/platform.json; chmod 0640 /etc/treeseed/platform.json; fi
 systemctl daemon-reload

@@ -43,6 +43,7 @@ if [ -f "$state/seed/credentials.json" ]; then
   for secret_id in $(jq -r 'keys[]' "$state/seed/credentials.json"); do
     temporary="/etc/treeseed/credentials/.${secret_id}.new"
     jq -jr --arg id "$secret_id" '.[$id]' "$state/seed/credentials.json" >"$temporary"
+    chown root:root "$temporary"
     chmod 0600 "$temporary"
     mv -f "$temporary" "/etc/treeseed/credentials/$secret_id"
   done

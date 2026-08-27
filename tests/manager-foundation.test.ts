@@ -149,6 +149,18 @@ describe('unified host manager foundation', () => {
 		expect(() => supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'nightly', updateCore: true })).toThrow();
 	});
 
+	it('restores temporary component-secret custody on activation failure and stop', () => {
+		const restored: string[] = [];
+		const activation = { operation: 'compose.activate', componentId: 'ai-lab', files: ['ai-lab/release/compose.yml'], projectName: 'treeseed-ai-lab', waitTimeoutSeconds: 120 };
+		expect(() => executeSupervisorOperation(activation, (executable, arguments_) => {
+			if (executable === '/usr/bin/docker' && arguments_.includes('inspect')) return undefined;
+			throw new Error('activation failed');
+		}, (componentId) => restored.push(componentId))).toThrow(/activation failed/u);
+		expect(restored).toEqual(['ai-lab']);
+		executeSupervisorOperation({ operation: 'compose.stop', componentId: 'ai-lab', files: ['ai-lab/release/compose.yml'], projectName: 'treeseed-ai-lab' }, () => undefined, (componentId) => restored.push(componentId));
+		expect(restored).toEqual(['ai-lab', 'ai-lab']);
+	});
+
 	it('removes only resettable platform state and recreates empty managed roots', () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-platform-reset-'));
 		const targets = { components: resolve(root, 'var/lib/treeseed/components'), componentConfiguration: resolve(root, 'etc/treeseed/components'), managerState: resolve(root, 'var/lib/treeseed/manager'), backups: resolve(root, 'var/lib/treeseed/backups') };
