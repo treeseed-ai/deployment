@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { affectedDevelopmentClosure, DevelopmentSessionStore } from '../src/manager/development-sessions.js';
+import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore } from '../src/manager/development-sessions.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -32,6 +32,12 @@ function store(now: Date) {
 }
 
 describe('development session manager', () => {
+	it('retries canonical readiness through bounded edge convergence', async () => {
+		let attempts = 0;
+		expect(await boundedRoutedHealth(async () => ++attempts === 3, 100, 1)).toBe(true);
+		expect(attempts).toBe(3);
+	});
+
 	it('leases a canonical route only after direct readiness', async () => {
 		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
 		sessions.start(session(now), [runtime()]);
