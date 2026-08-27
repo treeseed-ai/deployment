@@ -10,7 +10,7 @@ import { createPlan } from './plan.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
-import { loadUpdateState, metadataChecked, trackPaused } from './update-state.js';
+import { loadUpdateState, metadataChecked, noteDevelopmentPauseOwner, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 
@@ -243,16 +243,25 @@ export async function reconcile(track?: 'stable' | 'development') {
 		recordEvent('update.metadata-current', { track, eligible: false, catalogDigest: stable.catalogDigest });
 		return previous;
 	}
-	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
-	const effective = previous && track ? accepted.components.map((component) => host.components[component.componentId]?.track === track ? component : activeById.get(component.componentId) ?? component) : accepted.components;
 	const developmentSessions = new DevelopmentSessionStore();
 	const expiredDevelopmentSessions = developmentSessions.expire();
+	for (const expired of expiredDevelopmentSessions) noteDevelopmentPauseOwner(expired.session.sessionId, false);
+	const activeDevelopmentSessions = developmentSessions.list();
+	recoverDevelopmentPauseOwners(activeDevelopmentSessions.map((record) => record.session.sessionId));
+	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
+	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
+	const effectiveCandidates = previous ? accepted.components.map((component) => {
+		const heldBySession = heldDevelopmentComponents.has(component.componentId);
+		const outsideRequestedTrack = Boolean(track && host.components[component.componentId]?.track !== track);
+		return heldBySession || outsideRequestedTrack ? activeById.get(component.componentId) ?? component : component;
+	}) : accepted.components;
+	const effective = [...effectiveCandidates, ...active.filter((component) => heldDevelopmentComponents.has(component.componentId) && !effectiveCandidates.some((candidate) => candidate.componentId === component.componentId))];
 	const routes = developmentSessions.activeRoutes(rollbackRoutes(host, effective));
 	const targets = previous && track ? effective.filter((component) => host.components[component.componentId]?.track === track) : effective;
 	const selectedIds = new Set(effective.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
 	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
-	const changed = targets.filter((component) => changedIds.has(component.componentId));
+	const changed = targets.filter((component) => changedIds.has(component.componentId) && !heldDevelopmentComponents.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	const cliControlPlaneUrl = managedCliControlPlaneUrl(host, effective);
