@@ -1,7 +1,0 @@
-dist/
-node_modules/
-release/out/
-.treeseed/
-*.deb
-*.buildinfo
-*.changes
