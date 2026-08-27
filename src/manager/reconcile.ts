@@ -5,7 +5,7 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { atomicJson } from '../core/files.js';
 import { recordEvent } from '../core/events.js';
 import { paths } from '../core/paths.js';
-import { edgeRoutes, renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
+import { edgeRoutes, renderCaddyfile, subjectAlternativeNames, type EdgeRoute } from '../edge/caddy.js';
 import { createPlan } from './plan.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
@@ -136,6 +136,22 @@ export function managedDevelopmentConnectionEnvironment(host: HostConfiguration,
 		values[`${prefix}_URL`] = url; values[`${prefix}_AUDIENCE`] = url;
 		if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = url;
 		values.NODE_EXTRA_CA_CERTS = '/etc/treeseed/cli/localhost-ca.crt';
+	}
+	return values;
+}
+
+export function managedContainerDevelopmentConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], routes: readonly EdgeRoute[]) {
+	const values = managedConnectionEnvironment(host, component, releases), selection = host.components[component.componentId], selected = new Map(releases.map((release) => [release.componentId, release]));
+	for (const dependency of component.runtime.dependencies) {
+		const connection = selection?.connections[dependency.id]; if (!connection || connection.kind !== 'local') continue;
+		const target = selected.get(connection.componentId), service = target?.runtime.services.find((candidate) => candidate.id === connection.serviceId), endpoint = service?.endpoints.find((candidate) => candidate.id === connection.endpointId);
+		if (!target || !service || !endpoint) continue;
+		const identity = `${target.componentId}.${service.id}.${endpoint.id}`, alias = host.components[target.componentId]?.aliases[identity] ?? endpoint.defaultAlias;
+		const route = alias ? routes.find((candidate) => candidate.alias === alias) : undefined;
+		if (!route) continue;
+		const prefix = `TREESEED_${dependency.id.replaceAll('-', '_').toUpperCase()}`;
+		values[`${prefix}_URL`] = route.upstream;
+		if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = route.upstream;
 	}
 	return values;
 }
