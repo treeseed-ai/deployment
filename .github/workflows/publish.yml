@@ -1,0 +1,166 @@
+name: Publish protected Deployment candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact repository tag to publish
+        required: true
+      suite:
+        description: Protected APT suite
+        required: true
+        type: choice
+        options: [development, stable]
+      stable_lock_url:
+        description: Exact-commit raw URL for the Platform stable integration release
+        required: true
+      development_lock_url:
+        description: Exact-commit raw URL for the Platform development integration release
+        required: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  packages: write
+
+jobs:
+  publish:
+    environment: ${{ inputs.suite }}
+    runs-on: ubuntu-latest
+    env:
+      TREESEED_APT_SUITE: ${{ inputs.suite }}
+      TREESEED_INTEGRATION_RELEASES: ${{ inputs.stable_lock_url }},${{ inputs.development_lock_url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Require exact annotated tag and allowed branch ancestry
+        run: |
+          test "$(git describe --tags --exact-match HEAD)" = "${{ inputs.tag }}"
+          test "$(git cat-file -t "refs/tags/${{ inputs.tag }}")" = tag
+          git merge-base --is-ancestor HEAD "origin/${{ inputs.suite == 'stable' && 'main' || 'staging' }}"
+          if [ "${{ inputs.suite }}" = stable ]; then
+            case "${{ inputs.tag }}" in *-*) exit 1;; esac
+          else
+            case "${{ inputs.tag }}" in *-rc.*) :;; *) exit 1;; esac
+            test -n "${{ inputs.development_lock_url }}"
+          fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run verify:direct
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+        if: ${{ false }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        if: ${{ false }}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        if: ${{ false }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: diagnostics
+        if: ${{ false }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: lab/diagnostics.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: treeseed/diagnostics:${{ inputs.tag }}
+          sbom: true
+          provenance: mode=max
+      - id: mailpit
+        if: ${{ false }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: lab/mailpit.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: treeseed/mailpit:${{ inputs.tag }}
+          sbom: true
+          provenance: mode=max
+      - name: Bind and read back exact lab images
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          echo 'TREESEED_DIAGNOSTICS_DIGEST=${{ steps.diagnostics.outputs.digest }}' >> "$GITHUB_ENV"
+          echo 'TREESEED_MAILPIT_DIGEST=${{ steps.mailpit.outputs.digest }}' >> "$GITHUB_ENV"
+          echo 'TREESEED_REQUIRE_PUBLISHED_IMAGES=1' >> "$GITHUB_ENV"
+          for identity in \
+            'treeseed/diagnostics:${{ inputs.tag }}=${{ steps.diagnostics.outputs.digest }}' \
+            'treeseed/mailpit:${{ inputs.tag }}=${{ steps.mailpit.outputs.digest }}'; do
+            image="${identity%%=*}"; expected="${identity#*=}"
+            verified=0
+            for attempt in {1..12}; do
+              actual="$(docker buildx imagetools inspect "$image" 2>inspect.err | awk '/^Digest:/{print $2;exit}')" || true
+              raw="$(docker buildx imagetools inspect --raw "$image" 2>>inspect.err)" || true
+              if [ "$actual" = "$expected" ] \
+                && node -e 'let value=""; process.stdin.on("data", chunk => value += chunk).on("end", () => { const manifests=JSON.parse(value).manifests; const platform=architecture => manifests.some(item => item.platform?.os === "linux" && item.platform?.architecture === architecture); const attestation=manifests.some(item => item.annotations?.["vnd.docker.reference.type"] === "attestation-manifest"); if (!platform("amd64") || !platform("arm64") || !attestation) process.exit(1); });' <<<"$raw"; then
+                verified=1
+                break
+              fi
+              echo "Docker Hub read-back attempt $attempt/12 has not converged for $image" >&2
+              if [ "$attempt" -lt 12 ]; then sleep 5; fi
+            done
+            if [ "$verified" -ne 1 ]; then
+              cat inspect.err >&2
+              echo "Expected $expected; observed ${actual:-unavailable}" >&2
+              exit 1
+            fi
+          done
+      - run: npm run verify:deb
+      - uses: anchore/sbom-action/download-syft@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+      - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
+      - name: Seal exact-head evidence
+        run: |
+          if [ "${{ inputs.suite }}" = development ]; then
+            mapfile -t lab_bundles < <(find .treeseed/artifacts/components/lab -mindepth 2 -maxdepth 2 -name component-release.json -type f)
+            test "${#lab_bundles[@]}" -eq 1
+            cp "${lab_bundles[0]}" release/out/lab-component-release.json
+            cp "$(dirname "${lab_bundles[0]}")/compose.yml" release/out/lab-compose.yml
+          fi
+          printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: release/out/*.deb
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deployment-release-${{ github.sha }}
+          path: release/out/**
+          if-no-files-found: error
+      - name: Publish immutable GitHub release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [ "${{ inputs.suite }}" = development ]; then prerelease=(--prerelease); fi
+          if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.tag }}" release/out/*
+          else
+            gh release create "${{ inputs.tag }}" release/out/* --verify-tag --generate-notes "${prerelease[@]}"
+          fi
+      - name: Publish signed APT suite
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          TREESEED_PAGES_ROOT: .treeseed/pages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes apt-utils dpkg-dev
+          if git fetch origin gh-pages; then
+            git worktree add --detach .treeseed/pages origin/gh-pages
+          else
+            git worktree add --detach .treeseed/pages HEAD
+            git -C .treeseed/pages checkout --orphan gh-pages
+            git -C .treeseed/pages rm -rf .
+          fi
+          node --import tsx scripts/publish-apt.ts "${{ inputs.suite }}"
+          touch .treeseed/pages/.nojekyll
+          git -C .treeseed/pages add --all
+          git -C .treeseed/pages -c user.name='TreeSeed Release Automation' -c user.email='releases@treeseed.ai' commit -m "Publish ${{ inputs.suite }} from ${{ github.sha }}"
+          git -C .treeseed/pages push origin HEAD:gh-pages

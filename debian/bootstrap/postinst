@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+systemctl daemon-reload
+operator_file=/var/lib/treeseed/bootstrap/seed/operator
+if [ -f "$operator_file" ]; then
+  operator=$(cat "$operator_file")
+  case "$operator" in ''|root|*[!a-zA-Z0-9._-]*) exit 1;; esac
+  getent passwd "$operator" >/dev/null
+  getent group treeseed-operators >/dev/null || addgroup --system treeseed-operators
+  adduser "$operator" treeseed-operators >/dev/null
+fi
+systemctl enable treeseed-bootstrap.service
+systemctl --no-block start treeseed-bootstrap.service
+printf '%s\n' 'TreeSeed bootstrap scheduled. This configured installer may contain plaintext bootstrap credentials; securely delete the downloaded .deb after successful installation.'
+exit 0

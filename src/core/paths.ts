@@ -1,0 +1,15 @@
+export const paths = {
+	configuration: '/etc/treeseed/platform.json',
+	managerConfiguration: '/etc/treeseed/manager',
+	tls: '/etc/treeseed/manager/tls',
+	state: '/var/lib/treeseed',
+	managerState: '/var/lib/treeseed/manager',
+	components: '/var/lib/treeseed/components',
+	receipts: '/var/lib/treeseed/manager/receipts',
+	backups: '/var/lib/treeseed/backups',
+	bundles: '/usr/share/treeseed/components',
+	catalogs: '/usr/share/treeseed/catalogs',
+	edge: '/etc/treeseed/edge',
+	cli: '/etc/treeseed/cli',
+	socket: '/run/treeseed/manager/supervisor.sock',
+} as const;

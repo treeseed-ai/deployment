@@ -1,0 +1,13 @@
+[Unit]
+Description=Frequent lightweight TreeSeed stable update scheduler
+
+[Timer]
+OnBootSec=2m
+OnUnitInactiveSec=5m
+RandomizedDelaySec=15s
+AccuracySec=5s
+Persistent=true
+Unit=treeseed-manager-stable.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,28 @@
+name: treeseed-lab
+services:
+  mailpit:
+    image: treeseed/mailpit@sha256:MAILPIT_DIGEST_REQUIRED
+    restart: unless-stopped
+    networks: [private, treeseed-edge]
+    expose: ["1025", "8025"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck: { test: ["CMD", "/mailpit", "readyz"], interval: 10s, timeout: 5s, retries: 12 }
+  diagnostics:
+    image: treeseed/diagnostics@sha256:DIAGNOSTICS_DIGEST_REQUIRED
+    restart: unless-stopped
+    networks: [private, treeseed-edge]
+    expose: ["8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    volumes: ["/var/lib/treeseed/manager:/manager:ro"]
+    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
+networks:
+  private:
+    internal: true
+  treeseed-edge:
+    external: true
