@@ -5,6 +5,9 @@ and release-catalog implementation for independently released TreeSeed
 components. It is the host lifecycle foundation shared by TreeSeed Platform,
 TreeAI, and TreeDX without merging their application repositories.
 
+The one-time qualification-host transition from the retired TreeAI manager is
+defined in [docs/treeai-handoff.md](docs/treeai-handoff.md).
+
 Implementation changes are integrated through `staging` and released from
 `main`. The repository never owns Market or Market API deployment.
 
