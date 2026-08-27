@@ -43,14 +43,28 @@ async function defaultDirectHealth(target: DevelopmentTarget, port: number) {
 	} catch { return false; }
 }
 
-async function defaultRoutedHealth(alias: string, path: string) {
+async function routedHealthAttempt(alias: string, path: string) {
 	return new Promise<boolean>((resolveResult) => {
-		const request = httpsRequest({ hostname: alias, servername: alias, port: 443, path, method: 'GET', ca: readFileSync(`${paths.tls}/ca.crt`), lookup: (_hostname, _options, callback) => callback(null, '127.0.0.1', 4), timeout: 30_000 }, (response) => {
+		const request = httpsRequest({ hostname: alias, servername: alias, port: 443, path, method: 'GET', ca: readFileSync(`${paths.tls}/ca.crt`), lookup: (_hostname, _options, callback) => callback(null, '127.0.0.1', 4), timeout: 2_000 }, (response) => {
 			response.resume(); resolveResult(Boolean(response.statusCode && response.statusCode < 500));
 		});
 		request.once('timeout', () => { request.destroy(); resolveResult(false); });
 		request.once('error', () => resolveResult(false)); request.end();
 	});
+}
+
+export async function boundedRoutedHealth(check: () => Promise<boolean>, timeoutMs = 30_000, retryMs = 250) {
+	const deadline = Date.now() + timeoutMs;
+	do {
+		if (await check()) return true;
+		if (Date.now() >= deadline) return false;
+		await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(retryMs, Math.max(0, deadline - Date.now()))));
+	} while (Date.now() <= deadline);
+	return false;
+}
+
+function defaultRoutedHealth(alias: string, path: string) {
+	return boundedRoutedHealth(() => routedHealthAttempt(alias, path));
 }
 
 function targetKey(projectId: string, targetId: string) { return `${projectId}.${targetId}`; }
