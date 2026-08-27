@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -186,9 +186,13 @@ describe('unified host manager foundation', () => {
 
 	it('accepts only bounded host commands and fixed configuration or enrollment mutations', () => {
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.component.enable', arguments: ['agent'], options: { plan: true } })).toMatchObject({ handlerId: 'local.host.component.enable' });
+		expect(hostCommandRequestSchema.parse({ handlerId: 'local.dev.session.start', options: { payload: '{}' } })).toMatchObject({ handlerId: 'local.dev.session.start' });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'remote.shell', arguments: ['id'] })).toThrow();
+		expect(() => hostCommandRequestSchema.parse({ handlerId: 'local.shell.execute', arguments: ['id'] })).toThrow();
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.reset', options: { confirm: true } })).toMatchObject({ handlerId: 'local.host.reset', options: { confirm: true } });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'local.host.status', arguments: ['x'.repeat(257)] })).toThrow();
+		expect(developmentEnvironmentPayloadSchema.parse({ sessionId: 'dev-1', projectId: 'admin', targetId: 'web' })).toEqual({ sessionId: 'dev-1', projectId: 'admin', targetId: 'web' });
+		expect(() => developmentEnvironmentPayloadSchema.parse({ sessionId: 'dev-1', projectId: 'admin' })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.replace', configuration: host() })).toMatchObject({ operation: 'configuration.replace' });
 		expect(supervisorOperationSchema.parse({ operation: 'configuration.recover', configuration: host() })).toMatchObject({ operation: 'configuration.recover' });
 		expect(supervisorOperationSchema.parse({ operation: 'pki.enroll', clientId: 'client-12345678' })).toEqual({ operation: 'pki.enroll', clientId: 'client-12345678' });
