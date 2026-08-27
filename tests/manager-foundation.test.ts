@@ -4,11 +4,29 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentStateRoot, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentActivationOrder, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
+	it('activates local dependencies before consumers and stops them in reverse order', () => {
+		const configuration = host(), api = component('api', 'stable', 'a'), admin = component('admin', 'development', 'b');
+		admin.runtime.dependencies = [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }];
+		configuration.components.admin = { enabled: true, track: 'development', aliases: {}, connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
+		expect(componentActivationOrder(configuration, [admin, api]).map(({ componentId }) => componentId)).toEqual(['api', 'admin']);
+		expect(componentStopOrder(configuration, [admin, api]).map(({ componentId }) => componentId)).toEqual(['admin', 'api']);
+	});
+
+	it('fails closed when local component dependencies cycle or are unavailable', () => {
+		const configuration = host(), api = component('api', 'stable', 'a'), admin = component('admin', 'development', 'b');
+		admin.runtime.dependencies = [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }];
+		configuration.components.admin = { enabled: true, track: 'development', aliases: {}, connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
+		expect(() => componentActivationOrder(configuration, [admin])).toThrow(/unavailable local component api/u);
+		api.runtime.dependencies = [{ id: 'admin', capability: 'admin-ui', locality: 'either', optional: false }];
+		configuration.components.api!.connections.admin = { kind: 'local', componentId: 'admin', serviceId: 'service', endpointId: 'http' };
+		expect(() => componentActivationOrder(configuration, [admin, api])).toThrow(/dependency cycle: admin, api/u);
+	});
+
 	it('declares local provider synthesis only for an explicit local control-plane connection', () => {
 		const configuration = host(), agent = component('agent', 'development', 'c'), api = component('api', 'stable', 'b');
 		agent.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];

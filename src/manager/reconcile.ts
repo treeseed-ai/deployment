@@ -52,6 +52,49 @@ export function composeFiles(component: ComponentRelease) {
 	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
 }
 
+/**
+ * Orders a composition so every locally connected dependency is healthy before
+ * its consumers are activated. The input order remains the tie-breaker for
+ * unrelated components, keeping reconciliation deterministic.
+ */
+export function componentActivationOrder(host: HostConfiguration, releases: ComponentRelease[]) {
+	const selected = new Map(releases.map((release) => [release.componentId, release]));
+	const indegree = new Map(releases.map((release) => [release.componentId, 0]));
+	const consumers = new Map(releases.map((release) => [release.componentId, new Set<string>()]));
+	for (const consumer of releases) {
+		const selection = host.components[consumer.componentId];
+		for (const dependency of consumer.runtime.dependencies) {
+			const connection = selection?.connections[dependency.id];
+			if (!connection || connection.kind !== 'local') continue;
+			if (!selected.has(connection.componentId)) throw new Error(`Component ${consumer.componentId} requires unavailable local component ${connection.componentId}.`);
+			const dependentIds = consumers.get(connection.componentId)!;
+			if (dependentIds.has(consumer.componentId)) continue;
+			dependentIds.add(consumer.componentId);
+			indegree.set(consumer.componentId, indegree.get(consumer.componentId)! + 1);
+		}
+	}
+	const pending = releases.filter((release) => indegree.get(release.componentId) === 0);
+	const ordered: ComponentRelease[] = [];
+	while (pending.length) {
+		const dependency = pending.shift()!;
+		ordered.push(dependency);
+		for (const consumerId of consumers.get(dependency.componentId)!) {
+			const remaining = indegree.get(consumerId)! - 1;
+			indegree.set(consumerId, remaining);
+			if (remaining === 0) pending.push(selected.get(consumerId)!);
+		}
+	}
+	if (ordered.length !== releases.length) {
+		const cycle = releases.filter((release) => !ordered.includes(release)).map((release) => release.componentId).join(', ');
+		throw new Error(`Local component dependency cycle: ${cycle}.`);
+	}
+	return ordered;
+}
+
+export function componentStopOrder(host: HostConfiguration, releases: ComponentRelease[]) {
+	return componentActivationOrder(host, releases).reverse();
+}
+
 export function managedConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const selection = host.components[component.componentId]!, selected = new Map(releases.map((release) => [release.componentId, release]));
 	const values: Record<string, string> = {};
@@ -211,25 +254,26 @@ export async function reconcile(track?: 'stable' | 'development') {
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
 	if (routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
-	const impacted = configurationChanged ? active : active.filter((component) => changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
+	const impacted = componentStopOrder(host, active).filter((component) => configurationChanged || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
+	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
 	for (const component of impacted) await stop(component);
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of configurationChanged ? effective : changed) await activate(host, component, effective);
-		for (const component of configurationChanged ? effective : changed) await enrollProvider(host, component);
+		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await activate(host, component, effective);
+		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
 		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
-		for (const component of changed) {
+		for (const component of componentStopOrder(host, effective).filter((component) => changedTargetIds.has(component.componentId))) {
 			try { await stop(component); } catch { /* continue restoring the last known-good generation */ }
 		}
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		await requestSupervisor({ operation: 'recovery.restore', generation });
-		for (const component of active) await activate(host, component, active);
+		for (const component of componentActivationOrder(host, active)) await activate(host, component, active);
 		const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 		if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
