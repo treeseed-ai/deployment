@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentActivationOrder, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentActivationOrder, componentStateDirectories, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -300,6 +300,13 @@ describe('unified host manager foundation', () => {
 		expect(renderComponentEnvironment(configuration, 'api')).toContain('TREESEED_COMPONENT_DATA_ROOT="/work/platform/.treeseed/data"');
 		expect(renderComponentEnvironment(configuration, 'api')).toContain('TREESEED_ENVIRONMENT="local"');
 		expect(renderComponentEnvironment(configuration, 'api')).toContain('TREESEED_LOCAL_DEV_MODE="1"');
+	});
+
+	it('creates the state roots declared by the three TreeAI components', () => {
+		expect(componentStateDirectories('ai-inference')).toEqual(['data/models', 'data/inference']);
+		expect(componentStateDirectories('ai-training')).toEqual(['data/training', 'data/archive', 'data/models']);
+		expect(componentStateDirectories('ai-lab')).toEqual(['data/state', 'data/hermes', 'data/workspace', 'data/open-webui']);
+		expect(() => componentStateDirectories('ai')).toThrow(/Unsupported configured component/u);
 	});
 
 	it('polls development every minute and gates stable activation to Sunday 03:00', () => {

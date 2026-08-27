@@ -5,8 +5,23 @@ import { loadHostConfiguration } from '../core/configuration.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
-const stateDirectories: Record<string, string[]> = { api: ['postgres', 'operations-runner'], admin: [], agent: [], treedx: ['data'], ai: ['data/models', 'data/inference', 'data/training', 'data/archive'], lab: ['data'] };
+const stateDirectories: Record<string, string[]> = {
+	api: ['postgres', 'operations-runner'],
+	admin: [],
+	agent: [],
+	treedx: ['data'],
+	lab: ['data'],
+	'ai-inference': ['data/models', 'data/inference'],
+	'ai-training': ['data/training', 'data/archive', 'data/models'],
+	'ai-lab': ['data/state', 'data/hermes', 'data/workspace', 'data/open-webui'],
+};
 type SecretReader = (path: string) => string;
+
+export function componentStateDirectories(componentId: string) {
+	const directories = stateDirectories[componentId];
+	if (!directories) throw new Error(`Unsupported configured component ${componentId}.`);
+	return [...directories];
+}
 
 export function componentStateRoot(host: HostConfiguration, componentId: string) {
 	const root = host.runtime.environment === 'development' ? host.runtime.dataRoot : '/var/lib/treeseed/components';
@@ -86,11 +101,12 @@ function atomicText(path: string, value: string, mode = 0o600) {
 
 export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
-	if (!selection || !(componentId in stateDirectories)) throw new Error(`Unsupported configured component ${componentId}.`);
+	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
+	const directories = componentStateDirectories(componentId);
 	const configurationRoot = `/etc/treeseed/components/${componentId}`, stateRoot = componentStateRoot(host, componentId);
 	mkdirSync(configurationRoot, { recursive: true, mode: 0o700 });
 	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
-	for (const name of stateDirectories[componentId]!) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
+	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
 	atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment));
 	const files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
 	for (const [name, value] of Object.entries(files)) {
