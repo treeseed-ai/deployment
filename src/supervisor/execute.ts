@@ -38,6 +38,13 @@ function componentComposeArguments(componentId: string, files: readonly string[]
 	return ['--env-file', `/etc/treeseed/components/${componentId}/environment`, ...bundledComposeFiles(files)];
 }
 
+function composeProjectContainerIds(projectName: string, command: CommandRunner, runningOnly = false) {
+	const output = command('/usr/bin/docker', [
+		'ps', ...(runningOnly ? [] : ['--all']), '--quiet', '--filter', `label=com.docker.compose.project=${projectName}`,
+	], '');
+	return typeof output === 'string' ? output.trim().split(/\s+/u).filter(Boolean) : [];
+}
+
 function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: CommandRunner) {
 	try { command('/usr/bin/docker', ['network', 'inspect', name]); }
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
@@ -97,7 +104,17 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]); }
 			catch (error) { restoreSecrets(operation.componentId); throw error; }
 			break;
-		case 'compose.stop': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); } finally { restoreSecrets(operation.componentId); } break;
+		case 'compose.stop': try {
+			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); }
+			catch (error) {
+				if (composeProjectContainerIds(operation.projectName, command).length > 0) throw error;
+			}
+		} finally { restoreSecrets(operation.componentId); } break;
+		case 'compose.status': {
+			const containers = composeProjectContainerIds(operation.projectName, command);
+			const running = composeProjectContainerIds(operation.projectName, command, true);
+			return { present: containers.length > 0, running: running.length > 0, containers: containers.length, runningContainers: running.length };
+		}
 		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {

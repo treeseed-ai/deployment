@@ -136,6 +136,7 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'backup.create', generation: 42 })).toEqual({ operation: 'backup.create', generation: 42 });
 		expect(supervisorOperationSchema.parse({ operation: 'backup.inspect', generation: 42 })).toEqual({ operation: 'backup.inspect', generation: 42 });
 		expect(supervisorOperationSchema.parse({ operation: 'backup.list' })).toEqual({ operation: 'backup.list' });
+		expect(supervisorOperationSchema.parse({ operation: 'compose.status', projectName: 'treeseed-api' })).toEqual({ operation: 'compose.status', projectName: 'treeseed-api' });
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
@@ -161,6 +162,12 @@ describe('unified host manager foundation', () => {
 		expect(restored).toEqual(['ai-lab']);
 		executeSupervisorOperation({ operation: 'compose.stop', componentId: 'ai-lab', files: ['ai-lab/release/compose.yml'], projectName: 'treeseed-ai-lab' }, () => undefined, (componentId) => restored.push(componentId));
 		expect(restored).toEqual(['ai-lab', 'ai-lab']);
+		expect(() => executeSupervisorOperation({ operation: 'compose.stop', componentId: 'ai-lab', files: ['ai-lab/release/compose.yml'], projectName: 'treeseed-ai-lab' }, (_executable, arguments_) => {
+			if (arguments_[0] === 'ps') return '';
+			throw new Error('compose project no longer exists');
+		})).not.toThrow();
+		const status = executeSupervisorOperation({ operation: 'compose.status', projectName: 'treeseed-ai-lab' }, (_executable, arguments_) => arguments_.includes('--all') ? 'one\ntwo\n' : 'one\n');
+		expect(status).toEqual({ present: true, running: true, containers: 2, runningContainers: 1 });
 	});
 
 	it('removes only resettable platform state and recreates empty managed roots', () => {
