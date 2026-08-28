@@ -130,9 +130,9 @@ export async function restoreManagedGeneration(generation: number) {
 	} catch (error) {
 		recordEvent('recovery.restore-rollback-started', { generation, safetyGeneration, message: error instanceof Error ? error.message : String(error) });
 		try { await stopGeneration(target.configuration, target.components); } catch { /* continue restoring the safety generation */ }
+		await requestSupervisor({ operation: 'recovery.restore', generation: safetyGeneration });
 		const packages = packageSelections(currentReceipt);
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
-		await requestSupervisor({ operation: 'recovery.restore', generation: safetyGeneration });
 		await activateGeneration(currentHost, currentComponents);
 		recordEvent('recovery.restore-rollback-complete', { generation, safetyGeneration, receiptId: currentReceipt.receiptId });
 		throw error;

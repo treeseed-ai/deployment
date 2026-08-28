@@ -84,6 +84,9 @@ describe('complete managed generation recovery', () => {
 			['treeseed-component-api=1.0.0'], ['treeseed-component-api=1.0.0'],
 		]);
 		expect(state.operations.some(({ operation, generation }) => operation === 'recovery.restore' && generation === safety)).toBe(true);
+		const safetyRestore = state.operations.findIndex(({ operation, generation }) => operation === 'recovery.restore' && generation === safety);
+		const rollbackInstall = state.operations.map(({ operation }) => operation).lastIndexOf('apt.install');
+		expect(safetyRestore).toBeLessThan(rollbackInstall);
 		expect(state.lifecycle).toEqual([
 			'stop:1.0.0', 'activate:1.0.0', 'stop:1.0.0', 'activate:1.0.0', 'enroll:1.0.0',
 		]);

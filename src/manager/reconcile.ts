@@ -266,6 +266,15 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const selectedIds = new Set(effective.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
 	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
+	if (previous) {
+		for (const component of targets.filter((candidate) => !heldDevelopmentComponents.has(candidate.componentId))) {
+			const status = await requestSupervisor<{ present?: boolean; running?: boolean }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName });
+			if (typeof status?.present === 'boolean' && (!status.present || !status.running)) {
+				changedIds.add(component.componentId);
+				recordEvent('component.repair-required', { componentId: component.componentId, present: status.present, running: status.running === true });
+			}
+		}
+	}
 	const changed = targets.filter((component) => changedIds.has(component.componentId) && !heldDevelopmentComponents.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
