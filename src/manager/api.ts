@@ -6,6 +6,7 @@ import { loadHostConfiguration, tryLoadHostConfiguration } from '../core/configu
 import { recentEvents } from '../core/events.js';
 import { paths } from '../core/paths.js';
 import { executeHostCommand } from './operations.js';
+import { aiModeStatus, recoverAiMode, requestAiMode } from './ai-mode.js';
 
 const maximumRequestBytes = 64 * 1024;
 
@@ -31,6 +32,9 @@ async function readJson(request: import('node:http').IncomingMessage) {
 function managerHandler(requireMtls: boolean, local: boolean): RequestListener {
 	return async (request, response) => {
 		if (requireMtls && !(request.socket as TLSSocket).authorized) return json(response, 401, { ok: false, error: 'mtls_required' });
+		const commonName = requireMtls ? (request.socket as TLSSocket).getPeerCertificate().subject?.CN : undefined;
+		const labClient = commonName === 'client-ai-lab-mode';
+		if (labClient && !(request.url === '/v1/ai/mode' && (request.method === 'GET' || request.method === 'POST'))) return json(response, 403, { ok: false, error: 'ai_mode_scope_required' });
 		if (request.method === 'GET' && request.url === '/v1/health') {
 			const host = tryLoadHostConfiguration();
 			return json(response, host ? 200 : 503, { ok: Boolean(host), service: 'treeseed-manager', configurationReady: Boolean(host), configuration: host?.configurationId ?? null, recoveryRequired: !host });
@@ -40,6 +44,11 @@ function managerHandler(requireMtls: boolean, local: boolean): RequestListener {
 			return json(response, 200, { ok: true, configurationId: host.configurationId, generation: host.generation, components: host.components, events: recentEvents(20) });
 		}
 		if (request.method === 'GET' && request.url?.startsWith('/v1/events')) return json(response, 200, { ok: true, events: recentEvents(100) });
+		if (request.method === 'GET' && request.url === '/v1/ai/mode') return json(response, 200, { ok: true, data: aiModeStatus(), error: null });
+		if (request.method === 'POST' && request.url === '/v1/ai/mode') {
+			try { return json(response, 200, { ok: true, data: await requestAiMode(await readJson(request), labClient ? 'ai-lab' : 'operator'), error: null }); }
+			catch (error) { const message = error instanceof Error ? error.message : 'ai_mode_failed'; return json(response, 409, { ok: false, data: null, error: { code: message.replaceAll(/[^a-z0-9]+/giu, '_').toLowerCase(), message } }); }
+		}
 		if (request.method === 'POST' && request.url === '/v1/host/commands') {
 			try {
 				const data = await executeHostCommand(await readJson(request), { local });
@@ -64,7 +73,8 @@ export function createManagerApi(): Server {
 	}, managerHandler(true, false));
 }
 
-export function startManagerApi() {
+export async function startManagerApi() {
+	await recoverAiMode();
 	const socket = '/run/treeseed/manager/api.sock';
 	try { unlinkSync(socket); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 	const local = createHttpServer(managerHandler(false, true)).listen(socket, () => chmodSync(socket, 0o660));

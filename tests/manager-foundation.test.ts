@@ -170,6 +170,17 @@ describe('unified host manager foundation', () => {
 		expect(status).toEqual({ present: true, running: true, containers: 2, runningContainers: 1 });
 	});
 
+	it('limits GPU lifecycle execution to fixed TreeAI services and gate executables', () => {
+		const calls: Array<readonly string[]> = [];
+		const gate = executeSupervisorOperation({ operation: 'ai.gpu.gate', role: 'training', action: 'close', files: ['ai-training/release/compose.yml'] }, (_executable, arguments_) => { calls.push(arguments_); return '{"admission":"closed","active":0}'; });
+		expect(gate).toEqual({ role: 'training', admission: 'closed', active: 0 });
+		expect(calls[0]).toEqual(['compose', '--env-file', '/etc/treeseed/components/ai-training/environment', '--file', '/usr/share/treeseed/components/ai-training/release/compose.yml', '--project-name', 'treeseed-ai-training', 'exec', '-T', 'training-api', '/usr/local/bin/treeseed-ai-gpu-gate', 'close']);
+		const workload = executeSupervisorOperation({ operation: 'ai.gpu.workload', role: 'inference', action: 'status', files: ['ai-inference/release/compose.yml'] }, (_executable, arguments_) => { calls.push(arguments_); return 'inference-vllm\n'; });
+		expect(workload).toMatchObject({ role: 'inference', ready: true, running: ['inference-vllm'] });
+		expect(() => supervisorOperationSchema.parse({ operation: 'ai.gpu.workload', role: 'lab', action: 'start', files: ['compose.yml'] })).toThrow();
+		expect(() => supervisorOperationSchema.parse({ operation: 'ai.gpu.workload', role: 'training', action: 'kill', files: ['compose.yml'] })).toThrow();
+	});
+
 	it('removes only resettable platform state and recreates empty managed roots', () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-platform-reset-'));
 		const targets = { components: resolve(root, 'var/lib/treeseed/components'), componentConfiguration: resolve(root, 'etc/treeseed/components'), managerState: resolve(root, 'var/lib/treeseed/manager'), backups: resolve(root, 'var/lib/treeseed/backups') };

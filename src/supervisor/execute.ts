@@ -50,11 +50,56 @@ function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: Com
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
 }
 
+const aiRuntime = {
+	inference: { componentId: 'ai-inference', projectName: 'treeseed-ai-inference', gateService: 'inference-api', gpuServices: ['inference-vllm'] },
+	training: { componentId: 'ai-training', projectName: 'treeseed-ai-training', gateService: 'training-api', gpuServices: ['training-marker', 'training-axolotl'] },
+} as const;
+
+function aiCompose(role: keyof typeof aiRuntime, files: readonly string[]) {
+	const runtime = aiRuntime[role];
+	return ['compose', ...componentComposeArguments(runtime.componentId, files), '--project-name', runtime.projectName];
+}
+
+function aiGate(role: keyof typeof aiRuntime, action: 'open' | 'close' | 'status', files: readonly string[], command: CommandRunner) {
+	const runtime = aiRuntime[role];
+	const output = command('/usr/bin/docker', [...aiCompose(role, files), 'exec', '-T', runtime.gateService, '/usr/local/bin/treeseed-ai-gpu-gate', action], '');
+	if (typeof output !== 'string') throw new Error(`AI ${role} gate returned no status.`);
+	const value = JSON.parse(output) as { admission?: unknown; active?: unknown };
+	if ((value.admission !== 'open' && value.admission !== 'closed') || !Number.isInteger(value.active) || Number(value.active) < 0) throw new Error(`AI ${role} gate returned invalid status.`);
+	return { role, admission: value.admission, active: Number(value.active) };
+}
+
+function aiWorkload(role: keyof typeof aiRuntime, action: 'start' | 'stop' | 'status' | 'warm', files: readonly string[], waitTimeoutSeconds: number, command: CommandRunner) {
+	const runtime = aiRuntime[role], compose = aiCompose(role, files);
+	if (action === 'warm') {
+		if (role !== 'inference') throw new Error('Only the inference workload supports warming.');
+		command('/usr/bin/docker', [...compose, 'exec', '-T', 'inference-vllm', '/usr/local/bin/treeseed-ai-warm'], '');
+		return { role, action, ready: true };
+	}
+	if (action === 'start') command('/usr/bin/docker', [...compose, 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', String(waitTimeoutSeconds), ...runtime.gpuServices]);
+	if (action === 'stop') command('/usr/bin/docker', [...compose, 'stop', ...runtime.gpuServices]);
+	const output = command('/usr/bin/docker', [...compose, 'ps', '--status', 'running', '--services', ...runtime.gpuServices], '');
+	const running = new Set(typeof output === 'string' ? output.trim().split(/\s+/u).filter(Boolean) : []);
+	return { role, action, running: runtime.gpuServices.filter((service) => running.has(service)), ready: runtime.gpuServices.every((service) => running.has(service)) };
+}
+
 function resetUnacceptedComponentState(componentId: string) {
 	if (existsSync(`${paths.managerState}/current-receipt.json`) || existsSync(`${paths.managerState}/active-components.json`)) throw new Error('Accepted component state cannot be reset by bootstrap recovery.');
 	const root = resolve(paths.components), target = resolve(root, componentId);
 	if (!target.startsWith(`${root}${sep}`)) throw new Error('Component state reset escaped the managed state root.');
 	rmSync(target, { recursive: true, force: true });
+}
+
+function ensureAiModeCredentials(command: CommandRunner) {
+	const root = '/etc/treeseed/credentials', key = `${root}/ai-mode-client.key`, certificate = `${root}/ai-mode-client.crt`, ca = `${root}/ai-mode-ca.crt`;
+	if (!existsSync(key) || !existsSync(certificate) || !existsSync(ca)) {
+		mkdirSync(root, { recursive: true, mode: 0o700 });
+		const enrollment = enrollClient('client-ai-lab-mode', command);
+		writeFileSync(key, enrollment.privateKey, { mode: 0o600 });
+		writeFileSync(certificate, enrollment.certificate, { mode: 0o600 });
+		writeFileSync(ca, enrollment.certificateAuthority, { mode: 0o644 });
+	}
+	return { clientCommonName: 'client-ai-lab-mode', key, certificate, certificateAuthority: ca };
 }
 
 export function recoverInvalidConfiguration(configuration: SupervisorOperation & { operation: 'configuration.recover' }, configurationPath: string = paths.configuration, archiveRoot: string = `${paths.managerState}/invalid-configurations`) {
@@ -101,7 +146,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
-			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]); }
+			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
 			catch (error) { restoreSecrets(operation.componentId); throw error; }
 			break;
 		case 'compose.stop': try {
@@ -116,6 +161,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			return { present: containers.length > 0, running: running.length > 0, containers: containers.length, runningContainers: running.length };
 		}
 		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;
+		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
+		case 'ai.gpu.workload': return aiWorkload(operation.role, operation.action, operation.files, operation.waitTimeoutSeconds, command);
+		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;
