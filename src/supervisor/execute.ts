@@ -150,6 +150,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			catch (error) { restoreSecrets(operation.componentId); throw error; }
 			break;
 		case 'compose.stop': try {
+			if (composeProjectContainerIds(operation.projectName, command).length === 0) break;
 			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); }
 			catch (error) {
 				if (composeProjectContainerIds(operation.projectName, command).length > 0) throw error;
