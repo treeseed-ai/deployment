@@ -10,6 +10,9 @@ install -d -o root -g treeseed-operators -m 0770 /run/treeseed/manager
 install -d -o treeseed-manager -g treeseed-manager -m 0750 /var/lib/treeseed/manager /var/lib/treeseed/manager/receipts
 install -d -o root -g treeseed-component-secrets -m 0710 /var/lib/treeseed/component-secrets
 chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager
+touch /var/lib/treeseed/manager/events.jsonl
+chown treeseed-manager:treeseed-manager /var/lib/treeseed/manager/events.jsonl
+chmod 0660 /var/lib/treeseed/manager/events.jsonl
 if [ -f /etc/treeseed/platform.json ]; then chown root:treeseed-manager /etc/treeseed/platform.json; chmod 0640 /etc/treeseed/platform.json; fi
 systemctl daemon-reload
 systemctl enable treeseed-manager-supervisor.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer >/dev/null

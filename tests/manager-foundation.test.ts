@@ -225,6 +225,8 @@ describe('unified host manager foundation', () => {
 		expect(supervisor.indexOf("writeFileSync(`${paths.managerState}/events.jsonl`, ''")).toBeLessThan(supervisor.indexOf("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])"));
 		expect(supervisor).toContain("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])");
 		expect(postinst).toContain('chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager');
+		for (const contract of ['touch /var/lib/treeseed/manager/events.jsonl', 'chown treeseed-manager:treeseed-manager /var/lib/treeseed/manager/events.jsonl', 'chmod 0660 /var/lib/treeseed/manager/events.jsonl']) expect(postinst).toContain(contract);
+		expect(readFileSync(resolve(process.cwd(), 'src/core/events.ts'), 'utf8')).toContain('mode: 0o660');
 	});
 
 	it('serializes reset with reconciliation and resolves the packaged API alias', () => {
