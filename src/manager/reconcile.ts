@@ -269,15 +269,16 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const changed = targets.filter((component) => changedIds.has(component.componentId) && !heldDevelopmentComponents.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
+	const catalogChanged = previous?.catalogDigest !== accepted.plan.catalogDigest;
 	const cliControlPlaneUrl = managedCliControlPlaneUrl(host, effective);
 	const cliUrlPath = `${paths.cli}/api-base-url`, cliCaPath = `${paths.cli}/localhost-ca.crt`;
 	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length > 0 && previous) {
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length > 0 && previous) {
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 		recordEvent('development.sessions-expired', { sessions: expiredDevelopmentSessions.map((record) => record.session.sessionId) });
 		return previous;

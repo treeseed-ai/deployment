@@ -60,6 +60,7 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 mkdirSync(`${state.root}/catalogs`, { recursive: true });
 writeFileSync(`${state.root}/catalogs/development.json`, '{}');
 const { reconcile } = await import('../src/manager/reconcile.js');
+const { createPlan } = await import('../src/manager/plan.js');
 
 function release(componentId: string, track: 'stable' | 'development', marker: string, version: string) {
 	const value = component(componentId, track, marker);
@@ -176,11 +177,25 @@ describe('isolated update fault qualification', () => {
 	it('repairs managed CLI custody during an otherwise unchanged tick', async () => {
 		const current = state.development.components[0];
 		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
 		unlinkSync(`${state.root}/cli/api-base-url`); unlinkSync(`${state.root}/cli/localhost-ca.crt`);
 		const unchanged = await reconcile('development');
 		expect(unchanged).toBe(state.previous);
 		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'cli.configure']);
 		state.evidence.push({ case: 'post-self-update-cli-custody', result: 'passed', componentRestartCount: 0, endpointAndCaRepaired: true });
+	});
+
+	it('records a catalog-only generation once without restarting components', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.development.catalogDigest = hash('e'); state.operations = [];
+		const accepted = await reconcile('development');
+		expect(accepted?.catalogDigest).not.toBe(state.previous.catalogDigest);
+		expect(state.operations.filter(({ operation }) => operation.startsWith('compose.'))).toEqual([]);
+		state.previous = accepted; state.operations = [];
+		expect(await reconcile('development')).toBe(accepted);
+		expect(state.operations.map(({ operation }) => operation)).toEqual(['apt.refresh']);
 	});
 });
 
