@@ -176,7 +176,7 @@ function record(value: unknown, label: string) {
 	return value as Record<string, unknown>;
 }
 
-async function enrollProvider(host: HostConfiguration, component: ComponentRelease) {
+export async function enrollProvider(host: HostConfiguration, component: ComponentRelease) {
 	if (component.componentId !== 'agent') return;
 	const configuration = record(host.components.agent?.configuration, 'Agent configuration');
 	if (configuration.providerEnrollment === undefined) return;
@@ -190,11 +190,11 @@ async function enrollProvider(host: HostConfiguration, component: ComponentRelea
 	await requestSupervisor({ operation: 'provider.enroll', connectionId, teamId, controlPlaneUrl: connection.url, controlPlaneAudience: connection.audience, registrationSecretId, offer: { maxConcurrentRunners: offer.maxConcurrentRunners, capabilities: offer.capabilities, metadata: { hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup } }, files: composeFiles(component), projectName: 'treeseed-agent' });
 }
 
-async function stop(component: ComponentRelease) {
+export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-async function activate(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
 	const connectionEnvironment = managedConnectionEnvironment(host, component, releases), runtimeEnvironment = managedRuntimeInputEnvironment(host, component);
 	for (const name of Object.keys(runtimeEnvironment)) if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
@@ -287,23 +287,23 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const impacted = componentStopOrder(host, active).filter((component) => configurationChanged || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
-	for (const component of impacted) await stop(component);
+	for (const component of impacted) await stopComponent(component);
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await activate(host, component, effective);
+		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await activateComponent(host, component, effective);
 		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
 		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of componentStopOrder(host, effective).filter((component) => changedTargetIds.has(component.componentId))) {
-			try { await stop(component); } catch { /* continue restoring the last known-good generation */ }
+			try { await stopComponent(component); } catch { /* continue restoring the last known-good generation */ }
 		}
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
-		for (const component of componentActivationOrder(host, active)) await activate(host, component, active);
+		for (const component of componentActivationOrder(host, active)) await activateComponent(host, component, active);
 		const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 		if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });

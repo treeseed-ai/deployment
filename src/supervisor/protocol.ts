@@ -20,6 +20,8 @@ export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('systemd.control'), unit: z.enum(['treeseed-manager-api.service', 'treeseed-manager-reconcile.service', 'treeseed-edge.service']), action: z.enum(['start', 'stop', 'restart', 'reload']) }).strict(),
 	z.object({ operation: z.literal('recovery.restore'), generation: z.number().int().positive() }).strict(),
 	z.object({ operation: z.literal('backup.create'), generation: z.number().int().positive() }).strict(),
+	z.object({ operation: z.literal('backup.inspect'), generation: z.number().int().positive() }).strict(),
+	z.object({ operation: z.literal('backup.list') }).strict(),
 	z.object({ operation: z.literal('platform.reset'), componentDataRoot: z.union([
 		z.literal('/var/lib/treeseed/components'),
 		z.string().startsWith('/').regex(/\/\.treeseed\/data$/u),

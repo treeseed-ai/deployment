@@ -134,6 +134,8 @@ describe('unified host manager foundation', () => {
 		expect(() => executeSupervisorOperation({ operation: 'shell', command: 'id' }, () => undefined)).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'apt.refresh', track: 'development', updateCore: false })).toEqual({ operation: 'apt.refresh', track: 'development', updateCore: false });
 		expect(supervisorOperationSchema.parse({ operation: 'backup.create', generation: 42 })).toEqual({ operation: 'backup.create', generation: 42 });
+		expect(supervisorOperationSchema.parse({ operation: 'backup.inspect', generation: 42 })).toEqual({ operation: 'backup.inspect', generation: 42 });
+		expect(supervisorOperationSchema.parse({ operation: 'backup.list' })).toEqual({ operation: 'backup.list' });
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
