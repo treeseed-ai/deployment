@@ -31,6 +31,28 @@ export const hostCommandRequestSchema = z.object({
 
 export type HostCommandRequest = z.infer<typeof hostCommandRequestSchema>;
 
+export function availableCatalogSummary(
+	stablePath = `${paths.catalogs}/stable.json`,
+	developmentPath = `${paths.catalogs}/development.json`,
+	reader: typeof loadCatalog = loadCatalog,
+	fileExists: typeof existsSync = existsSync,
+) {
+	try {
+		const stable = reader(stablePath);
+		const development = fileExists(developmentPath) ? reader(developmentPath) : undefined;
+		return {
+			compatible: true as const,
+			requiresCoreUpdate: false,
+			stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest },
+			development: development ? { release: development.release, generation: development.generation, digest: development.catalogDigest } : null,
+		};
+	} catch {
+		// Metadata may legitimately be newer than this manager's SDK. Keep update
+		// check useful and let explicit apply install the compatible core first.
+		return { compatible: false as const, requiresCoreUpdate: true, stable: null, development: null };
+	}
+}
+
 export const developmentEnvironmentPayloadSchema = z.object({
 	sessionId: z.string().min(1),
 	projectId: z.string().min(1),
@@ -236,10 +258,9 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };
 		case 'local.host.update.check': {
 			await refreshAvailableCatalogs(host, undefined, false, true);
-			const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
-			return { stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest }, development: existsSync(developmentPath) ? (() => { const value = loadCatalog(developmentPath); return { release: value.release, generation: value.generation, digest: value.catalogDigest }; })() : null };
+			return availableCatalogSummary();
 		}
-		case 'local.host.update.apply': return request.options.plan === true ? plan() : serializedReconcile();
+		case 'local.host.update.apply': return request.options.plan === true ? plan() : serializedReconcile(undefined, true);
 		case 'local.host.update.channel': {
 			const track = request.arguments[0];
 			if (track !== 'stable' && track !== 'development') throw new Error('Update channel must be stable or development.');

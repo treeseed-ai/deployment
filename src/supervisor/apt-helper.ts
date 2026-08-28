@@ -40,18 +40,28 @@ export function corePackagesForTrack(track: 'stable' | 'development', installed:
 	].map((name) => packageFromTrack(name, track));
 }
 
+/**
+ * APT's archive cache is disposable download state, not artifact custody. Clear
+ * it before every exact transaction so an upgrade or rollback cannot be denied
+ * by the host's bounded Archives::MaxSize policy.
+ */
+export function installPackages(packages: readonly string[], command: AptCommandRunner = run, targetRelease?: 'stable' | 'development') {
+	command('/usr/bin/apt-get', ['clean']);
+	command('/usr/bin/apt-get', [...transactionOptions, ...(targetRelease ? ['--target-release', targetRelease] : []), 'install', ...packages]);
+}
+
 export function applyPendingPackages(command: AptCommandRunner = run) {
 	if (process.getuid?.() !== 0) throw new Error('APT helper must run as root.');
 	const path = `${paths.managerState}/pending-packages.json`;
 	const operation = supervisorOperationSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
-	if (operation.operation === 'apt.install') command('/usr/bin/apt-get', [...transactionOptions, 'install', ...operation.packages]);
+	if (operation.operation === 'apt.install') installPackages(operation.packages, command);
 	else if (operation.operation === 'apt.refresh') {
 		const before = operation.updateCore ? installedCoreVersions() : {};
 		if (operation.updateCore) writeFileSync('/etc/apt/preferences.d/treeseed-deployment', aptPreferencesForTrack(operation.track), { encoding: 'utf8', mode: 0o644 });
 		command('/usr/bin/apt-get', ['-o', 'DPkg::Lock::Timeout=600', 'update']);
 		const packages = catalogPackagesForTrack(operation.track);
 		if (operation.updateCore) packages.push(...corePackagesForTrack(operation.track, before));
-		command('/usr/bin/apt-get', [...transactionOptions, '--target-release', operation.track, 'install', ...packages]);
+		installPackages(packages, command, operation.track);
 		const after = operation.updateCore ? installedCoreVersions() : {};
 		atomicJson(`${paths.managerState}/last-apt-result.json`, { track: operation.track, coreUpdated: operation.updateCore && JSON.stringify(before) !== JSON.stringify(after), before, after }, 0o600);
 	} else throw new Error('Pending operation is not an APT transaction.');

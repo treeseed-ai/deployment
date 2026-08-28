@@ -172,6 +172,7 @@ describe('Debian and systemd contracts', () => {
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
+		expect(helper).toContain("command('/usr/bin/apt-get', ['clean'])");
 		expect(helper).toContain('corePackagesForTrack(operation.track, before)');
 		expect(reconciliation).toContain("operation: 'apt.refresh'");
 		expect(reconciliation).toContain("operation: 'backup.create'");
@@ -179,6 +180,7 @@ describe('Debian and systemd contracts', () => {
 		expect(reconciliation).toContain('reconcile.rollback-complete');
 		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
 		expect(backup).toContain("'var/lib/treeseed/components'");
+		expect(backup).toContain("'usr/share/treeseed/components'");
 		expect(publisher).not.toContain('rmSync(pool');
 	});
 
