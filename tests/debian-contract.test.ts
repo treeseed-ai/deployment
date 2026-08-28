@@ -61,6 +61,7 @@ describe('Debian and systemd contracts', () => {
 		expect(publication).toContain('platforms: linux/amd64,linux/arm64');
 		expect(publication).toContain('Bind and read back exact lab images');
 		expect(publication).toContain('TREESEED_REQUIRE_PUBLISHED_IMAGES=1');
+		expect(publication).toContain("require('./package.json').version");
 		expect(publication).toContain('gh release create');
 		expect(readFileSync('scripts/prepare-artifacts.ts', 'utf8')).toContain('Integration selection');
 	});
