@@ -8,7 +8,10 @@ export interface ManagerEvent { at: string; type: string; details: Record<string
 
 export function recordEvent(type: string, details: Record<string, unknown> = {}) {
 	mkdirSync(dirname(eventPath), { recursive: true, mode: 0o750 });
-	appendFileSync(eventPath, `${JSON.stringify({ at: new Date().toISOString(), type, details } satisfies ManagerEvent)}\n`, { encoding: 'utf8', mode: 0o640 });
+	// The root supervisor and unprivileged manager share this append-only ledger.
+	// The supervisor's primary group and the manager's supplementary group are
+	// both treeseed-operators, so a newly created inode must remain group-writable.
+	appendFileSync(eventPath, `${JSON.stringify({ at: new Date().toISOString(), type, details } satisfies ManagerEvent)}\n`, { encoding: 'utf8', mode: 0o660 });
 }
 
 export function recentEvents(limit = 100): ManagerEvent[] {
