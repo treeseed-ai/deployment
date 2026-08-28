@@ -39,7 +39,7 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 			recordEvent('update.source-unconfigured', { track, suite });
 			continue;
 		}
-		const updateCore = allowCoreUpdate && track === host.updates.defaultTrack && activationEligible(host, track);
+		const updateCore = allowCoreUpdate && track === host.updates.defaultTrack && (forceMetadata || activationEligible(host, track));
 		const result = await requestSupervisor<AptRefreshResult>({ operation: 'apt.refresh', track: suite, updateCore });
 		metadataChecked(track);
 		coreUpdated ||= result.coreUpdated;
@@ -231,14 +231,14 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 	return previous;
 }
 
-export async function reconcile(track?: 'stable' | 'development') {
+export async function reconcile(track?: 'stable' | 'development', forceMetadata = false) {
 	const host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
 		return previous;
 	}
-	const refresh = await refreshAvailableCatalogs(host, track);
+	const refresh = await refreshAvailableCatalogs(host, track, true, forceMetadata);
 	return withDeferredManagerRestart(refresh.coreUpdated, () => withCoreUpgradeHandoff(refresh.coreUpdated, previous, async () => {
 	const stable = loadCatalog(`${paths.catalogs}/stable.json`);
 	const developmentPath = `${paths.catalogs}/development.json`;
@@ -300,9 +300,9 @@ export async function reconcile(track?: 'stable' | 'development') {
 		for (const component of componentStopOrder(host, effective).filter((component) => changedTargetIds.has(component.componentId))) {
 			try { await stop(component); } catch { /* continue restoring the last known-good generation */ }
 		}
+		await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
-		await requestSupervisor({ operation: 'recovery.restore', generation });
 		for (const component of componentActivationOrder(host, active)) await activate(host, component, active);
 		const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 		if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });

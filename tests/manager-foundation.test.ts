@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, catalogPackagesForTrack, componentActivationOrder, componentStateDirectories, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, managedCliControlPlaneUrl, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
+import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, availableCatalogSummary, catalogPackagesForTrack, componentActivationOrder, componentStateDirectories, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, installPackages, managedCliControlPlaneUrl, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
@@ -380,6 +380,30 @@ describe('unified host manager foundation', () => {
 		for (const track of ['stable', 'development'] as const) expect(readFileSync(resolve(process.cwd(), `deploy/bootstrap/preferences.${track}`), 'utf8')).toBe(aptPreferencesForTrack(track));
 	});
 
+	it('clears disposable APT archives before exact installs and downgrades', () => {
+		let archiveBytes = 2_492_509_136;
+		const calls: Array<{ executable: string; arguments_: readonly string[] }> = [];
+		installPackages(['treeseed-component-api=0.12.49~rc48-1'], (executable, arguments_) => {
+			calls.push({ executable, arguments_ });
+			if (arguments_[0] === 'clean') archiveBytes = 0;
+			if (arguments_.includes('install') && archiveBytes > 500_000_000) throw new Error('APT archive cache limit exceeded');
+		});
+		expect(calls.map(({ arguments_ }) => arguments_[0])).toEqual(['clean', '--yes']);
+		expect(calls[1]!.arguments_).toContain('--allow-downgrades');
+		expect(archiveBytes).toBe(0);
+	});
+
+	it('reports a newer catalog reader requirement without stranding explicit apply', () => {
+		const summary = availableCatalogSummary('/stable.json', '/development.json', () => { throw new Error('older SDK rejected runtime.configuration'); }, () => true);
+		expect(summary).toEqual({ compatible: false, requiresCoreUpdate: true, stable: null, development: null });
+		const forced = serializedReconcileArguments(undefined, true);
+		expect(forced.at(-1)).toBe('--force-metadata');
+		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
+		expect(operations).toContain("serializedReconcile(undefined, true)");
+		const reconciliation = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
+		expect(reconciliation).toContain('(forceMetadata || activationEligible(host, track))');
+	});
+
 	it('keeps the manager-owned edge on the host default track', () => {
 		const reconciliation = readFileSync(resolve(process.cwd(), 'src/manager/reconcile.ts'), 'utf8');
 		expect(reconciliation).toContain('`treeseed-edge/${host.updates.defaultTrack}`');
@@ -419,7 +443,8 @@ describe('unified host manager foundation', () => {
 		expect(arguments_.at(-1)).toBe('--track=development');
 		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
 		expect(operations).not.toMatch(/\breconcile\(\)/u);
-		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(6);
+		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(5);
+		expect(operations.match(/serializedReconcile\(undefined, true\)/gu)?.length).toBe(1);
 	});
 
 	it('defers manager self-restart long enough to return the accepted receipt', () => {

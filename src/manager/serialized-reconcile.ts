@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 const lockPath = '/run/treeseed/manager/reconcile.lock';
 const reconcileExecutable = fileURLToPath(new URL('../bin/reconcile.js', import.meta.url));
 
-export function serializedReconcileArguments(track?: 'stable' | 'development') {
+export function serializedReconcileArguments(track?: 'stable' | 'development', forceMetadata = false) {
 	return [
 		'--exclusive',
 		'--close',
@@ -17,11 +17,12 @@ export function serializedReconcileArguments(track?: 'stable' | 'development') {
 		process.execPath,
 		reconcileExecutable,
 		...(track ? [`--track=${track}`] : []),
+		...(forceMetadata ? ['--force-metadata'] : []),
 	];
 }
 
-export async function serializedReconcile(track?: 'stable' | 'development'): Promise<HostReceipt | undefined> {
-	const { stdout } = await execFileAsync('/usr/bin/flock', serializedReconcileArguments(track), { maxBuffer: 1024 * 1024 });
+export async function serializedReconcile(track?: 'stable' | 'development', forceMetadata = false): Promise<HostReceipt | undefined> {
+	const { stdout } = await execFileAsync('/usr/bin/flock', serializedReconcileArguments(track, forceMetadata), { maxBuffer: 1024 * 1024 });
 	const value = JSON.parse(stdout.trim()) as unknown;
 	return value === null ? undefined : hostReceiptSchema.parse(value);
 }
