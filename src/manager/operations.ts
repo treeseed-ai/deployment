@@ -17,6 +17,7 @@ import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
+import { aiModeStatus, requestAiMode } from './ai-mode.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -26,7 +27,7 @@ const bootstrapHandoffSchema = z.object({
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z]+)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
-	options: z.record(z.union([z.string().max(32_768), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
+	options: z.record(z.union([z.string().max(32_768), z.number().finite(), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
 	configuration: hostConfigurationSchema.optional(),
 }).strict();
 
@@ -200,6 +201,14 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.freeze':
 		case 'local.dev.verify': throw new Error('Candidate freeze and verification execute unprivileged through trsd.');
 		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
+		case 'local.host.ai.mode.show': return aiModeStatus();
+		case 'local.host.ai.mode.set': {
+			const target = request.arguments[0];
+			if (target !== 'awake' && target !== 'sleep') throw new Error('AI mode must be awake or sleep.');
+			const requestValue = { schemaVersion: 'treeseed.ai-mode-request/v1', target, idempotencyKey: typeof request.options.idempotencyKey === 'string' ? request.options.idempotencyKey : randomUUID(), drainTimeoutSeconds: typeof request.options.drainTimeout === 'number' ? request.options.drainTimeout : typeof request.options.drainTimeout === 'string' ? Number(request.options.drainTimeout) : 900 };
+			if (request.options.plan === true) return { ...aiModeStatus(), proposedMode: target, mutation: false };
+			return requestAiMode(requestValue, 'operator');
+		}
 		case 'local.host.doctor': {
 			const checks = [
 				{ id: 'configuration', ok: existsSync(paths.configuration) },

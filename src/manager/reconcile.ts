@@ -14,6 +14,7 @@ import { loadUpdateState, metadataChecked, noteDevelopmentPauseOwner, recoverDev
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
+import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -199,9 +200,19 @@ export async function activateComponent(host: HostConfiguration, component: Comp
 	const connectionEnvironment = managedConnectionEnvironment(host, component, releases), runtimeEnvironment = managedRuntimeInputEnvironment(host, component);
 	for (const name of Object.keys(runtimeEnvironment)) if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
 	Object.assign(connectionEnvironment, runtimeEnvironment);
+	if (component.runtime.modeControl?.role === 'controller') {
+		await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
+		const [, port] = host.network.manager.binding.split(':');
+		Object.assign(connectionEnvironment, {
+			TREESEED_AI_MODE_URL: `https://host.docker.internal:${port}/v1/ai/mode`,
+			TREESEED_AI_MODE_CA_FILE: '/run/secrets/ai-mode-ca',
+			TREESEED_AI_MODE_CERT_FILE: '/run/secrets/ai-mode-client-cert',
+			TREESEED_AI_MODE_KEY_FILE: '/run/secrets/ai-mode-client-key',
+		});
+	}
 	const secretFileIds = component.runtime.configuration.secretFiles.filter(({ id }) => host.secrets[id] !== undefined).map(({ id }) => id);
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds });
-	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), waitTimeoutSeconds });
+	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
 }
 
 export function rollbackRoutes(host: HostConfiguration, components: ComponentRelease[]) {
@@ -284,6 +295,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
+		await reconcileAiModeSelection(host, effective);
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}
@@ -303,6 +315,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await activateComponent(host, component, effective);
+		await reconcileAiModeSelection(host, effective);
 		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
