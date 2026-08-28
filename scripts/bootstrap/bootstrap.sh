@@ -18,7 +18,8 @@ install -m 0644 "/usr/share/treeseed/bootstrap/preferences.$suite" /etc/apt/pref
 install -m 0644 /usr/share/treeseed/bootstrap/stable.sources /etc/apt/sources.list.d/treeseed-deployment-stable.sources
 install -m 0644 /usr/share/treeseed/bootstrap/development.sources /etc/apt/sources.list.d/treeseed-deployment-development.sources
 apt-get -o DPkg::Lock::Timeout=600 update
-packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-release-catalog treeseed-manager'
+packages='treeseed-host-runtime treeseed-sdk treeseed-cli treeseed-manager'
+if [ "$suite" = stable ]; then packages="$packages treeseed-release-catalog"; fi
 if [ -f /usr/share/treeseed/bootstrap/install-edge ]; then packages="$packages treeseed-edge"; fi
 suite_packages=
 for package in $packages; do suite_packages="$suite_packages $package/$suite"; done

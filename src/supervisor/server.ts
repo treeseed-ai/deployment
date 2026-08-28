@@ -17,14 +17,16 @@ export function createSupervisorServer() {
 			if (input.length > 1_048_576) connection.destroy(new Error('Supervisor request exceeds one MiB.'));
 		});
 		connection.on('end', () => {
+			let operation = 'unknown';
 			try {
 				const request = JSON.parse(input) as unknown;
+				operation = typeof (request as { operation?: unknown }).operation === 'string' ? (request as { operation: string }).operation : 'unknown';
 				const result = executeSupervisorOperation(request);
-				recordEvent('supervisor.operation-complete', { operation: (request as { operation?: unknown }).operation });
+				recordEvent('supervisor.operation-complete', { operation });
 				connection.end(`${JSON.stringify({ ok: true, result: result ?? null })}\n`);
 			} catch (error) {
 				recordEvent('supervisor.operation-failed', { message: error instanceof Error ? error.message : String(error) });
-				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed' })}\n`);
+				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation })}\n`);
 			}
 		});
 	});
