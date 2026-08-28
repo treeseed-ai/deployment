@@ -187,7 +187,7 @@ describe('Debian and systemd contracts', () => {
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
 		expect(helper).toContain("command('/usr/bin/apt-get', ['clean'])");
-		expect(helper).toContain('corePackagesForTrack(operation.track, before)');
+		expect(helper).toContain('exactPackagesForRefresh(operation.track, before)');
 		expect(reconciliation).toContain("operation: 'apt.refresh'");
 		expect(reconciliation).toContain("operation: 'backup.create'");
 		expect(reconciliation).toContain("operation: 'recovery.restore'");

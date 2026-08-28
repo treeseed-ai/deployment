@@ -13,8 +13,9 @@ export function requestSupervisor<T = unknown>(operation: SupervisorOperation): 
 		connection.on('error', reject);
 		connection.on('end', () => {
 			try {
-				const response = JSON.parse(output) as { ok?: boolean; result?: T };
-				if (response.ok) resolve(response.result as T); else reject(new Error('Supervisor rejected the fixed operation.'));
+				const response = JSON.parse(output) as { ok?: boolean; result?: T; operation?: string };
+				if (response.ok) resolve(response.result as T);
+				else reject(new Error(`Supervisor operation ${response.operation ?? accepted.operation} failed; inspect the corresponding manager helper service.`));
 			} catch (error) { reject(error); }
 		});
 	});

@@ -387,7 +387,7 @@ describe('unified host manager foundation', () => {
 		expect(packageFromTrack('treeseed-manager', 'stable')).toBe('treeseed-manager/stable');
 		expect(() => packageFromTrack('../manager', 'stable')).toThrow(/invalid/u);
 		expect(catalogPackagesForTrack('stable')).toEqual(['treeseed-release-catalog/stable']);
-		expect(catalogPackagesForTrack('development')).toEqual(['treeseed-release-catalog/development', 'treeseed-release-catalog-development/development']);
+		expect(catalogPackagesForTrack('development')).toEqual(['treeseed-release-catalog-development/development']);
 		expect(corePackagesForTrack('development', { 'treeseed-edge': '0.1.0-1' })).toContain('treeseed-edge/development');
 		expect(corePackagesForTrack('development', { 'treeseed-edge': null })).not.toContain('treeseed-edge/development');
 		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
