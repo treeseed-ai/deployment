@@ -7,8 +7,8 @@ second publisher and never builds TreeAI source or images.
 
 ## Accepted input
 
-The first managed candidate selects TreeAI `0.11.0-rc2` at source commit
-`9770c99ba3a2f91ce916b48efafa45b0e971bbf0`. Its `ai-inference`, `ai-training`,
+The accepted managed candidate selects TreeAI `0.11.0-rc7` at source commit
+`70c136a9784f7180932febcaf5c8563a630a0ed7`. Its `ai-inference`, `ai-training`,
 and `ai-lab` component manifests and Compose files must be acquired through an
 exact Platform integration lock. Deployment verifies each SHA-256 before creating
 the thin component packages. Image digests remain those declared by TreeAI.
@@ -66,7 +66,7 @@ digests.
 
    Preserve `inference-postgres`, `inference-objects`, `training-postgres`, and
    `training-objects` in the rollback archive and a read-only legacy holding area;
-   they have no direct bind-mount target in `0.11.0-rc2`. Database or object-store
+   they have no direct bind-mount target in `0.11.0-rc7`. Database or object-store
    conversion belongs to an immutable TreeAI migration/import release and must not
    be improvised by Deployment.
 4. Start `treeseed-manager-supervisor.service` and
@@ -97,3 +97,14 @@ If any state, mode, credential reference, health gate, or identity check fails:
 
 Rollback never deletes the new or legacy state. A retry requires a new Platform
 candidate and, when any artifact identity changes, a new Deployment release.
+
+## Disposable qualification-host cutover
+
+When the operator explicitly declares the legacy host state disposable, do not
+spend an integration cycle converting it. Record only the old package/service and
+container identities needed to prove that the retired lifecycle is no longer
+active. Stop and disable the legacy manager, install the exact configured
+Deployment candidate, activate the opt-in AI profile with newly generated
+credentials and empty managed state, and run the same health, mode, no-op, and
+rollback gates. Deleting old packages, containers, volumes, or state remains a
+separate explicit cleanup after the new generation is accepted.
