@@ -12,7 +12,23 @@ const managedBindRoots = ['/etc/treeseed', '/run/treeseed', '/var/lib/treeseed']
 
 function volumeSource(volume: string | ComposeVolume) {
 	if (typeof volume !== 'string') return volume.type === 'bind' ? volume.source : undefined;
-	const source = volume.split(':', 1)[0];
+	let expressionDepth = 0, separator = -1;
+	for (let index = 0; index < volume.length; index += 1) {
+		if (volume[index] === '$' && volume[index + 1] === '{') {
+			expressionDepth += 1;
+			index += 1;
+			continue;
+		}
+		if (volume[index] === '}' && expressionDepth > 0) {
+			expressionDepth -= 1;
+			continue;
+		}
+		if (volume[index] === ':' && expressionDepth === 0) {
+			separator = index;
+			break;
+		}
+	}
+	const source = separator === -1 ? volume : volume.slice(0, separator);
 	return source?.startsWith('.') || source?.startsWith('/') || source?.startsWith('$') ? source : undefined;
 }
 
