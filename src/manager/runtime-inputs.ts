@@ -36,10 +36,13 @@ function secretPath(host: HostConfiguration, secretId: string, expectedPath?: st
 	return path;
 }
 
-function managerValue(name: string, secretFiles: string[], probe: RuntimeInputProbe) {
-	if (name !== 'RUNTIME_GID') throw new Error(`Manager-derived runtime input ${name} is unsupported.`);
-	if (!secretFiles.length) throw new Error('RUNTIME_GID requires at least one declared secret file.');
-	return String(probe.runtimeGid());
+function managerValue(name: string, secretFiles: string[], probe: RuntimeInputProbe, managedValues: Record<string, string>) {
+	if (managedValues[name] !== undefined) return managedValues[name];
+	if (name === 'RUNTIME_GID') {
+		if (!secretFiles.length) throw new Error('RUNTIME_GID requires at least one declared secret file.');
+		return String(probe.runtimeGid());
+	}
+	throw new Error(`Manager-derived runtime input ${name} is unsupported.`);
 }
 
 /**
@@ -47,7 +50,7 @@ function managerValue(name: string, secretFiles: string[], probe: RuntimeInputPr
  * Only non-secret public/default/manager-derived values are returned; secret
  * values remain under supervisor-owned file custody.
  */
-export function managedRuntimeInputEnvironment(host: HostConfiguration, component: ComponentRelease, probe: RuntimeInputProbe = hostProbe) {
+export function managedRuntimeInputEnvironment(host: HostConfiguration, component: ComponentRelease, probe: RuntimeInputProbe = hostProbe, managedValues: Record<string, string> = {}) {
 	const selection = host.components[component.componentId];
 	if (!selection) throw new Error(`Component ${component.componentId} is not configured on this host.`);
 	const selected = record(selection.configuration, `${component.componentId} configuration`);
@@ -89,7 +92,7 @@ export function managedRuntimeInputEnvironment(host: HostConfiguration, componen
 	for (const declaration of contract.environment) {
 		if (declaration.source === 'manager') {
 			if (configuredEnvironment[declaration.name] !== undefined) throw new Error(`Manager-derived input ${declaration.name} cannot be configured by the host.`);
-			values[declaration.name] = managerValue(declaration.name, fixedSecretPaths, probe);
+			if (managedValues[declaration.name] === undefined) values[declaration.name] = managerValue(declaration.name, fixedSecretPaths, probe, managedValues);
 			continue;
 		}
 		const value = configuredEnvironment[declaration.name] ?? declaration.default;

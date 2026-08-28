@@ -195,13 +195,9 @@ export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
-	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	const connectionEnvironment = managedConnectionEnvironment(host, component, releases), runtimeEnvironment = managedRuntimeInputEnvironment(host, component);
-	for (const name of Object.keys(runtimeEnvironment)) if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
-	Object.assign(connectionEnvironment, runtimeEnvironment);
+export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+	const connectionEnvironment = managedConnectionEnvironment(host, component, releases);
 	if (component.runtime.modeControl?.role === 'controller') {
-		await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 		const [, port] = host.network.manager.binding.split(':');
 		Object.assign(connectionEnvironment, {
 			TREESEED_AI_MODE_URL: `https://host.docker.internal:${port}/v1/ai/mode`,
@@ -210,7 +206,17 @@ export async function activateComponent(host: HostConfiguration, component: Comp
 			TREESEED_AI_MODE_KEY_FILE: '/run/secrets/ai-mode-client-key',
 		});
 	}
+	const runtimeEnvironment = managedRuntimeInputEnvironment(host, component, undefined, connectionEnvironment);
+	for (const name of Object.keys(runtimeEnvironment)) if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
+	Object.assign(connectionEnvironment, runtimeEnvironment);
 	const secretFileIds = component.runtime.configuration.secretFiles.filter(({ id }) => host.secrets[id] !== undefined).map(({ id }) => id);
+	return { connectionEnvironment, secretFileIds };
+}
+
+export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
+	const { connectionEnvironment, secretFileIds } = componentActivationInputs(host, component, releases);
+	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
 }
@@ -309,6 +315,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const impacted = componentStopOrder(host, active).filter((component) => configurationChanged || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
+	for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
 	for (const component of impacted) await stopComponent(component);
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {

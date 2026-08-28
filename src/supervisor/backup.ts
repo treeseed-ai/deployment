@@ -69,7 +69,7 @@ export function listGenerationBackups(options: { backupRoot?: string; reader?: A
 export function createGenerationBackup(generation: number, command: CommandRunner = run) {
 	mkdirSync(paths.backups, { recursive: true, mode: 0o700 });
 	const archive = archivePath(generation), temporary = `${archive}.new`;
-	const members = ['etc/treeseed', 'usr/share/treeseed/components', 'var/lib/treeseed/components', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json'].filter((member) => existsSync(`/${member}`));
+	const members = ['etc/treeseed', 'var/lib/treeseed/components', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json'].filter((member) => existsSync(`/${member}`));
 	if (members.length === 0) throw new Error('No managed TreeSeed state exists to back up.');
 	command('/usr/bin/tar', ['--create', '--gzip', '--file', temporary, '--directory', '/', '--numeric-owner', ...members]);
 	renameSync(temporary, archive);

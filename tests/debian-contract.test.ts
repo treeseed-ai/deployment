@@ -191,10 +191,12 @@ describe('Debian and systemd contracts', () => {
 		expect(reconciliation).toContain("operation: 'apt.refresh'");
 		expect(reconciliation).toContain("operation: 'backup.create'");
 		expect(reconciliation).toContain("operation: 'recovery.restore'");
+		expect(reconciliation.indexOf('componentActivationInputs(host')).toBeLessThan(reconciliation.indexOf("operation: 'backup.create'"));
+		expect(backup).not.toContain("'usr/share/treeseed/components'");
 		expect(reconciliation).toContain('reconcile.rollback-complete');
 		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
 		expect(backup).toContain("'var/lib/treeseed/components'");
-		expect(backup).toContain("'usr/share/treeseed/components'");
+		expect(backup).not.toContain("'usr/share/treeseed/components'");
 		expect(publisher).not.toContain('rmSync(pool');
 	});
 

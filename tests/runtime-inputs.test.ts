@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { managedRuntimeInputEnvironment, prepareComponentSecretFiles, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
+import { componentActivationInputs, managedRuntimeInputEnvironment, prepareComponentSecretFiles, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
 import { component, host } from './fixtures.js';
 
 describe('component runtime input custody', () => {
@@ -35,6 +35,24 @@ describe('component runtime input custody', () => {
 		const configuration = host();
 		configuration.components.api!.configuration = { environment: { NODE_ENV: 'production' }, secretEnvironment: { DATABASE_URL: 'api-database' }, files: { 'policy.json': '{}' } };
 		expect(managedRuntimeInputEnvironment(configuration, component('api', 'stable', 'a'))).toEqual({});
+	});
+
+	it('accepts a fixed activation value for a declared manager-derived input', () => {
+		const configuration = host(), release = component('ai-lab', 'development', 'b');
+		release.runtime.configuration = { environment: [{ name: 'TREESEED_AI_MODE_URL', required: true, source: 'manager' }], secretEnvironment: [], secretFiles: [], files: [] };
+		configuration.components['ai-lab'] = { enabled: true, track: 'development', aliases: {}, connections: {}, configuration: {} } as any;
+		expect(managedRuntimeInputEnvironment(configuration, release, { runtimeGid: () => 1000 }, { TREESEED_AI_MODE_URL: 'https://host.docker.internal:4790/v1/ai/mode' })).toEqual({});
+	});
+
+	it('prepares the mode controller environment before privileged activation', () => {
+		const configuration = host(), release = component('ai-lab', 'development', 'b');
+		release.runtime.modeControl = { role: 'controller', resource: 'ai-gpu', states: ['awake', 'sleep'] } as any;
+		release.runtime.configuration = { environment: [{ name: 'TREESEED_AI_MODE_URL', required: true, source: 'manager' }], secretEnvironment: [], secretFiles: [], files: [] };
+		configuration.components['ai-lab'] = { enabled: true, track: 'development', aliases: {}, connections: {}, configuration: {} } as any;
+		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment).toMatchObject({
+			TREESEED_AI_MODE_URL: 'https://host.docker.internal:4790/v1/ai/mode',
+			TREESEED_AI_MODE_CA_FILE: '/run/secrets/ai-mode-ca',
+		});
 	});
 
 	it('validates every fixed file before mutation and restores temporary custody', () => {
