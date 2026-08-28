@@ -80,6 +80,24 @@ reconciliation, restarts the newly installed manager payload, performs any
 explicit unaccepted-state recovery, runs one initial reconciliation, and only
 then resumes the stable and development timers.
 
+An AI-only host uses the same manager and repository through the explicit,
+opt-in Platform `ai-factory` profile. The builder generates the complete
+credential set ephemerally, leaves mode-control mTLS enrollment to the manager,
+and emits the single disposable `treeseed-ai` bootstrap package:
+
+```sh
+npm run build:ai-bootstrap -- \
+  --profile /path/to/platform/deployment/profiles/ai-factory.json \
+  --stable-lock https://raw.githubusercontent.com/treeseed-ai/platform/EXACT_COMMIT/deployment/integration-releases/stable.json \
+  --development-lock https://raw.githubusercontent.com/treeseed-ai/platform/EXACT_COMMIT/deployment/integration-releases/development.json \
+  --suite development \
+  --operator-user "$USER"
+```
+
+The resulting package and its redacted checksum receipt are printed on
+success. Its plaintext seed is consumed during bootstrap, so the root-owned
+package must be deleted after the manager reports a complete handoff.
+
 An accepted host can be returned to a fresh, unseeded application state through
 the protected local manager socket:
 

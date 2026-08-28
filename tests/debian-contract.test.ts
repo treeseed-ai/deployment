@@ -91,7 +91,8 @@ describe('Debian and systemd contracts', () => {
 		expect(generator).not.toContain('console.log(credentials');
 		expect(generator).toContain('containsPlaintextBootstrapCredentials: credentials !== undefined');
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
-		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
+		expect(postinstall).toContain("'.secrets[$id] | select(.provider == \"file\") | .reference'");
+		expect(postinstall).toContain('/etc/treeseed/credentials/[a-z0-9]*');
 		expect(postinstall).toContain('chown root:root "$temporary"');
 		expect(postinstall).toContain('chmod 0600 "$temporary"');
 		expect(postinstall).not.toContain('chown root:treeseed-manager "$temporary"');
@@ -122,6 +123,18 @@ describe('Debian and systemd contracts', () => {
 		expect(workstation).toContain("'api-treedx-delegation-private-key'");
 		expect(workstation).toContain("'treedx-credential-broker-assertion'");
 		expect(workstation).not.toContain('console.log');
+		const aiBootstrap = readFileSync('scripts/build-ai-bootstrap.ts', 'utf8');
+		expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['build:ai-bootstrap']).toContain('scripts/build-ai-bootstrap.ts');
+		expect(aiBootstrap).toContain('scripts/fetch-artifacts.ts');
+		expect(aiBootstrap).toContain('scripts/prepare-artifacts.ts');
+		expect(aiBootstrap).toContain("profile.id !== 'ai-factory'");
+		expect(aiBootstrap).toContain("'--package-name', 'treeseed-ai'");
+		expect(aiBootstrap).toContain("'--manager-generated-secrets', 'ai-mode-ca,ai-mode-client-cert,ai-mode-client-key'");
+		expect(aiBootstrap).toContain("backend: 'filesystem'");
+		expect(aiBootstrap).not.toContain('/etc/treeseed-ai');
+		expect(generator).toContain("['treeseed', 'treeseed-ai'].includes(packageName)");
+		expect(generator).toContain('managerGeneratedSecrets.has(id)');
+		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("packages['treeseed-ai']");
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
 		const readme = readFileSync('README.md', 'utf8');
 		expect(readme).toContain('install -o _apt -g root -m 0600');

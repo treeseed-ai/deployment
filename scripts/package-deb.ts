@@ -113,6 +113,12 @@ const packages: Record<string, Definition> = {
 	'treeseed-edge': { architecture: 'all', depends: 'docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Manager-owned TreeSeed Caddy edge and local TLS aliases', postinst: 'debian/edge/postinst', payload(stage) { unit(stage, 'treeseed-edge.service'); directory(resolve(stage, 'etc/treeseed/edge')); writeFileSync(resolve(stage, 'etc/treeseed/edge/Caddyfile'), ':443 {\n\tabort\n}\n'); install('deploy/edge/compose.yml', resolve(stage, 'usr/share/treeseed/edge/compose.yml')); install('scripts/edge/ensure-network.sh', resolve(stage, 'usr/lib/treeseed/edge/bin/ensure-network'), 0o755); } },
 	...(packageIntegration ? componentDefinitions(packageIntegration) : {}),
 };
+packages['treeseed-ai'] = {
+	...packages.treeseed!,
+	description: 'Configured standalone TreeAI bootstrap and unified Deployment seeder',
+	replaces: 'treeseed',
+	breaks: 'treeseed',
+};
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
 	const stage = resolve(output, '.stage', name); rmSync(stage, { recursive: true, force: true }); directory(resolve(stage, 'DEBIAN'));
@@ -128,7 +134,7 @@ function build(name: string, definition: Definition, clean = true) {
 }
 directory(output); const requested = process.argv[2] ?? 'all';
 if (requested === 'all') {
-	const entries = Object.entries(packages).filter(([name]) => name !== 'treeseed' && (aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'));
+	const entries = Object.entries(packages).filter(([name]) => !['treeseed', 'treeseed-ai'].includes(name) && (aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'));
 	for (const stale of readdirSync(output).filter((candidate) => candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
 	for (const [name, definition] of entries) build(name, definition, false);
 }

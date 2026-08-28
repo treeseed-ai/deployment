@@ -41,11 +41,14 @@ if [ -f "$state/seed/credentials.json" ]; then
   install -d -o root -g root -m 0700 /etc/treeseed/credentials
   jq -e 'type == "object" and all(keys[]; test("^[a-z][a-z0-9.-]{1,63}$")) and all(.[]; type == "string" and length > 0 and length <= 65536)' "$state/seed/credentials.json" >/dev/null
   for secret_id in $(jq -r 'keys[]' "$state/seed/credentials.json"); do
-    temporary="/etc/treeseed/credentials/.${secret_id}.new"
+    target=$(jq -er --arg id "$secret_id" '.secrets[$id] | select(.provider == "file") | .reference' /etc/treeseed/platform.json)
+    case "$target" in /etc/treeseed/credentials/[a-z0-9]* ) ;; *) printf '%s invalid credential target for %s\n' "$(date -u +%FT%TZ)" "$secret_id" >>"$log"; exit 1 ;; esac
+    case "${target#/etc/treeseed/credentials/}" in *[!a-zA-Z0-9._-]*|'') printf '%s unsafe credential target for %s\n' "$(date -u +%FT%TZ)" "$secret_id" >>"$log"; exit 1 ;; esac
+    temporary="${target}.new"
     jq -jr --arg id "$secret_id" '.[$id]' "$state/seed/credentials.json" >"$temporary"
     chown root:root "$temporary"
     chmod 0600 "$temporary"
-    mv -f "$temporary" "/etc/treeseed/credentials/$secret_id"
+    mv -f "$temporary" "$target"
   done
   rm -f "$state/seed/credentials.json"
 fi
