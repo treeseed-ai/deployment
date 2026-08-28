@@ -8,7 +8,7 @@ import { generateEdgeCertificate } from '../edge/certificates.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
 import { configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
-import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
+import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
@@ -111,6 +111,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		}
 		case 'backup.create': return createGenerationBackup(operation.generation, command);
+		case 'backup.inspect': return inspectGenerationBackup(operation.generation);
+		case 'backup.list': return listGenerationBackups();
 		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
 		case 'platform.reset': {
 			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });

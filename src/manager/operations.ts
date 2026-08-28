@@ -16,6 +16,7 @@ import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
+import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -284,13 +285,25 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			return request.options.plan === true ? { componentId: id, enabled, nextGeneration: host.generation + 1 } : replaceConfiguration((candidate) => { candidate.components[id]!.enabled = enabled; return candidate; });
 		}
 		case 'local.host.aliases.list': return { aliases: plan().routes.map(({ alias, upstream, authentication }) => ({ alias, upstream, authentication })) };
-		case 'local.host.recovery.status': return { current: receipt(), receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [] };
+		case 'local.host.recovery.status': return {
+			current: receipt(),
+			backups: await listRecoveryBackups(),
+			receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [],
+		};
 		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedReconcile();
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');
-			if (request.options.plan === true) return { generation, mutation: false };
-			await requestSupervisor({ operation: 'recovery.restore', generation }); return { generation, restored: true };
+			const target = await inspectRecoveryBackup(generation);
+			if (request.options.plan === true) return {
+				generation,
+				mutation: false,
+				targetReceiptId: target.receipt.receiptId,
+				catalogDigest: target.receipt.catalogDigest,
+				components: target.components.map(({ componentId, release }) => ({ componentId, release })),
+				packages: target.receipt.packages,
+			};
+			return restoreManagedGeneration(generation);
 		}
 		case 'local.host.bootstrap.status': return bootstrapStatus();
 		case 'local.host.bootstrap.enroll': {
