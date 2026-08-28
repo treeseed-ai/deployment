@@ -7,7 +7,7 @@ import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
-import { configureComponent, resolveDevelopmentSecretEnvironment } from './component.js';
+import { configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
 
@@ -60,7 +60,7 @@ export function recoverInvalidConfiguration(configuration: SupervisorOperation &
 	return { recovered: true, archive };
 }
 
-export function executeSupervisorOperation(input: unknown, command: CommandRunner = run) {
+export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
@@ -71,7 +71,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
-		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment); break;
+		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? []); break;
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {
@@ -94,10 +94,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
+			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]); }
+			catch (error) { restoreSecrets(operation.componentId); throw error; }
 			break;
-		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
-		case 'compose.remove': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); break;
+		case 'compose.stop': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); } finally { restoreSecrets(operation.componentId); } break;
+		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;

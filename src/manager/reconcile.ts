@@ -13,6 +13,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, noteDevelopmentPauseOwner, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
+import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -195,7 +196,11 @@ async function stop(component: ComponentRelease) {
 
 async function activate(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment: managedConnectionEnvironment(host, component, releases) });
+	const connectionEnvironment = managedConnectionEnvironment(host, component, releases), runtimeEnvironment = managedRuntimeInputEnvironment(host, component);
+	for (const name of Object.keys(runtimeEnvironment)) if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
+	Object.assign(connectionEnvironment, runtimeEnvironment);
+	const secretFileIds = component.runtime.configuration.secretFiles.filter(({ id }) => host.secrets[id] !== undefined).map(({ id }) => id);
+	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), waitTimeoutSeconds });
 }
 

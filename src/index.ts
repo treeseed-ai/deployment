@@ -10,6 +10,7 @@ export * from './manager/api.js';
 export * from './manager/operations.js';
 export * from './manager/development-sessions.js';
 export * from './manager/reconcile.js';
+export * from './manager/runtime-inputs.js';
 export * from './manager/serialized-reconcile.js';
 export * from './manager/serialized-reset.js';
 export * from './manager/reset-safety.js';

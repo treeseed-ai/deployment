@@ -92,6 +92,9 @@ describe('Debian and systemd contracts', () => {
 		expect(generator).toContain('containsPlaintextBootstrapCredentials: credentials !== undefined');
 		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
 		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
+		expect(postinstall).toContain('chown root:root "$temporary"');
+		expect(postinstall).toContain('chmod 0600 "$temporary"');
+		expect(postinstall).not.toContain('chown root:treeseed-manager "$temporary"');
 		expect(postinstall).toContain('securely delete the downloaded configured .deb');
 		expect(postinstall).toContain('rm -f "$seed"');
 		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('systemctl --no-block start treeseed-bootstrap.service');
@@ -108,6 +111,9 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('-o root -g treeseed-manager -m 0640');
 		expect(postinstall).toContain('"complete":true,"installerCredentialsRetained":false');
 		expect(readFileSync('src/manager/operations.ts', 'utf8')).not.toContain('/var/lib/treeseed/bootstrap/');
+		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
+		expect(managerPostinstall).toContain('addgroup --system treeseed-component-secrets');
+		expect(managerPostinstall).toContain('-g treeseed-component-secrets -m 0710 /var/lib/treeseed/component-secrets');
 		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
 		expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['build:workstation']).toContain('artifacts:prepare');
 		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
