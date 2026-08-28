@@ -5,17 +5,17 @@ Origin: TreeSeed Deployment
 Label: TreeSeed Deployment
 Suite: development
 Codename: development
-Date: Fri, 28 Aug 2026 14:21:36 GMT
+Date: Fri, 28 Aug 2026 14:51:27 GMT
 Architectures: amd64 all
 Components: main
 Description: Signed TreeSeed Deployment packages
 SHA256:
- 60170506b1978e26f37b8c4f4f837f0632e620bf248478d0568343adfa71f3cd 408652 main/binary-amd64/Packages
- 362ddfb0d0890f3717bb0dc9369cc2e5f94c9060060846d5af8c4fab20e58bfc 64277 main/binary-amd64/Packages.gz
+ 808baf9167cbbb900caff549c121ecccd36755b109f5e86b70af9f0153de939f 413561 main/binary-amd64/Packages
+ 5bc7378b5993f48cd6cbf9378d2d390863b661afb9cc5d93ece83bad10e64b6a 65026 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQRl/paXUXpgQhaFG2HjWioJ6NQkigUCapGZcAAKCRDjWioJ6NQk
-ilVhAPkBdLaGjdVRwhNo1pLN6/fi9EyE62yctjY9Y0Mb8RKwtgEAu4BKsMwi9mEj
-jCUWPKkar+kj4ueGuArfSQz3+ZjYzwQ=
-=n1HE
+iHUEARYKAB0WIQRl/paXUXpgQhaFG2HjWioJ6NQkigUCapGgcAAKCRDjWioJ6NQk
+ik9NAQDEER6+enfEKsUPNqIa4aEA1uou6JpeNNbNDPZaYEEVwgEA4rmq3aIy5HPW
+1s+FqNYXhNLcGYwjOH0Td6xwzVYuhAo=
+=FL78
 -----END PGP SIGNATURE-----
