@@ -88,6 +88,7 @@ function componentDefinitions(integration: IntegrationRelease) {
 const packageIntegration = aptSuite ? selectedIntegration() : developmentIntegration ?? stableIntegration;
 const sdkPayload = packageIntegration && hostPayload('sdk', packageIntegration);
 const cliPayload = packageIntegration && hostPayload('cli', packageIntegration);
+const sdkOwnedCliRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'yaml', 'zod'] as const;
 const cliPackageVersion = cliPayload ? `${debianVersion(cliPayload.version).replace(/-1$/u, '-2')}+deployment${deploymentVersion.replace(/-1$/u, '')}` : deploymentVersion;
 function writeBootstrapEdgePolicy(stage: string, configurationPath: string) {
 	if (!packageIntegration) throw new Error('A configured bootstrap requires an integration lock.');
@@ -116,6 +117,7 @@ const packages: Record<string, Definition> = {
 	'treeseed-cli': { architecture: 'all', version: cliPackageVersion, depends: `treeseed-sdk (= ${sdkPayload ? debianVersion(sdkPayload.version) : deploymentVersion}), treeseed-host-runtime`, description: 'TreeSeed trsd host client payload', payload(stage) {
 		if (!cliPayload) throw new Error('No integration lock selects the CLI host payload.');
 		extractNpm(cliPayload.archive, resolve(stage, 'usr/lib/treeseed/cli'));
+		for (const path of sdkOwnedCliRuntimePaths) rmSync(resolve(stage, 'usr/lib/treeseed/cli/node_modules', path), { recursive: true, force: true });
 		install('scripts/cli-wrapper.sh', resolve(stage, 'usr/bin/trsd'), 0o755);
 	} },
 	'treeseed-release-catalog': { architecture: 'all', version: stableCatalogVersion, depends: '', description: 'Signed compatible TreeSeed stable-base release catalog', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); copyFileSync(resolve(artifacts, 'catalogs/stable.json'), resolve(stage, 'usr/share/treeseed/catalogs/stable.json')); } },

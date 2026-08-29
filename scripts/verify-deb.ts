@@ -22,6 +22,7 @@ const packageFile = (name: string) => {
 	return matches[0]!;
 };
 const field = (file: string, name: string) => execFileSync('dpkg-deb', ['--field', resolve(output, file), name], { encoding: 'utf8' }).trim();
+const fileOwners = new Map<string, string>();
 for (const name of expected) {
 	const file = packageFile(name);
 	if (field(file, 'Package') !== name) throw new Error(`${file} declares an unexpected package identity.`);
@@ -29,6 +30,14 @@ for (const name of expected) {
 	for (const line of execFileSync('dpkg-deb', ['--contents', resolve(output, file)], { encoding: 'utf8' }).split('\n').filter(Boolean)) {
 		const mode = line.slice(0, 10);
 		if (mode[0] !== 'l' && (mode[5] === 'w' || mode[8] === 'w')) throw new Error(`${file} contains a group/world-writable path: ${line}`);
+		if (mode[0] !== 'd') {
+			const pathStart = line.indexOf(' ./');
+			if (pathStart < 0) throw new Error(`${file} contains an unreadable archive entry: ${line}`);
+			const path = line.slice(pathStart + 1).split(' -> ', 1)[0]!;
+			const owner = fileOwners.get(path);
+			if (owner) throw new Error(`${file} and ${owner} both own ${path}.`);
+			fileOwners.set(path, file);
+		}
 	}
 }
 for (const component of selected) for (const declared of component.packages) {
