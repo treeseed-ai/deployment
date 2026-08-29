@@ -24,6 +24,14 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging.match(/containerd \(>= 2\.0\) \| containerd\.io \(>= 2\.0\)/gu)).toHaveLength(2);
 	});
 
+	it('keeps SDK-owned runtime dependencies out of the Debian CLI payload', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
+		expect(packaging).toContain("const sdkOwnedCliRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'yaml', 'zod']");
+		expect(packaging).toContain('for (const path of sdkOwnedCliRuntimePaths) rmSync');
+		expect(verification).toContain('both own ${path}');
+	});
+
 	it('bootstraps component configuration before an upgraded manager activates it', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");
