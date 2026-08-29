@@ -46,8 +46,9 @@ for (const component of selected) for (const declared of component.packages) {
 
 const root = mkdtempSync(resolve(tmpdir(), 'treeseed-deb-proof-'));
 try {
-	for (const name of ['treeseed-host-runtime', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', ...(aptSuite === 'development' ? ['treeseed-release-catalog-development'] : []), ...componentPackages]) execFileSync('dpkg-deb', ['--extract', resolve(output, packageFile(name)), root]);
+	for (const name of ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', ...(aptSuite === 'development' ? ['treeseed-release-catalog-development'] : []), ...componentPackages]) execFileSync('dpkg-deb', ['--extract', resolve(output, packageFile(name)), root]);
 	execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), [resolve(root, 'usr/lib/treeseed/cli/dist/cli/main.js'), 'host', 'status', '--help'], { encoding: 'utf8' });
+	for (const module of ['operator-contracts/operation-builder.js', 'standards/typescript/extract.js']) execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/dist', module)}`)})`], { encoding: 'utf8' });
 	const stable = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/stable.json'), 'utf8')));
 	if (aptSuite === 'stable' && existsSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'))) throw new Error('Stable package set carries a development catalog.');
 	if (aptSuite === 'development') {

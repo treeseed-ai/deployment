@@ -44,7 +44,7 @@ function managerPayload(stage: string) {
 	directory(resolve(stage, 'usr/lib/treeseed/manager'));
 	cpSync(resolve(root, 'dist/src'), resolve(stage, 'usr/lib/treeseed/manager/dist/src'), { recursive: true });
 	writeFileSync(resolve(stage, 'usr/lib/treeseed/manager/package.json'), '{"type":"module"}\n');
-	for (const dependency of ['@treeseed/sdk', 'yaml', 'zod']) {
+	for (const dependency of ['@treeseed/sdk', '@treeseed/treedx', 'typescript', 'yaml', 'zod']) {
 		const source = resolve(root, 'node_modules', dependency);
 		if (!existsSync(source)) throw new Error(`Runtime dependency ${dependency} is not installed.`);
 		cpSync(source, resolve(stage, 'usr/lib/treeseed/manager/node_modules', dependency), { recursive: true });

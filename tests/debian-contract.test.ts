@@ -32,6 +32,13 @@ describe('Debian and systemd contracts', () => {
 		expect(verification).toContain('both own ${path}');
 	});
 
+	it('ships and imports the manager SDK runtime closure', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
+		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'typescript', 'yaml', 'zod']");
+		expect(verification).toContain("'operator-contracts/operation-builder.js', 'standards/typescript/extract.js'");
+	});
+
 	it('bootstraps component configuration before an upgraded manager activates it', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");
