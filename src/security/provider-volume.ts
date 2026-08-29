@@ -14,11 +14,11 @@ const credentialRoot = '/etc/treeseed/credentials';
 const mapperName = 'treeseed-provider-data';
 const credentialIds = ['application-credential-kek-v1', 'application-diagnostics-kek-v1', 'application-backup-kek-v1'] as const;
 
-function settings(configuration: HostConfiguration = loadHostConfiguration()) {
+export function providerSecuritySettings(configuration: HostConfiguration = loadHostConfiguration()) {
 	const security = configuration.security;
 	if (!security) throw new Error('Host security configuration is not defined.');
 	const volume = security.providerVolume, backing = resolve(volume.backingPath), mount = resolve(volume.mountPath);
-	const production = configuration.host.role !== 'development-workstation';
+	const production = configuration.runtime.environment === 'production';
 	if (production && backing !== '/var/lib/treeseed/encrypted/provider-data.luks') throw new Error('Production provider volume backing path is not accepted.');
 	if (!production && backing !== '/var/lib/treeseed/encrypted/provider-data.luks' && !/\/\.treeseed\/data\/\.encrypted\/provider-data\.luks$/u.test(backing)) throw new Error('Development provider volume backing path is not accepted.');
 	if (lstatIfPresent(backing)?.isSymbolicLink() || lstatIfPresent(mount)?.isSymbolicLink()) throw new Error('Provider volume paths may not be symbolic links.');
@@ -41,20 +41,20 @@ function inventory(root: string, relative = ''): string[] {
 }
 
 export function providerSecurityPlan() {
-	const value = settings();
+	const value = providerSecuritySettings();
 	return { mutation: false, sandbox: value.security.sandbox, providerVolume: { ...value.volume, backingPath: value.backing, mountPath: value.mount },
 		unlockProtection: value.production ? 'hardware-backed' : 'development-systemd-credential', steps: ['drain-assignments', 'encrypted-backup', 'format-luks2', 'copy-and-verify', 'switch-mount', 'health-gate', 'rotate-historical-credentials'] };
 }
 
 export function providerSecurityStatus() {
-	const value = settings(), mapper = `/dev/mapper/${mapperName}`;
+	const value = providerSecuritySettings(), mapper = `/dev/mapper/${mapperName}`;
 	return { configured: true, backingExists: existsSync(value.backing), mapperOpen: existsSync(mapper), mounted: mounted(value.mount),
 		credentialKeksReady: credentialIds.every((id) => existsSync(`${credentialRoot}/${id}.cred`)), recoveryBundleVerified: existsSync(`${paths.securityState}/recovery-verified.json`),
 		sandboxSocketReady: existsSync(paths.sandboxSocket), unlock: value.volume.unlock };
 }
 
 export function verifyProviderSecurity(command: CommandRunner) {
-	const value = settings(), status = providerSecurityStatus();
+	const value = providerSecuritySettings(), status = providerSecurityStatus();
 	let luks2 = false;
 	if (status.backingExists) { try { command('/usr/sbin/cryptsetup', ['isLuks', '--type', 'luks2', value.backing]); luks2 = true; } catch { luks2 = false; } }
 	const mountLine = readFileSync('/proc/self/mountinfo', 'utf8').split('\n').find((line) => line.includes(` ${value.mount} `)) ?? '';
@@ -63,7 +63,7 @@ export function verifyProviderSecurity(command: CommandRunner) {
 }
 
 export function initializeProviderSecurity(recoveryBundle: string, passphrase: string, modelProviderKey: string, command: CommandRunner) {
-	const value = settings(), current = providerSecurityStatus();
+	const value = providerSecuritySettings(), current = providerSecurityStatus();
 	if (current.backingExists || current.mapperOpen || current.mounted) throw new Error('Provider encryption is already initialized or partially present; run security verify before retrying.');
 	for (const project of ['treeseed-agent', 'treeseed-capacity-provider']) {
 		const active = command('/usr/bin/docker', ['ps', '--quiet', '--filter', `label=com.docker.compose.project=${project}`], '');
@@ -142,7 +142,7 @@ export function verifyProviderRecoveryBundle(path: string, passphrase: string) {
 }
 
 export function mountProviderSecurityVolume() {
-	const value = settings(), mapper = `/dev/mapper/${mapperName}`; if (!existsSync(value.backing)) throw new Error('Encrypted provider volume backing file does not exist.');
+	const value = providerSecuritySettings(), mapper = `/dev/mapper/${mapperName}`; if (!existsSync(value.backing)) throw new Error('Encrypted provider volume backing file does not exist.');
 	if (!existsSync(mapper)) {
 		if (value.volume.unlock === 'tpm2') execFileSync('/usr/lib/systemd/systemd-cryptsetup', ['attach', mapperName, value.backing, '-', 'tpm2-device=auto'], { stdio: 'inherit' });
 		else {
@@ -156,12 +156,12 @@ export function mountProviderSecurityVolume() {
 }
 
 export function unmountProviderSecurityVolume() {
-	const value = settings(), mapper = `/dev/mapper/${mapperName}`; if (mounted(value.mount)) execFileSync('/usr/bin/umount', [value.mount], { stdio: 'inherit' });
+	const value = providerSecuritySettings(), mapper = `/dev/mapper/${mapperName}`; if (mounted(value.mount)) execFileSync('/usr/bin/umount', [value.mount], { stdio: 'inherit' });
 	if (existsSync(mapper)) execFileSync('/usr/sbin/cryptsetup', ['close', mapperName], { stdio: 'inherit' }); return { mounted: false, mapperOpen: false };
 }
 
 export function rotateProviderSecurityKey(input: { target: 'volume' | 'credentials' | 'diagnostics'; recoveryBundle: string; recoveryPassphrase: string; newRecoveryBundle: string; newRecoveryPassphrase: string }, command: CommandRunner) {
-	const value = settings(), verified = verifyProviderSecurity(command); if (!verified.verified) throw new Error('Provider security must be verified before rotating keys.');
+	const value = providerSecuritySettings(), verified = verifyProviderSecurity(command); if (!verified.verified) throw new Error('Provider security must be verified before rotating keys.');
 	const { secrets } = openRecoveryBundle(input.recoveryBundle, input.recoveryPassphrase), next = { volumeRecoveryKey: secrets.volumeRecoveryKey, applicationKeks: { ...secrets.applicationKeks } };
 	let generation: string;
 	if (input.target === 'volume') {
