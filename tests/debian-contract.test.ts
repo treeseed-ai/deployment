@@ -9,6 +9,16 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging).not.toContain('treeseed-host-runtime (= ${deploymentVersion})`, description: \'TreeSeed trsd host client payload\'');
 	});
 
+	it('keeps the Kata package small while verifying the exact runtime before atomic activation', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const postinstall = readFileSync('debian/kata-runtime/postinst', 'utf8');
+		expect(packaging).toContain("writeFileSync(resolve(stage, 'usr/share/treeseed/kata-runtime.env')");
+		expect(packaging).not.toContain("execFileSync('/usr/bin/tar', ['--extract', '--zstd'");
+		expect(postinstall).toContain('sha256sum --check --status');
+		expect(postinstall).toContain('mv -Tf /opt/kata.new /opt/kata');
+		expect(postinstall).toContain('Pinned Kata archive has an unexpected layout.');
+	});
+
 	it('bootstraps component configuration before an upgraded manager activates it', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");

@@ -1,7 +1,36 @@
 #!/bin/sh
 set -eu
-install -d -o root -g root -m 0755 /etc/kata-containers /usr/local/bin
+. /usr/share/treeseed/kata-runtime.env
+case "$TREESEED_KATA_VERSION" in 4.[0-9]*.[0-9]*) ;; *) echo 'Invalid pinned Kata version.' >&2; exit 1;; esac
+cache=/var/cache/treeseed/kata/$TREESEED_KATA_VERSION
+archive=$cache/kata-static.tar.zst
+generation=/opt/treeseed/kata/$TREESEED_KATA_VERSION
+verify_archive() {
+	[ -f "$archive" ] && [ "$(stat --format=%s "$archive")" = "$TREESEED_KATA_SIZE" ] \
+		&& printf '%s  %s\n' "$TREESEED_KATA_SHA256" "$archive" | sha256sum --check --status
+}
+install -d -o root -g root -m 0755 "$cache" /opt/treeseed/kata /etc/kata-containers /usr/local/bin
+if ! verify_archive; then
+	temporary=$archive.new
+	rm -f "$temporary"
+	curl --fail --location --silent --show-error --output "$temporary" "$TREESEED_KATA_URL"
+	mv -f "$temporary" "$archive"
+	verify_archive || { rm -f "$archive"; echo 'Pinned Kata runtime digest verification failed.' >&2; exit 1; }
+fi
+if [ ! -x "$generation/runtime-rs/bin/containerd-shim-kata-v2" ]; then
+	staging=$generation.new
+	rm -rf "$staging"
+	install -d -o root -g root -m 0755 "$staging"
+	tar --extract --zstd --file "$archive" --directory "$staging"
+	[ -x "$staging/opt/kata/runtime-rs/bin/containerd-shim-kata-v2" ] || { rm -rf "$staging"; echo 'Pinned Kata archive has an unexpected layout.' >&2; exit 1; }
+	rm -rf "$generation"
+	mv "$staging/opt/kata" "$generation"
+	rm -rf "$staging"
+fi
+rm -f "$archive"
+ln -sfn "$generation" /opt/kata.new
+mv -Tf /opt/kata.new /opt/kata
 ln -sfn /opt/kata/runtime-rs/bin/containerd-shim-kata-v2 /usr/local/bin/containerd-shim-kata-v2
 ln -sfn /opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml /etc/kata-containers/configuration.toml
-systemctl restart containerd.service
+systemctl try-restart containerd.service
 exit 0
