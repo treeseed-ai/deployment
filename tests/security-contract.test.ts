@@ -4,13 +4,23 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecoveryBundle, verifyRecoveryBundle } from '../src/security/recovery-bundle.js';
+import { providerSecuritySettings } from '../src/security/provider-volume.js';
 import { verifySandboxAssignment, verifySandboxLeaseRenewal } from '../src/sandbox/trust.js';
 import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider';
+import type { HostConfiguration } from '@treeseed/sdk/deployment';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
+	it('classifies integrated development hosts by runtime environment', () => {
+		const configuration = { host: { role: 'integrated' }, runtime: { environment: 'development' }, security: {
+			providerVolume: { backingPath: '/work/platform/.treeseed/data/.encrypted/provider-data.luks', mountPath: '/work/platform/.treeseed/data/agent' },
+		} } as unknown as HostConfiguration;
+		expect(configuration.host.role).toBe('integrated');
+		expect(providerSecuritySettings(configuration)).toMatchObject({ production: false, backing: expect.stringContaining('/.treeseed/data/.encrypted/provider-data.luks') });
+	});
+
 	it('authenticates recovery bundles and rejects ciphertext tampering', () => {
 		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-recovery-')), path = resolve(directory, 'recovery.bundle');
 		try {
