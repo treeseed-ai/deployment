@@ -270,6 +270,28 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const agent = host.components.agent;
 			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
 		}
+		case 'local.host.security.plan': return requestSupervisor({ operation: 'security.plan' });
+		case 'local.host.security.status': return requestSupervisor({ operation: 'security.status' });
+		case 'local.host.security.verify': return requestSupervisor({ operation: 'security.verify' });
+		case 'local.host.security.initialize': {
+			if (!context.local) throw new Error('Host security initialization is available only through the protected local manager socket.');
+			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12), modelProviderKey: z.string().min(20) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
+			if (request.options.confirm !== true) throw new Error('Host security initialization requires --confirm.');
+			return requestSupervisor({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase, modelProviderKey: payload.modelProviderKey, confirm: true });
+		}
+		case 'local.host.security.rotate': {
+			if (!context.local) throw new Error('Host security rotation is available only through the protected local manager socket.');
+			const target = z.enum(['volume', 'credentials', 'diagnostics']).parse(request.arguments[0]);
+			if (request.options.confirm !== true) throw new Error('Host security rotation requires --confirm.');
+			const payload = z.object({ recoveryBundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12), newRecoveryBundle: z.string().startsWith('/'), newRecoveryPassphrase: z.string().min(12) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
+			return requestSupervisor({ operation: 'security.rotate', target, ...payload, confirm: true });
+		}
+		case 'local.host.security.recovery.verify': {
+			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
+			return requestSupervisor({ operation: 'security.recovery.verify', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase });
+		}
+		case 'local.host.sandbox.status': return requestSupervisor({ operation: 'sandbox.status' });
+		case 'local.host.sandbox.doctor': return requestSupervisor({ operation: 'sandbox.doctor' });
 		case 'local.host.storage.status': {
 			const payload = z.object({ action: z.literal('status'), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
 			return cloudflareR2StorageStatus(payload.teamId);

@@ -1,0 +1,32 @@
+[Unit]
+Description=TreeSeed Kata assignment sandbox broker
+After=containerd.service local-fs.target treeseed-provider-volume.service
+Requires=containerd.service
+
+[Service]
+Type=simple
+User=root
+Group=treeseed-manager
+RuntimeDirectory=treeseed/sandbox
+RuntimeDirectoryMode=0750
+StateDirectory=treeseed/sandboxes
+StateDirectoryMode=0700
+LoadCredentialEncrypted=model-provider-api-key:/etc/treeseed/credentials/model-provider-api-key.cred
+LoadCredentialEncrypted=relay-tls-key:/etc/treeseed/credentials/sandbox-relay-tls-key.cred
+ExecStartPre=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/sandbox-network.js
+ExecStart=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/sandbox-broker.js
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/treeseed/sandbox /var/lib/treeseed/sandboxes /run/containerd/containerd.sock
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+DeviceAllow=/dev/net/tun rw
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

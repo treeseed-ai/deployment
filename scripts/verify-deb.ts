@@ -9,7 +9,7 @@ const aptSuite = process.env.TREESEED_APT_SUITE;
 if (aptSuite !== 'stable' && aptSuite !== 'development') throw new Error('TREESEED_APT_SUITE must be stable or development.');
 const integration = integrationReleaseSchema.parse(JSON.parse(readFileSync(resolve('.treeseed/artifacts/integrations', `${aptSuite}.json`), 'utf8')));
 const selected = integration.components.map(({ componentId, release }) => componentReleaseSchema.parse(JSON.parse(readFileSync(resolve('.treeseed/artifacts/components', componentId, release, 'component-release.json'), 'utf8'))));
-const core = ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', 'treeseed-edge'];
+const core = ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', 'treeseed-edge', 'treeseed-kata-runtime'];
 if (aptSuite === 'development') core.push('treeseed-release-catalog-development');
 const componentPackages = selected.flatMap((component) => component.packages.map((item) => item.name));
 const expected = [...new Set([...core, ...componentPackages])];
@@ -28,7 +28,7 @@ for (const name of expected) {
 	if (componentPackages.includes(name) && /treeseed-(?:manager|edge)\s*\(/u.test(field(file, 'Depends'))) throw new Error(`${file} forces a core package version.`);
 	for (const line of execFileSync('dpkg-deb', ['--contents', resolve(output, file)], { encoding: 'utf8' }).split('\n').filter(Boolean)) {
 		const mode = line.slice(0, 10);
-		if (mode[5] === 'w' || mode[8] === 'w') throw new Error(`${file} contains a group/world-writable path: ${line}`);
+		if (mode[0] !== 'l' && (mode[5] === 'w' || mode[8] === 'w')) throw new Error(`${file} contains a group/world-writable path: ${line}`);
 	}
 }
 for (const component of selected) for (const declared of component.packages) {
