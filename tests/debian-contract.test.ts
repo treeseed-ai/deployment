@@ -19,6 +19,11 @@ describe('Debian and systemd contracts', () => {
 		expect(postinstall).toContain('Pinned Kata archive has an unexpected layout.');
 	});
 
+	it('accepts either distribution containerd or Docker containerd.io', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packaging.match(/containerd \(>= 2\.0\) \| containerd\.io \(>= 2\.0\)/gu)).toHaveLength(2);
+	});
+
 	it('bootstraps component configuration before an upgraded manager activates it', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");
