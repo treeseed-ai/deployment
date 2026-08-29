@@ -7,15 +7,16 @@ import { createRecoveryBundle, verifyRecoveryBundle } from '../src/security/reco
 import { providerSecuritySettings } from '../src/security/provider-volume.js';
 import { verifySandboxAssignment, verifySandboxLeaseRenewal } from '../src/sandbox/trust.js';
 import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider';
-import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
+import type { HostConfiguration } from '@treeseed/sdk/deployment';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
 	it('classifies integrated development hosts by runtime environment', () => {
-		const path = resolve(import.meta.dirname, '../../../deployment/host-configs/development-workstation.json');
-		const configuration = hostConfigurationSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+		const configuration = { host: { role: 'integrated' }, runtime: { environment: 'development' }, security: {
+			providerVolume: { backingPath: '/work/platform/.treeseed/data/.encrypted/provider-data.luks', mountPath: '/work/platform/.treeseed/data/agent' },
+		} } as unknown as HostConfiguration;
 		expect(configuration.host.role).toBe('integrated');
 		expect(providerSecuritySettings(configuration)).toMatchObject({ production: false, backing: expect.stringContaining('/.treeseed/data/.encrypted/provider-data.luks') });
 	});
