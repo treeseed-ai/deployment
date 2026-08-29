@@ -13,4 +13,6 @@ export const paths = {
 	edge: '/etc/treeseed/edge',
 	cli: '/etc/treeseed/cli',
 	socket: '/run/treeseed/manager/supervisor.sock',
+	sandboxSocket: '/run/treeseed/sandbox/broker.sock',
+	securityState: '/var/lib/treeseed/manager/security',
 } as const;

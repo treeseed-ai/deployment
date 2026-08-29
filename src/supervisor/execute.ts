@@ -10,6 +10,9 @@ import { enrollClient } from './pki.js';
 import { configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
+import { initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
+import { inspectSandboxHost } from '../sandbox/doctor.js';
+import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -24,6 +27,16 @@ function enrollmentReceipt(output: unknown, connectionId: string) {
 	const result = receipt as Record<string, unknown>;
 	if (result.connectionId !== connectionId) throw new Error('Provider enrollment receipt did not match the requested connection.');
 	return result;
+}
+
+function trustProviderSandboxIdentity(receipt: Record<string, unknown>) {
+	const identity = receipt.sandboxIdentity as Record<string, unknown> | undefined, keyId = String(identity?.signingKeyId ?? ''), publicJwk = identity?.publicJwk as Record<string, unknown> | undefined;
+	if (!/^provider-[a-f0-9]{16}$/u.test(keyId) || publicJwk?.kty !== 'OKP' || publicJwk.crv !== 'Ed25519' || typeof publicJwk.x !== 'string') throw new Error('Provider enrollment omitted its valid sandbox signing identity.');
+	const path = '/etc/treeseed/sandbox/providers.json'; mkdirSync(dirname(path), { recursive: true, mode: 0o750 });
+	const current = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as { schemaVersion: 1; providers: Record<string, unknown> } : { schemaVersion: 1 as const, providers: {} };
+	const scoped = { publicJwk, providerId: String(receipt.providerId ?? ''), teamId: String(receipt.teamId ?? '') }; if (!scoped.providerId || !scoped.teamId) throw new Error('Provider enrollment omitted its provider or team scope.');
+	const prior = current.providers[keyId]; if (prior && JSON.stringify(prior) !== JSON.stringify(scoped)) throw new Error('Sandbox signing key identity collision.');
+	current.providers[keyId] = scoped; atomicJson(path, current, 0o640);
 }
 
 function bundledComposeFiles(files: readonly string[]) {
@@ -141,6 +154,14 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
 		case 'supervisor.ping': return { ready: true };
+		case 'security.plan': return providerSecurityPlan();
+		case 'security.status': return providerSecurityStatus();
+		case 'security.verify': return verifyProviderSecurity(command);
+		case 'security.initialize': return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase, operation.modelProviderKey, command);
+		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
+		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
+		case 'sandbox.status':
+		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
@@ -157,9 +178,10 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			const enrollmentToken = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
 			if (!enrollmentToken) throw new Error('Provider registration credential is empty.');
 			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, teamId: operation.teamId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, enrollmentToken })}\n`;
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			const enrollment = enrollmentReceipt(command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input), operation.connectionId);
+			trustProviderSandboxIdentity(enrollment);
 			unlinkSync(secretPath);
-			const result = { connectionId: operation.connectionId, state: 'pending-approval', oneTimeCredentialRemoved: true };
+			const result = { connectionId: operation.connectionId, state: 'pending-approval', oneTimeCredentialRemoved: true, sandboxSigningKeyId: (enrollment.sandboxIdentity as Record<string, unknown>).signingKeyId };
 			atomicJson(marker, result, 0o600);
 			return result;
 		}

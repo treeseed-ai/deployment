@@ -1,4 +1,5 @@
-import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -129,10 +130,36 @@ const secretFileOperations: SecretFileOperations = {
 export function restoreComponentSecretFiles(componentId: string, operations: SecretFileOperations = secretFileOperations) {
 	if (!/^[a-z][a-z0-9.-]+$/u.test(componentId)) throw new Error('Invalid component secret-custody identity.');
 	const receipt = operations.load(componentId);
-	if (!receipt) return [];
+	if (!receipt) { rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true }); return []; }
 	for (const file of receipt.files) operations.restore(file.path, file.uid, file.gid, file.mode);
 	operations.remove(componentId);
+	rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true });
 	return receipt.files.map(({ id }) => id);
+}
+
+function materializeApplicationKeys(host: HostConfiguration, componentId: string) {
+	if (!host.security || !['agent', 'api'].includes(componentId)) return [];
+	const generations = componentId === 'agent'
+		? [{ purpose: 'credentials', version: host.security.applicationEncryption.activeKeyVersion }]
+		: [{ purpose: 'credentials', version: host.security.applicationEncryption.activeKeyVersion }, { purpose: 'diagnostics', version: host.security.applicationEncryption.diagnosticsKeyVersion }];
+	const root = `/run/treeseed/component-credentials/${componentId}`; mkdirSync(root, { recursive: true, mode: 0o700 });
+	const materialized: Array<{ purpose: string; version: number; target: string; active: boolean }> = [];
+	for (const { purpose, version } of generations) {
+		const credential = `application-${purpose === 'credentials' ? 'credential' : 'diagnostics'}-kek-v${version}`, source = `/etc/treeseed/credentials/${credential}.cred`, target = resolve(root, purpose);
+		if (!existsSync(source)) throw new Error(`Encrypted ${purpose} key generation ${version} is unavailable.`);
+		const plaintext = execFileSync('/usr/bin/systemd-creds', ['decrypt', `--name=${credential}`, source, '-']);
+		try { writeFileSync(target, plaintext, { mode: 0o400, flag: 'wx' }); chownSync(target, 65_532, 65_532); }
+		finally { plaintext.fill(0); }
+		materialized.push({ purpose, version, target, active: true });
+		const prefix = `application-${purpose === 'credentials' ? 'credential' : 'diagnostics'}-kek-v`;
+		for (const name of readdirSync('/etc/treeseed/credentials').filter((name) => name.startsWith(prefix) && name.endsWith('.cred'))) {
+			const priorVersion = Number(name.slice(prefix.length, -5)); if (!Number.isInteger(priorVersion) || priorVersion < 1 || priorVersion >= version) continue;
+			const priorTarget = resolve(root, `${purpose}-v${priorVersion}`), prior = execFileSync('/usr/bin/systemd-creds', ['decrypt', `--name=${prefix}${priorVersion}`, `/etc/treeseed/credentials/${name}`, '-']);
+			try { writeFileSync(priorTarget, prior, { mode: 0o400, flag: 'wx' }); chownSync(priorTarget, 65_532, 65_532); } finally { prior.fill(0); }
+			materialized.push({ purpose, version: priorVersion, target: priorTarget, active: false });
+		}
+	}
+	return materialized;
 }
 
 export function prepareComponentSecretFiles(host: HostConfiguration, componentId: string, secretFileIds: readonly string[], operations: SecretFileOperations = secretFileOperations) {
@@ -165,8 +192,18 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	const directories = componentStateDirectories(componentId);
 	const configurationRoot = `/etc/treeseed/components/${componentId}`, stateRoot = componentStateRoot(host, componentId);
+	if (host.security && componentId === 'api') Object.assign(connectionEnvironment, { TREESEED_CAPACITY_ENCRYPTION_KEY_VERSION: String(host.security.applicationEncryption.activeKeyVersion), TREESEED_DIAGNOSTICS_KEY_VERSION: String(host.security.applicationEncryption.diagnosticsKeyVersion) });
+	if (host.security && componentId === 'agent') Object.assign(connectionEnvironment, { TREESEED_PROVIDER_CREDENTIAL_KEY_VERSION: String(host.security.applicationEncryption.activeKeyVersion) });
 	mkdirSync(configurationRoot, { recursive: true, mode: 0o700 });
 	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+	if (componentId === 'agent') { chownSync(stateRoot, 65_532, 65_532); chmodSync(stateRoot, 0o700); }
+	const applicationKeys = materializeApplicationKeys(host, componentId);
+	if (componentId === 'api') {
+		const credentials = applicationKeys.filter((entry) => entry.purpose === 'credentials' && !entry.active).map((entry) => `${entry.version}:/run/treeseed-keys/credentials-v${entry.version}`).join(',');
+		const diagnostics = applicationKeys.filter((entry) => entry.purpose === 'diagnostics' && !entry.active).map((entry) => `${entry.version}:/run/treeseed-keys/diagnostics-v${entry.version}`).join(',');
+		if (credentials) connectionEnvironment.TREESEED_CAPACITY_HISTORICAL_KEY_FILES = credentials; if (diagnostics) connectionEnvironment.TREESEED_DIAGNOSTICS_HISTORICAL_KEY_FILES = diagnostics;
+	}
+	if (componentId === 'agent') { const historical = applicationKeys.filter((entry) => !entry.active).map((entry) => `${entry.version}:/run/credentials/credentials-v${entry.version}`).join(','); if (historical) connectionEnvironment.TREESEED_PROVIDER_CREDENTIAL_HISTORICAL_KEY_FILES = historical; }
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
 	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
 	let files: Record<string, unknown>;

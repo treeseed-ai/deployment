@@ -3,6 +3,14 @@ import { z } from 'zod';
 
 export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('supervisor.ping') }).strict(),
+	z.object({ operation: z.literal('security.plan') }).strict(),
+	z.object({ operation: z.literal('security.status') }).strict(),
+	z.object({ operation: z.literal('security.verify') }).strict(),
+	z.object({ operation: z.literal('security.initialize'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), modelProviderKey: z.string().min(20).max(16_384), confirm: z.literal(true) }).strict(),
+	z.object({ operation: z.literal('security.rotate'), target: z.enum(['volume', 'credentials', 'diagnostics']), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), newRecoveryBundle: z.string().startsWith('/').max(4_096), newRecoveryPassphrase: z.string().min(12).max(1_024), confirm: z.literal(true) }).strict(),
+	z.object({ operation: z.literal('security.recovery.verify'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024) }).strict(),
+	z.object({ operation: z.literal('sandbox.status') }).strict(),
+	z.object({ operation: z.literal('sandbox.doctor') }).strict(),
 	z.object({ operation: z.literal('apt.refresh'), track: z.enum(['stable', 'development']), updateCore: z.boolean() }).strict(),
 	z.object({ operation: z.literal('apt.install'), packages: z.array(z.string().regex(/^treeseed(?:-[a-z0-9-]+)?(?:(?:=[0-9A-Za-z.+:~-]+)|(?:\/(?:stable|development)))?$/u)).min(1) }).strict(),
 	z.object({ operation: z.literal('compose.activate'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), files: z.array(z.string().min(1)).min(1), projectName: z.string().regex(/^treeseed-[a-z0-9-]+$/u), services: z.array(z.string().regex(/^[a-z][a-z0-9.-]+$/u)).min(1).optional(), waitTimeoutSeconds: z.number().int().min(1).max(3_600) }).strict(),
