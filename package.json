@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.126",
+  "version": "0.1.0-rc.127",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
@@ -21,10 +21,11 @@
     "build:configured": "npm run build && node --import tsx scripts/configure-bootstrap.ts",
     "build:ai-bootstrap": "node --import tsx scripts/build-ai-bootstrap.ts",
     "build:workstation": "npm run artifacts:prepare && npm run build && node --import tsx scripts/build-workstation-bootstrap.ts",
-    "catalog:compile": "node --import tsx scripts/compile-catalog.ts"
+    "catalog:compile": "node --import tsx scripts/compile-catalog.ts",
+    "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.52",
+    "@treeseed/sdk": "0.13.0-rc.54",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },

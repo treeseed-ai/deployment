@@ -18,6 +18,7 @@ import { affectedDevelopmentClosure, DevelopmentSessionStore } from './developme
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
 import { aiModeStatus, requestAiMode } from './ai-mode.js';
+import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage } from './cloudflare-r2-storage.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -96,6 +97,27 @@ async function replaceConfiguration(mutate: (host: HostConfiguration) => HostCon
 	candidate.generation = current.generation + 1;
 	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
 	return serializedReconcile();
+}
+
+async function configureCloudflareR2(result: { accountId: string; bucket: string }) {
+	const host = loadHostConfiguration(), candidate = structuredClone(host), api = candidate.components.api;
+	if (!api) throw new Error('The API component is not configured on this host.');
+	candidate.secrets ??= {};
+	for (const id of Object.values(cloudflareR2SecretIds)) candidate.secrets[id] = { provider: 'file', reference: `/etc/treeseed/credentials/${id}` };
+	const configurableApi = api as typeof api & { configuration?: { secretEnvironment?: Record<string, string> } };
+	configurableApi.configuration ??= {};
+	configurableApi.configuration.secretEnvironment ??= {};
+	Object.assign(configurableApi.configuration.secretEnvironment, {
+		TREESEED_CLOUDFLARE_ACCOUNT_ID: cloudflareR2SecretIds.accountId,
+		TREESEED_CLOUDFLARE_API_TOKEN: cloudflareR2SecretIds.managementToken,
+		TREESEED_CONTENT_BUCKET_NAME: cloudflareR2SecretIds.bucketName,
+		TREESEED_R2_ACCESS_KEY_ID: cloudflareR2SecretIds.accessKeyId,
+		TREESEED_R2_SECRET_ACCESS_KEY: cloudflareR2SecretIds.secretAccessKey,
+	});
+	if (JSON.stringify(candidate) === JSON.stringify(host)) return { changed: false, receipt: receipt() };
+	candidate.generation = host.generation + 1;
+	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
+	return { changed: true, receipt: await serializedReconcile() };
 }
 
 function componentId(request: HostCommandRequest) {
@@ -247,6 +269,28 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.provider.status': {
 			const agent = host.components.agent;
 			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
+		}
+		case 'local.host.storage.status': {
+			const payload = z.object({ action: z.literal('status'), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
+			return cloudflareR2StorageStatus(payload.teamId);
+		}
+		case 'local.host.storage.connect':
+		case 'local.host.storage.reconcile':
+		case 'local.host.storage.rotate': {
+			if (!context.local) throw new Error('Host storage mutation is available only through the protected local manager socket.');
+			const payload = z.object({ action: z.enum(['connect', 'reconcile', 'rotate']), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256),
+				accountId: z.string().regex(/^[a-f0-9]{32}$/u).optional(), bootstrapToken: z.string().min(16).max(16_384).optional() }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
+			const provisionInput = {
+				action: payload.action, teamId: payload.teamId, teamSlug: payload.teamSlug,
+				...(payload.accountId ? { accountId: payload.accountId } : {}),
+				...(payload.bootstrapToken ? { bootstrapToken: payload.bootstrapToken } : {}),
+				plan: request.options.plan === true,
+			};
+			const result = await provisionCloudflareR2Storage(provisionInput);
+			if (request.options.plan === true) return result;
+			if (!('accountId' in result) || typeof result.accountId !== 'string') throw new Error('Cloudflare R2 provisioning did not return an account identity.');
+			const configuration = await configureCloudflareR2(result);
+			return { ...result, configuration };
 		}
 		case 'local.host.provider.enrollment': {
 			if (!context.local) throw new Error('Provider enrollment is available only through the protected local manager socket.');

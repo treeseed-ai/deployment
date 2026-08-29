@@ -102,6 +102,30 @@ function ensureAiModeCredentials(command: CommandRunner) {
 	return { clientCommonName: 'client-ai-lab-mode', key, certificate, certificateAuthority: ca };
 }
 
+const r2CredentialIds = ['cloudflare-r2-account-id', 'cloudflare-r2-management-token', 'cloudflare-r2-bucket-name', 'cloudflare-r2-access-key-id', 'cloudflare-r2-secret-access-key'] as const;
+const storageSafe = (value: string) => value.replaceAll(/[^a-z0-9-]/giu, '-').toLowerCase();
+function r2StorageStatus(teamId: string) {
+	const metadata = `${paths.managerState}/storage/cloudflare-r2/teams/${storageSafe(teamId)}.json`;
+	const binding = existsSync(metadata) ? JSON.parse(readFileSync(metadata, 'utf8')) as Record<string, unknown> : null;
+	return { metadataReady: Boolean(binding), childCredentialsReady: r2CredentialIds.every((id) => existsSync(`/etc/treeseed/credentials/${id}`)), metadata, binding };
+}
+
+function installR2Storage(operation: SupervisorOperation & { operation: 'storage.r2.install' }, command: CommandRunner) {
+	const storage = `${paths.managerState}/storage/cloudflare-r2`, authorities = `${storage}/authorities`, teams = `${storage}/teams`, credentials = '/etc/treeseed/credentials';
+	mkdirSync(authorities, { recursive: true, mode: 0o700 }); mkdirSync(teams, { recursive: true, mode: 0o700 }); mkdirSync(credentials, { recursive: true, mode: 0o700 });
+	writeFileSync(`${authorities}/${operation.accountId}.token`, operation.bootstrapToken, { mode: 0o600 });
+	const values: Record<(typeof r2CredentialIds)[number], string> = {
+		'cloudflare-r2-account-id': operation.accountId, 'cloudflare-r2-management-token': operation.managementToken,
+		'cloudflare-r2-bucket-name': operation.bucket, 'cloudflare-r2-access-key-id': operation.accessKeyId,
+		'cloudflare-r2-secret-access-key': operation.secretAccessKey,
+	};
+	for (const [id, secret] of Object.entries(values)) writeFileSync(`${credentials}/${id}`, secret, { mode: 0o600 });
+	atomicJson(`${teams}/${storageSafe(operation.teamId)}.json`, { schemaVersion: 'treeseed.host-storage-binding/v1', backend: 'cloudflare-r2', teamId: operation.teamId,
+		accountId: operation.accountId, bucket: operation.bucket, tokens: { privacy: operation.privacyTokenId, publisher: operation.publisherTokenId }, updatedAt: new Date().toISOString() }, 0o600);
+	command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', storage]);
+	return r2StorageStatus(operation.teamId);
+}
+
 export function recoverInvalidConfiguration(configuration: SupervisorOperation & { operation: 'configuration.recover' }, configurationPath: string = paths.configuration, archiveRoot: string = `${paths.managerState}/invalid-configurations`) {
 	if (tryLoadHostConfiguration(configurationPath)) throw new Error('Configuration recovery is only available when the installed configuration is invalid.');
 	const raw = readFileSync(configurationPath, 'utf8');
@@ -165,6 +189,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
 		case 'ai.gpu.workload': return aiWorkload(operation.role, operation.action, operation.files, operation.waitTimeoutSeconds, command);
 		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
+		case 'storage.r2.status': return r2StorageStatus(operation.teamId);
+		case 'storage.r2.install': return installR2Storage(operation, command);
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;
