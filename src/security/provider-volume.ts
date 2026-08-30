@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -180,6 +180,7 @@ export function initializeProviderSecurity(recoveryBundle: string, passphrase: s
 	writeFileSync(`${paths.securityState}/initialized.json`, `${JSON.stringify({ schemaVersion: 1, backing: value.backing, mount: value.mount, recoveryBundleCreated: true, initializedAt: new Date().toISOString() })}\n`, { mode: 0o600, flag: 'wx' });
 	mkdirSync('/etc/treeseed/sandbox', { recursive: true, mode: 0o750 });
 	writeFileSync('/etc/treeseed/sandbox/relay-ca.crt', readFileSync(`${relayRoot}/ca.crt`), { mode: 0o644 }); writeFileSync('/etc/treeseed/sandbox/relay.crt', readFileSync(`${relayRoot}/relay.crt`), { mode: 0o644 });
+	chmodSync('/etc/treeseed/sandbox/relay-ca.crt', 0o644); chmodSync('/etc/treeseed/sandbox/relay.crt', 0o644);
 	return completeProviderSecurity(value, command);
 	} finally { rmSync(keyRoot, { recursive: true, force: true }); }
 }

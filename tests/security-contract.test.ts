@@ -38,6 +38,8 @@ describe('host security contracts', () => {
 		expect(initialization).toContain('const readinessDeadline = Date.now() + 30_000');
 		expect(initialization).toContain("priorReceipt?.state !== 'known-good'");
 		expect(initialization).toContain('The initialized security state is resumable.');
+		expect(initialization).toContain("chmodSync('/etc/treeseed/sandbox/relay-ca.crt', 0o644)");
+		expect(readFileSync(resolve(process.cwd(), 'src/supervisor/component.ts'), 'utf8')).toContain("chmodSync('/etc/treeseed/sandbox/relay-ca.crt', 0o644)");
 	});
 	it('serializes initialization with reconciliation without putting secrets in argv', () => {
 		const arguments_ = serializedSecurityInitializeArguments();
