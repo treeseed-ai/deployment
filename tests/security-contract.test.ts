@@ -29,9 +29,11 @@ describe('host security contracts', () => {
 
 	it('checks containerd readiness from the quiet ready-image inventory', () => {
 		const doctor = readFileSync(resolve(process.cwd(), 'src/sandbox/doctor.ts'), 'utf8');
+		const runtime = readFileSync(resolve(process.cwd(), 'src/sandbox/runtime.ts'), 'utf8');
 		expect(doctor).toContain("'images', 'check', '--quiet'");
 		expect(doctor).toContain('readyImageReferences.has(containerdImageReference');
 		expect(doctor).not.toContain("'images', 'check', containerdImageReference");
+		expect(runtime).toContain("'--fifo-dir', fifoDirectory");
 	});
 	it('waits for broker readiness and leaves a failed completion resumable', () => {
 		const initialization = readFileSync(resolve(process.cwd(), 'src/security/provider-volume.ts'), 'utf8');

@@ -47,7 +47,8 @@ function trustProviderSandboxIdentity(receipt: Record<string, unknown>) {
 	const path = '/etc/treeseed/sandbox/providers.json'; mkdirSync(dirname(path), { recursive: true, mode: 0o750 });
 	const current = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as { schemaVersion: 1; providers: Record<string, unknown> } : { schemaVersion: 1 as const, providers: {} };
 	const scoped = { publicJwk: { kty: 'OKP', crv: 'Ed25519', x: publicJwk.x }, providerId: String(receipt.providerId ?? ''), teamId: String(receipt.teamId ?? '') }; if (!scoped.providerId || !scoped.teamId) throw new Error('Provider enrollment omitted its provider or team scope.');
-	const prior = current.providers[keyId]; if (prior && JSON.stringify(prior) !== JSON.stringify(scoped)) throw new Error('Sandbox signing key identity collision.');
+	const prior = current.providers[keyId] as typeof scoped | undefined;
+	if (prior && (prior.providerId !== scoped.providerId || prior.teamId !== scoped.teamId || prior.publicJwk?.kty !== scoped.publicJwk.kty || prior.publicJwk.crv !== scoped.publicJwk.crv || prior.publicJwk.x !== scoped.publicJwk.x)) throw new Error('Sandbox signing key identity collision.');
 	current.providers[keyId] = scoped; atomicJson(path, current, 0o640);
 }
 
