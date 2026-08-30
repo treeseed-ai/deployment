@@ -35,6 +35,9 @@ describe('host security contracts', () => {
 		expect(doctor).not.toContain("'images', 'check', containerdImageReference");
 		expect(runtime).toContain("'--fifo-dir', fifoDirectory");
 		expect(runtime).toContain('type=tmpfs,src=tmpfs,dst=/workspace');
+		expect(runtime).toContain('materializeGuestResolver');
+		expect(runtime).toContain('dst=/etc/resolv.conf');
+		expect(runtime).toContain("address !== '127.0.0.53'");
 	});
 	it('waits for broker readiness and leaves a failed completion resumable', () => {
 		const initialization = readFileSync(resolve(process.cwd(), 'src/security/provider-volume.ts'), 'utf8');
