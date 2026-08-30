@@ -215,6 +215,7 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	mkdirSync(configurationRoot, { recursive: true, mode: 0o700 });
 	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
 	if (componentId === 'agent') { chownSync(stateRoot, 65_532, 65_532); chmodSync(stateRoot, 0o700); }
+	if (componentId === 'agent' && existsSync('/etc/treeseed/sandbox/relay-ca.crt')) chmodSync('/etc/treeseed/sandbox/relay-ca.crt', 0o644);
 	const applicationKeys = materializeApplicationKeys(host, componentId);
 	if (componentId === 'api') {
 		const credentials = applicationKeys.filter((entry) => entry.purpose === 'credentials' && !entry.active).map((entry) => `${entry.version}:/run/treeseed-keys/credentials-v${entry.version}`).join(',');
