@@ -165,7 +165,7 @@ describe('unified host manager foundation', () => {
 		expect(() => executeSupervisorOperation({ operation: 'compose.stop', componentId: 'ai-lab', files: ['ai-lab/release/compose.yml'], projectName: 'treeseed-ai-lab' }, (_executable, arguments_) => {
 			if (arguments_[0] === 'ps') return '';
 			throw new Error('compose project no longer exists');
-		})).not.toThrow();
+		}, (componentId) => restored.push(componentId))).not.toThrow();
 		const status = executeSupervisorOperation({ operation: 'compose.status', projectName: 'treeseed-ai-lab' }, (_executable, arguments_) => arguments_.includes('--all') ? 'one\ntwo\n' : 'one\n');
 		expect(status).toEqual({ present: true, running: true, containers: 2, runningContainers: 1 });
 	});
