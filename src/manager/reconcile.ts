@@ -54,6 +54,15 @@ export function composeFiles(component: ComponentRelease) {
 	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
 }
 
+export function configuredAgentSandboxGuestDigests(host: HostConfiguration) {
+	const configuration = host.components.agent?.configuration;
+	if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) return [];
+	const files = (configuration as Record<string, unknown>).files;
+	if (!files || typeof files !== 'object' || Array.isArray(files)) return [];
+	const manifest = (files as Record<string, unknown>)['treeseed.capacity-provider.yaml'];
+	return typeof manifest === 'string' ? [...manifest.matchAll(/^[ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*(sha256:[a-f0-9]{64})[ \t]*$/gmu)].map((match) => match[1]!) : [];
+}
+
 /**
  * Orders a composition so every locally connected dependency is healthy before
  * its consumers are activated. The input order remains the tie-breaker for
@@ -285,6 +294,11 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const selectedIds = new Set(effective.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
 	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
+	const agent = effective.find((component) => component.componentId === 'agent'), selectedGuestDigest = agent?.images.find((image) => image.role === 'sandbox-guest')?.digest;
+	const configuredGuestDigests = configuredAgentSandboxGuestDigests(host);
+	if (agent && selectedGuestDigest && (configuredGuestDigests.length === 0 || configuredGuestDigests.some((digest) => digest !== selectedGuestDigest))) {
+		changedIds.add('agent'); recordEvent('component.sandbox-guest-rebind-required', { componentId: 'agent', selectedGuestDigest });
+	}
 	if (previous) {
 		for (const component of targets.filter((candidate) => !heldDevelopmentComponents.has(candidate.componentId))) {
 			const status = await requestSupervisor<{ present?: boolean; running?: boolean }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName });
