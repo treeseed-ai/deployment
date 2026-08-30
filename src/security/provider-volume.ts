@@ -62,8 +62,20 @@ export function verifyProviderSecurity(command: CommandRunner) {
 	return { ...status, luks2, secureMountOptions, verified: luks2 && status.mounted && secureMountOptions && status.credentialKeksReady };
 }
 
-export function initializeProviderSecurity(recoveryBundle: string, passphrase: string, modelProviderKey: string, command: CommandRunner) {
+type ModelAuthentication = { mode: 'api-key'; value: string } | { mode: 'codex-subscription'; path: string };
+
+function modelAuthentication(authentication: ModelAuthentication) {
+	if (authentication.mode === 'api-key') return { mode: authentication.mode, secret: authentication.value } as const;
+	const information = lstatSync(authentication.path);
+	if (!information.isFile() || information.isSymbolicLink() || information.size < 16 || information.size > 1_048_576) throw new Error('Codex authentication source must be a regular JSON file no larger than 1 MiB.');
+	const secret = readFileSync(authentication.path, 'utf8'), parsed = JSON.parse(secret) as Record<string, unknown>;
+	if (parsed.auth_mode !== 'chatgpt' || !parsed.tokens || typeof parsed.tokens !== 'object') throw new Error('Codex authentication source is not a ChatGPT subscription login cache.');
+	return { mode: authentication.mode, secret } as const;
+}
+
+export function initializeProviderSecurity(recoveryBundle: string, passphrase: string, authenticationInput: ModelAuthentication, command: CommandRunner) {
 	const value = providerSecuritySettings(), current = providerSecurityStatus();
+	const authentication = modelAuthentication(authenticationInput);
 	if (current.backingExists || current.mapperOpen || current.mounted) throw new Error('Provider encryption is already initialized or partially present; run security verify before retrying.');
 	for (const project of ['treeseed-agent', 'treeseed-capacity-provider']) {
 		const active = command('/usr/bin/docker', ['ps', '--quiet', '--filter', `label=com.docker.compose.project=${project}`], '');
@@ -83,7 +95,7 @@ export function initializeProviderSecurity(recoveryBundle: string, passphrase: s
 	if (value.volume.unlock === 'tpm2') command('/usr/bin/systemd-cryptenroll', ['--unlock-key-file=-', '--tpm2-device=auto', value.backing], volumeKey);
 	else command('/usr/bin/systemd-creds', ['encrypt', '--name=treeseed-provider-volume-key', '-', `${credentialRoot}/treeseed-provider-volume-key.cred`], volumeKey);
 	for (const [id, secret] of Object.entries(applicationKeks)) command('/usr/bin/systemd-creds', ['encrypt', `--name=${id}`, '-', `${credentialRoot}/${id}.cred`], secret);
-	command('/usr/bin/systemd-creds', ['encrypt', '--name=model-provider-api-key', '-', `${credentialRoot}/model-provider-api-key.cred`], modelProviderKey);
+	command('/usr/bin/systemd-creds', ['encrypt', '--name=model-provider-auth', '-', `${credentialRoot}/model-provider-auth.cred`], authentication.secret);
 	const relayRoot = `${keyRoot}/relay`; mkdirSync(relayRoot, { mode: 0o700 });
 	command('/usr/bin/openssl', ['req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-keyout', `${relayRoot}/ca.key`, '-out', `${relayRoot}/ca.crt`, '-subj', '/CN=TreeSeed Assignment Relay CA', '-days', '3650', '-sha256']);
 	command('/usr/bin/openssl', ['req', '-newkey', 'rsa:3072', '-nodes', '-keyout', `${relayRoot}/relay.key`, '-out', `${relayRoot}/relay.csr`, '-subj', '/CN=treeseed-sandbox-relay']);
@@ -112,15 +124,18 @@ export function initializeProviderSecurity(recoveryBundle: string, passphrase: s
 	writeFileSync('/etc/treeseed/sandbox/relay-ca.crt', readFileSync(`${relayRoot}/ca.crt`), { mode: 0o644 }); writeFileSync('/etc/treeseed/sandbox/relay.crt', readFileSync(`${relayRoot}/relay.crt`), { mode: 0o644 });
 	mkdirSync('/etc/cni/net.d', { recursive: true, mode: 0o755 });
 	writeFileSync('/etc/cni/net.d/20-treeseed-sandboxes.conflist', `${JSON.stringify({ cniVersion: '1.0.0', name: 'treeseed-sandboxes', plugins: [
-		{ type: 'bridge', bridge: 'treeseed-sbx0', isGateway: true, ipMasq: false, hairpinMode: false, ipam: { type: 'host-local', ranges: [[{ subnet: '10.89.0.0/24', gateway: '10.89.0.1' }]] } },
+		{ type: 'bridge', bridge: 'treeseed-sbx0', isGateway: true, ipMasq: authentication.mode === 'codex-subscription', hairpinMode: false, ipam: { type: 'host-local', ranges: [[{ subnet: '10.89.0.0/24', gateway: '10.89.0.1' }]] } },
 		{ type: 'firewall', ingressPolicy: 'same-bridge' },
 	] }, null, 2)}\n`, { mode: 0o644 });
-	writeFileSync('/etc/treeseed/sandbox/network.nft', 'table inet treeseed_sandbox {\n chain input { type filter hook input priority -10; policy accept; iifname "treeseed-sbx0" ip daddr 10.89.0.1 tcp dport 7443 accept; iifname "treeseed-sbx0" drop; }\n chain forward { type filter hook forward priority -10; policy accept; iifname "treeseed-sbx0" drop; oifname "treeseed-sbx0" ct state established,related accept; oifname "treeseed-sbx0" drop; }\n}\n', { mode: 0o640 });
+	const subscriptionEgress = authentication.mode === 'codex-subscription'
+		? ' iifname "treeseed-sbx0" udp dport 53 accept; iifname "treeseed-sbx0" tcp dport { 53, 443 } accept;'
+		: '';
+	writeFileSync('/etc/treeseed/sandbox/network.nft', `table inet treeseed_sandbox {\n chain input { type filter hook input priority -10; policy accept; iifname "treeseed-sbx0" ip daddr 10.89.0.1 tcp dport 7443 accept; iifname "treeseed-sbx0" drop; }\n chain forward { type filter hook forward priority -10; policy accept;${subscriptionEgress} iifname "treeseed-sbx0" drop; oifname "treeseed-sbx0" ct state established,related accept; oifname "treeseed-sbx0" drop; }\n}\n`, { mode: 0o640 });
 	try { command('/usr/sbin/nft', ['delete', 'table', 'inet', 'treeseed_sandbox']); } catch { /* first initialization has no prior table */ }
 	command('/usr/sbin/nft', ['--file', '/etc/treeseed/sandbox/network.nft']);
 	writeFileSync('/etc/treeseed/sandbox/broker.json', `${JSON.stringify({ socketPath: value.security.sandbox.brokerSocket, containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
 		relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' },
-		modelGateway: { upstreamBaseUrl: value.security.sandbox.modelGateway.upstreamBaseUrl, credentialFile: '/run/credentials/model-provider-api-key', allowedProviders: [value.security.sandbox.modelGateway.provider], allowedModels: value.security.sandbox.modelGateway.allowedModels }, guestImages })}\n`, { mode: 0o640 });
+		modelGateway: { upstreamBaseUrl: value.security.sandbox.modelGateway.upstreamBaseUrl, authenticationMode: authentication.mode, credentialFile: '/run/credentials/model-provider-auth', allowedProviders: [value.security.sandbox.modelGateway.provider], allowedModels: value.security.sandbox.modelGateway.allowedModels }, guestImages })}\n`, { mode: 0o640 });
 	for (const image of guestImages) command('/usr/bin/ctr', ['--address', '/run/containerd/containerd.sock', '--namespace', 'treeseed-sandboxes', 'images', 'pull', '--platform', 'linux/amd64', `${image.image}@${image.digest}`]);
 	command('/usr/bin/systemctl', ['restart', 'treeseed-provider-volume.service']);
 	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
@@ -128,6 +143,7 @@ export function initializeProviderSecurity(recoveryBundle: string, passphrase: s
 	const receipt = { schemaVersion: 'treeseed.host-security-receipt/v1', receiptId: `security-${randomUUID()}`, hostId: value.configuration.host.id,
 		sandbox: { runtime: 'kata-runtime-rs-qemu', kvmReady: sandbox.checks.kvm, brokerReady: sandbox.ready, guestImageDigests: value.security.sandbox.profiles.map((profile) => profile.guestImageDigest) },
 		providerVolume: { encrypted: verified.luks2, format: 'luks2', mountPath: value.mount, unlock: value.volume.unlock },
+		modelAuthentication: { mode: authentication.mode, assignmentScoped: true },
 		keys: { provider: 'systemd-credential', activeCredentialVersion: value.security.applicationEncryption.activeKeyVersion,
 			activeDiagnosticsVersion: value.security.applicationEncryption.diagnosticsKeyVersion, recoveryBundleVerified: true },
 		state: verified.verified && sandbox.ready ? 'known-good' : 'blocked', completedAt };

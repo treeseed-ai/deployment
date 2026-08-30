@@ -275,9 +275,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.security.verify': return requestSupervisor({ operation: 'security.verify' });
 		case 'local.host.security.initialize': {
 			if (!context.local) throw new Error('Host security initialization is available only through the protected local manager socket.');
-			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12), modelProviderKey: z.string().min(20) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
+			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12), modelProviderKey: z.string().min(20).optional(), codexAuthFile: z.string().startsWith('/').optional() }).strict()
+				.refine((value) => Boolean(value.modelProviderKey) !== Boolean(value.codexAuthFile), 'Exactly one model authentication source is required.').parse(JSON.parse(String(request.options.payload ?? '')));
 			if (request.options.confirm !== true) throw new Error('Host security initialization requires --confirm.');
-			return requestSupervisor({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase, modelProviderKey: payload.modelProviderKey, confirm: true });
+			return requestSupervisor({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase,
+				...(payload.modelProviderKey ? { modelProviderKey: payload.modelProviderKey } : { codexAuthFile: payload.codexAuthFile! }), confirm: true });
 		}
 		case 'local.host.security.rotate': {
 			if (!context.local) throw new Error('Host security rotation is available only through the protected local manager socket.');
