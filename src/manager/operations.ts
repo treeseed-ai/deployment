@@ -11,6 +11,7 @@ import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
+import { serializedSecurityInitialize } from './serialized-security.js';
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
@@ -278,7 +279,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12), modelProviderKey: z.string().min(20).optional(), codexAuthFile: z.string().startsWith('/').optional() }).strict()
 				.refine((value) => Boolean(value.modelProviderKey) !== Boolean(value.codexAuthFile), 'Exactly one model authentication source is required.').parse(JSON.parse(String(request.options.payload ?? '')));
 			if (request.options.confirm !== true) throw new Error('Host security initialization requires --confirm.');
-			return requestSupervisor({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase,
+			return serializedSecurityInitialize({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase,
 				...(payload.modelProviderKey ? { modelProviderKey: payload.modelProviderKey } : { codexAuthFile: payload.codexAuthFile! }), confirm: true });
 		}
 		case 'local.host.security.rotate': {
