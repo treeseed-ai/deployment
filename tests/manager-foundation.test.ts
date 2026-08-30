@@ -223,8 +223,8 @@ describe('unified host manager foundation', () => {
 		const supervisor = readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8');
 		const postinst = readFileSync(resolve(process.cwd(), 'debian/manager/postinst'), 'utf8');
 		expect(supervisor.indexOf("writeFileSync(`${paths.managerState}/events.jsonl`, ''")).toBeLessThan(supervisor.indexOf("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])"));
-		expect(supervisor).toContain("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])");
-		expect(postinst).toContain('chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager');
+		expect(supervisor).toContain("command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState])"); expect(supervisor).toContain("publicJwk: { kty: 'OKP', crv: 'Ed25519', x: publicJwk.x }");
+		expect(postinst).toContain('chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager'); expect(postinst).toContain('systemctl restart treeseed-manager-stable.timer treeseed-manager-development.timer');
 		for (const contract of ['touch /var/lib/treeseed/manager/events.jsonl', 'chown treeseed-manager:treeseed-manager /var/lib/treeseed/manager/events.jsonl', 'chmod 0660 /var/lib/treeseed/manager/events.jsonl']) expect(postinst).toContain(contract);
 		expect(readFileSync(resolve(process.cwd(), 'src/core/events.ts'), 'utf8')).toContain('mode: 0o660');
 	});
