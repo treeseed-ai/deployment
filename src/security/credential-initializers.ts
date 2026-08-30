@@ -23,11 +23,13 @@ export function credentialInitializer(id: string, root = credentialInitializerRo
 	return initializer;
 }
 
-export function credentialInitializerStatus(root = credentialInitializerRoot) {
+
+export function credentialInitializerStatus(configuredCredentialIds: readonly string[], root = credentialInitializerRoot) {
+	const configured = new Set(configuredCredentialIds);
 	return loadCredentialInitializers(root).map((initializer) => ({
 		id: initializer.id,
 		displayName: initializer.displayName,
 		credentialId: initializer.credentialId,
-		configured: existsSync(resolve(credentialRoot, `${initializer.credentialId}.cred`)),
+		configured: configured.has(initializer.credentialId),
 	}));
 }

@@ -158,6 +158,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'security.status': return providerSecurityStatus();
 		case 'security.verify': return verifyProviderSecurity(command);
 		case 'security.initialize': return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase, command);
+		case 'provider.credentials.status': return { configuredCredentialIds: operation.credentialIds.filter((credentialId) => existsSync(`/etc/treeseed/credentials/${credentialId}.cred`)) };
 		case 'provider.credential.initialize': return initializeProviderCredential(operation.initializerId, operation.sourceId, operation.secret, command);
 		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);

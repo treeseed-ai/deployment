@@ -7,6 +7,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('security.status') }).strict(),
 	z.object({ operation: z.literal('security.verify') }).strict(),
 	z.object({ operation: z.literal('security.initialize'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), confirm: z.literal(true) }).strict(),
+	z.object({ operation: z.literal('provider.credentials.status'), credentialIds: z.array(z.string().regex(/^[a-z][a-z0-9.-]{1,127}$/u)).max(128) }).strict(),
 	z.object({ operation: z.literal('provider.credential.initialize'), initializerId: z.string().regex(/^[a-z][a-z0-9.-]{1,63}$/u), sourceId: z.string().regex(/^[a-z][a-z0-9.-]{1,63}$/u), secret: z.string().min(1).max(1_048_576) }).strict(),
 	z.object({ operation: z.literal('security.rotate'), target: z.enum(['volume', 'credentials', 'diagnostics']), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), newRecoveryBundle: z.string().startsWith('/').max(4_096), newRecoveryPassphrase: z.string().min(12).max(1_024), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('security.recovery.verify'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024) }).strict(),

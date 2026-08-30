@@ -12,7 +12,7 @@ import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 import { serializedSecurityInitializeArguments, type SerializedSecurityOperation } from '../src/manager/serialized-security.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
-import { loadCredentialInitializers } from '../src/security/credential-initializers.js';
+import { credentialInitializerStatus, loadCredentialInitializers } from '../src/security/credential-initializers.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
@@ -53,8 +53,11 @@ describe('host security contracts', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', confirm: true })).not.toHaveProperty('modelProviderKey');
 		expect(() => supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', confirm: true })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'provider.credential.initialize', initializerId: 'treeseed.codex', sourceId: 'service-api-key', secret: 'sk-test-service-key-value' })).toMatchObject({ initializerId: 'treeseed.codex' });
+		expect(supervisorOperationSchema.parse({ operation: 'provider.credentials.status', credentialIds: ['execution-provider-codex-auth'] })).toMatchObject({ credentialIds: ['execution-provider-codex-auth'] });
 		const registered = loadCredentialInitializers(resolve(process.cwd(), 'credential-initializers'));
 		expect(registered.map(({ id }) => id)).toContain('treeseed.codex');
+		expect(credentialInitializerStatus(['execution-provider-codex-auth'], resolve(process.cwd(), 'credential-initializers'))).toContainEqual(expect.objectContaining({ id: 'treeseed.codex', configured: true }));
+		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain("requestSupervisor({ operation: 'provider.credentials.status'");
 		const base = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
 			relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [] };
 		expect(sandboxBrokerConfigurationSchema.parse(base).modelGateway).toBeUndefined();
