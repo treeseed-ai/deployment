@@ -21,6 +21,7 @@ import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } 
 import { aiModeStatus, requestAiMode } from './ai-mode.js';
 import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage } from './cloudflare-r2-storage.js';
 import { credentialInitializerStatus, loadCredentialInitializers } from '../security/credential-initializers.js';
+import { hostDevelopmentActivationSchema } from '../supervisor/host-development.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -154,6 +155,18 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		return { adopted: true, recoveredInvalidConfiguration: true, configurationId: candidate.configurationId, generation: candidate.generation };
 	}
 	switch (request.handlerId) {
+		case 'local.dev.host.activate': {
+			if (!context.local) throw new Error('Host runtime development may be activated only through the protected local manager socket.');
+			if (!host.fleet.rolloutGroup.toLowerCase().includes('development')) throw new Error('Host runtime development is restricted to development rollout groups.');
+			const activation = hostDevelopmentActivationSchema.parse(developmentPayload(request));
+			return requestSupervisor({ operation: 'host.development.activate', activation });
+		}
+		case 'local.dev.host.status':
+			if (!context.local) throw new Error('Host runtime development status is available only through the protected local manager socket.');
+			return requestSupervisor({ operation: 'host.development.status' });
+		case 'local.dev.host.deactivate':
+			if (!context.local) throw new Error('Host runtime development may be deactivated only through the protected local manager socket.');
+			return requestSupervisor({ operation: 'host.development.deactivate' });
 		case 'local.dev.session.start': {
 			if (!context.local) throw new Error('Development sessions may be started only through the protected local manager socket.');
 			const payload = z.object({ session: z.unknown(), runtimes: z.array(z.unknown()).min(1) }).strict().parse(developmentPayload(request));

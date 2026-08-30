@@ -13,6 +13,9 @@ import { resetPlatformState } from './reset.js';
 import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
 import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
+import { containerdImageReference } from '../sandbox/image-reference.js';
+import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
+import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus } from './host-development.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -50,6 +53,19 @@ function trustProviderSandboxIdentity(receipt: Record<string, unknown>) {
 	const prior = current.providers[keyId] as typeof scoped | undefined;
 	if (prior && (prior.providerId !== scoped.providerId || prior.teamId !== scoped.teamId || prior.publicJwk?.kty !== scoped.publicJwk.kty || prior.publicJwk.crv !== scoped.publicJwk.crv || prior.publicJwk.x !== scoped.publicJwk.x)) throw new Error('Sandbox signing key identity collision.');
 	current.providers[keyId] = scoped; atomicJson(path, current, 0o640);
+}
+
+export function bindSandboxGuestTrust(digest: string, command: CommandRunner, path = '/etc/treeseed/sandbox/broker.json') {
+	const current = sandboxBrokerConfigurationSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+	if (current.guestImages.length === 0) throw new Error('Sandbox broker has no authorized guest images to bind.');
+	const architecture = process.arch === 'arm64' ? 'linux/arm64' : process.arch === 'x64' ? 'linux/amd64' : null;
+	if (!architecture) throw new Error(`Unsupported sandbox host architecture ${process.arch}.`);
+	const images = [...new Set(current.guestImages.map((entry) => entry.image))];
+	for (const image of images) command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'pull', '--platform', architecture, containerdImageReference(image, digest)]);
+	const next = { ...current, guestImages: current.guestImages.map((entry) => ({ ...entry, digest })) };
+	atomicJson(path, next, 0o640);
+	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
+	return { changed: current.guestImages.some((entry) => entry.digest !== digest), digest, images };
 }
 
 function bundledComposeFiles(files: readonly string[]) {
@@ -191,7 +207,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
-		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.sandboxGuestImageDigest); break;
+		case 'component.configure':
+			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
+			configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.sandboxGuestImageDigest); break;
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {
@@ -252,6 +270,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
 		case 'storage.r2.status': return r2StorageStatus(operation.teamId);
 		case 'storage.r2.install': return installR2Storage(operation, command);
+		case 'host.development.activate': {
+			if (operation.activation.guestImageDigest) bindSandboxGuestTrust(operation.activation.guestImageDigest, command);
+			return activateHostDevelopment(operation.activation, command);
+		}
+		case 'host.development.status': return hostDevelopmentStatus();
+		case 'host.development.deactivate': return deactivateHostDevelopment(command);
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;

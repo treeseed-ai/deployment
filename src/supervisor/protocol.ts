@@ -1,5 +1,6 @@
 import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
+import { hostDevelopmentActivationSchema } from './host-development.js';
 
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('supervisor.ping') }).strict(),
@@ -29,6 +30,9 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 		privacyTokenId: z.string().regex(/^[a-f0-9]{32}$/u), publisherTokenId: z.string().regex(/^[a-f0-9]{32}$/u) }).strict(),
 	z.object({ operation: z.literal('component.configure'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), connectionEnvironment: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().max(16_384)), secretFileIds: z.array(z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/u)).max(128).optional(), sandboxGuestImageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u).optional() }).strict(),
 	z.object({ operation: z.literal('development.environment'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), connectionEnvironment: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().max(16_384)), secretRefs: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/u)) }).strict(),
+	z.object({ operation: z.literal('host.development.activate'), activation: hostDevelopmentActivationSchema }).strict(),
+	z.object({ operation: z.literal('host.development.status') }).strict(),
+	z.object({ operation: z.literal('host.development.deactivate') }).strict(),
 	z.object({ operation: z.literal('component.reset-unaccepted'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).strict(),
 	z.object({ operation: z.literal('provider.enroll'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), teamId: z.string().min(1).max(256), controlPlaneUrl: z.string().url().startsWith('https://'), controlPlaneAudience: z.string().url().startsWith('https://'), registrationSecretId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), offer: z.object({ maxConcurrentRunners: z.number().int().positive().max(1_024), capabilities: z.array(z.string().min(1).max(128)).max(256), metadata: z.record(z.union([z.string(), z.number(), z.boolean()])).optional() }).strict(), files: z.array(z.string().min(1)).min(1), projectName: z.literal('treeseed-agent') }).strict(),
 	z.object({ operation: z.literal('provider.enrollment-handoff'), payload: z.discriminatedUnion('action', [

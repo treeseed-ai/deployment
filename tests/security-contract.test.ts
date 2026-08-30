@@ -15,6 +15,8 @@ import { containerdImageReference } from '../src/sandbox/image-reference.js';
 import { credentialInitializerStatus, loadCredentialInitializers } from '../src/security/credential-initializers.js';
 import { safeContainerId } from '../src/sandbox/runtime.js';
 import { bindSandboxGuestImageDigest } from '../src/supervisor/component.js';
+import { bindSandboxGuestTrust } from '../src/supervisor/execute.js';
+import { configuredAgentSandboxGuestDigests } from '../src/manager/reconcile.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
@@ -38,6 +40,15 @@ describe('host security contracts', () => {
 		expect(() => bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', 'sandbox: {}\n', selected)).toThrow(/does not declare/u);
 		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: selected })).toMatchObject({ sandboxGuestImageDigest: selected });
 		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: 'latest' })).toThrow();
+		expect(configuredAgentSandboxGuestDigests({ components: { agent: { configuration: { files: { 'treeseed.capacity-provider.yaml': manifest } } } } } as unknown as HostConfiguration)).toEqual([current, current]);
+	});
+
+	it('updates broker trust and pulls the exact catalog-selected guest image', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-broker-binding-')), path = resolve(directory, 'broker.json'), digest = `sha256:${'c'.repeat(64)}`;
+		const configuration = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json', relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [{ image: 'docker.io/treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['read'] }] };
+		const calls: string[][] = [];
+		try { writeFileSync(path, JSON.stringify(configuration)); bindSandboxGuestTrust(digest, (_executable, arguments_) => { calls.push([...arguments_]); }, path); expect(JSON.parse(readFileSync(path, 'utf8')).guestImages[0].digest).toBe(digest); expect(calls.some((arguments_) => arguments_.includes(`docker.io/treeseed/sandbox-codex@${digest}`))).toBe(true); expect(calls.at(-1)).toEqual(['restart', 'treeseed-sandbox-broker.service']); }
+		finally { rmSync(directory, { recursive: true, force: true }); }
 	});
 
 	it('checks containerd readiness from the quiet ready-image inventory', () => {
