@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
+import { managedHostRuntimeEnvironment } from './host-runtime.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
@@ -190,6 +191,7 @@ export function prepareComponentSecretFiles(host: HostConfiguration, componentId
 export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = []) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
+	Object.assign(connectionEnvironment, managedHostRuntimeEnvironment(componentId));
 	const directories = componentStateDirectories(componentId);
 	const configurationRoot = `/etc/treeseed/components/${componentId}`, stateRoot = componentStateRoot(host, componentId);
 	if (host.security && componentId === 'api') Object.assign(connectionEnvironment, { TREESEED_CAPACITY_ENCRYPTION_KEY_VERSION: String(host.security.applicationEncryption.activeKeyVersion), TREESEED_DIAGNOSTICS_KEY_VERSION: String(host.security.applicationEncryption.diagnosticsKeyVersion) });
