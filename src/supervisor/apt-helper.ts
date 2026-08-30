@@ -89,7 +89,12 @@ export function applyPendingPackages(command: AptCommandRunner = run) {
 	else if (operation.operation === 'apt.refresh') {
 		const before = operation.updateCore ? installedCoreVersions() : {};
 		if (operation.updateCore) writeFileSync('/etc/apt/preferences.d/treeseed-deployment', aptPreferencesForTrack(operation.track), { encoding: 'utf8', mode: 0o644 });
-		command('/usr/bin/apt-get', ['-o', 'DPkg::Lock::Timeout=600', 'update']);
+		command('/usr/bin/apt-get', [
+			'-o', 'DPkg::Lock::Timeout=600',
+			'-o', 'Acquire::http::No-Cache=true',
+			'-o', 'Acquire::https::No-Cache=true',
+			'update',
+		]);
 		const packages = operation.updateCore
 			? exactPackagesForRefresh(operation.track, before)
 			: catalogPackagesForTrack(operation.track);

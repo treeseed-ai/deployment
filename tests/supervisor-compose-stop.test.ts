@@ -7,7 +7,7 @@ describe('supervisor compose stop', () => {
 		executeSupervisorOperation({ operation: 'compose.stop', componentId: 'agent', files: ['agent/missing/compose.yml'], projectName: 'treeseed-agent' }, (_executable, arguments_) => {
 			calls.push(arguments_);
 			return arguments_[0] === 'ps' ? '' : undefined;
-		});
+		}, () => undefined);
 		expect(calls).toEqual([['ps', '--quiet', '--filter', 'label=com.docker.compose.project=treeseed-agent']]);
 	});
 
@@ -20,7 +20,7 @@ describe('supervisor compose stop', () => {
 			if (arguments_[0] === 'compose') throw new Error('compose bundle missing');
 			if (arguments_[0] === 'stop') running = [];
 			return undefined;
-		});
+		}, () => undefined);
 		expect(calls).toContainEqual(['stop', 'api-1', 'api-worker-1']);
 		expect(running).toEqual([]);
 	});

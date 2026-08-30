@@ -110,6 +110,7 @@ export interface SecretFileOperations {
 	load(componentId: string): SecretCustodyReceipt | undefined;
 	save(receipt: SecretCustodyReceipt): void;
 	remove(componentId: string): void;
+	removeRuntime?(componentId: string): void;
 }
 
 interface SecretCustodyReceipt { componentId: string; files: Array<{ id: string; path: string; uid: number; gid: number; mode: number }> }
@@ -126,15 +127,16 @@ const secretFileOperations: SecretFileOperations = {
 	},
 	save: (receipt) => { mkdirSync(secretCustodyRoot, { recursive: true, mode: 0o700 }); atomicText(resolve(secretCustodyRoot, `${receipt.componentId}.json`), `${JSON.stringify(receipt)}\n`); },
 	remove: (componentId) => { const path = resolve(secretCustodyRoot, `${componentId}.json`); if (existsSync(path)) unlinkSync(path); },
+	removeRuntime: (componentId) => { rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true }); },
 };
 
 export function restoreComponentSecretFiles(componentId: string, operations: SecretFileOperations = secretFileOperations) {
 	if (!/^[a-z][a-z0-9.-]+$/u.test(componentId)) throw new Error('Invalid component secret-custody identity.');
 	const receipt = operations.load(componentId);
-	if (!receipt) { rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true }); return []; }
+	if (!receipt) { operations.removeRuntime?.(componentId); return []; }
 	for (const file of receipt.files) operations.restore(file.path, file.uid, file.gid, file.mode);
 	operations.remove(componentId);
-	rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true });
+	operations.removeRuntime?.(componentId);
 	return receipt.files.map(({ id }) => id);
 }
 

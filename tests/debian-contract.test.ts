@@ -227,6 +227,8 @@ describe('Debian and systemd contracts', () => {
 		expect(bootstrap).not.toContain('treeseed-component-$component');
 		expect(helper).toContain("'--allow-downgrades'");
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
+		expect(helper).toContain("'Acquire::http::No-Cache=true'");
+		expect(helper).toContain("'Acquire::https::No-Cache=true'");
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
 		expect(helper).toContain("command('/usr/bin/apt-get', ['clean'])");
