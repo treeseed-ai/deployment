@@ -22,7 +22,7 @@ PrivateTmp=yes
 # The supervisor protocol remains a strict allowlist and validates that root.
 ProtectHome=no
 ProtectSystem=strict
-ReadWritePaths=/etc/treeseed /var/lib/treeseed /run/treeseed /run/lock /etc/apt/sources.list.d /var/lib/apt /var/cache/apt /var/lib/dpkg /var/log/apt
+ReadWritePaths=/etc/treeseed /var/lib/treeseed /var/lib/systemd /run/treeseed /run/lock /etc/apt/sources.list.d /var/lib/apt /var/cache/apt /var/lib/dpkg /var/log/apt
 
 [Install]
 WantedBy=multi-user.target
