@@ -1408,6 +1408,21 @@ Priority: optional
 Description: TreeSeed trsd host client payload
  Managed by the unified TreeSeed deployment system.
 
+Package: treeseed-cli
+Version: 0.13.0~rc34-2+deployment0.1.0~rc150
+Architecture: all
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: treeseed-sdk (= 0.13.0~rc57-1), treeseed-host-runtime
+Filename: pool/development/treeseed-cli_0.13.0~rc34-2+deployment0.1.0~rc150_all.deb
+Size: 920990
+MD5sum: 56fb143966153b3c9a5a6a59b0bf5b10
+SHA1: cfc64ca09905be9071bc80640d1c0a3e41933f57
+SHA256: e3680a6440735aa9e42acd73bc325f1ebf1daa19b2fd8764abd00b71b63e6125
+Section: admin
+Priority: optional
+Description: TreeSeed trsd host client payload
+ Managed by the unified TreeSeed deployment system.
+
 Package: treeseed-component-admin
 Version: 0.12.59~rc10-1
 Architecture: all
@@ -1595,9 +1610,9 @@ Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-component-admin_0.12.59~rc22-1_all.deb
 Size: 2162
-MD5sum: 85c0a6ceee5e89c65a0b69e9cbddf7a7
-SHA1: 0fe9e8719fdbbe0d184be0341a146464294af0be
-SHA256: 9407a527bd651eb043455be7a7cb5e20f4fd5f97823f0f120ffbfedf07fd1f90
+MD5sum: b6c0d967cc3e2f14833880a9aaba50ef
+SHA1: 8d7378d9a362bc59d8335d6dc701b7c81fca4f69
+SHA256: 49f26afa752467347d281454dcc3749f6d153c35c8f0a56130872e742925caef
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed admin component
@@ -1879,10 +1894,10 @@ Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-component-agent_0.13.0~rc27-1_all.deb
-Size: 2696
-MD5sum: b02ffb7e7bed62914f534ae18e6caaa0
-SHA1: 324dea8a45e68c784824a15d85a0727cf378d0bc
-SHA256: dbd75a0868b532d1bf1e93c25ebc70eda48d1c626a650f9c843952e76aaa5964
+Size: 2698
+MD5sum: af1c7978257e9734603574f14c7249cf
+SHA1: 20d8aa20a7136ccf43d1df6c2e14bf1b6a312c21
+SHA256: 01cf87c7810ca903153390c28ada67f9d984b463f25a89087508594070d5a962
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed agent component
@@ -2284,10 +2299,10 @@ Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-component-ai-inference_0.11.0~rc19-1_all.deb
-Size: 4300
-MD5sum: f29d092412dea83e866a3e3df19ca5e3
-SHA1: 7ef96b5093331a6b5f8df7b84826b66296e29560
-SHA256: ac2f08ed01455ab291598ad97849d2707c406286534855f5260f2374209b4c90
+Size: 4294
+MD5sum: 380c3117e46be9d2a0d7355d0e2771d3
+SHA1: b4545637bd014a9e7c443260e81a19e192776265
+SHA256: f70a3beeb1796bda3a275f8f0ed0c332fd436ce580972ca887d7072cd304edff
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed ai-inference component
@@ -2509,10 +2524,10 @@ Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-component-ai-lab_0.11.0~rc19-1_all.deb
-Size: 4700
-MD5sum: e6144ab648dc292148cd3ad5e4a48a1c
-SHA1: 6739ef6a4d12b15d49aa224a8a4e0209f0a2517f
-SHA256: f7b3ed1a59047e2fb4dd61b05694e5c5a42c58315da553b45eac11dcab014c5a
+Size: 4704
+MD5sum: a2ba496e02741b9f717defd68444b593
+SHA1: 1eb1562313acb8d048f1bbcbbd62819455c0d1a2
+SHA256: 10f7d8fcee5718eb47428f6fa9765f3a1e64e34ac632341b0185b9ad4dbdd951
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed ai-lab component
@@ -2735,9 +2750,9 @@ Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-component-ai-training_0.11.0~rc19-1_all.deb
 Size: 3924
-MD5sum: 37c351b7b55194ae6b11ec5ff7b06373
-SHA1: b0bce120b80b6bd3bf1a826e1fbb927be8f9459c
-SHA256: d79db4f7033cda4ca16c5fc7a1805063efef1d746c9ffa69a3fbf6af7b5d4c0e
+MD5sum: 0eb098cb6b077de087778ccec574d899
+SHA1: d4ae33569ccd09c6b57dd81dfbc57daff8b4dbce
+SHA256: 42d0288f1c62e0116a43c5598ba1e215adad144173476adab77b4824ccf70227
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed ai-training component
@@ -3389,6 +3404,21 @@ Description: Exact runtime bundle for the TreeSeed api component
  Managed by the unified TreeSeed deployment system.
 
 Package: treeseed-component-api
+Version: 0.8.0~rc53-1
+Architecture: all
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: treeseed-manager
+Filename: pool/development/treeseed-component-api_0.8.0~rc53-1_all.deb
+Size: 2930
+MD5sum: 04ec7d11624c93a6cfd69a554184039b
+SHA1: b1646c9cc784e3f9c9620d9fec39468b8c1c1a58
+SHA256: 66b246905119a67bbdf171c05e558005acb0d414803afafb5df821e347da1bc2
+Section: admin
+Priority: optional
+Description: Exact runtime bundle for the TreeSeed api component
+ Managed by the unified TreeSeed deployment system.
+
+Package: treeseed-component-api
 Version: 0.8.0~rc9
 Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
@@ -3409,10 +3439,10 @@ Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-component-treedx_0.3.0~rc11-1_all.deb
-Size: 2426
-MD5sum: ff82c58b7fc08dd7cc98e093375e40e4
-SHA1: 45052ccc22c57a2e37c4d1df9ce3b033da2c85e9
-SHA256: 7fea9e12c85df5d6ed548913b7de8f60fb7e9670d36f0148aaba9e28c8779147
+Size: 2428
+MD5sum: 08be2daf6d73f756502905ee2e76062f
+SHA1: d0ea64c29940a05ca4d9a8d53da66f7197088658
+SHA256: ac10c610ae9bf735534d3e76d1f9aff904e1b2a749af3f4d158f1e58f652310d
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed treedx component
@@ -4268,6 +4298,21 @@ Size: 1758
 MD5sum: c4d0afd01a5da0ba9654c3ed8030aa75
 SHA1: 647517901e53d154ae9084db5f858e77dbe2ba34
 SHA256: 5e6a86027bfa2856b9cddde30206a5ba0b482bb19c9ea1b7c8a1805e5de26283
+Section: admin
+Priority: optional
+Description: Manager-owned TreeSeed Caddy edge and local TLS aliases
+ Managed by the unified TreeSeed deployment system.
+
+Package: treeseed-edge
+Version: 0.1.0~rc150-1
+Architecture: all
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin
+Filename: pool/development/treeseed-edge_0.1.0~rc150-1_all.deb
+Size: 1852
+MD5sum: 06addc39ea432725c74cb11d57520a4d
+SHA1: 6e6b119537d1f605f865405a5daa706573b64399
+SHA256: 0acd2a829b96457ef97603e5dac686f583db5256a269cf4d8e18592137202523
 Section: admin
 Priority: optional
 Description: Manager-owned TreeSeed Caddy edge and local TLS aliases
@@ -6344,6 +6389,21 @@ Description: Private pinned Node 24 and container host runtime for TreeSeed
  Managed by the unified TreeSeed deployment system.
 
 Package: treeseed-host-runtime
+Version: 0.1.0~rc150-1
+Architecture: amd64
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: libc6 (>= 2.36), libstdc++6, ca-certificates, docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin
+Filename: pool/development/treeseed-host-runtime_0.1.0~rc150-1_amd64.deb
+Size: 35945908
+MD5sum: cbea499dfee47fa3525384133df77aa8
+SHA1: b88e6f138a8493a79f034f243a945ac9cbe707b2
+SHA256: 31bebb01696ebf771f30c805906ebe5672bca10f2593238cfcface8dfb07daa3
+Section: admin
+Priority: optional
+Description: Private pinned Node 24 and container host runtime for TreeSeed
+ Managed by the unified TreeSeed deployment system.
+
+Package: treeseed-host-runtime
 Version: 0.1.0~rc16-1
 Architecture: amd64
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
@@ -7828,6 +7888,21 @@ Priority: optional
 Description: Pinned Kata runtime-rs QEMU/KVM host runtime for TreeSeed assignment sandboxes
  Managed by the unified TreeSeed deployment system.
 
+Package: treeseed-kata-runtime
+Version: 0.1.0~rc150-1
+Architecture: amd64
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: containerd (>= 2.0) | containerd.io (>= 2.0), qemu-system-x86, zstd, curl, ca-certificates
+Filename: pool/development/treeseed-kata-runtime_0.1.0~rc150-1_amd64.deb
+Size: 1602
+MD5sum: 30a227356dda2cecb86f1f8fb8384530
+SHA1: db39f6e9edb9d3ef62a69922929f4a7913255b2b
+SHA256: 095cf5741be938fde90aa0b38bd92b8f1f6a136d3e968745279fea153a023416
+Section: admin
+Priority: optional
+Description: Pinned Kata runtime-rs QEMU/KVM host runtime for TreeSeed assignment sandboxes
+ Managed by the unified TreeSeed deployment system.
+
 Package: treeseed-lab
 Version: 0.1.0~rc10-1
 Architecture: all
@@ -8134,10 +8209,10 @@ Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Depends: treeseed-manager
 Filename: pool/development/treeseed-lab_0.1.0~rc34-1_all.deb
-Size: 2260
-MD5sum: f8ba2cac82e2d186a05987ae275da26e
-SHA1: 2fb945f4e53f51b494d72cc8d8e522df3d560357
-SHA256: 2f08efbea943403e70efe31185e45afde0b91e9dcf1c05d5eb7bdd06bd7dd54e
+Size: 2264
+MD5sum: 91b38ae601f92b594774b6b7da0d6fbc
+SHA1: 7e206ec22784b086835c6ba3651a80a05e093f9b
+SHA256: fac6f6455263bea8f63f5a7e75df0cbcc32eab508741e6955409be79d760b9a7
 Section: admin
 Priority: optional
 Description: Exact runtime bundle for the TreeSeed lab component
@@ -9011,6 +9086,21 @@ SHA256: 63c1670f4dc2e8187dea2b1fc7c5793a070d7c4d0630693d74a4aed6946365f2
 Section: admin
 Priority: optional
 Description: TreeSeed host manager, reconciler, mTLS API, and fixed root supervisor
+ Managed by the unified TreeSeed deployment system.
+
+Package: treeseed-manager
+Version: 0.1.0~rc150-1
+Architecture: amd64
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: treeseed-host-runtime (= 0.1.0~rc150-1), treeseed-kata-runtime (= 0.1.0~rc150-1), treeseed-sdk (= 0.13.0~rc57-1), treeseed-cli (= 0.13.0~rc34-2+deployment0.1.0~rc150), util-linux, iproute2, containerd (>= 2.0) | containerd.io (>= 2.0), containernetworking-plugins, nftables, openssl, cryptsetup (>= 2:2.6), rsync
+Filename: pool/development/treeseed-manager_0.1.0~rc150-1_amd64.deb
+Size: 3518410
+MD5sum: 97ed97e667da5ebf446d30f680628c5d
+SHA1: 72601c8dbbc349d85edb4f668f821a3e4b3bfb29
+SHA256: 59c675cce5a8b316123d1528a293091ad2477d70408089c8b24ba4993d661443
+Section: admin
+Priority: optional
+Description: TreeSeed host manager, reconciler, Kata sandbox broker, and fixed root supervisor
  Managed by the unified TreeSeed deployment system.
 
 Package: treeseed-manager
@@ -10671,10 +10761,10 @@ Version: 0.1.0-36
 Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Filename: pool/development/treeseed-release-catalog_0.1.0-36_all.deb
-Size: 868
-MD5sum: f524617a57dc017f8b4a200d92434fd2
-SHA1: b8b9f2fbbbdb200e9d616c571ffec4e5e9fb266d
-SHA256: 2dab8f57380333e2242db88e4561d0276e88fc836d1114c1433161d83524b8f1
+Size: 870
+MD5sum: 55fe0ebc1ffe32da431bd2377992eaab
+SHA1: 66a83b5cb94c6f226a2deea376d6c18cbb619f93
+SHA256: e6ed89b5c07f3bd4ae7e198b42de6dc790794a5f2c8abf2e07cf6de0918f016c
 Section: admin
 Priority: optional
 Description: Signed compatible TreeSeed stable-base release catalog
@@ -11757,6 +11847,23 @@ Size: 6530
 MD5sum: 8d1da2e3e43ccd7592330843d50bda65
 SHA1: bc1c5a3c8d1916e4d48d1a7fc9dd77e36235024d
 SHA256: 3f579d45cef5c8bee8b596ec9331ee92eecf031159191bb40bdac0c06a2bf1e2
+Section: admin
+Priority: optional
+Description: Signed compatible TreeSeed development release overlay
+ Managed by the unified TreeSeed deployment system.
+
+Package: treeseed-release-catalog-development
+Version: 0.1.0~rc150-1
+Architecture: all
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: treeseed-release-catalog (= 0.1.0-36)
+Breaks: treeseed-release-catalog (<< 0.1.0-36)
+Replaces: treeseed-release-catalog (<< 0.1.0-36)
+Filename: pool/development/treeseed-release-catalog-development_0.1.0~rc150-1_all.deb
+Size: 6532
+MD5sum: 9585041993f30c7957dc566f50120843
+SHA1: 810044fee8c9d90d54cb9c619a57207ba5f4052e
+SHA256: fda8a737a56b9bcfabf0d4e3bdaf282075dd0f6d09007445d0891d51265995f5
 Section: admin
 Priority: optional
 Description: Signed compatible TreeSeed development release overlay
@@ -13532,10 +13639,10 @@ Version: 0.13.0~rc57-1
 Architecture: all
 Maintainer: TreeSeed Releases <releases@treeseed.ai>
 Filename: pool/development/treeseed-sdk_0.13.0~rc57-1_all.deb
-Size: 793838
-MD5sum: e269a16dfb29affee8b0967aeaa3913e
-SHA1: 9b1ba7ba57b060ccca6ee7941bf432c8b617e59c
-SHA256: 419a2f6cf96fde1a1b59e6d88713488e5d4ea10b2cc63aa45b57df171e953b8d
+Size: 793928
+MD5sum: ba3d4d5ce7ed463538edb3e33701a76d
+SHA1: 947adcc1fb61e0405c7b656bd0bc20fc668d9988
+SHA256: ac218dc7c5e059c51cddcfd81c52318606bdb4b07da143bb0d58352668dfcaf5
 Section: admin
 Priority: optional
 Description: Accepted TreeSeed SDK host contracts and CLI runtime dependencies
