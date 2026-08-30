@@ -273,7 +273,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
 		}
 		case 'local.host.provider.credentials.list': return { initializers: loadCredentialInitializers() };
-		case 'local.host.provider.credentials.status': return { credentials: credentialInitializerStatus() };
+		case 'local.host.provider.credentials.status': {
+			const initializers = loadCredentialInitializers();
+			const status = await requestSupervisor({ operation: 'provider.credentials.status', credentialIds: initializers.map(({ credentialId }) => credentialId) }) as { configuredCredentialIds: string[] };
+			return { credentials: credentialInitializerStatus(status.configuredCredentialIds) };
+		}
 		case 'local.host.provider.credentials.initialize': {
 			if (!context.local) throw new Error('Provider credential initialization is available only through the protected local manager socket.');
 			const initializerId = z.string().regex(/^[a-z][a-z0-9.-]{1,63}$/u).parse(request.arguments[0]);
