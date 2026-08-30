@@ -15,6 +15,7 @@ import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
+import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus } from './host-development.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -269,6 +270,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
 		case 'storage.r2.status': return r2StorageStatus(operation.teamId);
 		case 'storage.r2.install': return installR2Storage(operation, command);
+		case 'host.development.activate': {
+			if (operation.activation.guestImageDigest) bindSandboxGuestTrust(operation.activation.guestImageDigest, command);
+			return activateHostDevelopment(operation.activation, command);
+		}
+		case 'host.development.status': return hostDevelopmentStatus();
+		case 'host.development.deactivate': return deactivateHostDevelopment(command);
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;
