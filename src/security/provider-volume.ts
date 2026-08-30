@@ -76,19 +76,33 @@ function modelAuthentication(authentication: ModelAuthentication) {
 export function initializeProviderSecurity(recoveryBundle: string, passphrase: string, authenticationInput: ModelAuthentication, command: CommandRunner) {
 	const value = providerSecuritySettings(), current = providerSecurityStatus();
 	const authentication = modelAuthentication(authenticationInput);
-	if (current.backingExists || current.mapperOpen || current.mounted) throw new Error('Provider encryption is already initialized or partially present; run security verify before retrying.');
+	const initialized = existsSync(`${paths.securityState}/initialized.json`);
+	const resumable = current.backingExists && !current.mapperOpen && !current.mounted && !current.credentialKeksReady && current.recoveryBundleVerified && !initialized;
+	if ((current.backingExists || current.mapperOpen || current.mounted) && !resumable) throw new Error('Provider encryption is already initialized or contains a non-resumable partial state; run security verify before retrying.');
 	for (const project of ['treeseed-agent', 'treeseed-capacity-provider']) {
 		const active = command('/usr/bin/docker', ['ps', '--quiet', '--filter', `label=com.docker.compose.project=${project}`], '');
 		if (typeof active === 'string' && active.trim()) throw new Error('Provider writers must be drained and stopped before encrypted-volume initialization.');
 	}
 	mkdirSync(dirname(value.backing), { recursive: true, mode: 0o700 }); mkdirSync(credentialRoot, { recursive: true, mode: 0o700 }); mkdirSync(paths.securityState, { recursive: true, mode: 0o700 });
-	const volumeKey = key(), recoveryKey = key(), applicationKeks = Object.fromEntries(credentialIds.map((id) => [id, key()]));
-	createRecoveryBundle(recoveryBundle, passphrase, { volumeRecoveryKey: recoveryKey, applicationKeks });
+	const recovered = resumable ? openRecoveryBundle(recoveryBundle, passphrase).secrets : null;
+	const volumeKey = key(), recoveryKey = recovered?.volumeRecoveryKey ?? key();
+	const applicationKeks = recovered?.applicationKeks ?? Object.fromEntries(credentialIds.map((id) => [id, key()]));
+	if (!credentialIds.every((id) => typeof applicationKeks[id] === 'string')) throw new Error('Recovery bundle is missing an application encryption key required by this host configuration.');
+	if (!resumable) createRecoveryBundle(recoveryBundle, passphrase, { volumeRecoveryKey: recoveryKey, applicationKeks });
 	verifyProviderRecoveryBundle(recoveryBundle, passphrase);
 	const keyRoot = '/run/treeseed/security-initialize'; mkdirSync(keyRoot, { recursive: true, mode: 0o700 });
 	try {
 	const volumeKeyPath = `${keyRoot}/volume.key`, recoveryKeyPath = `${keyRoot}/recovery.key`;
 	writeFileSync(volumeKeyPath, volumeKey, { mode: 0o600, flag: 'wx' }); writeFileSync(recoveryKeyPath, recoveryKey, { mode: 0o600, flag: 'wx' });
+	if (resumable) {
+		command('/usr/sbin/cryptsetup', ['isLuks', '--type', 'luks2', value.backing]);
+		command('/usr/sbin/cryptsetup', ['open', '--readonly', '--type', 'luks2', '--key-file', recoveryKeyPath, value.backing, mapperName]);
+		try {
+			const filesystem = command('/usr/bin/lsblk', ['--noheadings', '--output', 'FSTYPE', `/dev/mapper/${mapperName}`], '');
+			if (typeof filesystem === 'string' && filesystem.trim()) throw new Error('Partial provider volume contains a filesystem and cannot be recreated automatically.');
+		} finally { command('/usr/sbin/cryptsetup', ['close', mapperName]); }
+		rmSync(value.backing);
+	}
 	command('/usr/bin/truncate', ['--size', String(value.volume.sizeBytes), value.backing]);
 	command('/usr/sbin/cryptsetup', ['luksFormat', '--batch-mode', '--type', 'luks2', '--pbkdf', 'argon2id', '--key-file', volumeKeyPath, value.backing]);
 	command('/usr/sbin/cryptsetup', ['luksAddKey', '--key-file', volumeKeyPath, '--new-keyfile', recoveryKeyPath, value.backing]);
