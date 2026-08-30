@@ -106,9 +106,13 @@ export function initializeProviderSecurity(recoveryBundle: string, passphrase: s
 	const authentication = modelAuthentication(authenticationInput);
 	const initialized = existsSync(`${paths.securityState}/initialized.json`);
 	const resumable = current.backingExists && !current.mapperOpen && !current.mounted && !current.credentialKeksReady && current.recoveryBundleVerified && !initialized;
-	const completing = current.backingExists && current.mapperOpen && current.mounted && current.credentialKeksReady && current.recoveryBundleVerified && initialized && !current.sandboxSocketReady;
+	const completing = current.backingExists && current.credentialKeksReady && current.recoveryBundleVerified && initialized && !current.sandboxSocketReady;
 	if ((current.backingExists || current.mapperOpen || current.mounted) && !resumable && !completing) throw new Error('Provider encryption is already initialized or contains a non-resumable partial state; run security verify before retrying.');
-	if (completing) { verifyProviderRecoveryBundle(recoveryBundle, passphrase); return completeProviderSecurity(value, authentication.mode, command); }
+	if (completing) {
+		verifyProviderRecoveryBundle(recoveryBundle, passphrase);
+		if (!current.mounted) mountProviderSecurityVolume();
+		return completeProviderSecurity(value, authentication.mode, command);
+	}
 	for (const project of ['treeseed-agent', 'treeseed-capacity-provider']) {
 		const active = command('/usr/bin/docker', ['ps', '--quiet', '--filter', `label=com.docker.compose.project=${project}`], '');
 		if (typeof active === 'string' && active.trim()) throw new Error('Provider writers must be drained and stopped before encrypted-volume initialization.');
