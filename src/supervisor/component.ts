@@ -216,7 +216,9 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 		files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
 		for (const [name, value] of Object.entries(files)) {
 			if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
-			atomicText(resolve(configurationRoot, name), value);
+			const target = resolve(configurationRoot, name);
+			atomicText(target, value);
+			if (componentId === 'agent') { chownSync(target, 0, 65_532); chmodSync(target, 0o640); }
 		}
 	} catch (error) { restoreComponentSecretFiles(componentId); throw error; }
 	return { componentId, configured: true, environmentKeys: Object.keys(record(record(selection.configuration, 'Component configuration').environment, 'Component environment')).length + Object.keys(record(record(selection.configuration, 'Component configuration').secretEnvironment, 'Component secret environment')).length, files: Object.keys(files).sort(), secretFiles };

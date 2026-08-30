@@ -229,6 +229,7 @@ describe('Debian and systemd contracts', () => {
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
 		expect(helper).toContain("'Acquire::http::No-Cache=true'");
 		expect(helper).toContain("'Acquire::https::No-Cache=true'");
+		expect(readFileSync('src/supervisor/component.ts', 'utf8')).toContain("if (componentId === 'agent') { chownSync(target, 0, 65_532); chmodSync(target, 0o640); }");
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
 		expect(helper).toContain("command('/usr/bin/apt-get', ['clean'])");
