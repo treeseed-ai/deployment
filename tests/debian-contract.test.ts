@@ -115,6 +115,7 @@ describe('Debian and systemd contracts', () => {
 		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('/var/lib/systemd');
 		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('/etc/cni/net.d');
 		expect(readFileSync('debian/manager/postinst', 'utf8')).toContain('/etc/cni/net.d');
+		expect(readFileSync('debian/manager/postinst', 'utf8')).toContain('/opt/cni/bin/$plugin');
 	});
 
 	it('documents configured-package credential consumption and deletion', () => {
