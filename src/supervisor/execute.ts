@@ -183,7 +183,15 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {
 			const marker = `${paths.managerState}/provider-enrollments/${operation.connectionId}.json`;
-			if (existsSync(marker)) return JSON.parse(readFileSync(marker, 'utf8')) as unknown;
+			if (existsSync(marker)) {
+				const input = `${JSON.stringify({ action: 'identity', connectionId: operation.connectionId })}\n`;
+				const identity = enrollmentReceipt(command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input), operation.connectionId);
+				trustProviderSandboxIdentity(identity);
+				const current = JSON.parse(readFileSync(marker, 'utf8')) as Record<string, unknown>;
+				const result = { ...current, sandboxSigningKeyId: (identity.sandboxIdentity as Record<string, unknown>).signingKeyId };
+				atomicJson(marker, result, 0o600);
+				return result;
+			}
 			const secretPath = `/etc/treeseed/credentials/${operation.registrationSecretId}`;
 			const enrollmentToken = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
 			if (!enrollmentToken) throw new Error('Provider registration credential is empty.');
