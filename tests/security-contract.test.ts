@@ -11,11 +11,27 @@ import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 import { serializedSecurityInitializeArguments } from '../src/manager/serialized-security.js';
+import { containerdImageReference } from '../src/sandbox/image-reference.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
+	it('uses canonical containerd registry references for sandbox images', () => {
+		const digest = `sha256:${'a'.repeat(64)}`;
+		expect(containerdImageReference('treeseed/sandbox-codex', digest)).toBe(`docker.io/treeseed/sandbox-codex@${digest}`);
+		expect(containerdImageReference('ubuntu', digest)).toBe(`docker.io/library/ubuntu@${digest}`);
+		expect(containerdImageReference('registry.example/private/guest', digest)).toBe(`registry.example/private/guest@${digest}`);
+		expect(containerdImageReference('localhost:5000/private/guest', digest)).toBe(`localhost:5000/private/guest@${digest}`);
+		expect(() => containerdImageReference('treeseed/sandbox-codex@latest', digest)).toThrow(/must not contain a digest/u);
+	});
+
+	it('checks containerd readiness from the quiet ready-image inventory', () => {
+		const doctor = readFileSync(resolve(process.cwd(), 'src/sandbox/doctor.ts'), 'utf8');
+		expect(doctor).toContain("'images', 'check', '--quiet'");
+		expect(doctor).toContain('readyImageReferences.has(containerdImageReference');
+		expect(doctor).not.toContain("'images', 'check', containerdImageReference");
+	});
 	it('serializes initialization with reconciliation without putting secrets in argv', () => {
 		const arguments_ = serializedSecurityInitializeArguments();
 		expect(arguments_.slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);

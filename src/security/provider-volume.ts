@@ -9,6 +9,7 @@ import type { CommandRunner } from '../supervisor/execute.js';
 import { createRecoveryBundle, openRecoveryBundle, verifyRecoveryBundle } from './recovery-bundle.js';
 import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
+import { containerdImageReference } from '../sandbox/image-reference.js';
 
 const credentialRoot = '/etc/treeseed/credentials';
 const mapperName = 'treeseed-provider-data';
@@ -90,9 +91,15 @@ function completeProviderSecurity(value: ReturnType<typeof providerSecuritySetti
 	writeFileSync('/etc/treeseed/sandbox/broker.json', `${JSON.stringify({ socketPath: value.security.sandbox.brokerSocket, containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
 		relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' },
 		modelGateway: { upstreamBaseUrl: value.security.sandbox.modelGateway.upstreamBaseUrl, authenticationMode, credentialFile: '/run/credentials/model-provider-auth', allowedProviders: [value.security.sandbox.modelGateway.provider], allowedModels: value.security.sandbox.modelGateway.allowedModels }, guestImages })}\n`, { mode: 0o640 });
-	for (const image of guestImages) command('/usr/bin/ctr', ['--address', '/run/containerd/containerd.sock', '--namespace', 'treeseed-sandboxes', 'images', 'pull', '--platform', 'linux/amd64', `${image.image}@${image.digest}`]);
+	for (const image of guestImages) command('/usr/bin/ctr', ['--address', '/run/containerd/containerd.sock', '--namespace', 'treeseed-sandboxes', 'images', 'pull', '--platform', 'linux/amd64', containerdImageReference(image.image, image.digest)]);
 	command('/usr/bin/systemctl', ['restart', 'treeseed-provider-volume.service']); command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
-	const verified = verifyProviderSecurity(command), sandbox = inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true }), completedAt = new Date().toISOString();
+	const verified = verifyProviderSecurity(command); let sandbox = inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
+	const readinessDeadline = Date.now() + 30_000;
+	while (!sandbox.ready && Date.now() < readinessDeadline) {
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+		sandbox = inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
+	}
+	const completedAt = new Date().toISOString();
 	const receipt = { schemaVersion: 'treeseed.host-security-receipt/v1', receiptId: `security-${randomUUID()}`, hostId: value.configuration.host.id,
 		sandbox: { runtime: 'kata-runtime-rs-qemu', kvmReady: sandbox.checks.kvm, brokerReady: sandbox.ready, guestImageDigests: value.security.sandbox.profiles.map((profile) => profile.guestImageDigest) },
 		providerVolume: { encrypted: verified.luks2, format: 'luks2', mountPath: value.mount, unlock: value.volume.unlock }, modelAuthentication: { mode: authenticationMode, assignmentScoped: true },
