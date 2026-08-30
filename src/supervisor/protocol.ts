@@ -1,12 +1,13 @@
 import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 
-export const supervisorOperationSchema = z.discriminatedUnion('operation', [
+const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('supervisor.ping') }).strict(),
 	z.object({ operation: z.literal('security.plan') }).strict(),
 	z.object({ operation: z.literal('security.status') }).strict(),
 	z.object({ operation: z.literal('security.verify') }).strict(),
-	z.object({ operation: z.literal('security.initialize'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), modelProviderKey: z.string().min(20).max(16_384), confirm: z.literal(true) }).strict(),
+	z.object({ operation: z.literal('security.initialize'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024),
+		modelProviderKey: z.string().min(20).max(16_384).optional(), codexAuthFile: z.string().startsWith('/').max(4_096).optional(), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('security.rotate'), target: z.enum(['volume', 'credentials', 'diagnostics']), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), newRecoveryBundle: z.string().startsWith('/').max(4_096), newRecoveryPassphrase: z.string().min(12).max(1_024), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('security.recovery.verify'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024) }).strict(),
 	z.object({ operation: z.literal('sandbox.status') }).strict(),
@@ -49,5 +50,11 @@ export const supervisorOperationSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('configuration.recover'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('pki.enroll'), clientId: z.string().regex(/^client-[a-z0-9-]{8,64}$/u) }).strict(),
 ]);
+
+export const supervisorOperationSchema = supervisorOperationUnion.superRefine((value, context) => {
+	if (value.operation === 'security.initialize' && Boolean(value.modelProviderKey) === Boolean(value.codexAuthFile)) {
+		context.addIssue({ code: z.ZodIssueCode.custom, message: 'Exactly one model authentication source is required.' });
+	}
+});
 
 export type SupervisorOperation = z.infer<typeof supervisorOperationSchema>;

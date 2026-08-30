@@ -157,7 +157,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'security.plan': return providerSecurityPlan();
 		case 'security.status': return providerSecurityStatus();
 		case 'security.verify': return verifyProviderSecurity(command);
-		case 'security.initialize': return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase, operation.modelProviderKey, command);
+		case 'security.initialize': {
+			if (Boolean(operation.modelProviderKey) === Boolean(operation.codexAuthFile)) throw new Error('Exactly one model authentication source is required.');
+			return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase,
+				operation.modelProviderKey ? { mode: 'api-key', value: operation.modelProviderKey } : { mode: 'codex-subscription', path: operation.codexAuthFile! }, command);
+		}
 		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
 		case 'sandbox.status':

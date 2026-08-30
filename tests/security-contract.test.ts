@@ -8,11 +8,21 @@ import { providerSecuritySettings } from '../src/security/provider-volume.js';
 import { verifySandboxAssignment, verifySandboxLeaseRenewal } from '../src/sandbox/trust.js';
 import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
+import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
+import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
+	it('accepts either subscription-file or API-key model authentication without mixing them', () => {
+		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', codexAuthFile: '/home/operator/.codex/auth.json', confirm: true })).toMatchObject({ codexAuthFile: expect.stringContaining('auth.json') });
+		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', confirm: true })).toMatchObject({ modelProviderKey: expect.any(String) });
+		expect(() => supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', codexAuthFile: '/home/operator/.codex/auth.json', confirm: true })).toThrow(/Exactly one/u);
+		const base = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
+			relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [] };
+		expect(sandboxBrokerConfigurationSchema.parse({ ...base, modelGateway: { upstreamBaseUrl: 'https://api.openai.com', authenticationMode: 'codex-subscription', credentialFile: '/run/credentials/model-provider-auth', allowedProviders: ['openai'], allowedModels: ['gpt-5.4'] } }).modelGateway.authenticationMode).toBe('codex-subscription');
+	});
 	it('classifies integrated development hosts by runtime environment', () => {
 		const configuration = { host: { role: 'integrated' }, runtime: { environment: 'development' }, security: {
 			providerVolume: { backingPath: '/work/platform/.treeseed/data/.encrypted/provider-data.luks', mountPath: '/work/platform/.treeseed/data/agent' },

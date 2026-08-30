@@ -10,6 +10,7 @@ async function boundedBody(request: IncomingMessage, maximum = 16 * 1024 * 1024)
 }
 
 export async function proxyModelRequest(input: { request: IncomingMessage; response: ServerResponse; configuration: SandboxBrokerConfiguration; policy: SandboxAssignment['modelPolicy'] }) {
+	if (input.configuration.modelGateway.authenticationMode !== 'api-key') throw new Error('The API model gateway is disabled for assignment-scoped Codex subscription authentication.');
 	if (input.request.method !== 'POST') throw new Error('Model gateway only permits POST requests.');
 	if (!input.configuration.modelGateway.allowedProviders.includes(input.policy.provider) || !input.configuration.modelGateway.allowedModels.includes(input.policy.model)) throw new Error('Assignment model policy is not enabled by the host gateway.');
 	const body = await boundedBody(input.request), parsed = JSON.parse(body.toString('utf8')) as Record<string, unknown>;
