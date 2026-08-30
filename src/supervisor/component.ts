@@ -1,5 +1,6 @@
 import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -151,18 +152,31 @@ function materializeApplicationKeys(host: HostConfiguration, componentId: string
 		const credential = `application-${purpose === 'credentials' ? 'credential' : 'diagnostics'}-kek-v${version}`, source = `/etc/treeseed/credentials/${credential}.cred`, target = resolve(root, purpose);
 		if (!existsSync(source)) throw new Error(`Encrypted ${purpose} key generation ${version} is unavailable.`);
 		const plaintext = execFileSync('/usr/bin/systemd-creds', ['decrypt', `--name=${credential}`, source, '-']);
-		try { writeFileSync(target, plaintext, { mode: 0o400, flag: 'wx' }); chownSync(target, 65_532, 65_532); }
+		try { replaceRuntimeCredential(target, plaintext); }
 		finally { plaintext.fill(0); }
 		materialized.push({ purpose, version, target, active: true });
 		const prefix = `application-${purpose === 'credentials' ? 'credential' : 'diagnostics'}-kek-v`;
 		for (const name of readdirSync('/etc/treeseed/credentials').filter((name) => name.startsWith(prefix) && name.endsWith('.cred'))) {
 			const priorVersion = Number(name.slice(prefix.length, -5)); if (!Number.isInteger(priorVersion) || priorVersion < 1 || priorVersion >= version) continue;
 			const priorTarget = resolve(root, `${purpose}-v${priorVersion}`), prior = execFileSync('/usr/bin/systemd-creds', ['decrypt', `--name=${prefix}${priorVersion}`, `/etc/treeseed/credentials/${name}`, '-']);
-			try { writeFileSync(priorTarget, prior, { mode: 0o400, flag: 'wx' }); chownSync(priorTarget, 65_532, 65_532); } finally { prior.fill(0); }
+			try { replaceRuntimeCredential(priorTarget, prior); } finally { prior.fill(0); }
 			materialized.push({ purpose, version: priorVersion, target: priorTarget, active: false });
 		}
 	}
 	return materialized;
+}
+
+/** Atomically refresh an ephemeral credential so reconciliation and rollback are idempotent. */
+export function replaceRuntimeCredential(target: string, plaintext: Buffer, ownership = { uid: 65_532, gid: 65_532 }) {
+	const temporary = `${target}.tmp-${randomUUID()}`;
+	try {
+		writeFileSync(temporary, plaintext, { mode: 0o400, flag: 'wx' });
+		chownSync(temporary, ownership.uid, ownership.gid);
+		chmodSync(temporary, 0o400);
+		renameSync(temporary, target);
+	} finally {
+		if (existsSync(temporary)) rmSync(temporary, { force: true });
+	}
 }
 
 export function prepareComponentSecretFiles(host: HostConfiguration, componentId: string, secretFileIds: readonly string[], operations: SecretFileOperations = secretFileOperations) {
