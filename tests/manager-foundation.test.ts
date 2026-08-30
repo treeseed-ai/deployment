@@ -239,7 +239,7 @@ describe('unified host manager foundation', () => {
 
 	it('activates Compose with only the manager-rendered component environment', () => {
 		const calls: Array<[string, readonly string[]]> = [];
-		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent', waitTimeoutSeconds: 120 }, (executable, arguments_) => calls.push([executable, arguments_]));
+		executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent', files: ['agent/0.13.0~rc12/compose.yml'], projectName: 'treeseed-agent', waitTimeoutSeconds: 120 }, (executable, arguments_) => (calls.push([executable, arguments_]), arguments_.includes('enroll') ? JSON.stringify({ ok: true, identities: [] }) : undefined));
 		const activation = calls.find(([, arguments_]) => arguments_[0] === 'compose');
 		expect(activation).toEqual(['/usr/bin/docker', ['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/0.13.0~rc12/compose.yml', '--project-name', 'treeseed-agent', 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '120']]);
 		expect(JSON.stringify(calls)).not.toContain('process.env');

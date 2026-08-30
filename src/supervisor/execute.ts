@@ -29,6 +29,18 @@ function enrollmentReceipt(output: unknown, connectionId: string) {
 	return result;
 }
 
+function sandboxIdentityReceipts(output: unknown) {
+	if (typeof output !== 'string' || output.trim().length === 0) throw new Error('Provider identity reconciliation returned no receipt.');
+	const receipt = JSON.parse(output) as unknown;
+	if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) throw new Error('Provider identity reconciliation returned an invalid receipt.');
+	const identities = (receipt as Record<string, unknown>).identities;
+	if (!Array.isArray(identities)) throw new Error('Provider identity reconciliation omitted its identity collection.');
+	return identities.map((identity) => {
+		if (!identity || typeof identity !== 'object' || Array.isArray(identity) || typeof (identity as Record<string, unknown>).connectionId !== 'string') throw new Error('Provider identity reconciliation returned an invalid scoped identity.');
+		return identity as Record<string, unknown>;
+	});
+}
+
 function trustProviderSandboxIdentity(receipt: Record<string, unknown>) {
 	const identity = receipt.sandboxIdentity as Record<string, unknown> | undefined, keyId = String(identity?.signingKeyId ?? ''), publicJwk = identity?.publicJwk as Record<string, unknown> | undefined;
 	if (!/^provider-[a-f0-9]{16}$/u.test(keyId) || publicJwk?.kty !== 'OKP' || publicJwk.crv !== 'Ed25519' || typeof publicJwk.x !== 'string') throw new Error('Provider enrollment omitted its valid sandbox signing identity.');
@@ -212,6 +224,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			ensureNetwork('treeseed-platform', command);
 			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
 			catch (error) { restoreSecrets(operation.componentId); throw error; }
+			if (operation.componentId === 'agent') {
+				const input = `${JSON.stringify({ action: 'identities' })}\n`;
+				const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+				for (const identity of sandboxIdentityReceipts(output)) trustProviderSandboxIdentity(identity);
+			}
 			break;
 		case 'compose.stop': try {
 			if (composeProjectContainerIds(operation.projectName, command, true).length === 0) break;
