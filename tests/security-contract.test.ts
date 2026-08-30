@@ -10,11 +10,19 @@ import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sd
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
+import { serializedSecurityInitializeArguments } from '../src/manager/serialized-security.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
+	it('serializes initialization with reconciliation without putting secrets in argv', () => {
+		const arguments_ = serializedSecurityInitializeArguments();
+		expect(arguments_.slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
+		expect(arguments_.join(' ')).not.toMatch(/passphrase|auth\.json|modelProviderKey/u);
+		expect(arguments_.at(-1)).toMatch(/security-initialize\.js$/u);
+		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain('serializedSecurityInitialize({');
+	});
 	it('accepts either subscription-file or API-key model authentication without mixing them', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', codexAuthFile: '/home/operator/.codex/auth.json', confirm: true })).toMatchObject({ codexAuthFile: expect.stringContaining('auth.json') });
 		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', confirm: true })).toMatchObject({ modelProviderKey: expect.any(String) });

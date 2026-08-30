@@ -13,6 +13,7 @@ export * from './manager/reconcile.js';
 export * from './manager/runtime-inputs.js';
 export * from './manager/serialized-reconcile.js';
 export * from './manager/serialized-reset.js';
+export * from './manager/serialized-security.js';
 export * from './manager/reset-safety.js';
 export * from './manager/update-policy.js';
 export * from './manager/update-state.js';
