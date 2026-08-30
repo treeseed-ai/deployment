@@ -6,13 +6,13 @@ const lockPath = '/run/treeseed/manager/reconcile.lock';
 const securityExecutable = fileURLToPath(new URL('../bin/security-initialize.js', import.meta.url));
 const maximumOutputBytes = 1024 * 1024;
 
-export type SecurityInitializeOperation = Extract<SupervisorOperation, { operation: 'security.initialize' }>;
+export type SerializedSecurityOperation = Extract<SupervisorOperation, { operation: 'security.initialize' | 'provider.credential.initialize' }>;
 
 export function serializedSecurityInitializeArguments() {
 	return ['--exclusive', '--close', '--wait', '3500', lockPath, process.execPath, securityExecutable];
 }
 
-export async function serializedSecurityInitialize(operation: SecurityInitializeOperation): Promise<unknown> {
+export async function serializedSecurityOperation(operation: SerializedSecurityOperation): Promise<unknown> {
 	const stdout = await new Promise<string>((resolve, reject) => {
 		const child = spawn('/usr/bin/flock', serializedSecurityInitializeArguments(), { stdio: ['pipe', 'pipe', 'pipe'] });
 		let output = '', errorOutput = '';
@@ -29,3 +29,5 @@ export async function serializedSecurityInitialize(operation: SecurityInitialize
 	});
 	return JSON.parse(stdout.trim()) as unknown;
 }
+
+export const serializedSecurityInitialize = serializedSecurityOperation;

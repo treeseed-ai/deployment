@@ -40,9 +40,12 @@ export class KataSandboxRuntime {
 
 	async prepare(assignmentValue: unknown) {
 		const assignment = sandboxAssignmentSchema.parse(assignmentValue);
+		const modelGateway = this.configuration.modelGateway;
 		if (Date.parse(assignment.leaseExpiresAt) <= Date.now()) throw new Error('Expired assignment authority cannot create a sandbox.');
 		if (assignment.network.relayUrl !== this.configuration.relay.publicUrl) throw new Error('Sandbox assignment relay URL is not authorized by this host.');
-		if (this.configuration.modelGateway.authenticationMode === 'codex-subscription' && !assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize Codex subscription authentication.');
+		const requiresModelCredential = assignment.network.allowedServices.some((service) => service === 'model-gateway' || service === 'codex-subscription');
+		if (requiresModelCredential && !modelGateway) throw new Error('The selected execution adapter has no configured credential on this capacity provider.');
+		if (modelGateway?.authenticationMode === 'codex-subscription' && !assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription authentication.');
 		if (!this.configuration.guestImages.some((entry) => entry.image === assignment.guestImage && entry.digest === assignment.guestImageDigest && entry.profiles.includes(assignment.profile))) throw new Error('Sandbox guest image is not authorized by the installed release catalog.');
 		const sandboxId = `sandbox-${safeId(assignment.assignmentId)}-${assignment.attempt}-${randomUUID().slice(0, 8)}`;
 		const directory = resolve(this.configuration.stateRoot, sandboxId), inputDirectory = resolve(directory, 'input'), outputDirectory = resolve(directory, 'output');
@@ -53,15 +56,15 @@ export class KataSandboxRuntime {
 		await writeFile(resolve(inputDirectory, 'operation-token'), token, { mode: 0o400, flag: 'wx' });
 		await writeFile(resolve(inputDirectory, 'sandbox-id'), `${sandboxId}\n`, { mode: 0o400, flag: 'wx' });
 		const brokerFiles = ['assignment.json', 'operation-token', 'sandbox-id'];
-		if (this.configuration.modelGateway.authenticationMode === 'codex-subscription') {
-			const authentication = await readFile(this.configuration.modelGateway.credentialFile);
+		if (modelGateway?.authenticationMode === 'codex-subscription') {
+			const authentication = await readFile(modelGateway.credentialFile);
 			if (authentication.byteLength > 1_048_576) throw new Error('Codex subscription authentication exceeds the broker limit.');
 			await writeFile(resolve(inputDirectory, 'codex-auth.json'), authentication, { mode: 0o400, flag: 'wx' }); brokerFiles.push('codex-auth.json');
 		}
 		for (const name of brokerFiles) await chown(resolve(inputDirectory, name), 65_532, 65_532);
 		const sandbox: Prepared = { sandboxId, assignment, directory, inputDirectory, outputDirectory, tokenHash: hash(token), uploaded: new Set(), events: [] };
 		this.sandboxes.set(sandboxId, sandbox); await this.emit(sandbox, 'sandbox.created', { profile: assignment.profile, guestImageDigest: assignment.guestImageDigest });
-		await this.emit(sandbox, 'sandbox.ready', { requiredInputCount: assignment.inputs.length, modelAuthentication: this.configuration.modelGateway.authenticationMode });
+		await this.emit(sandbox, 'sandbox.ready', { requiredInputCount: assignment.inputs.length, modelAuthentication: modelGateway?.authenticationMode ?? null });
 		return { sandboxId, operationToken: token, requiredInputs: assignment.inputs.map(({ id, bytes, digest }) => ({ id, bytes, digest })) };
 	}
 
@@ -108,7 +111,7 @@ export class KataSandboxRuntime {
 		const resultPath = resolve(sandbox.outputDirectory, 'result.json'), resultDescriptor = sandbox.assignment.outputs.find((output) => output.id === 'result');
 		const resultBytes = (await stat(resultPath)).size; if (!resultDescriptor || resultDescriptor.path !== '/run/treeseed-output/result.json' || resultBytes > resultDescriptor.maxBytes) throw new Error('Sandbox result exceeded its authorized output contract.');
 		const resultContent = await readFile(resultPath, 'utf8');
-		if (this.configuration.modelGateway.authenticationMode === 'codex-subscription') {
+		if (this.configuration.modelGateway?.authenticationMode === 'codex-subscription') {
 			const authentication = JSON.parse(await readFile(this.configuration.modelGateway.credentialFile, 'utf8')) as Record<string, unknown>;
 			const tokens = authentication.tokens && typeof authentication.tokens === 'object' ? authentication.tokens as Record<string, unknown> : {};
 			const fingerprints = Object.values(tokens).filter((value): value is string => typeof value === 'string' && value.length >= 16);

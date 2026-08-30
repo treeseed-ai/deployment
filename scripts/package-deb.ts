@@ -50,6 +50,7 @@ function managerPayload(stage: string) {
 		cpSync(source, resolve(stage, 'usr/lib/treeseed/manager/node_modules', dependency), { recursive: true });
 	}
 	for (const name of ['treeseed-manager-supervisor.service', 'treeseed-provider-volume.service', 'treeseed-sandbox-broker.service', 'treeseed-manager-api.service', 'treeseed-manager-reconcile.service', 'treeseed-manager-stable.service', 'treeseed-manager-stable.timer', 'treeseed-manager-development.service', 'treeseed-manager-development.timer', 'treeseed-manager-apt-helper.service', 'treeseed-manager-restart.service']) unit(stage, name);
+	cpSync(resolve(root, 'credential-initializers'), resolve(stage, 'usr/share/treeseed/credential-initializers'), { recursive: true });
 	directory(resolve(stage, 'usr/lib/treeseed/manager/bin'));
 	install('scripts/bootstrap/initialize-pki.sh', resolve(stage, 'usr/lib/treeseed/manager/bin/initialize-pki'), 0o755);
 }
