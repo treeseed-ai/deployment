@@ -9,16 +9,12 @@ install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/manager /etc/treese
 install -d -o root -g treeseed-operators -m 0770 /run/treeseed/manager
 install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/sandbox /run/treeseed/sandbox
 install -d -o root -g root -m 0755 /etc/systemd/system/treeseed-sandbox-broker.service.d
-if [ -f /etc/treeseed/credentials/model-provider-auth.cred ]; then
-	printf '%s\n' '[Service]' 'LoadCredentialEncrypted=model-provider-auth:/etc/treeseed/credentials/model-provider-auth.cred' > /etc/systemd/system/treeseed-sandbox-broker.service.d/20-execution-provider-credential.conf
-	chmod 0644 /etc/systemd/system/treeseed-sandbox-broker.service.d/20-execution-provider-credential.conf
-fi
 install -d -o root -g root -m 0755 /etc/cni/net.d
 install -d -o root -g root -m 0755 /opt/cni/bin
 for plugin in bridge firewall host-local; do
 	ln -sfn "/usr/lib/cni/$plugin" "/opt/cni/bin/$plugin"
 done
-install -d -o root -g root -m 0700 /var/lib/treeseed/sandboxes /var/lib/treeseed/encrypted
+install -d -o root -g root -m 0700 /var/lib/treeseed/sandboxes /var/lib/treeseed/encrypted /var/lib/cni
 install -d -o treeseed-manager -g treeseed-manager -m 0750 /var/lib/treeseed/manager /var/lib/treeseed/manager/receipts
 install -d -o root -g treeseed-component-secrets -m 0710 /var/lib/treeseed/component-secrets
 chown -R treeseed-manager:treeseed-manager /var/lib/treeseed/manager

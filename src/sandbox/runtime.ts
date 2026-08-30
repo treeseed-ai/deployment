@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
 import { appendFile, chmod, chown, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import { sandboxAssignmentSchema, sandboxEventSchema, sandboxResultSchema, type SandboxAssignment, type SandboxEvent, type SandboxResult } from '@treeseed/sdk/capacity-provider';
@@ -15,6 +16,20 @@ interface Prepared {
 }
 const safeId = (value: string) => value.replace(/[^a-zA-Z0-9_.-]/gu, '-').slice(0, 80);
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest();
+
+async function materializeGuestResolver(directory: string) {
+	const candidates = ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'];
+	for (const candidate of candidates) {
+		const content = await readFile(candidate, 'utf8').catch(() => '');
+		const nameservers = content.split('\n').map((line) => /^nameserver\s+(\S+)/u.exec(line.trim())?.[1] ?? '')
+			.filter((address) => isIP(address) !== 0 && address !== '127.0.0.1' && address !== '127.0.0.53' && address !== '::1');
+		if (!nameservers.length) continue;
+		const target = resolve(directory, 'resolv.conf');
+		await writeFile(target, `${[...new Set(nameservers)].map((address) => `nameserver ${address}`).join('\n')}\noptions edns0\n`, { mode: 0o444, flag: 'wx' });
+		return target;
+	}
+	throw new Error('No non-loopback DNS resolver is available for the assignment sandbox.');
+}
 
 export class KataSandboxRuntime {
 	private readonly sandboxes = new Map<string, Prepared>();
@@ -94,12 +109,14 @@ export class KataSandboxRuntime {
 		await this.emit(sandbox, 'execution.started', { profile: sandbox.assignment.profile, model: sandbox.assignment.modelPolicy.model });
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
 		const fifoDirectory = resolve(sandbox.directory, 'fifo'); await mkdir(fifoDirectory, { recursive: true, mode: 0o700 });
+		const resolverFile = await materializeGuestResolver(sandbox.directory);
 		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
 		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--fifo-dir', fifoDirectory, '--runtime', this.configuration.runtime, '--cni', '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
 			'--env', `TREESEED_SANDBOX_PROCESS_LIMIT=${sandbox.assignment.resources.processLimit}`, '--env', `TREESEED_SANDBOX_DISK_LIMIT=${sandbox.assignment.resources.diskBytes}`,
 			'--env', `TREESEED_SANDBOX_OUTPUT_LIMIT=${sandbox.assignment.resources.outputBytes}`,
 			'--mount', `type=tmpfs,src=tmpfs,dst=/workspace,options=size=${sandbox.assignment.resources.diskBytes}:mode=0770:uid=65532:gid=65532`,
+			'--mount', `type=bind,src=${resolverFile},dst=/etc/resolv.conf,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.inputDirectory},dst=/run/treeseed-assignment,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
 		const child = spawn('/usr/bin/ctr', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); sandbox.child = child;

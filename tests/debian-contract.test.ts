@@ -42,6 +42,7 @@ describe('Debian and systemd contracts', () => {
 	it('ships provider credential initializers as replaceable data registrations', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		const brokerUnit = readFileSync('systemd/treeseed-sandbox-broker.service', 'utf8');
+		expect(brokerUnit).toContain('/var/lib/cni');
 		expect(packaging).toContain("resolve(stage, 'usr/share/treeseed/credential-initializers')");
 		expect(JSON.parse(readFileSync('credential-initializers/treeseed.codex.json', 'utf8'))).toMatchObject({ schemaVersion: 'treeseed.host-credential-initializer/v1', id: 'treeseed.codex' });
 		expect(brokerUnit).not.toContain('model-provider-auth');
@@ -88,7 +89,8 @@ describe('Debian and systemd contracts', () => {
 		expect(managerPostinstall).not.toMatch(/restart treeseed-manager-(?:supervisor|api|stable\.service|development\.service)/u);
 		const dropInDirectory = 'install -d -o root -g root -m 0755 /etc/systemd/system/treeseed-sandbox-broker.service.d';
 		expect(managerPostinstall.indexOf(dropInDirectory)).toBeGreaterThan(-1);
-		expect(managerPostinstall.indexOf(dropInDirectory)).toBeLessThan(managerPostinstall.indexOf('if [ -f /etc/treeseed/credentials/model-provider-auth.cred ]; then'));
+		expect(managerPostinstall).not.toContain('model-provider-auth');
+		expect(managerPostinstall).not.toContain('20-execution-provider-credential.conf');
 		expect(readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8')).toContain('systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 
