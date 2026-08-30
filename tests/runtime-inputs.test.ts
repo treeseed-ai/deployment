@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { componentActivationInputs, managedRuntimeInputEnvironment, prepareComponentSecretFiles, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
+import { componentActivationInputs, managedHostRuntimeEnvironment, managedRuntimeInputEnvironment, prepareComponentSecretFiles, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
 import { component, host } from './fixtures.js';
 
 describe('component runtime input custody', () => {
@@ -53,6 +53,13 @@ describe('component runtime input custody', () => {
 			TREESEED_AI_MODE_URL: 'https://host.docker.internal:4790/v1/ai/mode',
 			TREESEED_AI_MODE_CA_FILE: '/run/secrets/ai-mode-ca',
 		});
+	});
+
+	it('binds the Agent container to the root broker group without hard-coding a host gid', () => {
+		expect(managedHostRuntimeEnvironment('agent', { sandboxBrokerGid: () => 987 }))
+			.toEqual({ TREESEED_SANDBOX_BROKER_GID: '987' });
+		expect(managedHostRuntimeEnvironment('api', { sandboxBrokerGid: () => { throw new Error('must not inspect broker'); } }))
+			.toEqual({});
 	});
 
 	it('validates every fixed file before mutation and restores temporary custody', () => {
