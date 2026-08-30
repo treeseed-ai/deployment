@@ -13,6 +13,8 @@ import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 import { serializedSecurityInitializeArguments, type SerializedSecurityOperation } from '../src/manager/serialized-security.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
 import { credentialInitializerStatus, loadCredentialInitializers } from '../src/security/credential-initializers.js';
+import { safeContainerId } from '../src/sandbox/runtime.js';
+import { bindSandboxGuestImageDigest } from '../src/supervisor/component.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
@@ -25,6 +27,17 @@ describe('host security contracts', () => {
 		expect(containerdImageReference('registry.example/private/guest', digest)).toBe(`registry.example/private/guest@${digest}`);
 		expect(containerdImageReference('localhost:5000/private/guest', digest)).toBe(`localhost:5000/private/guest@${digest}`);
 		expect(() => containerdImageReference('treeseed/sandbox-codex@latest', digest)).toThrow(/must not contain a digest/u);
+	});
+
+	it('canonicalizes assignment IDs and binds the selected release guest digest', () => {
+		expect(safeContainerId('assignment__XAp7B_dMzIY-S15CjjB40W87HDsCyZm')).toBe('assignment-XAp7B-dMzIY-S15CjjB40W87HDsCyZm');
+		expect(safeContainerId('___')).toBe('assignment');
+		const current = `sha256:${'a'.repeat(64)}`, selected = `sha256:${'b'.repeat(64)}`;
+		const manifest = `sandbox:\n  profiles:\n    - guestImageDigest: ${current}\n    - guestImageDigest: ${current}\n`;
+		expect(bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', manifest, selected).match(new RegExp(selected, 'gu'))).toHaveLength(2);
+		expect(() => bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', 'sandbox: {}\n', selected)).toThrow(/does not declare/u);
+		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: selected })).toMatchObject({ sandboxGuestImageDigest: selected });
+		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: 'latest' })).toThrow();
 	});
 
 	it('checks containerd readiness from the quiet ready-image inventory', () => {

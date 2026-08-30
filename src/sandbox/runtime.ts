@@ -14,7 +14,7 @@ interface Prepared {
 	sandboxId: string; assignment: SandboxAssignment; directory: string; inputDirectory: string; outputDirectory: string;
 	tokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
 }
-const safeId = (value: string) => value.replace(/[^a-zA-Z0-9_.-]/gu, '-').slice(0, 80);
+export const safeContainerId = (value: string) => value.replace(/[^a-zA-Z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80) || 'assignment';
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest();
 
 async function materializeGuestResolver(directory: string) {
@@ -71,7 +71,7 @@ export class KataSandboxRuntime {
 		if (requiresModelCredential && !modelGateway) throw new Error('The selected execution adapter has no configured credential on this capacity provider.');
 		if (modelGateway?.authenticationMode === 'codex-subscription' && !assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription authentication.');
 		if (!this.configuration.guestImages.some((entry) => entry.image === assignment.guestImage && entry.digest === assignment.guestImageDigest && entry.profiles.includes(assignment.profile))) throw new Error('Sandbox guest image is not authorized by the installed release catalog.');
-		const sandboxId = `sandbox-${safeId(assignment.assignmentId)}-${assignment.attempt}-${randomUUID().slice(0, 8)}`;
+		const sandboxId = `sandbox-${safeContainerId(assignment.assignmentId)}-${assignment.attempt}-${randomUUID().slice(0, 8)}`;
 		const directory = resolve(this.configuration.stateRoot, sandboxId), inputDirectory = resolve(directory, 'input'), outputDirectory = resolve(directory, 'output');
 		if (!directory.startsWith(`${this.configuration.stateRoot}/`)) throw new Error('Resolved sandbox state path escaped its root.');
 		await mkdir(inputDirectory, { recursive: true, mode: 0o700 }); await mkdir(outputDirectory, { mode: 0o700 }); await chown(inputDirectory, 65_532, 65_532); await chown(outputDirectory, 65_532, 65_532);
@@ -101,7 +101,7 @@ export class KataSandboxRuntime {
 	async upload(sandboxId: string, inputId: string, token: string, request: IncomingMessage) {
 		const sandbox = this.authorized(sandboxId, token), descriptor = sandbox.assignment.inputs.find((entry) => entry.id === inputId);
 		if (!descriptor || sandbox.uploaded.has(inputId)) throw new Error('Sandbox input is unknown or already uploaded.');
-		const target = resolve(sandbox.inputDirectory, `input-${safeId(inputId)}`), stream = createWriteStream(target, { mode: 0o400, flags: 'wx' });
+		const target = resolve(sandbox.inputDirectory, `input-${safeContainerId(inputId)}`), stream = createWriteStream(target, { mode: 0o400, flags: 'wx' });
 		const digest = createHash('sha256'); let bytes = 0;
 		try {
 			for await (const chunk of request) { const value = Buffer.from(chunk as Buffer); bytes += value.byteLength; if (bytes > descriptor.bytes) throw new Error('Sandbox input exceeds its declared size.'); digest.update(value); if (!stream.write(value)) await new Promise<void>((accept) => stream.once('drain', () => accept())); }

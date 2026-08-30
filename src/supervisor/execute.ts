@@ -191,7 +191,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
-		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? []); break;
+		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.sandboxGuestImageDigest); break;
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {

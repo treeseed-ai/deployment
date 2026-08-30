@@ -204,7 +204,15 @@ export function prepareComponentSecretFiles(host: HostConfiguration, componentId
 	return files.map(({ id }) => id);
 }
 
-export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = []) {
+export function bindSandboxGuestImageDigest(componentId: string, name: string, value: string, digest?: string) {
+	if (!digest || componentId !== 'agent' || name !== 'treeseed.capacity-provider.yaml') return value;
+	let replacements = 0;
+	const bound = value.replace(/^([ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*)sha256:[a-f0-9]{64}[ \t]*$/gmu, (_line, prefix: string) => { replacements += 1; return `${prefix}${digest}`; });
+	if (replacements === 0) throw new Error('Managed agent manifest does not declare a sandbox guest image digest.');
+	return bound;
+}
+
+export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], sandboxGuestImageDigest?: string) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	Object.assign(connectionEnvironment, managedHostRuntimeEnvironment(componentId));
@@ -232,7 +240,7 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 		for (const [name, value] of Object.entries(files)) {
 			if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
 			const target = resolve(configurationRoot, name);
-			atomicText(target, value);
+			atomicText(target, bindSandboxGuestImageDigest(componentId, name, value, sandboxGuestImageDigest));
 			if (componentId === 'agent') { chownSync(target, 0, 65_532); chmodSync(target, 0o640); }
 		}
 	} catch (error) { restoreComponentSecretFiles(componentId); throw error; }
