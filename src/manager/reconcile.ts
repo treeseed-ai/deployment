@@ -217,7 +217,8 @@ export async function activateComponent(host: HostConfiguration, component: Comp
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
 	const { connectionEnvironment, secretFileIds } = componentActivationInputs(host, component, releases);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
-	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds });
+	const sandboxGuestImageDigest = component.componentId === 'agent' ? component.images.find((image) => image.role === 'sandbox-guest')?.digest : undefined;
+	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
 }
 
