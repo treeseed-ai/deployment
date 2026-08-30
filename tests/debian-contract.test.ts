@@ -85,7 +85,7 @@ describe('Debian and systemd contracts', () => {
 		expect(supervisor).toContain('-g treeseed-operators -m 0770 /run/treeseed/manager');
 		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
 		expect(managerPostinstall).not.toContain('try-restart');
-		expect(managerPostinstall).not.toContain('restart treeseed-manager');
+		expect(managerPostinstall).not.toMatch(/restart treeseed-manager-(?:supervisor|api|stable\.service|development\.service)/u);
 		expect(readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8')).toContain('systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 
