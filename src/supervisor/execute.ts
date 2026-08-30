@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
@@ -115,6 +115,13 @@ function ensureAiModeCredentials(command: CommandRunner) {
 	return { clientCommonName: 'client-ai-lab-mode', key, certificate, certificateAuthority: ca };
 }
 
+export function repairSandboxTrustAnchor(operations = { exists: existsSync, chmod: chmodSync }) {
+	const path = '/etc/treeseed/sandbox/relay-ca.crt';
+	if (!operations.exists(path)) return { repaired: false, reason: 'not_initialized' };
+	operations.chmod(path, 0o644);
+	return { repaired: true, path, mode: '0644' };
+}
+
 const r2CredentialIds = ['cloudflare-r2-account-id', 'cloudflare-r2-management-token', 'cloudflare-r2-bucket-name', 'cloudflare-r2-access-key-id', 'cloudflare-r2-secret-access-key'] as const;
 const storageSafe = (value: string) => value.replaceAll(/[^a-z0-9-]/giu, '-').toLowerCase();
 function r2StorageStatus(teamId: string) {
@@ -164,6 +171,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
 		case 'sandbox.status':
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
+		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
