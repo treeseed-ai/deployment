@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import type { SandboxBrokerConfiguration } from './protocol.js';
+import { containerdImageReference } from './image-reference.js';
 
 function command(path: string, args: string[]) {
 	try { return execFileSync(path, args, { encoding: 'utf8', timeout: 10_000 }).trim(); }
@@ -18,7 +19,9 @@ export function inspectSandboxHost(configuration: SandboxBrokerConfiguration, op
 	try { accessSync('/dev/kvm', constants.R_OK | constants.W_OK); } catch { checks.kvm = false; }
 	checks.containerd = checks.containerd && command('/usr/bin/ctr', ['--address', configuration.containerdAddress, 'version']) !== null;
 	checks.kataRuntime = existsSync('/usr/local/bin/containerd-shim-kata-v2') && existsSync('/etc/kata-containers/configuration.toml');
-	checks.guestImages = checks.guestImages && configuration.guestImages.every((entry) => command('/usr/bin/ctr', ['--address', configuration.containerdAddress, '--namespace', configuration.namespace, 'images', 'check', `${entry.image}@${entry.digest}`]) !== null);
+	const readyImages = command('/usr/bin/ctr', ['--address', configuration.containerdAddress, '--namespace', configuration.namespace, 'images', 'check', '--quiet']);
+	const readyImageReferences = new Set((readyImages ?? '').split('\n').map((entry) => entry.trim()).filter(Boolean));
+	checks.guestImages = checks.guestImages && configuration.guestImages.every((entry) => readyImageReferences.has(containerdImageReference(entry.image, entry.digest)));
 	const version = command('/usr/local/bin/containerd-shim-kata-v2', ['--version']);
 	const kernel = existsSync('/proc/version') ? readFileSync('/proc/version', 'utf8').trim() : 'unknown';
 	const ready = Object.values(checks).every(Boolean);

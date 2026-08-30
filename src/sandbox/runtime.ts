@@ -7,6 +7,7 @@ import type { IncomingMessage } from 'node:http';
 import { sandboxAssignmentSchema, sandboxEventSchema, sandboxResultSchema, type SandboxAssignment, type SandboxEvent, type SandboxResult } from '@treeseed/sdk/capacity-provider';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import type { SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider';
+import { containerdImageReference } from './image-reference.js';
 
 interface Prepared {
 	sandboxId: string; assignment: SandboxAssignment; directory: string; inputDirectory: string; outputDirectory: string;
@@ -89,7 +90,7 @@ export class KataSandboxRuntime {
 		if (sandbox.assignment.inputs.some((entry) => !sandbox.uploaded.has(entry.id))) throw new Error('Sandbox execution cannot start before every signed input is verified.');
 		await this.emit(sandbox, 'execution.started', { profile: sandbox.assignment.profile, model: sandbox.assignment.modelPolicy.model });
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
-		const image = `${sandbox.assignment.guestImage}@${sandbox.assignment.guestImageDigest}`;
+		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
 		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--runtime', this.configuration.runtime, '--cni', '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
 			'--env', `TREESEED_SANDBOX_PROCESS_LIMIT=${sandbox.assignment.resources.processLimit}`, '--env', `TREESEED_SANDBOX_DISK_LIMIT=${sandbox.assignment.resources.diskBytes}`,
