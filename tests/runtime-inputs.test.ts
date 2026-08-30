@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { componentActivationInputs, managedHostRuntimeEnvironment, managedRuntimeInputEnvironment, prepareComponentSecretFiles, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { componentActivationInputs, managedHostRuntimeEnvironment, managedRuntimeInputEnvironment, prepareComponentSecretFiles, replaceRuntimeCredential, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
 import { component, host } from './fixtures.js';
 
 describe('component runtime input custody', () => {
+	it('atomically replaces an existing ephemeral application key during retry and rollback', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-runtime-credential-'));
+		try {
+			const target = resolve(directory, 'credentials');
+			writeFileSync(target, 'stale');
+			replaceRuntimeCredential(target, Buffer.from('current'), { uid: process.getuid!(), gid: process.getgid!() });
+			expect(readFileSync(target, 'utf8')).toBe('current');
+			expect(readdirSync(directory)).toEqual(['credentials']);
+		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
 	it('renders declared inputs without reading secrets', () => {
 		const configuration = host(), release = component('ai-lab', 'development', 'd');
 		release.runtime.configuration = {
