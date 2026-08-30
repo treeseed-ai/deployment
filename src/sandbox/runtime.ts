@@ -34,17 +34,26 @@ async function materializeGuestResolver(directory: string) {
 export class KataSandboxRuntime {
 	private readonly sandboxes = new Map<string, Prepared>();
 	constructor(private readonly configuration: SandboxBrokerConfiguration) {}
+	private ctr(arguments_: string[], timeout = 10_000) {
+		return spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, ...arguments_], { encoding: 'utf8', timeout });
+	}
+	private listed(kind: 'tasks' | 'containers') {
+		const result = this.ctr([kind, 'list', '--quiet'], 15_000);
+		return result.status === 0 ? new Set(result.stdout.split('\n').map((value) => value.trim()).filter(Boolean)) : null;
+	}
+	private removeContainer(sandboxId: string) {
+		this.ctr(['tasks', 'kill', '--signal', 'SIGKILL', sandboxId]);
+		this.ctr(['tasks', 'delete', '--force', sandboxId]);
+		this.ctr(['containers', 'delete', sandboxId]);
+		const tasks = this.listed('tasks'), containers = this.listed('containers');
+		return tasks !== null && containers !== null && !tasks.has(sandboxId) && !containers.has(sandboxId);
+	}
 	reconcile() {
-		const listed = spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'containers', 'list', '--quiet'], { encoding: 'utf8', timeout: 15_000 });
-		if (listed.status !== 0) return { reconciled: false, reason: 'containerd_unavailable', quarantined: [] as string[] };
-		const quarantined = listed.stdout.split('\n').map((value) => value.trim()).filter(Boolean);
-		for (const sandboxId of quarantined) {
-			spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'tasks', 'kill', '--signal', 'SIGKILL', sandboxId], { timeout: 10_000 });
-			spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'tasks', 'delete', '--force', sandboxId], { timeout: 10_000 });
-			spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'containers', 'delete', sandboxId], { timeout: 10_000 });
-		}
-		if (quarantined.length) { const audit = resolve(this.configuration.stateRoot, 'audit'); mkdirSync(audit, { recursive: true, mode: 0o700 }); writeFileSync(resolve(audit, `broker-reconcile-${Date.now()}.json`), `${JSON.stringify({ occurredAt: new Date().toISOString(), quarantined, action: 'destroyed-untrusted-restart-state' })}\n`, { mode: 0o600 }); }
-		return { reconciled: true, quarantined };
+		const containers = this.listed('containers');
+		if (!containers) return { reconciled: false, reason: 'containerd_unavailable', quarantined: [] as string[], remaining: [] as string[] };
+		const quarantined = [...containers], remaining = quarantined.filter((sandboxId) => !this.removeContainer(sandboxId));
+		if (quarantined.length) { const audit = resolve(this.configuration.stateRoot, 'audit'); mkdirSync(audit, { recursive: true, mode: 0o700 }); writeFileSync(resolve(audit, `broker-reconcile-${Date.now()}.json`), `${JSON.stringify({ occurredAt: new Date().toISOString(), quarantined, remaining, action: remaining.length ? 'quarantined-untrusted-restart-state' : 'destroyed-untrusted-restart-state' })}\n`, { mode: 0o600 }); }
+		return { reconciled: remaining.length === 0, quarantined, remaining };
 	}
 	private async emit(sandbox: Prepared, type: SandboxEvent['type'], payload: Record<string, unknown> = {}) {
 		const event = sandboxEventSchema.parse({ schemaVersion: 'treeseed.sandbox-event/v1', sandboxId: sandbox.sandboxId, assignmentId: sandbox.assignment.assignmentId,
@@ -108,10 +117,9 @@ export class KataSandboxRuntime {
 		if (sandbox.assignment.inputs.some((entry) => !sandbox.uploaded.has(entry.id))) throw new Error('Sandbox execution cannot start before every signed input is verified.');
 		await this.emit(sandbox, 'execution.started', { profile: sandbox.assignment.profile, model: sandbox.assignment.modelPolicy.model });
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
-		const fifoDirectory = resolve(sandbox.directory, 'fifo'); await mkdir(fifoDirectory, { recursive: true, mode: 0o700 });
 		const resolverFile = await materializeGuestResolver(sandbox.directory);
 		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
-		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--fifo-dir', fifoDirectory, '--runtime', this.configuration.runtime, '--cni', '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
+		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--null-io', '--runtime', this.configuration.runtime, '--cni', '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
 			'--env', `TREESEED_SANDBOX_PROCESS_LIMIT=${sandbox.assignment.resources.processLimit}`, '--env', `TREESEED_SANDBOX_DISK_LIMIT=${sandbox.assignment.resources.diskBytes}`,
 			'--env', `TREESEED_SANDBOX_OUTPUT_LIMIT=${sandbox.assignment.resources.outputBytes}`,
@@ -120,8 +128,7 @@ export class KataSandboxRuntime {
 			'--mount', `type=bind,src=${sandbox.inputDirectory},dst=/run/treeseed-assignment,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
 		const child = spawn('/usr/bin/ctr', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); sandbox.child = child;
-		let stderr = '', outputBytes = 0; const account = (chunk: Buffer) => { outputBytes += chunk.byteLength; if (outputBytes > sandbox.assignment.resources.outputBytes) child.kill('SIGKILL'); };
-		child.stderr?.on('data', (chunk: Buffer) => { account(chunk); if (stderr.length < 16_384) stderr += chunk.toString('utf8'); }); child.stdout?.on('data', account);
+		let stderr = ''; child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 16_384) stderr += chunk.toString('utf8'); });
 		const executionDeadline = Date.now() + sandbox.assignment.resources.durationSeconds * 1_000; let timeout: ReturnType<typeof setTimeout>;
 		const enforceDeadline = () => { const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt)) - Date.now(); timeout = setTimeout(() => remaining <= 1 ? child.kill('SIGKILL') : enforceDeadline(), Math.max(1, remaining)); }; enforceDeadline();
 		const exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); }); clearTimeout(timeout!); delete sandbox.child;
@@ -166,6 +173,11 @@ export class KataSandboxRuntime {
 		const target = resolve(sandbox.outputDirectory, artifact.path.slice('/run/treeseed-output/'.length));
 		return { artifact, stream: createReadStream(target) };
 	}
-	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGTERM'); spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'tasks', 'kill', '--signal', 'SIGTERM', sandboxId], { timeout: 10_000 }); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
-	async destroy(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGKILL'); spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'containers', 'delete', sandboxId], { timeout: 10_000 }); await this.emit(sandbox, 'sandbox.destroyed', { verified: true }); await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); return { sandboxId, destroyed: true, teardown: { verified: true, completedAt: new Date().toISOString() }, events: sandbox.events }; }
+	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
+	async destroy(sandboxId: string, token: string) {
+		const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGKILL'); const verified = this.removeContainer(sandboxId);
+		await this.emit(sandbox, 'sandbox.destroyed', { verified });
+		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }
+		return { sandboxId, destroyed: verified, teardown: { verified, completedAt: new Date().toISOString() }, events: sandbox.events };
+	}
 }

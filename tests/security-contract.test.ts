@@ -33,7 +33,9 @@ describe('host security contracts', () => {
 		expect(doctor).toContain("'images', 'check', '--quiet'");
 		expect(doctor).toContain('readyImageReferences.has(containerdImageReference');
 		expect(doctor).not.toContain("'images', 'check', containerdImageReference");
-		expect(runtime).toContain("'--fifo-dir', fifoDirectory");
+		expect(runtime).toContain("'--null-io'");
+		expect(runtime).not.toContain("'--fifo-dir'");
+		expect(runtime).toContain('destroyed: verified');
 		expect(runtime).toContain('type=tmpfs,src=tmpfs,dst=/workspace');
 		expect(runtime).toContain('materializeGuestResolver');
 		expect(runtime).toContain('dst=/etc/resolv.conf');
