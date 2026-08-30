@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync } from 'node:fs';
 import { hostReceiptSchema, type ComponentRelease, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
 import { loadCatalog } from '../catalog/load.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -17,6 +17,11 @@ import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
+
+export function reconcilePublicTrustAnchors(host: HostConfiguration, operations = { exists: existsSync, chmod: chmodSync }) {
+	const relayCa = '/etc/treeseed/sandbox/relay-ca.crt';
+	if (host.components.agent?.enabled && operations.exists(relayCa)) operations.chmod(relayCa, 0o644);
+}
 
 function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
@@ -250,6 +255,7 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false) {
 	const host = loadHostConfiguration();
+	reconcilePublicTrustAnchors(host);
 	const previous = loadCurrentReceipt();
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
