@@ -9,7 +9,7 @@ export type AptMetadataReader = (selector: string) => string;
 const run: AptCommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
 const inspect: AptMetadataReader = (selector) => execFileSync('/usr/bin/apt-cache', ['show', '--no-all-versions', selector], { encoding: 'utf8', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
 const transactionOptions = ['--yes', '--allow-downgrades', '--no-remove', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=600', '-o', 'Dpkg::Options::=--force-confold'] as const;
-const requiredCorePackages = ['treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli'] as const;
+const requiredCorePackages = ['treeseed-host-runtime', 'treeseed-kata-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli'] as const;
 const optionalCorePackages = ['treeseed-edge'] as const;
 
 export function packageFromTrack(name: string, track: 'stable' | 'development') {
