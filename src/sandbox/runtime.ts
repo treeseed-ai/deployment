@@ -132,7 +132,14 @@ export class KataSandboxRuntime {
 		const executionDeadline = Date.now() + sandbox.assignment.resources.durationSeconds * 1_000; let timeout: ReturnType<typeof setTimeout>;
 		const enforceDeadline = () => { const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt)) - Date.now(); timeout = setTimeout(() => remaining <= 1 ? child.kill('SIGKILL') : enforceDeadline(), Math.max(1, remaining)); }; enforceDeadline();
 		const exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); }); clearTimeout(timeout!); delete sandbox.child;
-		if (exitCode !== 0) { await this.emit(sandbox, 'execution.failed', { exitCode, stderrDigest: `sha256:${createHash('sha256').update(stderr).digest('hex')}` }); throw new Error(`Kata guest exited ${exitCode}: ${stderr.slice(0, 1_024)}`); }
+		if (exitCode !== 0) {
+			const failureContent = await readFile(resolve(sandbox.outputDirectory, 'failure.json'), 'utf8').catch(() => '');
+			const failureDigest = `sha256:${createHash('sha256').update(failureContent).digest('hex')}`;
+			const failure = (() => { try { const value = JSON.parse(failureContent) as Record<string, unknown>; return typeof value.error === 'string' ? value.error : ''; } catch { return ''; } })()
+				.replace(/Bearer\s+\S+/giu, 'Bearer [REDACTED]').replace(/\b(?:sk|sess)-[A-Za-z0-9_-]{16,}\b/gu, '[REDACTED]');
+			await this.emit(sandbox, 'execution.failed', { exitCode, failureDigest, stderrDigest: `sha256:${createHash('sha256').update(stderr).digest('hex')}` });
+			throw new Error(`Kata guest exited ${exitCode}: ${(failure || stderr).slice(0, 1_024)}`);
+		}
 		const resultPath = resolve(sandbox.outputDirectory, 'result.json'), resultDescriptor = sandbox.assignment.outputs.find((output) => output.id === 'result');
 		const resultBytes = (await stat(resultPath)).size; if (!resultDescriptor || resultDescriptor.path !== '/run/treeseed-output/result.json' || resultBytes > resultDescriptor.maxBytes) throw new Error('Sandbox result exceeded its authorized output contract.');
 		const resultContent = await readFile(resultPath, 'utf8');

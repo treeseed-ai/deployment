@@ -36,6 +36,8 @@ describe('host security contracts', () => {
 		expect(runtime).toContain("'--null-io'");
 		expect(runtime).not.toContain("'--fifo-dir'");
 		expect(runtime).toContain('destroyed: verified');
+		expect(runtime).toContain("'failure.json'");
+		expect(runtime).toContain('failureDigest');
 		expect(runtime).toContain('type=tmpfs,src=tmpfs,dst=/workspace');
 		expect(runtime).toContain('materializeGuestResolver');
 		expect(runtime).toContain('dst=/etc/resolv.conf');
