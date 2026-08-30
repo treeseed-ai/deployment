@@ -9,6 +9,7 @@ User=root
 Group=treeseed-manager
 RuntimeDirectory=treeseed/sandbox
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
 StateDirectory=treeseed/sandboxes
 StateDirectoryMode=0700
 LoadCredentialEncrypted=relay-tls-key:/etc/treeseed/credentials/sandbox-relay-tls-key.cred
