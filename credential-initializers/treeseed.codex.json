@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "treeseed.host-credential-initializer/v1",
+  "id": "treeseed.codex",
+  "displayName": "TreeSeed Codex execution adapter",
+  "description": "Registers assignment-scoped authentication for the official Codex execution adapter.",
+  "credentialId": "execution-provider-codex-auth",
+  "sources": [
+    {
+      "id": "chatgpt-subscription",
+      "label": "Existing ChatGPT subscription login",
+      "kind": "file",
+      "prompt": "Codex authentication file",
+      "suggestedPaths": ["$CODEX_HOME/auth.json", "$HOME/.codex/auth.json"],
+      "contentType": "application/json",
+      "minimumBytes": 16,
+      "maximumBytes": 1048576
+    },
+    {
+      "id": "service-api-key",
+      "label": "OpenAI service API key",
+      "kind": "secret",
+      "prompt": "OpenAI service API key",
+      "suggestedPaths": [],
+      "contentType": "text/plain",
+      "minimumBytes": 20,
+      "maximumBytes": 16384
+    }
+  ],
+  "activation": {
+    "kind": "sandbox-model-gateway",
+    "authenticationModes": {
+      "chatgpt-subscription": "subscription-file",
+      "service-api-key": "api-key"
+    }
+  }
+}

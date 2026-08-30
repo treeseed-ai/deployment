@@ -2,7 +2,7 @@ import { stdin, stdout } from 'node:process';
 import { requestSupervisor } from '../supervisor/client.js';
 import { supervisorOperationSchema } from '../supervisor/protocol.js';
 
-const maximumInputBytes = 128 * 1024;
+const maximumInputBytes = 1_100_000;
 let input = '';
 
 stdin.setEncoding('utf8');
@@ -12,6 +12,6 @@ for await (const chunk of stdin) {
 }
 
 const operation = supervisorOperationSchema.parse(JSON.parse(input) as unknown);
-if (operation.operation !== 'security.initialize') throw new Error('Only security.initialize is accepted by this helper.');
+if (operation.operation !== 'security.initialize' && operation.operation !== 'provider.credential.initialize') throw new Error('Only serialized security operations are accepted by this helper.');
 const result = await requestSupervisor(operation);
 stdout.write(`${JSON.stringify(result)}\n`);

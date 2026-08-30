@@ -13,7 +13,7 @@ export const sandboxBrokerConfigurationSchema = z.object({
 	stateRoot: z.string().startsWith('/var/lib/treeseed/sandboxes'),
 	trustedProvidersPath: z.string().startsWith('/etc/treeseed/sandbox/'),
 	relay: z.object({ listenHost: z.string().ip({ version: 'v4' }), port: z.number().int().min(1024).max(65535), publicUrl: z.string().url().startsWith('https://'), certificateFile: z.string().startsWith('/etc/treeseed/sandbox/'), privateKeyFile: z.string().startsWith('/run/credentials/') }).strict(),
-	modelGateway: z.object({ upstreamBaseUrl: z.string().url().startsWith('https://'), authenticationMode: z.enum(['api-key', 'codex-subscription']), credentialFile: z.string().startsWith('/run/credentials/'), allowedProviders: z.array(z.string().min(1)), allowedModels: z.array(z.string().min(1)) }).strict(),
+	modelGateway: z.object({ upstreamBaseUrl: z.string().url().startsWith('https://'), authenticationMode: z.enum(['api-key', 'codex-subscription']), credentialFile: z.string().startsWith('/run/credentials/'), allowedProviders: z.array(z.string().min(1)), allowedModels: z.array(z.string().min(1)) }).strict().optional(),
 	guestImages: z.array(z.object({ image: z.string().min(1), digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u), profiles: z.array(z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/u)).min(1) }).strict()),
 }).strict();
 

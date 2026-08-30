@@ -11,7 +11,7 @@ import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs } from './reconcile.js';
 import { serializedReconcile } from './serialized-reconcile.js';
-import { serializedSecurityInitialize } from './serialized-security.js';
+import { serializedSecurityInitialize, serializedSecurityOperation } from './serialized-security.js';
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
@@ -20,6 +20,7 @@ import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
 import { aiModeStatus, requestAiMode } from './ai-mode.js';
 import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage } from './cloudflare-r2-storage.js';
+import { credentialInitializerStatus, loadCredentialInitializers } from '../security/credential-initializers.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -29,7 +30,7 @@ const bootstrapHandoffSchema = z.object({
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z]+)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
-	options: z.record(z.union([z.string().max(32_768), z.number().finite(), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
+	options: z.record(z.union([z.string().max(1_100_000), z.number().finite(), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
 	configuration: hostConfigurationSchema.optional(),
 }).strict();
 
@@ -271,16 +272,22 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const agent = host.components.agent;
 			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
 		}
+		case 'local.host.provider.credentials.list': return { initializers: loadCredentialInitializers() };
+		case 'local.host.provider.credentials.status': return { credentials: credentialInitializerStatus() };
+		case 'local.host.provider.credentials.initialize': {
+			if (!context.local) throw new Error('Provider credential initialization is available only through the protected local manager socket.');
+			const initializerId = z.string().regex(/^[a-z][a-z0-9.-]{1,63}$/u).parse(request.arguments[0]);
+			const payload = z.object({ sourceId: z.string().regex(/^[a-z][a-z0-9.-]{1,63}$/u), secret: z.string().min(1).max(1_048_576) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
+			return serializedSecurityOperation({ operation: 'provider.credential.initialize', initializerId, ...payload });
+		}
 		case 'local.host.security.plan': return requestSupervisor({ operation: 'security.plan' });
 		case 'local.host.security.status': return requestSupervisor({ operation: 'security.status' });
 		case 'local.host.security.verify': return requestSupervisor({ operation: 'security.verify' });
 		case 'local.host.security.initialize': {
 			if (!context.local) throw new Error('Host security initialization is available only through the protected local manager socket.');
-			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12), modelProviderKey: z.string().min(20).optional(), codexAuthFile: z.string().startsWith('/').optional() }).strict()
-				.refine((value) => Boolean(value.modelProviderKey) !== Boolean(value.codexAuthFile), 'Exactly one model authentication source is required.').parse(JSON.parse(String(request.options.payload ?? '')));
+			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
 			if (request.options.confirm !== true) throw new Error('Host security initialization requires --confirm.');
-			return serializedSecurityInitialize({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase,
-				...(payload.modelProviderKey ? { modelProviderKey: payload.modelProviderKey } : { codexAuthFile: payload.codexAuthFile! }), confirm: true });
+			return serializedSecurityInitialize({ operation: 'security.initialize', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase, confirm: true });
 		}
 		case 'local.host.security.rotate': {
 			if (!context.local) throw new Error('Host security rotation is available only through the protected local manager socket.');

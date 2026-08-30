@@ -12,7 +12,7 @@ export function inspectSandboxHost(configuration: SandboxBrokerConfiguration, op
 	const checks = {
 		kvm: existsSync('/dev/kvm'), containerd: existsSync(configuration.containerdAddress),
 		kataRuntime: false, trustedProviders: existsSync(configuration.trustedProvidersPath),
-		modelGateway: (existsSync(configuration.modelGateway.credentialFile) || existsSync('/etc/treeseed/credentials/model-provider-auth.cred')) && configuration.modelGateway.allowedProviders.length > 0 && configuration.modelGateway.allowedModels.length > 0,
+		modelGateway: !configuration.modelGateway || (existsSync(configuration.modelGateway.credentialFile) || existsSync(`/etc/treeseed/credentials/${configuration.modelGateway.credentialFile.split('/').at(-1)}.cred`)) && configuration.modelGateway.allowedProviders.length > 0 && configuration.modelGateway.allowedModels.length > 0,
 		relay: existsSync(configuration.relay.certificateFile) && (existsSync(configuration.relay.privateKeyFile) || existsSync('/etc/treeseed/credentials/sandbox-relay-tls-key.cred')) && existsSync('/etc/cni/net.d/20-treeseed-sandboxes.conflist'),
 		brokerSocket: options.requireBrokerSocket !== true || existsSync(configuration.socketPath), guestImages: configuration.guestImages.length > 0,
 	};

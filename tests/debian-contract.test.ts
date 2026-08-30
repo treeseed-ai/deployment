@@ -39,6 +39,14 @@ describe('Debian and systemd contracts', () => {
 		expect(verification).toContain("'operator-contracts/operation-builder.js', 'standards/typescript/extract.js'");
 	});
 
+	it('ships provider credential initializers as replaceable data registrations', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const brokerUnit = readFileSync('systemd/treeseed-sandbox-broker.service', 'utf8');
+		expect(packaging).toContain("resolve(stage, 'usr/share/treeseed/credential-initializers')");
+		expect(JSON.parse(readFileSync('credential-initializers/treeseed.codex.json', 'utf8'))).toMatchObject({ schemaVersion: 'treeseed.host-credential-initializer/v1', id: 'treeseed.codex' });
+		expect(brokerUnit).not.toContain('model-provider-auth');
+	});
+
 	it('bootstraps component configuration before an upgraded manager activates it', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");

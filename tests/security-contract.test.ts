@@ -10,8 +10,9 @@ import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sd
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
-import { serializedSecurityInitializeArguments } from '../src/manager/serialized-security.js';
+import { serializedSecurityInitializeArguments, type SerializedSecurityOperation } from '../src/manager/serialized-security.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
+import { loadCredentialInitializers } from '../src/security/credential-initializers.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
@@ -32,20 +33,32 @@ describe('host security contracts', () => {
 		expect(doctor).toContain('readyImageReferences.has(containerdImageReference');
 		expect(doctor).not.toContain("'images', 'check', containerdImageReference");
 	});
+	it('waits for broker readiness and leaves a failed completion resumable', () => {
+		const initialization = readFileSync(resolve(process.cwd(), 'src/security/provider-volume.ts'), 'utf8');
+		expect(initialization).toContain('const readinessDeadline = Date.now() + 30_000');
+		expect(initialization).toContain("priorReceipt?.state !== 'known-good'");
+		expect(initialization).toContain('The initialized security state is resumable.');
+	});
 	it('serializes initialization with reconciliation without putting secrets in argv', () => {
 		const arguments_ = serializedSecurityInitializeArguments();
 		expect(arguments_.slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
 		expect(arguments_.join(' ')).not.toMatch(/passphrase|auth\.json|modelProviderKey/u);
 		expect(arguments_.at(-1)).toMatch(/security-initialize\.js$/u);
 		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain('serializedSecurityInitialize({');
+		const credentialOperation: SerializedSecurityOperation = { operation: 'provider.credential.initialize', initializerId: 'treeseed.codex', sourceId: 'service-api-key', secret: 'private-service-credential' };
+		expect(credentialOperation.operation).toBe('provider.credential.initialize');
+		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain('serializedSecurityOperation({ operation: \'provider.credential.initialize\'');
 	});
-	it('accepts either subscription-file or API-key model authentication without mixing them', () => {
-		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', codexAuthFile: '/home/operator/.codex/auth.json', confirm: true })).toMatchObject({ codexAuthFile: expect.stringContaining('auth.json') });
-		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', confirm: true })).toMatchObject({ modelProviderKey: expect.any(String) });
-		expect(() => supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', codexAuthFile: '/home/operator/.codex/auth.json', confirm: true })).toThrow(/Exactly one/u);
+	it('separates host security from registered execution-provider credentials', () => {
+		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', confirm: true })).not.toHaveProperty('modelProviderKey');
+		expect(() => supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', confirm: true })).toThrow();
+		expect(supervisorOperationSchema.parse({ operation: 'provider.credential.initialize', initializerId: 'treeseed.codex', sourceId: 'service-api-key', secret: 'sk-test-service-key-value' })).toMatchObject({ initializerId: 'treeseed.codex' });
+		const registered = loadCredentialInitializers(resolve(process.cwd(), 'credential-initializers'));
+		expect(registered.map(({ id }) => id)).toContain('treeseed.codex');
 		const base = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
 			relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [] };
-		expect(sandboxBrokerConfigurationSchema.parse({ ...base, modelGateway: { upstreamBaseUrl: 'https://api.openai.com', authenticationMode: 'codex-subscription', credentialFile: '/run/credentials/model-provider-auth', allowedProviders: ['openai'], allowedModels: ['gpt-5.4'] } }).modelGateway.authenticationMode).toBe('codex-subscription');
+		expect(sandboxBrokerConfigurationSchema.parse(base).modelGateway).toBeUndefined();
+		expect(sandboxBrokerConfigurationSchema.parse({ ...base, modelGateway: { upstreamBaseUrl: 'https://api.openai.com', authenticationMode: 'codex-subscription', credentialFile: '/run/credentials/execution-provider-codex-auth', allowedProviders: ['openai'], allowedModels: ['gpt-5.4'] } }).modelGateway?.authenticationMode).toBe('codex-subscription');
 	});
 	it('classifies integrated development hosts by runtime environment', () => {
 		const configuration = { host: { role: 'integrated' }, runtime: { environment: 'development' }, security: {

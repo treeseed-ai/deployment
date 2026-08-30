@@ -10,7 +10,7 @@ import { enrollClient } from './pki.js';
 import { configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
-import { initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
+import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
 import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 
@@ -157,11 +157,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'security.plan': return providerSecurityPlan();
 		case 'security.status': return providerSecurityStatus();
 		case 'security.verify': return verifyProviderSecurity(command);
-		case 'security.initialize': {
-			if (Boolean(operation.modelProviderKey) === Boolean(operation.codexAuthFile)) throw new Error('Exactly one model authentication source is required.');
-			return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase,
-				operation.modelProviderKey ? { mode: 'api-key', value: operation.modelProviderKey } : { mode: 'codex-subscription', path: operation.codexAuthFile! }, command);
-		}
+		case 'security.initialize': return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase, command);
+		case 'provider.credential.initialize': return initializeProviderCredential(operation.initializerId, operation.sourceId, operation.secret, command);
 		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
 		case 'sandbox.status':
