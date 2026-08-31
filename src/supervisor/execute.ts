@@ -151,7 +151,7 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 	catch { return diagnostics; }
 	for (const id of ids) {
 		try {
-			const raw = String(command('/usr/bin/docker', ['inspect', '--format', '{{.Config.Labels.com.docker.compose.service}}\t{{.State.Status}}\t{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\t{{.State.ExitCode}}', id], '') ?? '').trim();
+			const raw = String(command('/usr/bin/docker', ['inspect', '--format', '{{index .Config.Labels "com.docker.compose.service"}}\t{{.State.Status}}\t{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\t{{.State.ExitCode}}', id], '') ?? '').trim();
 			const [service = '', state = '', health = '', exitCode = ''] = raw.split('\t');
 			if (!/^[a-z][a-z0-9.-]{0,127}$/u.test(service) || !/^[a-z]+$/u.test(state) || !/^(?:none|starting|healthy|unhealthy)$/u.test(health)) continue;
 			const code = Number(exitCode);
