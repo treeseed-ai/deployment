@@ -43,7 +43,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 			components[index] = componentReleaseSchema.parse({ ...component, stableBase: { ...component.stableBase, catalogDigest: stable.catalogDigest } });
 		}
 	}
-	const catalog = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release, generation, track, compatibilityId: 'treeseed-linux-amd64-v1', stableBase, components, createdAt: new Date().toISOString() });
+	const catalog = sealCatalog({ schemaVersion: 'treeseed.release-catalog/v1', release, generation, track, compatibilityId: 'treeseed-linux-amd64-v1', stableBase, components, hostProfiles: [], createdAt: new Date().toISOString() });
 	mkdirSync(dirname(resolve(output)), { recursive: true });
 	writeFileSync(resolve(output), `${JSON.stringify(catalog, null, 2)}\n`);
 	console.log(JSON.stringify({ ok: true, track, generation, catalogDigest: catalog.catalogDigest, components: components.map((component) => component.componentId), output: resolve(output) }));
