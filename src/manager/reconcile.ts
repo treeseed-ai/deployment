@@ -213,15 +213,16 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 		if (managerInputs.has(name)) connectionEnvironment[name] = value;
 	}
 	const secretFileIds = component.runtime.configuration.secretFiles.filter(({ id }) => host.secrets[id] !== undefined).map(({ id }) => id);
-	return { connectionEnvironment, secretFileIds };
+	const optionalSecretEnvironment = component.runtime.configuration.secretEnvironment.filter(({ required }) => !required).map(({ name }) => name);
+	return { connectionEnvironment, secretFileIds, optionalSecretEnvironment };
 }
 
 export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	const { connectionEnvironment, secretFileIds } = componentActivationInputs(host, component, releases);
+	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 	const sandboxGuestImageDigest = component.componentId === 'agent' ? component.images.find((image) => image.role === 'sandbox-guest')?.digest : undefined;
-	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
+	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds, optionalSecretEnvironment, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
 }
 

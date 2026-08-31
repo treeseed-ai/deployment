@@ -241,7 +241,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		case 'component.configure':
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
-			configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.sandboxGuestImageDigest); break;
+			configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;

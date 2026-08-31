@@ -70,12 +70,13 @@ export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, com
 	return values;
 }
 
-export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}, readSecret: SecretReader = (path) => readFileSync(path, 'utf8')) {
+export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}, readSecret: SecretReader = (path) => readFileSync(path, 'utf8'), optionalSecretEnvironment: readonly string[] = []) {
 	const selection = host.components[componentId];
 	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
 	const configuration = record(selection.configuration, 'Component configuration');
 	const environment = record(configuration.environment, 'Component environment');
 	const secretEnvironment = record(configuration.secretEnvironment, 'Component secret environment');
+	const optional = new Set(optionalSecretEnvironment);
 	const values = new Map<string, string>(Object.entries(connectionEnvironment));
 	for (const [key, value] of Object.entries(environment)) {
 		if (!environmentKey.test(key) || typeof value !== 'string' || value.length > 16_384) throw new Error(`Invalid environment entry ${key}.`);
@@ -86,7 +87,11 @@ export function renderComponentEnvironment(host: HostConfiguration, componentId:
 		if (!environmentKey.test(key) || typeof secretId !== 'string') throw new Error(`Invalid secret environment entry ${key}.`);
 		const secret = host.secrets[secretId];
 		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
-		values.set(key, readSecret(secret.reference).replace(/\r?\n$/u, ''));
+		try { values.set(key, readSecret(secret.reference).replace(/\r?\n$/u, '')); }
+		catch (error) {
+			if (optional.has(key) && error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
+			throw error;
+		}
 	}
 	if (host.runtime.environment === 'development') {
 		if (!values.has('TREESEED_ENVIRONMENT')) values.set('TREESEED_ENVIRONMENT', 'local');
@@ -217,7 +222,7 @@ export function configuredSandboxGuestImageDigests(manifestPath = '/etc/treeseed
 	return [...readFileSync(manifestPath, 'utf8').matchAll(/^[ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*(sha256:[a-f0-9]{64})[ \t]*$/gmu)].map((match) => match[1]!);
 }
 
-export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], sandboxGuestImageDigest?: string) {
+export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	Object.assign(connectionEnvironment, managedHostRuntimeEnvironment(componentId));
@@ -240,7 +245,7 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
 	let files: Record<string, unknown>;
 	try {
-		atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment));
+		atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment, undefined, optionalSecretEnvironment));
 		files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
 		for (const [name, value] of Object.entries(files)) {
 			if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
