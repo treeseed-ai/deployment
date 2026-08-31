@@ -212,7 +212,7 @@ describe('Debian and systemd contracts', () => {
 		expect(workflow).toContain('find .treeseed/artifacts/components/lab');
 		expect(workflow).not.toMatch(/components\/lab\/0\.1\.0~rc\d+-1\/component-release/u);
 		expect(workflow).toContain('TREESEED_APT_SUITE: ${{ inputs.suite }}');
-		expect(readFileSync('.github/workflows/publish-lab.yml', 'utf8')).toContain('environment: development');
+		expect(readFileSync('.github/workflows/publish-lab.yml', 'utf8')).toContain('environment: staging');
 		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'");
 	});
 
