@@ -14,10 +14,9 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import {
-	activateComponent,
+	activateRestoredComponent,
 	componentActivationOrder,
 	componentStopOrder,
-	enrollProvider,
 	rollbackRoutes,
 	stopComponent,
 } from './reconcile.js';
@@ -60,11 +59,8 @@ async function applyRoutes(host: HostConfiguration, components: ComponentRelease
 	if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 }
 
-async function activateGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	for (const component of componentActivationOrder(host, components)) {
-		await activateComponent(host, component, components);
-		await enrollProvider(host, component);
-	}
+async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
+	for (const component of componentActivationOrder(host, components)) await activateRestoredComponent(component);
 	await applyRoutes(host, components);
 }
 
@@ -123,7 +119,7 @@ export async function restoreManagedGeneration(generation: number) {
 		const packages = packageSelections(target.receipt);
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		await requestSupervisor({ operation: 'recovery.restore', generation });
-		await activateGeneration(target.configuration, target.components);
+		await activateRestoredGeneration(target.configuration, target.components);
 		const receipt = persistRestoredReceipt(target.receipt, target.components);
 		recordEvent('recovery.restore-complete', { generation, receiptId: receipt.receiptId, targetReceiptId: target.receipt.receiptId });
 		return { generation, restored: true, safetyGeneration, targetReceiptId: target.receipt.receiptId, receipt };
@@ -133,7 +129,7 @@ export async function restoreManagedGeneration(generation: number) {
 		await requestSupervisor({ operation: 'recovery.restore', generation: safetyGeneration });
 		const packages = packageSelections(currentReceipt);
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
-		await activateGeneration(currentHost, currentComponents);
+		await activateRestoredGeneration(currentHost, currentComponents);
 		recordEvent('recovery.restore-rollback-complete', { generation, safetyGeneration, receiptId: currentReceipt.receiptId });
 		throw error;
 	}

@@ -225,6 +225,12 @@ export async function activateComponent(host: HostConfiguration, component: Comp
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
 }
 
+/** Reactivates configuration already restored from an encrypted generation backup. */
+export async function activateRestoredComponent(component: ComponentRelease) {
+	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
+	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
+}
+
 export function rollbackRoutes(host: HostConfiguration, components: ComponentRelease[]) {
 	const activeIds = new Set(components.map((component) => component.componentId));
 	const overrides = Object.fromEntries(Object.entries(host.components).filter(([componentId]) => activeIds.has(componentId)).flatMap(([, component]) => Object.entries(component.aliases)));
@@ -346,6 +352,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		|| changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
+	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
 	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
 	for (const component of impacted) await stopComponent(component);
@@ -368,10 +375,16 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
-		for (const component of componentActivationOrder(host, active)) await activateComponent(host, component, active);
-		const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
-		if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
-		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
+		try {
+			for (const component of componentActivationOrder(host, active)) await activateRestoredComponent(component);
+			const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
+			if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
+			recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
+		} catch (rollbackError) {
+			const originalMessage = error instanceof Error ? error.message : String(error), rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+			recordEvent('reconcile.rollback-failed', { generation, message: rollbackMessage, originalMessage });
+			throw new Error(`Reconciliation failed: ${originalMessage}; rollback also failed: ${rollbackMessage}`, { cause: error });
+		}
 		throw error;
 	}
 	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: configurationScope.size && previous ? previous.catalogDigest : accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
