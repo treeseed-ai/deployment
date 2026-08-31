@@ -32,6 +32,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 		bootstrapToken: z.string().min(16).max(16_384), managementToken: z.string().min(16).max(16_384), accessKeyId: z.string().min(8).max(256), secretAccessKey: z.string().min(16).max(256),
 		privacyTokenId: z.string().regex(/^[a-f0-9]{32}$/u), publisherTokenId: z.string().regex(/^[a-f0-9]{32}$/u) }).strict(),
 	z.object({ operation: z.literal('component.configure'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), connectionEnvironment: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().max(16_384)), secretFileIds: z.array(z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/u)).max(128).optional(), sandboxGuestImageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u).optional() }).strict(),
+	z.object({ operation: z.literal('development.credentials.ensure') }).strict(),
 	z.object({ operation: z.literal('development.environment'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), connectionEnvironment: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().max(16_384)), secretRefs: z.record(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/u)) }).strict(),
 	z.object({ operation: z.literal('host.development.activate'), activation: hostDevelopmentActivationSchema }).strict(),
 	z.object({ operation: z.literal('host.development.status') }).strict(),
