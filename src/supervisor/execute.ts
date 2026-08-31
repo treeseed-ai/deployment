@@ -10,6 +10,7 @@ import { enrollClient } from './pki.js';
 import { configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
+import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
 import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
 import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
@@ -333,6 +334,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState]);
 			return result;
 		}
+		case 'platform.uninstall.plan': return planHostUninstall();
+		case 'platform.uninstall.execute': return scheduleHostUninstall(operation.purgeSecurity);
 		case 'cli.configure': {
 			mkdirSync(paths.cli, { recursive: true, mode: 0o755 });
 			writeFileSync(`${paths.cli}/api-base-url`, `${operation.controlPlaneUrl}\n`, { encoding: 'utf8', mode: 0o644 });

@@ -31,7 +31,7 @@ function hostPayload(id: string, integration: IntegrationRelease) {
 	if (!payload) throw new Error(`Integration ${integration.track}@${integration.release} does not select host payload ${id}.`);
 	return { ...payload, archive: resolve(artifacts, 'payloads', id, basename(new URL(payload.artifact.url).pathname)) };
 }
-function directory(path: string) { mkdirSync(path, { recursive: true }); }
+function directory(path: string) { mkdirSync(path, { recursive: true }); chmodSync(path, 0o755); }
 function install(source: string, target: string, mode?: number) { directory(resolve(target, '..')); copyFileSync(resolve(root, source), target); if (mode) chmodSync(target, mode); }
 function unit(stage: string, name: string) { install(`systemd/${name}`, resolve(stage, `usr/lib/systemd/system/${name}`)); }
 function extractNpm(archive: string, target: string) { directory(target); execFileSync('tar', ['-xzf', archive, '--strip-components=1', '-C', target]); }
@@ -80,7 +80,9 @@ function component(id: string, release: string): Definition {
 	return { architecture: declaredPackage.architecture, packageName: declaredPackage.name, version: declaredPackage.version, depends: 'treeseed-manager', description: `Exact runtime bundle for the TreeSeed ${id} component`, payload(stage) {
 		cpSync(source, resolve(stage, `usr/share/treeseed/components/${id}/${release}`), { recursive: true });
 		const configurationRoot = `/etc/treeseed/components/${id}`;
-		writeFileSync(resolve(stage, 'DEBIAN/postinst'), `#!/bin/sh\nset -eu\ninstall -d -o root -g treeseed-manager -m 0750 ${configurationRoot}\nif [ ! -e ${configurationRoot}/environment ]; then install -o root -g treeseed-manager -m 0640 /dev/null ${configurationRoot}/environment; fi\nexit 0\n`, { mode: 0o755 });
+		const postinstall = resolve(stage, 'DEBIAN/postinst');
+		writeFileSync(postinstall, `#!/bin/sh\nset -eu\ninstall -d -o root -g treeseed-manager -m 0750 ${configurationRoot}\nif [ ! -e ${configurationRoot}/environment ]; then install -o root -g treeseed-manager -m 0640 /dev/null ${configurationRoot}/environment; fi\nexit 0\n`);
+		chmodSync(postinstall, 0o755);
 	} };
 }
 function componentDefinitions(integration: IntegrationRelease) {
