@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
@@ -24,6 +24,15 @@ export type CommandRunner = (executable: string, arguments_: readonly string[], 
 const run: CommandRunner = (executable, arguments_, input) => {
 	const output = execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'pipe', 'inherit'], ...(input === undefined ? {} : { input, encoding: 'utf8' }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } });
 	return typeof output === 'string' ? output : undefined;
+};
+
+const capture: CommandRunner = (executable, arguments_, input) => {
+	const result = spawnSync(executable, [...arguments_], {
+		stdio: ['pipe', 'pipe', 'pipe'], input, encoding: 'utf8', maxBuffer: 65_536,
+		env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' },
+	});
+	if (result.error || result.status !== 0) throw new Error('Bounded diagnostic command failed.');
+	return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 };
 
 function enrollmentReceipt(output: unknown, connectionId: string) {
@@ -144,7 +153,20 @@ function agentHealthDiagnostic(output: unknown) {
 	return null;
 }
 
-function composeFailureDiagnostics(componentId: string, projectName: string, command: CommandRunner) {
+function agentCrashDiagnostic(output: unknown) {
+	if (typeof output !== 'string' || !output.trim()) return null;
+	const lines = output.trim().split(/\r?\n/u);
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		try {
+			const payload = JSON.parse(lines.slice(index).join('\n')) as Record<string, unknown>;
+			const error = safeDiagnosticText(payload.error);
+			if (payload.ok === false && error) return { code: 'agent_startup_failed', error };
+		} catch { /* scan only for the final complete structured Agent crash record */ }
+	}
+	return null;
+}
+
+function composeFailureDiagnostics(componentId: string, projectName: string, command: CommandRunner, captureCommand: CommandRunner) {
 	const diagnostics: Array<Record<string, unknown>> = [];
 	let ids: string[];
 	try { ids = composeProjectContainerIds(projectName, command); }
@@ -162,6 +184,10 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 					const direct = command('/usr/bin/docker', ['exec', id, '/app/docker-entrypoint.sh', 'doctor', '--json'], '');
 					diagnostic = agentHealthDiagnostic(JSON.stringify([{ Output: String(direct ?? '') }]));
 				} catch { /* retain the safe service summary when the bounded probe cannot run */ }
+			}
+			if (componentId === 'agent' && !diagnostic) {
+				try { diagnostic = agentCrashDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--tail', '8', id], '')); }
+				catch { /* raw logs are never emitted; retain the safe service summary */ }
 			}
 			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
 		} catch { /* retain any other safe service summaries */ }
@@ -267,7 +293,7 @@ export function recoverInvalidConfiguration(configuration: SupervisorOperation &
 	return { recovered: true, archive };
 }
 
-export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles) {
+export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles, captureCommand: CommandRunner = command === run ? capture : command) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
@@ -333,7 +359,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			ensureNetwork('treeseed-platform', command);
 			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
 			catch (error) {
-				const diagnostics = composeFailureDiagnostics(operation.componentId, operation.projectName, command);
+				const diagnostics = composeFailureDiagnostics(operation.componentId, operation.projectName, command, captureCommand);
 				restoreSecrets(operation.componentId);
 				if (diagnostics.length === 0) throw error;
 				const message = error instanceof Error ? error.message : String(error);
