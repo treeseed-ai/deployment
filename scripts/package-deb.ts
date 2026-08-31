@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import { componentReleaseSchema, hostConfigurationSchema, hostNeedsEdge, integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
+import { componentReleaseSchema, integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
 
 interface Definition { architecture: 'all' | 'amd64'; depends: string; description: string; packageName?: string; version?: string; replaces?: string; breaks?: string; payload?: (stage: string) => void; postinst?: string }
 const root = process.cwd(), output = resolve(root, 'release/out'), cache = resolve(root, '.treeseed/cache'), artifacts = resolve(root, '.treeseed/artifacts');
@@ -31,8 +31,14 @@ function hostPayload(id: string, integration: IntegrationRelease) {
 	if (!payload) throw new Error(`Integration ${integration.track}@${integration.release} does not select host payload ${id}.`);
 	return { ...payload, archive: resolve(artifacts, 'payloads', id, basename(new URL(payload.artifact.url).pathname)) };
 }
-function directory(path: string) { mkdirSync(path, { recursive: true }); chmodSync(path, 0o755); }
-function install(source: string, target: string, mode?: number) { directory(resolve(target, '..')); copyFileSync(resolve(root, source), target); if (mode) chmodSync(target, mode); }
+function directory(path: string) {
+	const created: string[] = [];
+	for (let candidate = path; !existsSync(candidate); candidate = resolve(candidate, '..')) created.push(candidate);
+	mkdirSync(path, { recursive: true });
+	for (const candidate of created) chmodSync(candidate, 0o755);
+	chmodSync(path, 0o755);
+}
+function install(source: string, target: string, mode = 0o644) { directory(resolve(target, '..')); copyFileSync(resolve(root, source), target); chmodSync(target, mode); }
 function unit(stage: string, name: string) { install(`systemd/${name}`, resolve(stage, `usr/lib/systemd/system/${name}`)); }
 function extractNpm(archive: string, target: string) { directory(target); execFileSync('tar', ['-xzf', archive, '--strip-components=1', '-C', target]); }
 function normalize(path: string) {
@@ -93,17 +99,8 @@ const sdkPayload = packageIntegration && hostPayload('sdk', packageIntegration);
 const cliPayload = packageIntegration && hostPayload('cli', packageIntegration);
 const sdkOwnedCliRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'yaml', 'zod'] as const;
 const cliPackageVersion = cliPayload ? `${debianVersion(cliPayload.version).replace(/-1$/u, '-2')}+deployment${deploymentVersion.replace(/-1$/u, '')}` : deploymentVersion;
-function writeBootstrapEdgePolicy(stage: string, configurationPath: string) {
-	if (!packageIntegration) throw new Error('A configured bootstrap requires an integration lock.');
-	const configuration = hostConfigurationSchema.parse(JSON.parse(readFileSync(configurationPath, 'utf8')));
-	const releases = packageIntegration.components.map(({ componentId, release }) => componentReleaseSchema.parse(JSON.parse(readFileSync(resolve(artifacts, 'components', componentId, release, 'component-release.json'), 'utf8'))));
-	if (configuration.network.manager.aliases.length || hostNeedsEdge(configuration, releases)) {
-		directory(resolve(stage, 'usr/share/treeseed/bootstrap'));
-		writeFileSync(resolve(stage, 'usr/share/treeseed/bootstrap/install-edge'), 'required\n');
-	}
-}
 const packages: Record<string, Definition> = {
-	'treeseed': { architecture: 'amd64', depends: 'systemd, ca-certificates, curl, gnupg, openssl, jq, apt (>= 2.4)', description: 'Configured TreeSeed host bootstrap and seeder', postinst: 'debian/bootstrap/postinst', payload(stage) { directory(resolve(stage, 'var/lib/treeseed/bootstrap/seed')); const configuration = process.env.TREESEED_CONFIGURATION_FILE; if (!configuration) throw new Error('treeseed bootstrap packages must be built with TREESEED_CONFIGURATION_FILE.'); copyFileSync(resolve(configuration), resolve(stage, 'var/lib/treeseed/bootstrap/seed/platform.json')); chmodSync(resolve(stage, 'var/lib/treeseed/bootstrap/seed/platform.json'), 0o600); writeBootstrapEdgePolicy(stage, resolve(configuration)); const credentials = process.env.TREESEED_CREDENTIALS_FILE; if (credentials) { copyFileSync(resolve(credentials), resolve(stage, 'var/lib/treeseed/bootstrap/seed/credentials.json')); chmodSync(resolve(stage, 'var/lib/treeseed/bootstrap/seed/credentials.json'), 0o600); } const operator = process.env.TREESEED_OPERATOR_USER; if (operator) { if (!/^[a-zA-Z0-9._-]+$/u.test(operator) || operator === 'root') throw new Error('Configured operator username is invalid.'); writeFileSync(resolve(stage, 'var/lib/treeseed/bootstrap/seed/operator'), `${operator}\n`, { mode: 0o600 }); } const reset = process.env.TREESEED_RESET_UNACCEPTED_COMPONENTS; if (reset) { const components = reset.split(','); if (components.some((componentId) => !/^[a-z][a-z0-9.-]+$/u.test(componentId)) || new Set(components).size !== components.length) throw new Error('Unaccepted component reset list is invalid.'); writeFileSync(resolve(stage, 'var/lib/treeseed/bootstrap/seed/reset-unaccepted-components.json'), `${JSON.stringify(components)}\n`, { mode: 0o600 }); } directory(resolve(stage, 'usr/share/treeseed/bootstrap/keyrings')); for (const file of ['stable.sources', 'development.sources', 'preferences.stable', 'preferences.development']) install(`deploy/bootstrap/${file}`, resolve(stage, `usr/share/treeseed/bootstrap/${file}`)); for (const track of ['stable', 'development']) install(`release/apt/${track}.asc`, resolve(stage, `usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-${track}.asc`)); for (const track of ['stable', 'development']) execFileSync('gpg', ['--batch', '--yes', '--dearmor', '--output', resolve(stage, `usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-${track}.gpg`), resolve(root, `release/apt/${track}.asc`)]); writeFileSync(resolve(stage, 'usr/share/treeseed/bootstrap/suite'), process.env.TREESEED_BOOTSTRAP_SUITE === 'stable' ? 'stable\n' : 'development\n'); install('scripts/bootstrap/bootstrap.sh', resolve(stage, 'usr/lib/treeseed/bootstrap/bootstrap.sh'), 0o755); unit(stage, 'treeseed-bootstrap.service'); } },
+	'treeseed': { architecture: 'amd64', depends: 'systemd, ca-certificates, curl, gnupg, openssl, jq, apt (>= 2.4)', description: 'Generic credential-free TreeSeed host bootstrap foundation', postinst: 'debian/bootstrap/postinst', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/bootstrap/keyrings')); for (const file of ['stable.sources', 'development.sources', 'preferences.stable', 'preferences.development']) install(`deploy/bootstrap/${file}`, resolve(stage, `usr/share/treeseed/bootstrap/${file}`)); for (const track of ['stable', 'development']) install(`release/apt/${track}.asc`, resolve(stage, `usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-${track}.asc`)); for (const track of ['stable', 'development']) { const keyring = resolve(stage, `usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-${track}.gpg`); execFileSync('gpg', ['--batch', '--yes', '--dearmor', '--output', keyring, resolve(root, `release/apt/${track}.asc`)]); chmodSync(keyring, 0o644); } const suite = resolve(stage, 'usr/share/treeseed/bootstrap/suite'); writeFileSync(suite, aptSuite === 'stable' ? 'stable\n' : 'development\n'); chmodSync(suite, 0o644); install('scripts/bootstrap/bootstrap.sh', resolve(stage, 'usr/lib/treeseed/bootstrap/bootstrap.sh'), 0o755); unit(stage, 'treeseed-bootstrap.service'); } },
 	'treeseed-host-runtime': { architecture: 'amd64', depends: 'libc6 (>= 2.36), libstdc++6, ca-certificates, docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Private pinned Node 24 and container host runtime for TreeSeed', payload: hostRuntime },
 	'treeseed-kata-runtime': { architecture: 'amd64', depends: 'containerd (>= 2.0) | containerd.io (>= 2.0), qemu-system-x86, zstd, curl, ca-certificates', description: 'Pinned Kata runtime-rs QEMU/KVM host runtime for TreeSeed assignment sandboxes', postinst: 'debian/kata-runtime/postinst', payload: kataRuntime },
 	'treeseed-manager': { architecture: 'amd64', depends: `treeseed-host-runtime (= ${deploymentVersion}), treeseed-kata-runtime (= ${deploymentVersion}), treeseed-sdk (= ${sdkPayload ? debianVersion(sdkPayload.version) : deploymentVersion}), treeseed-cli (= ${cliPackageVersion}), util-linux, iproute2, containerd (>= 2.0) | containerd.io (>= 2.0), containernetworking-plugins, nftables, openssl, cryptsetup (>= 2:2.6), rsync`, description: 'TreeSeed host manager, reconciler, Kata sandbox broker, and fixed root supervisor', postinst: 'debian/manager/postinst', payload: managerPayload },
@@ -128,15 +125,9 @@ const packages: Record<string, Definition> = {
 	'treeseed-edge': { architecture: 'all', depends: 'docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Manager-owned TreeSeed Caddy edge and local TLS aliases', postinst: 'debian/edge/postinst', payload(stage) { unit(stage, 'treeseed-edge.service'); directory(resolve(stage, 'etc/treeseed/edge')); writeFileSync(resolve(stage, 'etc/treeseed/edge/Caddyfile'), ':443 {\n\tabort\n}\n'); install('deploy/edge/compose.yml', resolve(stage, 'usr/share/treeseed/edge/compose.yml')); install('scripts/edge/ensure-network.sh', resolve(stage, 'usr/lib/treeseed/edge/bin/ensure-network'), 0o755); } },
 	...(packageIntegration ? componentDefinitions(packageIntegration) : {}),
 };
-packages['treeseed-ai'] = {
-	...packages.treeseed!,
-	description: 'Configured standalone TreeAI bootstrap and unified Deployment seeder',
-	replaces: 'treeseed',
-	breaks: 'treeseed',
-};
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
-	const stage = resolve(output, '.stage', name); rmSync(stage, { recursive: true, force: true }); directory(resolve(stage, 'DEBIAN'));
+	const stage = resolve(output, '.stage', name); rmSync(stage, { recursive: true, force: true }); directory(stage); directory(resolve(stage, 'DEBIAN'));
 	const packageVersion = definition.version ?? deploymentVersion;
 	if (clean) for (const stale of readdirSync(output).filter((candidate) => candidate.startsWith(`${name}_`) && candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
 	const control = [`Package: ${name}`, `Version: ${packageVersion}`, 'Section: admin', 'Priority: optional', `Architecture: ${definition.architecture}`, 'Maintainer: TreeSeed Releases <releases@treeseed.ai>', ...(definition.depends ? [`Depends: ${definition.depends}`] : []), ...(definition.replaces ? [`Replaces: ${definition.replaces}`] : []), ...(definition.breaks ? [`Breaks: ${definition.breaks}`] : []), `Description: ${definition.description}`, ' Managed by the unified TreeSeed deployment system.', ''].join('\n');
@@ -149,7 +140,7 @@ function build(name: string, definition: Definition, clean = true) {
 }
 directory(output); const requested = process.argv[2] ?? 'all';
 if (requested === 'all') {
-	const entries = Object.entries(packages).filter(([name]) => !['treeseed', 'treeseed-ai'].includes(name) && (aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'));
+	const entries = Object.entries(packages).filter(([name]) => aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development');
 	for (const stale of readdirSync(output).filter((candidate) => candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
 	for (const [name, definition] of entries) build(name, definition, false);
 }

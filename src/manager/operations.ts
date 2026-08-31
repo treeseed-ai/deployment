@@ -27,6 +27,8 @@ import { assertTreeDxResetSafe } from './reset-safety.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
+	foundationReady: z.boolean().default(false),
+	initializationRequired: z.boolean().default(false),
 	installerCredentialsRetained: z.boolean(),
 }).strict();
 
@@ -143,7 +145,7 @@ function bootstrapStatus() {
 	const marker = `${paths.managerState}/bootstrap-status.json`;
 	const handoff = existsSync(marker)
 		? bootstrapHandoffSchema.parse(JSON.parse(readFileSync(marker, 'utf8')))
-		: { complete: false, installerCredentialsRetained: false };
+		: { complete: false, foundationReady: false, initializationRequired: true, installerCredentialsRetained: false };
 	return { ...handoff, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`) };
 }
 

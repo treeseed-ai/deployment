@@ -21,82 +21,30 @@ npm run verify:direct
 npm run build:deb
 ```
 
-The Debian build emits independent packages under `release/out`. A configured
-bootstrap is intentionally separate because it can contain plaintext bootstrap
-credentials:
+The Debian build emits independent packages under `release/out`, including one
+generic `treeseed` bootstrap. It contains only public APT trust, suite
+selection, and the foundation installer—never host configuration, identity,
+capacity, or credentials:
 
 ```sh
-npm run build:configured -- \
-  --configuration /path/to/platform.json \
-  --credentials /path/to/ephemeral-credentials.json \
-  --consume-credentials \
-  --suite development
+sudo apt install ./treeseed_VERSION_amd64.deb
 ```
 
-The generator consumes the credential input, emits a checksum without echoing
-secret data, and marks the resulting package mode `0600`. After installation,
-the operator must securely delete the downloaded configured package.
-
-APT normally reads local packages through its unprivileged `_apt` account. To
-keep a configured package private without triggering an unsandboxed-download
-warning, stage a root-controlled copy owned by `_apt`, install that copy, and
-remove it after manager handoff:
+The package detects the invoking non-root account when available and enrolls it
+in `treeseed-operators`; a new login session may be required before that group
+membership is visible. Its one-shot service installs the exact manager, SDK,
+CLI, host runtimes, and release catalog for the protected suite. It starts only
+the local manager foundation and does not install or reconcile applications.
+Initialization is a separate explicit operation:
 
 ```sh
-sudo install -o _apt -g root -m 0600 /path/to/treeseed-configured.deb \
-  /var/cache/apt/archives/treeseed-configured.deb
-sudo apt install /var/cache/apt/archives/treeseed-configured.deb
-sudo rm -f /var/cache/apt/archives/treeseed-configured.deb
+trsd host bootstrap status --json
+trsd host initialize --profile capacity-provider --json
 ```
 
-Do not make the credential-bearing package world-readable or loosen the
-operator home-directory permissions merely to suppress the APT warning.
-
-The development workstation has a stricter convenience entrypoint. It accepts a
-private Codex login cache, generates the API database and session secrets in
-memory, packages the declared manager-owned credential files, and consumes its
-temporary credential envelope:
-
-```sh
-npm run build:workstation -- \
-  --configuration /path/to/development-workstation.json \
-  --codex-auth-file "$HOME/.codex/auth.json" \
-  --suite development
-```
-
-A failed first adoption may be rebuilt with
-`--reset-unaccepted-components api`. This recovery request is embedded in the
-root-only bootstrap seed and fails closed once any known-good receipt or active
-component set exists. It is not an upgrade-time state reset and must never be
-used for migrated or accepted data.
-
-The login cache must be a regular, non-symlink file with no group or world
-permissions. The command never prints credentials. A website configuration
-handler must apply the same no-store response, redacted request logging,
-ephemeral generation, immediate server deletion, and root-only installation
-policy; the generated package itself remains password-equivalent until the
-bootstrap handoff deletes its embedded seed. Bootstrap pauses scheduled
-reconciliation, restarts the newly installed manager payload, performs any
-explicit unaccepted-state recovery, runs one initial reconciliation, and only
-then resumes the stable and development timers.
-
-An AI-only host uses the same manager and repository through the explicit,
-opt-in Platform `ai-factory` profile. The builder generates the complete
-credential set ephemerally, leaves mode-control mTLS enrollment to the manager,
-and emits the single disposable `treeseed-ai` bootstrap package:
-
-```sh
-npm run build:ai-bootstrap -- \
-  --profile /path/to/platform/deployment/profiles/ai-factory.json \
-  --stable-lock https://raw.githubusercontent.com/treeseed-ai/platform/EXACT_COMMIT/deployment/integration-releases/stable.json \
-  --development-lock https://raw.githubusercontent.com/treeseed-ai/platform/EXACT_COMMIT/deployment/integration-releases/development.json \
-  --suite development \
-  --operator-user "$USER"
-```
-
-The resulting package and its redacted checksum receipt are printed on
-success. Its plaintext seed is consumed during bootstrap, so the root-owned
-package must be deleted after the manager reports a complete handoff.
+Profile initialization remains fail-closed until its SDK, CLI, and manager
+contract is released. The generic package is safe to distribute before that
+command exists because it carries no credential and activates no component.
 
 An accepted host can be returned to a fresh, unseeded application state through
 the protected local manager socket:

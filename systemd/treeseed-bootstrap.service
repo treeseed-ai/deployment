@@ -1,8 +1,9 @@
 [Unit]
-Description=TreeSeed configured asynchronous host bootstrap
+Description=TreeSeed generic asynchronous host bootstrap foundation
 After=network-online.target apt-daily.service apt-daily-upgrade.service
 Wants=network-online.target
-ConditionPathExists=/var/lib/treeseed/bootstrap/seed/platform.json
+ConditionPathExists=!/var/lib/treeseed/bootstrap/foundation.complete
+ConditionPathExists=!/etc/treeseed/platform.json
 StartLimitIntervalSec=0
 
 [Service]
