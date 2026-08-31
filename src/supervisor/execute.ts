@@ -155,7 +155,7 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 			const [service = '', state = '', health = '', exitCode = ''] = raw.split('\t');
 			if (!/^[a-z][a-z0-9.-]{0,127}$/u.test(service) || !/^[a-z]+$/u.test(state) || !/^(?:none|starting|healthy|unhealthy)$/u.test(health)) continue;
 			const code = Number(exitCode);
-			const diagnostic = componentId === 'agent' && health === 'unhealthy'
+			const diagnostic = componentId === 'agent' && health !== 'none'
 				? agentHealthDiagnostic(command('/usr/bin/docker', ['inspect', '--format', '{{json .State.Health.Log}}', id], '')) : null;
 			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
 		} catch { /* retain any other safe service summaries */ }
