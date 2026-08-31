@@ -40,4 +40,23 @@ describe('bounded component activation diagnostics', () => {
 			expect(message).not.toContain('ignored');
 		}
 	});
+
+	it('probes the structured Agent doctor when Docker has not recorded a health log yet', () => {
+		const activation = { operation: 'compose.activate' as const, componentId: 'agent', files: ['agent/release/compose.yml'], projectName: 'treeseed-agent', waitTimeoutSeconds: 60 };
+		const command = (_executable: string, arguments_: readonly string[], input?: string) => {
+			if (arguments_[0] === 'network') return undefined;
+			if (arguments_[0] === 'compose') throw new Error('activation failed');
+			if (arguments_[0] === 'ps') return 'container-agent\n';
+			if (arguments_.includes('{{json .State.Health.Log}}')) return '[]';
+			if (arguments_[0] === 'inspect' && input === '') return 'manager\trunning\tstarting\t0\n';
+			if (arguments_[0] === 'exec') {
+				expect(arguments_.slice(2)).toEqual(['/app/docker-entrypoint.sh', 'doctor', '--json']);
+				return JSON.stringify({ status: 'degraded', dataDirWritable: true, manifestVersion: 5,
+					broker: { required: true, ready: false, reason: 'connect EACCES secret=hidden' }, disk: { ok: true, reason: null } });
+			}
+			return undefined;
+		};
+		expect(() => executeSupervisorOperation(activation, command, () => undefined))
+			.toThrow(/component health:.*"service":"manager".*"manifestVersion":5.*connect EACCES secret=<redacted>/u);
+	});
 });

@@ -155,8 +155,14 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 			const [service = '', state = '', health = '', exitCode = ''] = raw.split('\t');
 			if (!/^[a-z][a-z0-9.-]{0,127}$/u.test(service) || !/^[a-z]+$/u.test(state) || !/^(?:none|starting|healthy|unhealthy)$/u.test(health)) continue;
 			const code = Number(exitCode);
-			const diagnostic = componentId === 'agent' && health !== 'none'
+			let diagnostic = componentId === 'agent' && health !== 'none'
 				? agentHealthDiagnostic(command('/usr/bin/docker', ['inspect', '--format', '{{json .State.Health.Log}}', id], '')) : null;
+			if (componentId === 'agent' && health !== 'none' && !diagnostic) {
+				try {
+					const direct = command('/usr/bin/docker', ['exec', id, '/app/docker-entrypoint.sh', 'doctor', '--json'], '');
+					diagnostic = agentHealthDiagnostic(JSON.stringify([{ Output: String(direct ?? '') }]));
+				} catch { /* retain the safe service summary when the bounded probe cannot run */ }
+			}
 			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
 		} catch { /* retain any other safe service summaries */ }
 	}
