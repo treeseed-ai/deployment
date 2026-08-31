@@ -7,8 +7,8 @@
   "platform": { "repository": "treeseed-ai/platform", "commit": "111c0765486d478073698265bb1cce782d58c691" },
   "deployment": { "repository": "treeseed-ai/deployment", "commit": "5aef1246c55ade844b748a63afcd3448d13f534b", "tag": "0.1.0-rc.23" },
   "hostPayloads": [
-    { "id": "sdk", "packageName": "@treeseed/sdk", "version": "0.13.0-rc.51", "artifact": { "url": "https://registry.npmjs.org/@treeseed/sdk/-/sdk-0.13.0-rc.51.tgz", "sha256": "b3fc58a42bac9f3c635b933423066d580e87ddb79ea97c8aa9181f7000765e89" } },
-    { "id": "cli", "packageName": "@treeseed/cli", "version": "0.13.0-rc.13", "artifact": { "url": "https://registry.npmjs.org/@treeseed/cli/-/cli-0.13.0-rc.13.tgz", "sha256": "4a52e75b113d307db30f843efad3e7ceb285a42c6bc4e70036644f64e7d60e3f" } },
+    { "id": "sdk", "packageName": "@treeseed/sdk", "version": "0.13.0-rc.64", "artifact": { "url": "https://registry.npmjs.org/@treeseed/sdk/-/sdk-0.13.0-rc.64.tgz", "sha256": "c2c42bb3fd09a6bebb185ea7a586dabc3fef97080a276b42d0f6a85520c456f0" } },
+    { "id": "cli", "packageName": "@treeseed/cli", "version": "0.13.0-rc.41", "artifact": { "url": "https://registry.npmjs.org/@treeseed/cli/-/cli-0.13.0-rc.41.tgz", "sha256": "49f8d4931fea89ad210044fa5c75153bc708dd51673da82ce0a3c5c0fc7f1b7d" } },
     { "id": "treedx", "packageName": "@treeseed/treedx", "version": "0.3.0-rc.4", "artifact": { "url": "https://registry.npmjs.org/@treeseed/treedx/-/treedx-0.3.0-rc.4.tgz", "sha256": "55b9007d60c0dbd572cc6aa725ececd97b70e4474892abc156f85f8b23d4399b" } },
     { "id": "yaml", "packageName": "yaml", "version": "2.9.0", "artifact": { "url": "https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz", "sha256": "008fa204cb1ba700e0272ba045abbf09a6ffe63456e8146ba97cac6c2ad1ef91" } },
     { "id": "zod", "packageName": "zod", "version": "3.25.76", "artifact": { "url": "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz", "sha256": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377" } }

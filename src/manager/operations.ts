@@ -23,6 +23,7 @@ import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2
 import { credentialInitializerStatus, loadCredentialInitializers } from '../security/credential-initializers.js';
 import { hostDevelopmentActivationSchema } from '../supervisor/host-development.js';
 import { storageEnvironmentForRolloutGroup } from '../cloudflare/r2-replication-provisioning.js';
+import { assertTreeDxResetSafe } from './reset-safety.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -148,6 +149,13 @@ function bootstrapStatus() {
 
 export async function executeHostCommand(input: unknown, context: { local: boolean }) {
 	const request = hostCommandRequestSchema.parse(input), host = tryLoadHostConfiguration();
+	if (request.handlerId === 'local.host.uninstall') {
+		if (!context.local) throw new Error('Host uninstall is available only through the protected local manager socket.');
+		if (request.options.plan === true) return requestSupervisor({ operation: 'platform.uninstall.plan' });
+		if (request.options.confirm !== true || request.options.yes !== true) throw new Error('Host uninstall requires --confirm and --yes after reviewing the plan.');
+		await assertTreeDxResetSafe(host?.runtime.dataRoot ?? '/var/lib/treeseed/components');
+		return requestSupervisor({ operation: 'platform.uninstall.execute', purgeSecurity: request.options.purgeSecurity === true, confirm: true });
+	}
 	if (!host) {
 		if (!context.local || request.handlerId !== 'local.host.config.adopt') throw new Error('Current host configuration is invalid; adopt a current-format configuration through the protected local manager socket.');
 		const candidate = requiredConfiguration(request);

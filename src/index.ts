@@ -28,4 +28,5 @@ export * from './supervisor/backup.js';
 export * from './supervisor/protocol.js';
 export * from './supervisor/pki.js';
 export * from './supervisor/reset.js';
+export * from './supervisor/uninstall.js';
 export * from './supervisor/server.js';

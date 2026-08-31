@@ -1,0 +1,68 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { executeHostUninstall, planHostUninstall, scheduleHostUninstall, supervisorOperationSchema, type UninstallCommand } from '../src/index.js';
+
+const roots: string[] = [];
+const root = () => { const value = mkdtempSync(resolve(tmpdir(), 'treeseed-uninstall-')); roots.push(value); return value; };
+afterEach(() => roots.splice(0).forEach((value) => rmSync(value, { recursive: true, force: true })));
+const materialize = (base: string, path: string) => { const target = resolve(base, path.slice(1)); mkdirSync(target, { recursive: true }); return target; };
+
+describe('host uninstall', () => {
+	it('inventories only TreeSeed-owned paths, packages, units, and labelled resources', () => {
+		const base = root();
+		materialize(base, '/etc/treeseed'); materialize(base, '/var/lib/treeseed'); materialize(base, '/srv/unrelated');
+		const units = materialize(base, '/etc/systemd/system');
+		writeFileSync(resolve(units, 'treeseed-manager.service'), 'managed'); writeFileSync(resolve(units, 'docker.service'), 'unrelated');
+		const command: UninstallCommand = (executable, arguments_) => {
+			if (executable.endsWith('dpkg-query')) return 'treeseed-manager\ntreeseed-cli\n';
+			if (executable.endsWith('docker') && arguments_[0] === 'ps') return 'managed-container\n';
+			return '';
+		};
+		const plan = planHostUninstall({ root: base, command });
+		expect(plan.items).toEqual(expect.arrayContaining([
+			{ kind: 'package', id: 'treeseed-manager', security: false },
+			{ kind: 'unit', id: 'treeseed-manager.service', security: false },
+			{ kind: 'container', id: 'managed-container', security: false },
+		]));
+		expect(plan.items.some((item) => item.id.includes('unrelated') || item.id === 'docker.service')).toBe(false);
+	});
+
+	it('preserves security state without purge and removes it only when explicitly selected', () => {
+		const base = root(), security = materialize(base, '/var/lib/treeseed'), runtime = materialize(base, '/run/treeseed');
+		writeFileSync(resolve(security, 'secret'), 'redacted'); writeFileSync(resolve(runtime, 'socket'), 'runtime');
+		const calls: string[] = [], command: UninstallCommand = (executable, arguments_) => { calls.push(`${executable} ${arguments_.join(' ')}`); return ''; };
+		const retained = executeHostUninstall(false, { root: base, command });
+		expect(existsSync(security)).toBe(true); expect(existsSync(runtime)).toBe(false); expect(retained.purgedSecurity).toBe(false);
+		executeHostUninstall(true, { root: base, command });
+		expect(existsSync(security)).toBe(false);
+	});
+
+	it('requires an explicit confirmed protocol operation for security purge', () => {
+		expect(() => supervisorOperationSchema.parse({ operation: 'platform.uninstall.execute', purgeSecurity: true })).toThrow();
+		expect(supervisorOperationSchema.parse({ operation: 'platform.uninstall.execute', purgeSecurity: true, confirm: true })).toMatchObject({ purgeSecurity: true });
+	});
+
+	it('removes only exact TreeSeed Kata links and the isolated containerd namespace', () => {
+		const base = root(), bin = materialize(base, '/usr/local/bin'), opt = materialize(base, '/opt');
+		symlinkSync('/opt/kata/runtime-rs/bin/containerd-shim-kata-v2', resolve(bin, 'containerd-shim-kata-v2'));
+		symlinkSync('/srv/unrelated-kata', resolve(opt, 'unrelated-kata'));
+		const command: UninstallCommand = (executable, arguments_) => executable.endsWith('ctr') && arguments_.join(' ') === 'namespaces list --quiet' ? 'treeseed-sandboxes\nother\n' : '';
+		const plan = planHostUninstall({ root: base, command });
+		expect(plan.items).toContainEqual({ kind: 'path', id: '/usr/local/bin/containerd-shim-kata-v2', security: false });
+		expect(plan.items).toContainEqual({ kind: 'containerd-namespace', id: 'treeseed-sandboxes', security: false });
+		expect(plan.items.some((item) => item.id.includes('unrelated-kata'))).toBe(false);
+	});
+
+	it('schedules finalization in a separate transient service and returns only redacted custody', () => {
+		const calls: Array<{ executable: string; arguments_: readonly string[] }> = [];
+		const accepted = scheduleHostUninstall(true, (executable, arguments_) => { calls.push({ executable, arguments_ }); return ''; });
+		expect(accepted).toMatchObject({ schemaVersion: 'treeseed.host-uninstall-accepted/v1', state: 'accepted' });
+		expect(accepted.receiptPath).toBe(`/var/tmp/${accepted.operationId}.json`);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.executable).toBe('/usr/bin/systemd-run');
+		expect(calls[0]!.arguments_).toContain('--purge-security=true');
+		expect(JSON.stringify(accepted)).not.toMatch(/credential|passphrase|token/iu);
+	});
+});

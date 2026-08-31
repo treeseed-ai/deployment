@@ -33,3 +33,22 @@ jobs:
           path: release/out/**
           if-no-files-found: error
           retention-days: 14
+  uninstall-vm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify current and legacy uninstall on disposable VM
+        run: sudo --preserve-env=GITHUB_ACTIONS,TREESEED_UNINSTALL_DISPOSABLE_VM "$(command -v node)" --import tsx scripts/verify-uninstall-vm.ts | tee uninstall-vm.json
+        env:
+          TREESEED_UNINSTALL_DISPOSABLE_VM: '1'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: uninstall-vm-${{ github.sha }}
+          path: uninstall-vm.json
+          if-no-files-found: error
+          retention-days: 14
