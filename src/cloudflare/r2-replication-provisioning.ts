@@ -6,10 +6,15 @@ export const r2ReplicationSecretIds = {
 	secretAccessKey: 'cloudflare-r2-secret-access-key',
 } as const;
 
-export function defaultReplicationBucket(teamId: string) {
-	const short = teamId.replaceAll(/[^a-z0-9]/giu, '').toLowerCase().slice(0, 8);
-	if (!short) throw new Error('A team identity is required.');
-	return `treeseed-team-${short}-library`;
+export type ControlPlaneStorageEnvironment = 'production' | 'staging';
+
+export function storageEnvironmentForRolloutGroup(rolloutGroup: string): ControlPlaneStorageEnvironment {
+	return rolloutGroup.toLowerCase().includes('production') ? 'production' : 'staging';
+}
+
+export function defaultReplicationBucket(controlPlaneId: string, environment: ControlPlaneStorageEnvironment = 'production') {
+	if (!controlPlaneId.trim()) throw new Error('A control-plane identity is required.');
+	return environment === 'production' ? 'treeseed-library' : 'treeseed-dev-library';
 }
 
 export function addReplicationSecrets(configuration: Record<string, any>) {

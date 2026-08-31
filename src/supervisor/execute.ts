@@ -176,15 +176,15 @@ export function repairSandboxTrustAnchor(operations = { exists: existsSync, chmo
 
 const r2CredentialIds = ['cloudflare-r2-account-id', 'cloudflare-r2-management-token', 'cloudflare-r2-bucket-name', 'cloudflare-r2-access-key-id', 'cloudflare-r2-secret-access-key'] as const;
 const storageSafe = (value: string) => value.replaceAll(/[^a-z0-9-]/giu, '-').toLowerCase();
-function r2StorageStatus(teamId: string) {
-	const metadata = `${paths.managerState}/storage/cloudflare-r2/teams/${storageSafe(teamId)}.json`;
+function r2StorageStatus(controlPlaneId: string) {
+	const metadata = `${paths.managerState}/storage/cloudflare-r2/control-planes/${storageSafe(controlPlaneId)}.json`;
 	const binding = existsSync(metadata) ? JSON.parse(readFileSync(metadata, 'utf8')) as Record<string, unknown> : null;
 	return { metadataReady: Boolean(binding), childCredentialsReady: r2CredentialIds.every((id) => existsSync(`/etc/treeseed/credentials/${id}`)), metadata, binding };
 }
 
 function installR2Storage(operation: SupervisorOperation & { operation: 'storage.r2.install' }, command: CommandRunner) {
-	const storage = `${paths.managerState}/storage/cloudflare-r2`, authorities = `${storage}/authorities`, teams = `${storage}/teams`, credentials = '/etc/treeseed/credentials';
-	mkdirSync(authorities, { recursive: true, mode: 0o700 }); mkdirSync(teams, { recursive: true, mode: 0o700 }); mkdirSync(credentials, { recursive: true, mode: 0o700 });
+	const storage = `${paths.managerState}/storage/cloudflare-r2`, authorities = `${storage}/authorities`, controlPlanes = `${storage}/control-planes`, credentials = '/etc/treeseed/credentials';
+	mkdirSync(authorities, { recursive: true, mode: 0o700 }); mkdirSync(controlPlanes, { recursive: true, mode: 0o700 }); mkdirSync(credentials, { recursive: true, mode: 0o700 });
 	writeFileSync(`${authorities}/${operation.accountId}.token`, operation.bootstrapToken, { mode: 0o600 });
 	const values: Record<(typeof r2CredentialIds)[number], string> = {
 		'cloudflare-r2-account-id': operation.accountId, 'cloudflare-r2-management-token': operation.managementToken,
@@ -192,10 +192,10 @@ function installR2Storage(operation: SupervisorOperation & { operation: 'storage
 		'cloudflare-r2-secret-access-key': operation.secretAccessKey,
 	};
 	for (const [id, secret] of Object.entries(values)) writeFileSync(`${credentials}/${id}`, secret, { mode: 0o600 });
-	atomicJson(`${teams}/${storageSafe(operation.teamId)}.json`, { schemaVersion: 'treeseed.host-storage-binding/v1', backend: 'cloudflare-r2', teamId: operation.teamId,
+	atomicJson(`${controlPlanes}/${storageSafe(operation.controlPlaneId)}.json`, { schemaVersion: 'treeseed.host-storage-binding/v2', backend: 'cloudflare-r2', controlPlaneId: operation.controlPlaneId,
 		accountId: operation.accountId, bucket: operation.bucket, tokens: { privacy: operation.privacyTokenId, publisher: operation.publisherTokenId }, updatedAt: new Date().toISOString() }, 0o600);
 	command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', storage]);
-	return r2StorageStatus(operation.teamId);
+	return r2StorageStatus(operation.controlPlaneId);
 }
 
 export function recoverInvalidConfiguration(configuration: SupervisorOperation & { operation: 'configuration.recover' }, configurationPath: string = paths.configuration, archiveRoot: string = `${paths.managerState}/invalid-configurations`) {
@@ -298,7 +298,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
 		case 'ai.gpu.workload': return aiWorkload(operation.role, operation.action, operation.files, operation.waitTimeoutSeconds, command);
 		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
-		case 'storage.r2.status': return r2StorageStatus(operation.teamId);
+		case 'storage.r2.status': return r2StorageStatus(operation.controlPlaneId);
 		case 'storage.r2.install': return installR2Storage(operation, command);
 		case 'host.development.activate': {
 			ensureSandboxNetwork(command);
