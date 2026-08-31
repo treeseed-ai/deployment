@@ -212,6 +212,11 @@ export function bindSandboxGuestImageDigest(componentId: string, name: string, v
 	return bound;
 }
 
+export function configuredSandboxGuestImageDigests(manifestPath = '/etc/treeseed/components/agent/treeseed.capacity-provider.yaml') {
+	if (!existsSync(manifestPath)) return [];
+	return [...readFileSync(manifestPath, 'utf8').matchAll(/^[ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*(sha256:[a-f0-9]{64})[ \t]*$/gmu)].map((match) => match[1]!);
+}
+
 export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], sandboxGuestImageDigest?: string) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);

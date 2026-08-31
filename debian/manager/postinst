@@ -8,7 +8,9 @@ install -d -o root -g root -m 0711 /etc/treeseed /var/lib/treeseed
 install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/manager /etc/treeseed/manager/tls
 install -d -o root -g treeseed-operators -m 0770 /run/treeseed/manager
 install -d -o root -g treeseed-manager -m 0750 /etc/treeseed/sandbox /run/treeseed/sandbox
-install -d -o root -g root -m 0755 /etc/systemd/system/treeseed-sandbox-broker.service.d
+for unit in treeseed-manager-supervisor treeseed-manager-api treeseed-sandbox-broker treeseed-manager-reconcile treeseed-manager-stable treeseed-manager-development; do
+	install -d -o root -g root -m 0755 "/etc/systemd/system/$unit.service.d"
+done
 install -d -o root -g root -m 0755 /etc/cni/net.d
 install -d -o root -g root -m 0755 /opt/cni/bin
 for plugin in bridge firewall host-local; do

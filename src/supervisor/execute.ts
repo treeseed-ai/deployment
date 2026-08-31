@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
@@ -14,8 +14,9 @@ import { initializeProviderCredential, initializeProviderSecurity, providerSecur
 import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
+import { ensureSandboxNetwork } from '../sandbox/network.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
-import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus } from './host-development.js';
+import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -66,6 +67,28 @@ export function bindSandboxGuestTrust(digest: string, command: CommandRunner, pa
 	atomicJson(path, next, 0o640);
 	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
 	return { changed: current.guestImages.some((entry) => entry.digest !== digest), digest, images };
+}
+
+export function importDevelopmentSandboxGuest(archivePath: string, image: string, command: CommandRunner, options: { stateRoot?: string; brokerPath?: string } = {}) {
+	const stateRoot = realpathSync(options.stateRoot ?? '/home'), archive = realpathSync(archivePath), metadata = lstatSync(archive);
+	if (!archive.startsWith(`${stateRoot}${sep}`) || !/\/\.local\/state\/treeseed\/development\/images\/sandbox-[a-f0-9-]{8,80}\.tar$/u.test(archive)
+		|| !metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0) throw new Error('Development sandbox archive failed bounded local custody validation.');
+	const current = sandboxBrokerConfigurationSchema.parse(JSON.parse(readFileSync(options.brokerPath ?? '/etc/treeseed/sandbox/broker.json', 'utf8')));
+	const requested = image.replace(/^docker\.io\//u, '').replace(/:local$/u, '');
+	const configured = [...new Set(current.guestImages.map(({ image: configuredImage }) => configuredImage.replace(/^docker\.io\//u, '').replace(/(?::[^/]+)?$/u, '')))];
+	if (!configured.includes(requested)) throw new Error('Development sandbox image does not match an authorized provider image repository.');
+	const architecture = process.arch === 'arm64' ? 'linux/arm64' : process.arch === 'x64' ? 'linux/amd64' : null;
+	if (!architecture) throw new Error(`Unsupported sandbox host architecture ${process.arch}.`);
+	const sourceImage = image.startsWith('docker.io/') ? image : `docker.io/${image}`;
+	command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'import', '--platform', architecture, '--digests', archive]);
+	const inspected = String(command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'inspect', sourceImage], '') ?? '');
+	const digest = /\b(sha256:[a-f0-9]{64})\b/iu.exec(inspected)?.[1];
+	if (!digest) throw new Error('Containerd did not report an immutable target digest for the imported development sandbox image.');
+	for (const configuredImage of new Set(current.guestImages.map((entry) => entry.image))) command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'tag', '--force', sourceImage, containerdImageReference(configuredImage, digest)]);
+	const next = { ...current, guestImages: current.guestImages.map((entry) => ({ ...entry, digest })) };
+	atomicJson(options.brokerPath ?? '/etc/treeseed/sandbox/broker.json', next, 0o640);
+	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
+	return { image, digest, architecture, imported: true };
 }
 
 function bundledComposeFiles(files: readonly string[]) {
@@ -201,6 +224,13 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.status':
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
+		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);
+		case 'sandbox.guest-trust.bind': return bindSandboxGuestTrust(operation.digest, command);
+		case 'sandbox.guest-image.import': {
+			const imported = importDevelopmentSandboxGuest(operation.archivePath, operation.image, command);
+			recordHostDevelopmentGuestImage(imported.digest);
+			return imported;
+		}
 		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
@@ -271,6 +301,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'storage.r2.status': return r2StorageStatus(operation.teamId);
 		case 'storage.r2.install': return installR2Storage(operation, command);
 		case 'host.development.activate': {
+			ensureSandboxNetwork(command);
 			if (operation.activation.guestImageDigest) bindSandboxGuestTrust(operation.activation.guestImageDigest, command);
 			return activateHostDevelopment(operation.activation, command);
 		}

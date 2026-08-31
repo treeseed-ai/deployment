@@ -87,8 +87,8 @@ describe('Debian and systemd contracts', () => {
 		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
 		expect(managerPostinstall).not.toContain('try-restart');
 		expect(managerPostinstall).not.toMatch(/restart treeseed-manager-(?:supervisor|api|stable\.service|development\.service)/u);
-		const dropInDirectory = 'install -d -o root -g root -m 0755 /etc/systemd/system/treeseed-sandbox-broker.service.d';
-		expect(managerPostinstall.indexOf(dropInDirectory)).toBeGreaterThan(-1);
+		expect(managerPostinstall).toContain('for unit in treeseed-manager-supervisor treeseed-manager-api treeseed-sandbox-broker treeseed-manager-reconcile treeseed-manager-stable treeseed-manager-development');
+		expect(managerPostinstall).toContain('"/etc/systemd/system/$unit.service.d"');
 		expect(managerPostinstall).not.toContain('model-provider-auth');
 		expect(managerPostinstall).not.toContain('20-execution-provider-credential.conf');
 		expect(readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8')).toContain('systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');

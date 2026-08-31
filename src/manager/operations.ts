@@ -29,7 +29,7 @@ const bootstrapHandoffSchema = z.object({
 }).strict();
 
 export const hostCommandRequestSchema = z.object({
-	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z]+)+$/u),
+	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z][a-z0-9-]*)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
 	options: z.record(z.union([z.string().max(1_100_000), z.number().finite(), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
 	configuration: hostConfigurationSchema.optional(),
@@ -164,6 +164,12 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.host.status':
 			if (!context.local) throw new Error('Host runtime development status is available only through the protected local manager socket.');
 			return requestSupervisor({ operation: 'host.development.status' });
+		case 'local.dev.host.guest-image.import': {
+			if (!context.local) throw new Error('Development guest images may be imported only through the protected local manager socket.');
+			if (!host.fleet.rolloutGroup.toLowerCase().includes('development')) throw new Error('Development guest-image import is restricted to development rollout groups.');
+			const payload = z.object({ archivePath: z.string().startsWith('/').max(4_096), image: z.string().regex(/^(?:docker\.io\/)?treeseed\/sandbox-[a-z0-9._-]+:local$/u) }).strict().parse(developmentPayload(request));
+			return requestSupervisor({ operation: 'sandbox.guest-image.import', ...payload });
+		}
 		case 'local.dev.host.deactivate':
 			if (!context.local) throw new Error('Host runtime development may be deactivated only through the protected local manager socket.');
 			return requestSupervisor({ operation: 'host.development.deactivate' });

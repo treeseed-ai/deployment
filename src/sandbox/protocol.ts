@@ -1,4 +1,4 @@
-import { sandboxAssignmentSchema } from '@treeseed/sdk/capacity-provider';
+import { sandboxAssignmentSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { z } from 'zod';
 
 export const sandboxCreateRequestSchema = z.object({
