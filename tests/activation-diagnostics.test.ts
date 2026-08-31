@@ -15,12 +15,12 @@ describe('bounded component activation diagnostics', () => {
 			}) }]);
 			if (arguments_[0] === 'inspect' && input === '') {
 				expect(arguments_[2]).toContain('index .Config.Labels "com.docker.compose.service"');
-				return 'runner\trunning\tunhealthy\t0\n';
+				return 'runner\trunning\tstarting\t0\n';
 			}
 			return undefined;
 		};
 		expect(() => executeSupervisorOperation(activation, command, () => undefined))
-			.toThrow(/component health:.*"service":"runner".*"manifestVersion":5.*connect EACCES token=<redacted>/u);
+			.toThrow(/component health:.*"service":"runner".*"health":"starting".*"manifestVersion":5.*connect EACCES token=<redacted>/u);
 	});
 
 	it('never includes undeclared payload fields or secret-like values', () => {
