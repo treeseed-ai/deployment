@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   publish:
-    environment: ${{ inputs.suite }}
+    environment: ${{ inputs.suite == 'stable' && 'production' || 'staging' }}
     runs-on: ubuntu-latest
     env:
       TREESEED_APT_SUITE: ${{ inputs.suite }}
