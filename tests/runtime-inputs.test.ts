@@ -57,6 +57,13 @@ describe('component runtime input custody', () => {
 		expect(managedRuntimeInputEnvironment(configuration, release, { runtimeGid: () => 1000 }, { TREESEED_AI_MODE_URL: 'https://host.docker.internal:4790/v1/ai/mode' })).toEqual({});
 	});
 
+	it('validates configured inputs without duplicating them into the supervisor connection environment', () => {
+		const configuration = host(), release = component('api', 'development', 'b');
+		release.runtime.configuration = { environment: [{ name: 'NODE_ENV', required: false, source: 'configuration' }], secretEnvironment: [], secretFiles: [], files: [] };
+		configuration.components.api!.configuration = { environment: { NODE_ENV: 'production' } };
+		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment).toEqual({});
+	});
+
 	it('prepares the mode controller environment before privileged activation', () => {
 		const configuration = host(), release = component('ai-lab', 'development', 'b');
 		release.runtime.modeControl = { role: 'controller', resource: 'ai-gpu', states: ['awake', 'sleep'] } as any;

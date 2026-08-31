@@ -207,8 +207,11 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 		});
 	}
 	const runtimeEnvironment = managedRuntimeInputEnvironment(host, component, undefined, connectionEnvironment);
-	for (const name of Object.keys(runtimeEnvironment)) if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
-	Object.assign(connectionEnvironment, runtimeEnvironment);
+	const managerInputs = new Set(component.runtime.configuration.environment.filter(({ source }) => source === 'manager').map(({ name }) => name));
+	for (const [name, value] of Object.entries(runtimeEnvironment)) {
+		if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
+		if (managerInputs.has(name)) connectionEnvironment[name] = value;
+	}
 	const secretFileIds = component.runtime.configuration.secretFiles.filter(({ id }) => host.secrets[id] !== undefined).map(({ id }) => id);
 	return { connectionEnvironment, secretFileIds };
 }
