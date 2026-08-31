@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { componentReleaseSchema, integrationReleaseSchema, releaseCatalogSchema } from '@treeseed/sdk/deployment';
+import { componentReleaseSchema, deploymentDigest, integrationReleaseSchema, releaseCatalogSchema } from '@treeseed/sdk/deployment';
 
 const output = resolve('release/out');
 const aptSuite = process.env.TREESEED_APT_SUITE;
@@ -55,10 +55,17 @@ try {
 	if (bootstrap.includes('/etc/treeseed/platform.json') || bootstrap.includes('credentials.json') || bootstrap.includes('treeseed-component-')) throw new Error('Generic bootstrap contains configured host or component activation behavior.');
 	execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), [resolve(root, 'usr/lib/treeseed/cli/dist/cli/main.js'), 'host', 'status', '--help'], { encoding: 'utf8' });
 	for (const module of ['operator-contracts/operation-builder.js', 'standards/typescript/extract.js']) execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/dist', module)}`)})`], { encoding: 'utf8' });
-	const stable = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/stable.json'), 'utf8')));
+	const verifiedCatalog = (path: string) => {
+		const catalog = releaseCatalogSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+		const declared = catalog.catalogDigest;
+		const material = { ...catalog, catalogDigest: 'sha256:'.padEnd(71, '0') };
+		if (deploymentDigest(material) !== declared) throw new Error(`Packaged catalog digest mismatch for ${path}.`);
+		return catalog;
+	};
+	const stable = verifiedCatalog(resolve(root, 'usr/share/treeseed/catalogs/stable.json'));
 	if (aptSuite === 'stable' && existsSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'))) throw new Error('Stable package set carries a development catalog.');
 	if (aptSuite === 'development') {
-		const development = releaseCatalogSchema.parse(JSON.parse(readFileSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'), 'utf8')));
+		const development = verifiedCatalog(resolve(root, 'usr/share/treeseed/catalogs/development.json'));
 		if (development.stableBase?.catalogDigest !== stable.catalogDigest) throw new Error('Development catalog is not bound to the selected stable base.');
 	}
 	for (const component of selected) {

@@ -195,10 +195,10 @@ describe('Debian and systemd contracts', () => {
 		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'");
 	});
 
-	it('versions stable catalog packages by immutable catalog generation', () => {
+	it('versions stable catalog packages by immutable generation and digest', () => {
 		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
-		expect(packager).toContain('stableCatalog.generation');
-		expect(packager).toContain('`${stableCatalogRelease}-${stableCatalog.generation}`');
+		expect(packager).toContain('stableCatalogDebianVersion(stableCatalog)');
+		expect(readFileSync('scripts/catalog-package-version.ts', 'utf8')).toContain("+catalog.${catalog.catalogDigest.slice(7, 19)}");
 		expect(packager).not.toContain('const stableCatalogVersion = `${stableCatalogRelease}-1`');
 	});
 

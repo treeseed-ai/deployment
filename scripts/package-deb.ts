@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { componentReleaseSchema, integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
+import { stableCatalogDebianVersion } from './catalog-package-version.js';
 
 interface Definition { architecture: 'all' | 'amd64'; depends: string; description: string; packageName?: string; version?: string; replaces?: string; breaks?: string; payload?: (stage: string) => void; postinst?: string }
 const root = process.cwd(), output = resolve(root, 'release/out'), cache = resolve(root, '.treeseed/cache'), artifacts = resolve(root, '.treeseed/artifacts');
@@ -10,11 +11,8 @@ const npmVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'
 const deploymentVersion = process.env.TREESEED_DEBIAN_VERSION ?? npmVersion.replace(/-rc\.(\d+)$/u, '~rc$1') + '-1';
 const aptSuite = process.env.TREESEED_APT_SUITE;
 if (aptSuite !== undefined && aptSuite !== 'stable' && aptSuite !== 'development') throw new Error('TREESEED_APT_SUITE must be stable or development.');
-const stableCatalog = JSON.parse(readFileSync(resolve(artifacts, 'catalogs/stable.json'), 'utf8')) as { release: string; generation: number };
-const stableCatalogRelease = stableCatalog.release;
-if (!/^\d+\.\d+\.\d+$/u.test(stableCatalogRelease)) throw new Error('Stable catalog release is not a Debian-compatible version.');
-if (!Number.isInteger(stableCatalog.generation) || stableCatalog.generation < 1) throw new Error('Stable catalog generation is not a positive integer.');
-const stableCatalogVersion = `${stableCatalogRelease}-${stableCatalog.generation}`;
+const stableCatalog = JSON.parse(readFileSync(resolve(artifacts, 'catalogs/stable.json'), 'utf8')) as { release: string; generation: number; catalogDigest: string };
+const stableCatalogVersion = stableCatalogDebianVersion(stableCatalog);
 function readIntegration(track: 'stable' | 'development') {
 	const path = resolve(artifacts, 'integrations', `${track}.json`);
 	return existsSync(path) ? integrationReleaseSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined;

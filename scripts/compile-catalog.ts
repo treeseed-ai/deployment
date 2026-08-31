@@ -4,8 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { componentReleaseSchema, deploymentDigest, releaseCatalogSchema, type ComponentRelease, type ReleaseCatalog } from '@treeseed/sdk/deployment';
 
 export function sealCatalog(catalog: Omit<ReleaseCatalog, 'catalogDigest'>): ReleaseCatalog {
-	const material = { ...catalog, catalogDigest: 'sha256:'.padEnd(71, '0') };
-	return releaseCatalogSchema.parse({ ...catalog, catalogDigest: deploymentDigest(material) });
+	const material = releaseCatalogSchema.parse({ ...catalog, catalogDigest: 'sha256:'.padEnd(71, '0') });
+	return releaseCatalogSchema.parse({ ...material, catalogDigest: deploymentDigest(material) });
 }
 
 function argument(name: string) {
