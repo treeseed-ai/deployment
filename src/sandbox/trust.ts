@@ -1,6 +1,6 @@
 import { createPublicKey, verify, type JsonWebKey } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import type { SandboxAssignment, SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider';
+import type { SandboxAssignment, SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider/sandbox';
 import { z } from 'zod';
 
 const registrySchema = z.object({ schemaVersion: z.literal(1), providers: z.record(z.object({ publicJwk: z.object({

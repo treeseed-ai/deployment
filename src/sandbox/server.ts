@@ -1,12 +1,13 @@
 import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
+import { connect } from 'node:net';
 import { dirname } from 'node:path';
 import { loadSandboxBrokerConfiguration } from './configuration.js';
 import { inspectSandboxHost } from './doctor.js';
 import { KataSandboxRuntime } from './runtime.js';
 import { verifySandboxAssignment, verifySandboxLeaseRenewal } from './trust.js';
-import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider';
+import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { proxyModelRequest } from './model-gateway.js';
 
 async function body(request: IncomingMessage) {
@@ -15,6 +16,9 @@ async function body(request: IncomingMessage) {
 }
 function respond(response: ServerResponse, status: number, value: unknown) { response.writeHead(status, { 'content-type': 'application/json' }); response.end(`${JSON.stringify(value)}\n`); }
 const token = (request: IncomingMessage) => String(request.headers.authorization ?? '').replace(/^Bearer\s+/iu, '');
+// Codex subscription transport uses ChatGPT plus OpenAI's first-party response
+// transport hosts. Keep this deliberately narrower than general egress.
+export const allowedSubscriptionProxyHost = (host: string) => ['openai.com', 'chatgpt.com', 'oaiusercontent.com'].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
 
 export function startSandboxBroker() {
 	if (process.getuid?.() !== 0) throw new Error('TreeSeed sandbox broker must run as root.');
@@ -63,5 +67,21 @@ export function startSandboxBroker() {
 		} catch (error) { respond(response, 400, { error: error instanceof Error ? error.message : 'relay_operation_failed' }); }
 	});
 	relay.listen(configuration.relay.port, configuration.relay.listenHost);
+	const subscriptionProxy = createServer();
+	subscriptionProxy.on('connect', (request, client, head) => {
+		let requestedHost = '';
+		try {
+			const target = new URL(`https://${request.url ?? ''}`), host = target.hostname, port = Number(target.port || 443); requestedHost = /^[a-z0-9.-]{1,253}$/u.test(host) ? host : '';
+			if (port !== 443 || !allowedSubscriptionProxyHost(host)) throw new Error('Subscription proxy target is not authorized.');
+			const authorization = String(request.headers['proxy-authorization'] ?? '');
+			const decoded = authorization.startsWith('Basic ') ? Buffer.from(authorization.slice(6), 'base64').toString('utf8') : '';
+			const separator = decoded.indexOf(':'), sandboxId = separator > 0 ? decoded.slice(0, separator) : '', operationToken = separator > 0 ? decoded.slice(separator + 1) : '';
+			runtime.authorizeSubscriptionProxy(sandboxId, operationToken);
+			process.stderr.write(`${JSON.stringify({ source: 'sandbox-subscription-proxy', status: 'accepted', host })}\n`);
+			const upstream = connect(port, host, () => { client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (head.length) upstream.write(head); upstream.pipe(client); client.pipe(upstream); });
+			upstream.once('error', () => client.destroy()); client.once('error', () => upstream.destroy());
+		} catch (error) { process.stderr.write(`${JSON.stringify({ source: 'sandbox-subscription-proxy', status: 'denied', ...(requestedHost ? { host: requestedHost } : {}), reason: error instanceof Error ? error.message : 'invalid_request', authorizationPresent: Boolean(request.headers['proxy-authorization']) })}\n`); client.end('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="TreeSeed assignment"\r\nConnection: close\r\n\r\n'); }
+	});
+	subscriptionProxy.listen(configuration.relay.port + 1, configuration.relay.listenHost);
 	return server;
 }

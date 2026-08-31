@@ -256,10 +256,10 @@ describe('unified host manager foundation', () => {
 		expect(calls[0]?.arguments.join(' ')).not.toContain('one-time-secret');
 		expect(JSON.parse(calls[0]!.input!)).toMatchObject({ action: 'begin', connectionId: 'local-team', enrollmentToken: 'one-time-secret' });
 	});
-
 	it('accepts only bounded host commands and fixed configuration or enrollment mutations', () => {
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.component.enable', arguments: ['agent'], options: { plan: true } })).toMatchObject({ handlerId: 'local.host.component.enable' });
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.dev.session.start', options: { payload: '{}' } })).toMatchObject({ handlerId: 'local.dev.session.start' });
+		expect(hostCommandRequestSchema.parse({ handlerId: 'local.dev.host.guest-image.import', options: { payload: '{}' } })).toMatchObject({ handlerId: 'local.dev.host.guest-image.import' });
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'remote.shell', arguments: ['id'] })).toThrow();
 		expect(() => hostCommandRequestSchema.parse({ handlerId: 'local.shell.execute', arguments: ['id'] })).toThrow();
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.reset', options: { confirm: true } })).toMatchObject({ handlerId: 'local.host.reset', options: { confirm: true } });

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { SandboxBrokerConfiguration } from './protocol.js';
-import type { SandboxAssignment } from '@treeseed/sdk/capacity-provider';
+import type { SandboxAssignment } from '@treeseed/sdk/capacity-provider/sandbox';
 
 async function boundedBody(request: IncomingMessage, maximum = 16 * 1024 * 1024) {
 	const chunks: Buffer[] = []; let bytes = 0;

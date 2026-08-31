@@ -11,6 +11,7 @@ import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { credentialInitializer, credentialRoot as registeredCredentialRoot } from './credential-initializers.js';
+import { ensureSandboxNetwork } from '../sandbox/network.js';
 
 const credentialRoot = registeredCredentialRoot;
 const mapperName = 'treeseed-provider-data';
@@ -79,14 +80,7 @@ function completeProviderSecurity(value: ReturnType<typeof providerSecuritySetti
 	mkdirSync('/etc/treeseed/sandbox', { recursive: true, mode: 0o750 }); mkdirSync('/etc/cni/net.d', { recursive: true, mode: 0o755 });
 	if (!existsSync('/etc/treeseed/sandbox/relay.crt') || !existsSync(`${credentialRoot}/sandbox-relay-tls-key.cred`)) throw new Error('Sandbox completion requires the sealed relay credential from provider-volume initialization.');
 	if (!existsSync('/etc/treeseed/sandbox/providers.json')) writeFileSync('/etc/treeseed/sandbox/providers.json', `${JSON.stringify({ schemaVersion: 1, providers: {} })}\n`, { mode: 0o640, flag: 'wx' });
-	writeFileSync('/etc/cni/net.d/20-treeseed-sandboxes.conflist', `${JSON.stringify({ cniVersion: '1.0.0', name: 'treeseed-sandboxes', plugins: [
-		{ type: 'bridge', bridge: 'treeseed-sbx0', isGateway: true, ipMasq: activation?.authenticationMode === 'codex-subscription', hairpinMode: false, ipam: { type: 'host-local', ranges: [[{ subnet: '10.89.0.0/24', gateway: '10.89.0.1' }]] } },
-		{ type: 'firewall', ingressPolicy: 'same-bridge' },
-	] }, null, 2)}\n`, { mode: 0o644 });
-	const subscriptionEgress = activation?.authenticationMode === 'codex-subscription' ? ' iifname "treeseed-sbx0" udp dport 53 accept; iifname "treeseed-sbx0" tcp dport { 53, 443 } accept;' : '';
-	writeFileSync('/etc/treeseed/sandbox/network.nft', `table inet treeseed_sandbox {\n chain input { type filter hook input priority -10; policy accept; iifname "treeseed-sbx0" ip daddr 10.89.0.1 tcp dport 7443 accept; iifname "treeseed-sbx0" drop; }\n chain forward { type filter hook forward priority -10; policy accept;${subscriptionEgress} iifname "treeseed-sbx0" drop; oifname "treeseed-sbx0" ct state established,related accept; oifname "treeseed-sbx0" drop; }\n}\n`, { mode: 0o640 });
-	try { command('/usr/sbin/nft', ['delete', 'table', 'inet', 'treeseed_sandbox']); } catch { /* first initialization has no prior table */ }
-	command('/usr/sbin/nft', ['--file', '/etc/treeseed/sandbox/network.nft']);
+	ensureSandboxNetwork(command);
 	const modelGateway = activation ? { upstreamBaseUrl: value.security.sandbox.modelGateway.upstreamBaseUrl, authenticationMode: activation.authenticationMode, credentialFile: `/run/credentials/${activation.credentialId}`, allowedProviders: [value.security.sandbox.modelGateway.provider], allowedModels: value.security.sandbox.modelGateway.allowedModels } : undefined;
 	writeFileSync('/etc/treeseed/sandbox/broker.json', `${JSON.stringify({ socketPath: value.security.sandbox.brokerSocket, containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
 		relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' },

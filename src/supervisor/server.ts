@@ -27,7 +27,7 @@ export function createSupervisorServer() {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				recordEvent('supervisor.operation-failed', { operation, message });
-				const operatorMessage = operation === 'security.initialize' || operation === 'provider.credential.initialize' ? message : undefined;
+				const operatorMessage = operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
 				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation, ...(operatorMessage ? { message: operatorMessage } : {}) })}\n`);
 			}
 		});

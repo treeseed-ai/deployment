@@ -5,9 +5,9 @@ import { appendFile, chmod, chown, mkdir, readFile, rm, stat, writeFile } from '
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import type { IncomingMessage } from 'node:http';
-import { sandboxAssignmentSchema, sandboxEventSchema, sandboxResultSchema, type SandboxAssignment, type SandboxEvent, type SandboxResult } from '@treeseed/sdk/capacity-provider';
+import { sandboxAssignmentSchema, sandboxEventSchema, sandboxResultSchema, type SandboxAssignment, type SandboxEvent, type SandboxResult } from '@treeseed/sdk/capacity-provider/sandbox';
 import type { SandboxBrokerConfiguration } from './protocol.js';
-import type { SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider';
+import type { SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider/sandbox';
 import { containerdImageReference } from './image-reference.js';
 
 interface Prepared {
@@ -15,6 +15,10 @@ interface Prepared {
 	tokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
 }
 export const safeContainerId = (value: string) => value.replace(/[^a-zA-Z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80) || 'assignment';
+export const authorizedGuestImage = (configured: SandboxBrokerConfiguration['guestImages'], assignment: Pick<SandboxAssignment, 'guestImage' | 'guestImageDigest' | 'profile'>) => {
+	const requested = containerdImageReference(assignment.guestImage, assignment.guestImageDigest);
+	return configured.some((entry) => containerdImageReference(entry.image, entry.digest) === requested && entry.profiles.includes(assignment.profile));
+};
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest();
 
 async function materializeGuestResolver(directory: string) {
@@ -70,7 +74,7 @@ export class KataSandboxRuntime {
 		const requiresModelCredential = assignment.network.allowedServices.some((service) => service === 'model-gateway' || service === 'codex-subscription');
 		if (requiresModelCredential && !modelGateway) throw new Error('The selected execution adapter has no configured credential on this capacity provider.');
 		if (modelGateway?.authenticationMode === 'codex-subscription' && !assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription authentication.');
-		if (!this.configuration.guestImages.some((entry) => entry.image === assignment.guestImage && entry.digest === assignment.guestImageDigest && entry.profiles.includes(assignment.profile))) throw new Error('Sandbox guest image is not authorized by the installed release catalog.');
+		if (!authorizedGuestImage(this.configuration.guestImages, assignment)) throw new Error('Sandbox guest image is not authorized by the installed release catalog.');
 		const sandboxId = `sandbox-${safeContainerId(assignment.assignmentId)}-${assignment.attempt}-${randomUUID().slice(0, 8)}`;
 		const directory = resolve(this.configuration.stateRoot, sandboxId), inputDirectory = resolve(directory, 'input'), outputDirectory = resolve(directory, 'output');
 		if (!directory.startsWith(`${this.configuration.stateRoot}/`)) throw new Error('Resolved sandbox state path escaped its root.');
@@ -129,9 +133,21 @@ export class KataSandboxRuntime {
 			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
 		const child = spawn('/usr/bin/ctr', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); sandbox.child = child;
 		let stderr = ''; child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 16_384) stderr += chunk.toString('utf8'); });
+		let lastProgress = '';
+		const progressTimer = setInterval(() => { void readFile(resolve(sandbox.outputDirectory, 'progress.json'), 'utf8').then((value) => {
+			if (value === lastProgress) return; lastProgress = value;
+			try { const event = JSON.parse(value) as Record<string, unknown>; process.stderr.write(`${JSON.stringify({ source: 'sandbox-guest', sandboxId, assignmentId: sandbox.assignment.assignmentId, stage: event.stage, occurredAt: event.occurredAt })}\n`); } catch { /* Ignore partial progress writes. */ }
+		}).catch(() => undefined); }, 500);
 		const executionDeadline = Date.now() + sandbox.assignment.resources.durationSeconds * 1_000; let timeout: ReturnType<typeof setTimeout>;
-		const enforceDeadline = () => { const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt)) - Date.now(); timeout = setTimeout(() => remaining <= 1 ? child.kill('SIGKILL') : enforceDeadline(), Math.max(1, remaining)); }; enforceDeadline();
-		const exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); }); clearTimeout(timeout!); delete sandbox.child;
+		const enforceDeadline = () => {
+			const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt)) - Date.now();
+			if (remaining <= 1) { child.kill('SIGKILL'); return; }
+			// Re-read the mutable lease when this timer fires. A renewal received while
+			// the guest is running must extend the lease boundary without extending the
+			// assignment's immutable execution-duration limit.
+			timeout = setTimeout(enforceDeadline, remaining);
+		}; enforceDeadline();
+		const exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); }); clearTimeout(timeout!); clearInterval(progressTimer); delete sandbox.child;
 		if (exitCode !== 0) {
 			const failureContent = await readFile(resolve(sandbox.outputDirectory, 'failure.json'), 'utf8').catch(() => '');
 			const failureDigest = `sha256:${createHash('sha256').update(failureContent).digest('hex')}`;
@@ -167,6 +183,12 @@ export class KataSandboxRuntime {
 
 	inspect(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); return { sandboxId, assignmentId: sandbox.assignment.assignmentId, uploadedInputs: [...sandbox.uploaded], running: Boolean(sandbox.child), events: sandbox.events, result: sandbox.result ?? null }; }
 	modelPolicy(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment model authority expired.'); return sandbox.assignment.modelPolicy; }
+	authorizeSubscriptionProxy(sandboxId: string, token: string) {
+		const sandbox = this.authorized(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment subscription proxy authority expired.');
+		if (this.configuration.modelGateway?.authenticationMode !== 'codex-subscription' || !sandbox.assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription proxy access.');
+		return true;
+	}
 	renewLease(sandboxId: string, token: string, renewal: SandboxLeaseRenewal) {
 		const sandbox = this.authorized(sandboxId, token), next = Date.parse(renewal.leaseExpiresAt), issued = Date.parse(renewal.issuedAt);
 		if (renewal.sandboxId !== sandboxId || renewal.assignmentId !== sandbox.assignment.assignmentId || renewal.providerId !== sandbox.assignment.providerId || renewal.teamId !== sandbox.assignment.teamId) throw new Error('Sandbox lease renewal correlation mismatch.');
