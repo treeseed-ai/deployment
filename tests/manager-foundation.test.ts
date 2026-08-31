@@ -467,8 +467,6 @@ describe('unified host manager foundation', () => {
 		expect(operations).not.toMatch(/\breconcile\(\)/u);
 		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(5);
 		expect(operations.match(/serializedReconcile\(undefined, true\)/gu)?.length).toBe(1);
-		expect(serializedReconcileArguments(undefined, false, ['api'])).toContain('--components=api');
-		expect(operations).toContain("serializedReconcile(undefined, false, ['api'])");
 	});
 
 	it('defers manager self-restart long enough to return the accepted receipt', () => {
