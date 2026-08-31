@@ -27,7 +27,7 @@ export function host(): HostConfiguration {
 }
 
 export function catalogs() {
-	const stable: ReleaseCatalog = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [component('api', 'stable', 'b')], createdAt: '2026-08-23T00:00:00.000Z' };
-	const development: ReleaseCatalog = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc1', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: stable.release, catalogDigest: stable.catalogDigest }, components: [component('agent', 'development', 'c')], createdAt: '2026-08-23T00:00:00.000Z' };
+	const stable: ReleaseCatalog = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [component('api', 'stable', 'b')], hostProfiles: [], createdAt: '2026-08-23T00:00:00.000Z' };
+	const development: ReleaseCatalog = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc1', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: stable.release, catalogDigest: stable.catalogDigest }, components: [component('agent', 'development', 'c')], hostProfiles: [], createdAt: '2026-08-23T00:00:00.000Z' };
 	return { stable, development };
 }

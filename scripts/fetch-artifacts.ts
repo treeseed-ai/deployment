@@ -14,7 +14,9 @@ function safeTarget(relative: string) {
 	return path;
 }
 async function acquire(url: string, sha256: string, relative: string) {
-	if (!/^https:\/\/(?:github\.com|registry\.npmjs\.org)\//u.test(url) || !/^[a-f0-9]{64}$/u.test(sha256)) throw new Error(`Artifact ${url} has an invalid immutable identity.`);
+	const allowed = /^https:\/\/(?:github\.com|registry\.npmjs\.org)\//u.test(url)
+		|| /^https:\/\/raw\.githubusercontent\.com\/treeseed-ai\/[a-z0-9-]+\/[a-f0-9]{40}\//u.test(url);
+	if (!allowed || !/^[a-f0-9]{64}$/u.test(sha256)) throw new Error(`Artifact ${url} has an invalid immutable identity.`);
 	const path = safeTarget(relative);
 	if (existsSync(path) && digest(readFileSync(path)) === sha256) return path;
 	const response = await fetch(url, { redirect: 'follow' });
@@ -37,6 +39,7 @@ for (const input of inputs) {
 	} else raw = readFileSync(resolve(input), 'utf8');
 	const integration = integrationReleaseSchema.parse(JSON.parse(raw));
 	for (const payload of integration.hostPayloads) await acquire(payload.artifact.url, payload.artifact.sha256, `payloads/${payload.id}/${basename(new URL(payload.artifact.url).pathname)}`);
+	for (const profile of integration.hostProfiles) await acquire(profile.artifact.url, profile.artifact.sha256, `profiles/${profile.id}/profile.json`);
 	for (const component of integration.components) {
 		await acquire(component.manifest.url, component.manifest.sha256, `components/${component.componentId}/${component.release}/component-release.json`);
 		for (const file of component.files) await acquire(file.artifact.url, file.artifact.sha256, `components/${component.componentId}/${component.release}/${file.path}`);

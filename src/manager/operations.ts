@@ -24,6 +24,7 @@ import { credentialInitializerStatus, loadCredentialInitializers } from '../secu
 import { hostDevelopmentActivationSchema } from '../supervisor/host-development.js';
 import { storageEnvironmentForRolloutGroup } from '../cloudflare/r2-replication-provisioning.js';
 import { assertTreeDxResetSafe } from './reset-safety.js';
+import { planHostInitialization, validateHostInitializationInputs } from './initialization.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -151,6 +152,19 @@ function bootstrapStatus() {
 
 export async function executeHostCommand(input: unknown, context: { local: boolean }) {
 	const request = hostCommandRequestSchema.parse(input), host = tryLoadHostConfiguration();
+	if (request.handlerId === 'local.host.initialize') {
+		if (!context.local) throw new Error('Host initialization is available only through the protected local manager socket.');
+		const profile = request.options.profile;
+		if (typeof profile !== 'string') throw new Error('Host initialization requires --profile.');
+		const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
+		const proposed = planHostInitialization(profile, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, host);
+		if (request.options.plan === true) return proposed;
+		if (request.options.confirm !== true) throw new Error('Host initialization execution requires confirmation after reviewing the plan.');
+		const payload = developmentPayload(request) as { profile?: unknown; inputs?: unknown };
+		if (payload.profile !== profile) throw new Error('Host initialization payload does not match the planned profile.');
+		validateHostInitializationInputs(proposed, payload.inputs);
+		throw new Error('Host initialization execution is not enabled until configuration rendering and capacity-provider registration handoff are accepted. No input was retained.');
+	}
 	if (request.handlerId === 'local.host.uninstall') {
 		if (!context.local) throw new Error('Host uninstall is available only through the protected local manager socket.');
 		if (request.options.plan === true) return requestSupervisor({ operation: 'platform.uninstall.plan' });
