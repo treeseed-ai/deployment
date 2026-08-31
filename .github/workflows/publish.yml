@@ -48,6 +48,10 @@ jobs:
             case "${{ inputs.tag }}" in *-rc.*) :;; *) exit 1;; esac
             test -n "${{ inputs.development_lock_url }}"
           fi
+      - name: Require protected publication credentials before building
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: test -n "$APT_SIGNING_KEY"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
@@ -125,7 +129,9 @@ jobs:
             cp "${lab_bundles[0]}" release/out/lab-component-release.json
             cp "$(dirname "${lab_bundles[0]}")/compose.yml" release/out/lab-compose.yml
           fi
-          printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
+          checked_out_head="$(git rev-parse HEAD)"
+          test "$checked_out_head" = "$(git rev-list -n 1 "${{ inputs.tag }}")"
+          printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$checked_out_head" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
           subject-path: release/out/*.deb
@@ -163,5 +169,5 @@ jobs:
           node --import tsx scripts/publish-apt.ts "${{ inputs.suite }}"
           touch .treeseed/pages/.nojekyll
           git -C .treeseed/pages add --all
-          git -C .treeseed/pages -c user.name='TreeSeed Release Automation' -c user.email='releases@treeseed.ai' commit -m "Publish ${{ inputs.suite }} from ${{ github.sha }}"
+          git -C .treeseed/pages -c user.name='TreeSeed Release Automation' -c user.email='releases@treeseed.ai' commit -m "Publish ${{ inputs.suite }} from $(git rev-parse HEAD)"
           git -C .treeseed/pages push origin HEAD:gh-pages

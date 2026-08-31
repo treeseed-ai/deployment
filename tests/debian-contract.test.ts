@@ -179,6 +179,10 @@ describe('Debian and systemd contracts', () => {
 		const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 		expect(publisher).toContain('release/apt/${suite}.fingerprint');
 		expect(publisher).toContain('does not match its published keyring');
+		expect(workflow.indexOf('Require protected publication credentials before building')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
+		expect(workflow).toContain('checked_out_head="$(git rev-parse HEAD)"');
+		expect(workflow).toContain('test "$checked_out_head" = "$(git rev-list -n 1');
+		expect(workflow).not.toContain('"$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}"');
 		const stable = readFileSync('release/apt/stable.fingerprint', 'utf8').trim();
 		const development = readFileSync('release/apt/development.fingerprint', 'utf8').trim();
 		expect(stable).toMatch(/^[A-F0-9]{40}$/u);
