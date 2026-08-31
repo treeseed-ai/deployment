@@ -112,6 +112,57 @@ function composeProjectContainerIds(projectName: string, command: CommandRunner,
 	return typeof output === 'string' ? output.trim().split(/\s+/u).filter(Boolean) : [];
 }
 
+function safeDiagnosticText(value: unknown) {
+	if (typeof value !== 'string') return null;
+	return value
+		.replace(/(authorization|password|secret|token|key)(["' ]*[:=]["' ]*)[^\s,;}]+/giu, '$1$2<redacted>')
+		.replace(/Bearer\s+[^\s,;}]+/giu, 'Bearer <redacted>')
+		.slice(0, 500);
+}
+
+function agentHealthDiagnostic(output: unknown) {
+	if (typeof output !== 'string' || !output.trim()) return null;
+	try {
+		const logs = JSON.parse(output) as Array<{ Output?: unknown }>;
+		for (const entry of logs.slice().reverse()) {
+			if (typeof entry.Output !== 'string' || !entry.Output.trim()) continue;
+			try {
+				const payload = JSON.parse(entry.Output) as Record<string, unknown>;
+				const broker = payload.broker && typeof payload.broker === 'object' && !Array.isArray(payload.broker) ? payload.broker as Record<string, unknown> : undefined;
+				const disk = payload.disk && typeof payload.disk === 'object' && !Array.isArray(payload.disk) ? payload.disk as Record<string, unknown> : undefined;
+				return {
+					...(typeof payload.status === 'string' ? { status: payload.status.slice(0, 64) } : {}),
+					...(typeof payload.dataDirWritable === 'boolean' ? { dataDirWritable: payload.dataDirWritable } : {}),
+					...(typeof payload.manifestVersion === 'number' ? { manifestVersion: payload.manifestVersion } : {}),
+					...(broker ? { broker: { required: broker.required === true, ready: broker.ready === true, reason: safeDiagnosticText(broker.reason) } } : {}),
+					...(disk ? { disk: { ok: disk.ok === true, reason: safeDiagnosticText(disk.reason) } } : {}),
+					...(typeof payload.error === 'string' ? { error: safeDiagnosticText(payload.error) } : {}),
+				};
+			} catch { /* only structured Agent health payloads are eligible */ }
+		}
+	} catch { /* malformed Docker inspection output is not operator evidence */ }
+	return null;
+}
+
+function composeFailureDiagnostics(componentId: string, projectName: string, command: CommandRunner) {
+	const diagnostics: Array<Record<string, unknown>> = [];
+	let ids: string[];
+	try { ids = composeProjectContainerIds(projectName, command); }
+	catch { return diagnostics; }
+	for (const id of ids) {
+		try {
+			const raw = String(command('/usr/bin/docker', ['inspect', '--format', '{{.Config.Labels.com.docker.compose.service}}\t{{.State.Status}}\t{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\t{{.State.ExitCode}}', id], '') ?? '').trim();
+			const [service = '', state = '', health = '', exitCode = ''] = raw.split('\t');
+			if (!/^[a-z][a-z0-9.-]{0,127}$/u.test(service) || !/^[a-z]+$/u.test(state) || !/^(?:none|starting|healthy|unhealthy)$/u.test(health)) continue;
+			const code = Number(exitCode);
+			const diagnostic = componentId === 'agent' && health === 'unhealthy'
+				? agentHealthDiagnostic(command('/usr/bin/docker', ['inspect', '--format', '{{json .State.Health.Log}}', id], '')) : null;
+			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
+		} catch { /* retain any other safe service summaries */ }
+	}
+	return diagnostics;
+}
+
 function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: CommandRunner) {
 	try { command('/usr/bin/docker', ['network', 'inspect', name]); }
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
@@ -275,7 +326,13 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
 			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
-			catch (error) { restoreSecrets(operation.componentId); throw error; }
+			catch (error) {
+				const diagnostics = composeFailureDiagnostics(operation.componentId, operation.projectName, command);
+				restoreSecrets(operation.componentId);
+				if (diagnostics.length === 0) throw error;
+				const message = error instanceof Error ? error.message : String(error);
+				throw new Error(`${message}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
+			}
 			if (operation.componentId === 'agent') {
 				const input = `${JSON.stringify({ action: 'identities' })}\n`;
 				const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
