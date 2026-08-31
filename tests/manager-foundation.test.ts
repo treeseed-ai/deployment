@@ -447,15 +447,15 @@ describe('unified host manager foundation', () => {
 		expect(validate).toBeGreaterThan(install);
 	});
 
-	it('serializes bootstrap reconciliation and starts an inactive edge', () => {
+	it('stops reconciliation while establishing an unconfigured manager foundation', () => {
 		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
-		const stopTimers = bootstrap.indexOf('systemctl stop treeseed-manager-development.timer'), initialReconcile = bootstrap.indexOf('systemctl start treeseed-manager-reconcile.service'), startTimers = bootstrap.indexOf('systemctl start treeseed-manager-stable.timer');
+		const stopTimers = bootstrap.indexOf('systemctl stop treeseed-manager-development.timer'), managerStart = bootstrap.indexOf('systemctl restart treeseed-manager-supervisor.service');
 		expect(stopTimers).toBeGreaterThan(0);
-		expect(initialReconcile).toBeGreaterThan(stopTimers);
-		expect(startTimers).toBeGreaterThan(initialReconcile);
+		expect(managerStart).toBeGreaterThan(stopTimers);
+		for (const forbidden of ['systemctl start treeseed-manager-reconcile.service', 'systemctl start treeseed-manager-stable.timer']) expect(bootstrap).not.toContain(forbidden);
 		expect(readFileSync(resolve(process.cwd(), 'src/supervisor/execute.ts'), 'utf8')).toContain("['reload-or-restart', 'treeseed-edge.service']");
 		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
-		expect(bootstrap).toContain('elif [ ! -f /etc/treeseed/platform.json ]');
+		expect(bootstrap).toContain('initializationRequired');
 		for (const unit of ['reconcile', 'development', 'stable']) expect(readFileSync(resolve(process.cwd(), `systemd/treeseed-manager-${unit}.service`), 'utf8')).toContain('/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock');
 	});
 

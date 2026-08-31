@@ -1,6 +1,6 @@
 # Debian package boundaries
 
-- `treeseed`: configured bootstrap seed, APT source/key enrollment, and one-shot seeder.
+- `treeseed`: generic credential-free APT trust and manager/CLI foundation installer. It embeds no host configuration and waits for `trsd host initialize --profile <profile>`.
 - `treeseed-manager`: unprivileged reconciler, mTLS API, receipts, and fixed root supervisor.
 - `treeseed-host-runtime`: Node 24 runtime, Docker Engine/Compose integration, directories, users, and systemd units.
 - `treeseed-sdk` and `treeseed-cli`: signed host payloads for the exact accepted SDK and `trsd` client.
