@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { requestSupervisor } from '../supervisor/client.js';
+import { defaultReplicationBucket, type ControlPlaneStorageEnvironment } from '../cloudflare/r2-replication-provisioning.js';
 
 const secretIds = {
 	accountId: 'cloudflare-r2-account-id', managementToken: 'cloudflare-r2-management-token',
@@ -9,11 +10,12 @@ const secretIds = {
 } as const;
 const root = '/var/lib/treeseed/manager/storage/cloudflare-r2';
 const safe = (value: string) => value.replaceAll(/[^a-z0-9-]/giu, '-').toLowerCase();
-const metadataPath = (teamId: string) => `${root}/teams/${safe(teamId)}.json`;
+const metadataPath = (controlPlaneId: string) => `${root}/control-planes/${safe(controlPlaneId)}.json`;
 const authorityPath = (accountId: string) => `${root}/authorities/${accountId}.token`;
-const bucketName = (teamId: string) => `treeseed-team-${teamId.replaceAll(/[^a-z0-9]/giu, '').toLowerCase().slice(0, 8)}-library`;
+const bucketName = (controlPlaneId: string, environment: ControlPlaneStorageEnvironment) =>
+	defaultReplicationBucket(controlPlaneId, environment);
 
-async function request(token: string, path: string, init?: RequestInit) {
+async function requestEnvelope(token: string, path: string, init?: RequestInit) {
 	const response = await fetch(`https://api.cloudflare.com/client/v4/${path}`, { ...init,
 		headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init?.headers ?? {}) } });
 	const body = await response.json().catch(() => null) as any;
@@ -21,7 +23,11 @@ async function request(token: string, path: string, init?: RequestInit) {
 		const detail = Array.isArray(body?.errors) ? body.errors.map((item: any) => item?.message).filter(Boolean).join('; ') : '';
 		throw new Error(`Cloudflare request failed for ${path} (HTTP ${response.status})${detail ? `: ${detail}` : ''}.`);
 	}
-	return body?.result;
+	return body;
+}
+
+async function request(token: string, path: string, init?: RequestInit) {
+	return (await requestEnvelope(token, path, init))?.result;
 }
 
 function privateBucket(managed: any, custom: any) {
@@ -30,32 +36,83 @@ function privateBucket(managed: any, custom: any) {
 	return { r2DevEnabled: false, enabledCustomDomains: 0 };
 }
 
-function metadata(teamId: string) {
-	const path = metadataPath(teamId);
+function metadata(controlPlaneId: string) {
+	const path = metadataPath(controlPlaneId);
 	return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as any : null;
 }
 
-export async function cloudflareR2StorageStatus(teamId: string) {
-	const record = metadata(teamId);
-	const custody = await requestSupervisor<any>({ operation: 'storage.r2.status', teamId });
-	const binding = record ?? custody?.binding ?? null;
-	return { backend: 'cloudflare-r2', teamId, configured: Boolean(binding && custody?.childCredentialsReady),
-		accountId: binding?.accountId ?? null, bucket: binding?.bucket ?? bucketName(teamId), tokens: binding?.tokens ?? null, custody };
+function retainedBootstrapToken(controlPlaneId: string) {
+	const prior = metadata(controlPlaneId);
+	if (prior?.accountId && existsSync(authorityPath(prior.accountId))) return readFileSync(authorityPath(prior.accountId), 'utf8').trim();
+	if (existsSync(`${root}/authorities`)) {
+		const retained = readdirSync(`${root}/authorities`).filter((name) => /^[a-f0-9]{32}\.token$/u.test(name));
+		if (retained.length === 1) return readFileSync(`${root}/authorities/${retained[0]}`, 'utf8').trim();
+	}
+	throw new Error('Cloudflare R2 provisioning authority is unavailable; run `trsd host storage connect cloudflare-r2`.');
 }
 
-export async function provisionCloudflareR2Storage(input: { action: 'connect' | 'reconcile' | 'rotate'; teamId: string; teamSlug: string; accountId?: string; bootstrapToken?: string; plan: boolean }) {
-	const prior = metadata(input.teamId);
-	if (input.plan) return { backend: 'cloudflare-r2', action: input.action, teamId: input.teamId,
-		bucket: prior?.bucket ?? bucketName(input.teamId), mutation: false, configured: Boolean(prior) };
-	let bootstrapToken = input.bootstrapToken?.trim();
-	if (!bootstrapToken && prior?.accountId && existsSync(authorityPath(prior.accountId))) bootstrapToken = readFileSync(authorityPath(prior.accountId), 'utf8').trim();
-	if (!bootstrapToken) throw new Error('Cloudflare R2 provisioning authority is unavailable; run `trsd host storage connect cloudflare-r2`.');
+const encodeObjectKey = (key: string) => key.split('/').map(encodeURIComponent).join('/');
+
+export async function resetCloudflareR2Bucket(controlPlaneId: string, environment: ControlPlaneStorageEnvironment) {
+	const bootstrapToken = retainedBootstrapToken(controlPlaneId);
+	const accounts: any[] = await request(bootstrapToken, 'accounts?per_page=50');
+	const prior = metadata(controlPlaneId);
+	const account = prior?.accountId ? accounts.find((entry) => entry?.id === prior.accountId) : accounts.length === 1 ? accounts[0] : null;
+	if (!account?.id) throw new Error('Cloudflare account selection is ambiguous; reconnect storage with an explicit account ID.');
+	const accountId = String(account.id), bucket = bucketName(controlPlaneId, environment);
+	const api = (path: string, init?: RequestInit) => request(bootstrapToken, `accounts/${accountId}/r2/${path}`, init);
+	const listed: any = await api('buckets');
+	const exists = (listed?.buckets ?? listed ?? []).some((entry: any) => entry?.name === bucket);
+	let deletedObjects = 0;
+	if (exists) {
+		for (let pass = 0; pass < 10_000; pass += 1) {
+			const page = await requestEnvelope(bootstrapToken,
+				`accounts/${accountId}/r2/buckets/${encodeURIComponent(bucket)}/objects?per_page=1000`);
+			const keys = (Array.isArray(page?.result) ? page.result : []).map((entry: any) => String(entry?.key ?? '')).filter(Boolean);
+			if (!keys.length) break;
+			for (let index = 0; index < keys.length; index += 16) {
+				await Promise.all(keys.slice(index, index + 16).map((key: string) =>
+					api(`buckets/${encodeURIComponent(bucket)}/objects/${encodeObjectKey(key)}`, { method: 'DELETE' })));
+			}
+			deletedObjects += keys.length;
+			if (pass === 9_999) throw new Error(`Cloudflare R2 bucket ${bucket} exceeded the bounded emptying limit.`);
+		}
+		await api(`buckets/${encodeURIComponent(bucket)}`, { method: 'DELETE' });
+	}
+	await api('buckets', { method: 'POST', body: JSON.stringify({ name: bucket, locationHint: 'enam', storageClass: 'Standard' }) });
+	const privacy = privateBucket(await api(`buckets/${bucket}/domains/managed`), await api(`buckets/${bucket}/domains/custom`));
+	const remaining = await requestEnvelope(bootstrapToken,
+		`accounts/${accountId}/r2/buckets/${encodeURIComponent(bucket)}/objects?per_page=1`);
+	if ((Array.isArray(remaining?.result) ? remaining.result : []).length) throw new Error(`Recreated Cloudflare R2 bucket ${bucket} was not empty.`);
+	return { backend: 'cloudflare-r2', action: 'reset', controlPlaneId, environment, accountId, bucket,
+		deletedObjects, recreated: true, empty: true, privacy, mutation: true };
+}
+
+export async function cloudflareR2StorageStatus(controlPlaneId: string, environment: ControlPlaneStorageEnvironment) {
+	const record = metadata(controlPlaneId);
+	const custody = await requestSupervisor<any>({ operation: 'storage.r2.status', controlPlaneId });
+	const binding = record ?? custody?.binding ?? null;
+	const desiredBucket = bucketName(controlPlaneId, environment);
+	return { backend: 'cloudflare-r2', controlPlaneId,
+		configured: Boolean(binding?.bucket === desiredBucket && custody?.childCredentialsReady),
+		accountId: binding?.accountId ?? null, bucket: binding?.bucket ?? desiredBucket, desiredBucket, environment,
+		tokens: binding?.tokens ?? null, custody };
+}
+
+export async function provisionCloudflareR2Storage(input: { action: 'connect' | 'reconcile' | 'rotate'; controlPlaneId: string;
+	environment: ControlPlaneStorageEnvironment; accountId?: string; bootstrapToken?: string; plan: boolean }) {
+	const prior = metadata(input.controlPlaneId);
+	if (input.plan) return { backend: 'cloudflare-r2', action: input.action, controlPlaneId: input.controlPlaneId,
+		environment: input.environment, bucket: bucketName(input.controlPlaneId, input.environment), mutation: false,
+		configured: Boolean(prior && prior.bucket === bucketName(input.controlPlaneId, input.environment)) };
+	const bootstrapToken = input.bootstrapToken?.trim() || retainedBootstrapToken(input.controlPlaneId);
 	const accounts: any[] = await request(bootstrapToken, 'accounts?per_page=50');
 	const account = input.accountId ? accounts.find((entry) => entry?.id === input.accountId)
 		: prior?.accountId ? accounts.find((entry) => entry?.id === prior.accountId)
 		: accounts.length === 1 ? accounts[0] : null;
 	if (!account?.id) throw new Error('Cloudflare account selection is ambiguous; pass --account-id when connecting storage.');
-	const accountId = String(account.id), bucket = prior?.bucket ?? bucketName(input.teamId);
+	const accountId = String(account.id), bucket = bucketName(input.controlPlaneId, input.environment);
+	const environmentChanged = Boolean(prior && prior.bucket !== bucket);
 	const r2 = (path: string, init?: RequestInit) => request(bootstrapToken!, `accounts/${accountId}/r2/${path}`, init);
 	const listed: any = await r2('buckets');
 	if (!(listed?.buckets ?? listed ?? []).some((entry: any) => entry?.name === bucket)) {
@@ -69,10 +126,11 @@ export async function provisionCloudflareR2Storage(input: { action: 'connect' | 
 		return String(result.id);
 	};
 	const tokenList: any[] = await request(bootstrapToken, `accounts/${accountId}/tokens?per_page=50`);
-	const names = { privacy: `TreeSeed ${input.teamId} Library Privacy Verifier`, publisher: `TreeSeed ${input.teamId} Library Content Publisher` };
+	const names = { privacy: `TreeSeed ${input.controlPlaneId} ${input.environment} Library Privacy Verifier`,
+		publisher: `TreeSeed ${input.controlPlaneId} ${input.environment} Library Content Publisher` };
 	const ensureToken = async (name: string, permissionId: string, resources: Record<string, string>) => {
 		const existing = tokenList.find((entry) => entry?.name === name && entry?.status === 'active');
-		const mustRecover = !prior || input.action === 'rotate';
+		const mustRecover = !prior || environmentChanged || input.action === 'rotate';
 		if (existing && !mustRecover) return { id: String(existing.id), value: null as string | null, created: false, rotated: false };
 		if (existing) {
 			const rolled: any = await request(bootstrapToken!, `accounts/${accountId}/tokens/${existing.id}/value`, { method: 'PUT', body: '{}' });
@@ -87,12 +145,13 @@ export async function provisionCloudflareR2Storage(input: { action: 'connect' | 
 	};
 	const privacyToken = await ensureToken(names.privacy, permission('Workers R2 Storage Read', 'com.cloudflare.api.account'), { [`com.cloudflare.api.account.${accountId}`]: '*' });
 	const publisherToken = await ensureToken(names.publisher, permission('Workers R2 Storage Bucket Item Write', 'com.cloudflare.edge.r2.bucket'), { [`com.cloudflare.edge.r2.bucket.${accountId}_default_${bucket}`]: '*' });
-	if (privacyToken.value && publisherToken.value) await requestSupervisor({ operation: 'storage.r2.install', teamId: input.teamId, accountId, bucket,
+	if (privacyToken.value && publisherToken.value) await requestSupervisor({ operation: 'storage.r2.install', controlPlaneId: input.controlPlaneId, accountId, bucket,
 		bootstrapToken, managementToken: privacyToken.value, accessKeyId: publisherToken.id,
 		secretAccessKey: createHash('sha256').update(publisherToken.value).digest('hex'), privacyTokenId: privacyToken.id, publisherTokenId: publisherToken.id });
-	return { backend: 'cloudflare-r2', action: input.action, teamId: input.teamId, teamSlug: input.teamSlug, accountId, bucket, privacy,
+	return { backend: 'cloudflare-r2', action: input.action, controlPlaneId: input.controlPlaneId,
+		environment: input.environment, accountId, bucket, privacy,
 		tokens: { privacy: { name: names.privacy, id: privacyToken.id }, publisher: { name: names.publisher, id: publisherToken.id } },
-		secretIds, mutation: true };
+		secretIds, credentialsChanged: Boolean(privacyToken.value && publisherToken.value), mutation: true };
 }
 
 export { secretIds as cloudflareR2SecretIds };

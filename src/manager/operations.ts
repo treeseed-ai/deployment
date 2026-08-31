@@ -19,9 +19,10 @@ import { affectedDevelopmentClosure, DevelopmentSessionStore } from './developme
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
 import { aiModeStatus, requestAiMode } from './ai-mode.js';
-import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage } from './cloudflare-r2-storage.js';
+import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage, resetCloudflareR2Bucket } from './cloudflare-r2-storage.js';
 import { credentialInitializerStatus, loadCredentialInitializers } from '../security/credential-initializers.js';
 import { hostDevelopmentActivationSchema } from '../supervisor/host-development.js';
+import { storageEnvironmentForRolloutGroup } from '../cloudflare/r2-replication-provisioning.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -102,14 +103,16 @@ async function replaceConfiguration(mutate: (host: HostConfiguration) => HostCon
 	return serializedReconcile();
 }
 
-async function configureCloudflareR2(result: { accountId: string; bucket: string }) {
+async function configureCloudflareR2(result: { accountId: string; bucket: string; environment: 'production' | 'staging'; credentialsChanged?: boolean }) {
 	const host = loadHostConfiguration(), candidate = structuredClone(host), api = candidate.components.api;
 	if (!api) throw new Error('The API component is not configured on this host.');
 	candidate.secrets ??= {};
 	for (const id of Object.values(cloudflareR2SecretIds)) candidate.secrets[id] = { provider: 'file', reference: `/etc/treeseed/credentials/${id}` };
-	const configurableApi = api as typeof api & { configuration?: { secretEnvironment?: Record<string, string> } };
+	const configurableApi = api as typeof api & { configuration?: { environment?: Record<string, string>; secretEnvironment?: Record<string, string> } };
 	configurableApi.configuration ??= {};
+	configurableApi.configuration.environment ??= {};
 	configurableApi.configuration.secretEnvironment ??= {};
+	configurableApi.configuration.environment.TREESEED_LIBRARY_BRANCH = result.environment === 'production' ? 'main' : 'staging';
 	Object.assign(configurableApi.configuration.secretEnvironment, {
 		TREESEED_CLOUDFLARE_ACCOUNT_ID: cloudflareR2SecretIds.accountId,
 		TREESEED_CLOUDFLARE_API_TOKEN: cloudflareR2SecretIds.managementToken,
@@ -117,10 +120,10 @@ async function configureCloudflareR2(result: { accountId: string; bucket: string
 		TREESEED_R2_ACCESS_KEY_ID: cloudflareR2SecretIds.accessKeyId,
 		TREESEED_R2_SECRET_ACCESS_KEY: cloudflareR2SecretIds.secretAccessKey,
 	});
-	if (JSON.stringify(candidate) === JSON.stringify(host)) return { changed: false, receipt: receipt() };
+	if (JSON.stringify(candidate) === JSON.stringify(host) && !result.credentialsChanged) return { changed: false, receipt: receipt() };
 	candidate.generation = host.generation + 1;
 	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
-	return { changed: true, receipt: await serializedReconcile() };
+	return { changed: true, receipt: await serializedReconcile(undefined, false, ['api']) };
 }
 
 function componentId(request: HostCommandRequest) {
@@ -327,7 +330,17 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.sandbox.doctor': return requestSupervisor({ operation: 'sandbox.doctor' });
 		case 'local.host.storage.status': {
 			const payload = z.object({ action: z.literal('status'), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
-			return cloudflareR2StorageStatus(payload.teamId);
+			const host = loadHostConfiguration();
+			return cloudflareR2StorageStatus(host.configurationId, storageEnvironmentForRolloutGroup(host.fleet.rolloutGroup));
+		}
+		case 'local.host.storage.reset': {
+			if (!context.local) throw new Error('Host storage reset is available only through the protected local manager socket.');
+			const payload = z.object({ action: z.literal('reset'), backend: z.literal('cloudflare-r2'),
+				teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256),
+				environment: z.enum(['production', 'staging']) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
+			if (request.options.plan === true) return { backend: payload.backend, action: payload.action,
+				environment: payload.environment, bucket: payload.environment === 'production' ? 'treeseed-library' : 'treeseed-dev-library', mutation: false };
+			return resetCloudflareR2Bucket(loadHostConfiguration().configurationId, payload.environment);
 		}
 		case 'local.host.storage.connect':
 		case 'local.host.storage.reconcile':
@@ -335,8 +348,10 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (!context.local) throw new Error('Host storage mutation is available only through the protected local manager socket.');
 			const payload = z.object({ action: z.enum(['connect', 'reconcile', 'rotate']), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256),
 				accountId: z.string().regex(/^[a-f0-9]{32}$/u).optional(), bootstrapToken: z.string().min(16).max(16_384).optional() }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
+			const host = loadHostConfiguration();
 			const provisionInput = {
-				action: payload.action, teamId: payload.teamId, teamSlug: payload.teamSlug,
+				action: payload.action, controlPlaneId: host.configurationId,
+				environment: storageEnvironmentForRolloutGroup(host.fleet.rolloutGroup),
 				...(payload.accountId ? { accountId: payload.accountId } : {}),
 				...(payload.bootstrapToken ? { bootstrapToken: payload.bootstrapToken } : {}),
 				plan: request.options.plan === true,

@@ -249,14 +249,18 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 	return previous;
 }
 
-export async function reconcile(track?: 'stable' | 'development', forceMetadata = false) {
+export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
+	configurationComponentScope: readonly string[] = []) {
 	const host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
+	const configurationScope = new Set(configurationComponentScope);
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
 		return previous;
 	}
-	const refresh = await refreshAvailableCatalogs(host, track, true, forceMetadata);
+	const refresh = configurationScope.size
+		? { coreUpdated: false, previousCore: new Map<string, string>() }
+		: await refreshAvailableCatalogs(host, track, true, forceMetadata);
 	return withDeferredManagerRestart(refresh.coreUpdated, () => withCoreUpgradeHandoff(refresh.coreUpdated, previous, async () => {
 	if (host.components.agent?.enabled) await requestSupervisor({ operation: 'sandbox.trust-anchor.repair' });
 	const stable = loadCatalog(`${paths.catalogs}/stable.json`);
@@ -277,14 +281,16 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const effectiveCandidates = previous ? accepted.components.map((component) => {
 		const heldBySession = heldDevelopmentComponents.has(component.componentId);
 		const outsideRequestedTrack = Boolean(track && host.components[component.componentId]?.track !== track);
-		return heldBySession || outsideRequestedTrack ? activeById.get(component.componentId) ?? component : component;
+		return heldBySession || outsideRequestedTrack || configurationScope.size > 0
+			? activeById.get(component.componentId) ?? component : component;
 	}) : accepted.components;
 	const effective = [...effectiveCandidates, ...active.filter((component) => heldDevelopmentComponents.has(component.componentId) && !effectiveCandidates.some((candidate) => candidate.componentId === component.componentId))];
 	const routes = developmentSessions.activeRoutes(rollbackRoutes(host, effective));
 	const targets = previous && track ? effective.filter((component) => host.components[component.componentId]?.track === track) : effective;
 	const selectedIds = new Set(effective.map((component) => component.componentId));
 	const removed = active.filter((component) => !selectedIds.has(component.componentId));
-	const changedIds = new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
+	const changedIds = configurationScope.size ? new Set<string>()
+		: new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
 	const agent = effective.find((component) => component.componentId === 'agent');
 	const hostDevelopment = agent && heldDevelopmentComponents.has('agent')
 		? await requestSupervisor<{ status: string; guestImageDigest: string | null } | undefined>({ operation: 'host.development.status' })
@@ -308,6 +314,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const changed = targets.filter((component) => changedIds.has(component.componentId) && !heldDevelopmentComponents.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
 	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
+	if (configurationChanged && configurationScope.size) {
+		for (const componentId of configurationScope) {
+			if (!effective.some((component) => component.componentId === componentId)) throw new Error(`Scoped component ${componentId} is unavailable.`);
+			changedIds.add(componentId);
+		}
+	}
 	const catalogChanged = previous?.catalogDigest !== accepted.plan.catalogDigest;
 	const cliControlPlaneUrl = managedCliControlPlaneUrl(host, effective);
 	const cliUrlPath = `${paths.cli}/api-base-url`, cliCaPath = `${paths.cli}/localhost-ca.crt`;
@@ -325,22 +337,29 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
 	if (routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
-	const impacted = componentStopOrder(host, active).filter((component) => configurationChanged || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
+	const configurationImpacts = (componentId: string) => configurationChanged
+		&& (configurationScope.size === 0 || configurationScope.has(componentId));
+	const impacted = componentStopOrder(host, active).filter((component) => configurationImpacts(component.componentId)
+		|| changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
-	for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
+	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
+		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
 	for (const component of impacted) await stopComponent(component);
 	await requestSupervisor({ operation: 'backup.create', generation });
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await activateComponent(host, component, effective);
+		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
+			|| changedTargetIds.has(component.componentId))) await activateComponent(host, component, effective);
 		await reconcileAiModeSelection(host, effective);
-		for (const component of activationOrder.filter((component) => configurationChanged || changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
+		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
+			|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
 		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
-		for (const component of componentStopOrder(host, effective).filter((component) => changedTargetIds.has(component.componentId))) {
+		for (const component of componentStopOrder(host, effective).filter((component) => configurationImpacts(component.componentId)
+			|| changedTargetIds.has(component.componentId))) {
 			try { await stopComponent(component); } catch { /* continue restoring the last known-good generation */ }
 		}
 		await requestSupervisor({ operation: 'recovery.restore', generation });
@@ -352,7 +371,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		throw error;
 	}
-	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
+	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: configurationScope.size && previous ? previous.catalogDigest : accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
 	atomicJson(`${paths.managerState}/active-components.json`, effective);

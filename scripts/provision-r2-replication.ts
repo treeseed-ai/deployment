@@ -11,14 +11,18 @@ function value(name: string) {
 }
 
 const accountId = value('--account-id');
-const teamId = value('--team-id');
+const controlPlaneId = value('--control-plane-id');
+const environment = value('--environment');
 const bootstrapTokenFile = value('--bootstrap-token-file');
 const configurationPath = resolve(value('--configuration') ?? '/etc/treeseed/platform.json');
-const bucket = value('--bucket') ?? (teamId ? defaultReplicationBucket(teamId) : undefined);
+if (environment !== 'production' && environment !== 'staging') {
+	throw new Error('The control-plane --environment must be production or staging.');
+}
+const bucket = value('--bucket') ?? (controlPlaneId ? defaultReplicationBucket(controlPlaneId, environment) : undefined);
 const apply = process.argv.includes('--apply');
 const rotateTokens = process.argv.includes('--rotate-tokens');
-if (!accountId || !/^[a-f0-9]{32}$/u.test(accountId) || !teamId || !bucket) {
-	throw new Error('Usage: provision-r2-replication --account-id ID --team-id ID [--bootstrap-token-file FILE] [--bucket NAME] [--apply] [--rotate-tokens]');
+if (!accountId || !/^[a-f0-9]{32}$/u.test(accountId) || !controlPlaneId || !bucket) {
+	throw new Error('Usage: provision-r2-replication --account-id ID --control-plane-id ID --environment production|staging [--bootstrap-token-file FILE] [--bucket NAME] [--apply] [--rotate-tokens]');
 }
 if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/u.test(bucket)) throw new Error('R2 bucket name is invalid.');
 const readSecret = (path: string) => {
@@ -37,8 +41,8 @@ const cloudflareApi = async (path: string, init?: RequestInit) => {
 	return body?.result;
 };
 const r2Api = (path: string, init?: RequestInit) => cloudflareApi(`accounts/${accountId}/r2/${path}`, init);
-const privacyTokenName = `TreeSeed ${teamId} Library Privacy Verifier`;
-const publisherTokenName = `TreeSeed ${teamId} Library Content Publisher`;
+const privacyTokenName = `TreeSeed ${controlPlaneId} ${environment} Library Privacy Verifier`;
+const publisherTokenName = `TreeSeed ${controlPlaneId} ${environment} Library Content Publisher`;
 const accountResource = `com.cloudflare.api.account.${accountId}`;
 const bucketResource = `com.cloudflare.edge.r2.bucket.${accountId}_default_${bucket}`;
 const buckets: any = await r2Api('buckets');
@@ -113,7 +117,7 @@ try {
 	}
 	if (configurationMutation && apply) execFileSync('trsd', ['host', 'config', 'apply', candidatePath, '--json'], { stdio: 'inherit' });
 	else if (configurationMutation) execFileSync('trsd', ['host', 'config', 'plan', candidatePath, '--json'], { stdio: 'inherit' });
-	process.stdout.write(`${JSON.stringify({ ok: true, mutation: apply, accountId, teamId, bucket, bucketExists: bucketExists || apply,
+	process.stdout.write(`${JSON.stringify({ ok: true, mutation: apply, accountId, controlPlaneId, bucket, bucketExists: bucketExists || apply,
 		configurationMutation,
 		privacy, tokens: { privacy: { name: privacyTokenName, id: privacyToken.id, created: privacyToken.created, planned: privacyToken.planned },
 			publisher: { name: publisherTokenName, id: publisherToken.id, created: publisherToken.created, planned: publisherToken.planned } },
