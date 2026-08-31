@@ -13,7 +13,10 @@ describe('bounded component activation diagnostics', () => {
 				broker: { required: true, ready: false, reason: 'connect EACCES token=do-not-emit' },
 				disk: { ok: true, reason: null }, ignored: { credential: 'do-not-emit' },
 			}) }]);
-			if (arguments_[0] === 'inspect' && input === '') return 'runner\trunning\tunhealthy\t0\n';
+			if (arguments_[0] === 'inspect' && input === '') {
+				expect(arguments_[2]).toContain('index .Config.Labels "com.docker.compose.service"');
+				return 'runner\trunning\tunhealthy\t0\n';
+			}
 			return undefined;
 		};
 		expect(() => executeSupervisorOperation(activation, command, () => undefined))
