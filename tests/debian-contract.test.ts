@@ -180,6 +180,11 @@ describe('Debian and systemd contracts', () => {
 		expect(publisher).toContain('release/apt/${suite}.fingerprint');
 		expect(publisher).toContain('does not match its published keyring');
 		expect(workflow.indexOf('Require protected publication credentials before building')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
+		expect(workflow.indexOf('Require the protected workflow ref for the selected suite')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
+		expect(workflow).toContain("refs/heads/main' || 'refs/heads/staging");
+		expect(workflow).toContain('Published release asset differs: $name');
+		expect(workflow).toContain('cmp --silent "$asset" "$existing_dir/$name"');
+		expect(workflow).not.toContain('gh release upload "${{ inputs.tag }}" release/out/*');
 		expect(workflow).toContain('checked_out_head="$(git rev-parse HEAD)"');
 		expect(workflow).toContain('test "$checked_out_head" = "$(git rev-list -n 1');
 		expect(workflow).not.toContain('"$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}"');
