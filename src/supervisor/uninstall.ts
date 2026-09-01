@@ -79,6 +79,13 @@ function removeContainerdNamespace(command: UninstallCommand) {
 	}
 	for (const id of query(command, '/usr/bin/ctr', [...prefix, 'containers', 'list', '--quiet'])) command('/usr/bin/ctr', [...prefix, 'containers', 'delete', id]);
 	for (const id of query(command, '/usr/bin/ctr', [...prefix, 'images', 'list', '--quiet'])) command('/usr/bin/ctr', [...prefix, 'images', 'remove', id]);
+	for (const id of query(command, '/usr/bin/ctr', [...prefix, 'leases', 'list', '--quiet'])) command('/usr/bin/ctr', [...prefix, 'leases', 'delete', '--sync', id]);
+	const snapshots = query(command, '/usr/bin/ctr', [...prefix, 'snapshots', 'list'])
+		.slice(1).map((entry) => entry.split(/\s+/u, 1)[0]).filter((id): id is string => Boolean(id));
+	// Snapshot listings are not dependency ordered. Repeated reverse passes remove
+	// children first regardless of the order returned by containerd.
+	for (let pass = 0; pass < snapshots.length; pass += 1) for (const id of snapshots.toReversed()) attempt(command, '/usr/bin/ctr', [...prefix, 'snapshots', 'delete', id]);
+	for (const digest of query(command, '/usr/bin/ctr', [...prefix, 'content', 'list', '--quiet'])) command('/usr/bin/ctr', [...prefix, 'content', 'delete', digest]);
 	command('/usr/bin/ctr', ['namespaces', 'remove', 'treeseed-sandboxes']);
 	attempt(command, '/usr/bin/rmdir', ['/sys/fs/cgroup/treeseed-sandboxes']);
 }
