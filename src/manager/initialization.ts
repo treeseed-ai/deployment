@@ -124,7 +124,9 @@ function requiredSecurity(selected: SelectedInitializationProfile) {
 export function renderHostInitializationConfiguration(profileId: string, stable: ReleaseCatalog, development?: ReleaseCatalog, hostName?: string): HostConfiguration {
 	const selected = selectHostInitializationProfile(profileId, stable, development);
 	if (selected.profile.inputs.length) throw new Error('Host initialization profiles with external inputs remain disabled until their one-time handoff is accepted. No input was retained.');
-	const hostId = runtimeHostId(hostName), environment = selected.profile.runtime.environment === 'track-default' ? selected.catalog.track : selected.profile.runtime.environment;
+	const hostId = runtimeHostId(hostName), environment = selected.profile.runtime.environment === 'track-default'
+		? selected.catalog.track === 'stable' ? 'production' : 'development'
+		: selected.profile.runtime.environment;
 	const selectedComponents = new Set(selected.profile.components);
 	const components = Object.fromEntries(selected.profile.components.map((componentId) => [componentId, {
 		enabled: true, track: selected.catalog.track, profile: selected.profile.id, aliases: {},

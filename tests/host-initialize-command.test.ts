@@ -18,7 +18,7 @@ function catalogs(withInputs = false) {
 		role: withInputs ? 'capacity-provider' : 'integrated', runtime: { management: 'managed', environment: 'track-default' }, components: ['lab'], security: { requirement: 'none' },
 		inputs: withInputs ? [{ name: 'teamRegistrationCode', required: true, sensitive: true, description: 'Team registration code' }] : [] });
 	state.stable = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [lab], hostProfiles: [profile], createdAt: '2026-09-01T00:00:00.000Z' };
-	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc1', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: '1.0.0', catalogDigest: hash('a') }, components: [lab], hostProfiles: [profile], createdAt: '2026-09-01T00:01:00.000Z' };
+	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc1', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: '1.0.0', catalogDigest: hash('a') }, components: [lab], hostProfiles: [], createdAt: '2026-09-01T00:01:00.000Z' };
 }
 
 describe('host initialize command boundary', () => {
@@ -33,7 +33,8 @@ describe('host initialize command boundary', () => {
 		}) } }, { local: true });
 		expect(result).toMatchObject({ mode: 'execute', profile: 'core', mutation: true, initialized: true, generation: 1, nextAction: 'host reconcile' });
 		expect(state.operations).toHaveLength(1);
-		expect(state.operations[0]).toMatchObject({ operation: 'configuration.initialize', configuration: { schemaVersion: 'treeseed.host/v1', generation: 1, components: { lab: { profile: 'core' } } } });
+		expect(state.operations[0]).toMatchObject({ operation: 'configuration.initialize', configuration: { schemaVersion: 'treeseed.host/v1', generation: 1,
+			runtime: { environment: 'production' }, components: { lab: { profile: 'core' } } } });
 	});
 
 	it('keeps external-input profiles blocked without supervisor mutation', async () => {
