@@ -13,6 +13,7 @@ writeFileSync(preserved, 'preserve\n');
 const run = (executable: string, arguments_: string[]) => execFileSync(executable, arguments_, { stdio: 'pipe', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } });
 const ensureGroup = (name: string) => { try { run('/usr/sbin/groupadd', ['--system', name]); } catch { /* fixture already exists */ } };
 let dockerFixtureImage = false;
+let containerdNamespace = false;
 
 function fixturePackage(name: string) {
 	const stage = resolve(temporary, name), control = resolve(stage, 'DEBIAN');
@@ -36,6 +37,7 @@ function materialize(generation: 'current' | 'legacy') {
 		run('/usr/bin/docker', ['pull', 'alpine:3.22']); dockerFixtureImage = true;
 		run('/usr/bin/docker', ['network', 'create', '--label', 'org.treeseed.manager=true', 'treeseed-uninstall-fixture']);
 		run('/usr/bin/docker', ['run', '--detach', '--label', 'com.docker.compose.project=treeseed-uninstall-fixture', '--network', 'treeseed-uninstall-fixture', '--name', 'treeseed-uninstall-fixture', 'alpine:3.22', 'sleep', '300']);
+		run('/usr/bin/ctr', ['namespaces', 'create', 'treeseed-sandboxes']); containerdNamespace = true;
 	}
 	const unit = `/etc/systemd/system/treeseed-${generation}-fixture.service`;
 	writeFileSync(unit, '[Unit]\nDescription=TreeSeed uninstall fixture\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\n');
@@ -54,6 +56,7 @@ try {
 } finally {
 	try { run('/usr/bin/docker', ['rm', '--force', 'treeseed-uninstall-fixture']); } catch { /* removed by acceptance */ }
 	try { run('/usr/bin/docker', ['network', 'rm', 'treeseed-uninstall-fixture']); } catch { /* removed by acceptance */ }
+	if (containerdNamespace) try { run('/usr/bin/ctr', ['namespaces', 'remove', 'treeseed-sandboxes']); } catch { /* removed by acceptance */ }
 	if (dockerFixtureImage) try { run('/usr/bin/docker', ['image', 'rm', 'alpine:3.22']); } catch { /* runner cleanup owns any shared image */ }
 	rmSync(temporary, { recursive: true, force: true });
 }

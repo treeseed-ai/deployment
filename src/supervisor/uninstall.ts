@@ -39,7 +39,10 @@ export function planHostUninstall(options: { root?: string; command?: UninstallC
 	for (const directory of unitRoots) {
 		const target = rooted(root, directory);
 		if (!existsSync(target)) continue;
-		for (const name of readdirSync(target)) if (/^treeseed-[a-z0-9@.-]+(?:\.service|\.socket|\.timer|\.target|\.mount|\.path|\.d)$/u.test(name)) add('unit', name);
+		for (const name of readdirSync(target)) {
+			if (/^treeseed-[a-z0-9@.-]+(?:\.service|\.socket|\.timer|\.target|\.mount|\.path)$/u.test(name)) add('unit', name);
+			else if (/^treeseed-[a-z0-9@.-]+(?:\.service|\.socket|\.timer|\.target|\.mount|\.path)\.d$/u.test(name)) add('path', `${directory}/${name}`);
+		}
 	}
 	for (const path of managedPaths) if (existsSync(rooted(root, path))) add('path', path, securityRoots.has(path));
 	for (const link of ownedLinks) {
@@ -76,7 +79,8 @@ function removeContainerdNamespace(command: UninstallCommand) {
 	}
 	for (const id of query(command, '/usr/bin/ctr', [...prefix, 'containers', 'list', '--quiet'])) command('/usr/bin/ctr', [...prefix, 'containers', 'delete', id]);
 	for (const id of query(command, '/usr/bin/ctr', [...prefix, 'images', 'list', '--quiet'])) command('/usr/bin/ctr', [...prefix, 'images', 'remove', id]);
-	command('/usr/bin/ctr', ['namespaces', 'remove', '--cgroup', 'treeseed-sandboxes']);
+	command('/usr/bin/ctr', ['namespaces', 'remove', 'treeseed-sandboxes']);
+	attempt(command, '/usr/bin/rmdir', ['/sys/fs/cgroup/treeseed-sandboxes']);
 }
 
 export function uninstallReceiptPath(operationId: string) {

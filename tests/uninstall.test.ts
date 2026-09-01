@@ -75,6 +75,35 @@ describe('host uninstall', () => {
 		expect(plan.items.some((item) => item.id.includes('unrelated-kata'))).toBe(false);
 	});
 
+	it('empties the TreeSeed containerd namespace without the invalid namespace-cgroup option', () => {
+		const base = root(), calls: string[] = [];
+		const command: UninstallCommand = (executable, arguments_) => {
+			const invocation = `${executable} ${arguments_.join(' ')}`; calls.push(invocation);
+			if (invocation.endsWith('ctr namespaces list --quiet')) return 'treeseed-sandboxes\nother\n';
+			if (invocation.endsWith('ctr --namespace treeseed-sandboxes tasks list --quiet')) return 'task-1\n';
+			if (invocation.endsWith('ctr --namespace treeseed-sandboxes containers list --quiet')) return 'container-1\n';
+			if (invocation.endsWith('ctr --namespace treeseed-sandboxes images list --quiet')) return 'image-1\n';
+			return '';
+		};
+		executeHostUninstall(true, { root: base, command });
+		const namespaceRemoval = calls.indexOf('/usr/bin/ctr namespaces remove treeseed-sandboxes');
+		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes tasks delete --force task-1'));
+		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes containers delete container-1'));
+		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes images remove image-1'));
+		expect(calls).not.toContain('/usr/bin/ctr namespaces remove --cgroup treeseed-sandboxes');
+		expect(calls.at(namespaceRemoval + 1)).toBe('/usr/bin/rmdir /sys/fs/cgroup/treeseed-sandboxes');
+	});
+
+	it('inventories unit drop-ins as paths rather than systemd units', () => {
+		const base = root(), units = materialize(base, '/etc/systemd/system');
+		materialize(base, '/etc/systemd/system/treeseed-manager-api.service.d');
+		writeFileSync(resolve(units, 'treeseed-manager-api.service'), 'managed');
+		const plan = planHostUninstall({ root: base, command: () => '' });
+		expect(plan.items).toContainEqual({ kind: 'unit', id: 'treeseed-manager-api.service', security: false });
+		expect(plan.items).toContainEqual({ kind: 'path', id: '/etc/systemd/system/treeseed-manager-api.service.d', security: false });
+		expect(plan.items).not.toContainEqual(expect.objectContaining({ kind: 'unit', id: 'treeseed-manager-api.service.d' }));
+	});
+
 	it('schedules finalization in a separate transient service and returns only redacted custody', () => {
 		const calls: Array<{ executable: string; arguments_: readonly string[] }> = [];
 		const accepted = scheduleHostUninstall(true, (executable, arguments_) => { calls.push({ executable, arguments_ }); return ''; });
