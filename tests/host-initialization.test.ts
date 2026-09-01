@@ -20,6 +20,7 @@ function integratedCatalog(): ReleaseCatalog {
 	const agent = component('agent', 'development', 'd');
 	agent.runtime.services = [{ id: 'manager', composeService: 'manager', endpoints: [] }, { id: 'runner', composeService: 'runner', endpoints: [] }];
 	agent.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
+	agent.runtime.configuration.files = [{ id: 'treeseed.capacity-provider.yaml', path: '/etc/treeseed/components/agent/treeseed.capacity-provider.yaml', required: true, sensitive: false, default: 'schemaVersion: 5\nconnections: []\n' }];
 	agent.images[0] = { ...agent.images[0]!, role: 'sandbox-guest', repository: 'treeseed/sandbox-codex' };
 	const treedx = component('treedx', 'development', 'e', 'treedx.treeseed.localhost');
 	treedx.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
@@ -60,8 +61,16 @@ describe('host initialization planning', () => {
 		expect(rendered.components.agent?.connections['control-plane']).toEqual({ kind: 'local', componentId: 'api', serviceId: 'api', endpointId: 'http' });
 		expect(rendered.components.treedx?.connections['control-plane']).toEqual({ kind: 'local', componentId: 'api', serviceId: 'api', endpointId: 'http' });
 		expect(rendered.components.api?.configuration).toMatchObject({ secretEnvironment: { TREESEED_DATABASE_URL: 'api-database-url' } });
+		expect(rendered.components.agent?.configuration).toEqual({ files: { 'treeseed.capacity-provider.yaml': 'schemaVersion: 5\nconnections: []\n' } });
 		expect(rendered.security?.sandbox.profiles.every(({ guestImage }) => guestImage === 'treeseed/sandbox-codex')).toBe(true);
 		expect(JSON.stringify(rendered)).not.toMatch(/adrian|\/home\//u);
+	});
+
+	it('fails closed when a zero-input profile selects a required file without a package-owned default', () => {
+		const development = integratedCatalog();
+		development.components.find(({ componentId }) => componentId === 'agent')!.runtime.configuration.files[0]!.default = undefined;
+		const stable = { ...catalog(), track: 'stable' as const, release: '0.1.0', generation: 36, stableBase: null, hostProfiles: [] };
+		expect(() => renderHostInitializationConfiguration('core', stable, development, 'runtime-host')).toThrow(/package-owned default content/u);
 	});
 
 	it('normalizes runtime identity and refuses external-input execution rendering', () => {
