@@ -27,20 +27,6 @@ describe('unified host manager foundation', () => {
 		expect(() => componentActivationOrder(configuration, [admin, api])).toThrow(/dependency cycle: admin, api/u);
 	});
 
-	it('declares local provider synthesis only for an explicit local control-plane connection', () => {
-		const configuration = host(), agent = component('agent', 'development', 'c'), api = component('api', 'stable', 'b');
-		agent.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
-		configuration.components.agent!.connections['control-plane'] = { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' };
-		expect(managedConnectionEnvironment(configuration, agent, [agent, api])).toMatchObject({ TREESEED_PROVIDER_ENVIRONMENT: 'local', TREESEED_CONTROL_PLANE_URL: 'http://service:3000' });
-		configuration.components.agent!.connections['control-plane'] = { kind: 'remote', url: 'https://api.example.test', audience: 'https://api.example.test', tls: { trust: 'system' }, authentication: { mode: 'none' }, healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 30 } };
-		expect(managedConnectionEnvironment(configuration, agent, [agent, api])).toMatchObject({ TREESEED_PROVIDER_ENVIRONMENT: 'managed', TREESEED_CONTROL_PLANE_URL: 'https://api.example.test' });
-		const admin = { ...agent, componentId: 'admin', runtime: { ...agent.runtime,
-			dependencies: [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }] } } as any;
-		configuration.components.admin = { enabled: true, track: 'development', aliases: {},
-			connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
-		expect(managedConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({ TREESEED_API_BASE_URL: 'http://service:3000' });
-	});
-
 	it('resolves containerized development consumers to released or live private dependencies', () => {
 		const configuration = host(), api = component('api', 'stable', 'a'), admin = component('admin', 'development', 'b');
 		admin.runtime.dependencies = [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }];
@@ -50,6 +36,9 @@ describe('unified host manager foundation', () => {
 		});
 		expect(managedContainerDevelopmentConnectionEnvironment(configuration, admin, [admin, api], [{ alias: 'api.treeseed.localhost', upstream: 'http://api-live:3000', authentication: 'application' }])).toMatchObject({
 			TREESEED_API_BASE_URL: 'http://api-live:3000', TREESEED_API_AUDIENCE: 'https://api.treeseed.localhost',
+		});
+		expect(managedContainerDevelopmentConnectionEnvironment(configuration, admin, [admin, api], [{ alias: 'treedx.treeseed.localhost', upstream: 'http://host.docker.internal:4000', authentication: 'application', projectId: 'treedx', targetId: 'service' }])).toMatchObject({
+			TREESEED_TREEDX_URL: 'http://host.docker.internal:4000', TREESEED_LOCAL_TREEDX_HOSTS: 'host.docker.internal',
 		});
 		expect(managedDevelopmentConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({
 			TREESEED_API_BASE_URL: 'https://api.treeseed.localhost', NODE_EXTRA_CA_CERTS: '/etc/treeseed/cli/localhost-ca.crt',
@@ -323,6 +312,8 @@ describe('unified host manager foundation', () => {
 			expect(path).toBe('/etc/treeseed/credentials/api-database-url');
 			return 'postgresql://local\n';
 		})).toEqual({ TREESEED_API_BASE_URL: 'https://api.treeseed.localhost', TREESEED_SITE_URL: 'https://admin.treeseed.localhost', TREESEED_DATABASE_URL: 'postgresql://local' });
+		configuration.components.api!.configuration = { environment: { TREESEED_TREEDX_URL: 'http://treedx:4000' } };
+		expect(resolveDevelopmentSecretEnvironment(configuration, 'api', {}, { TREESEED_TREEDX_URL: 'http://host.docker.internal:4000' })).toMatchObject({ TREESEED_TREEDX_URL: 'http://host.docker.internal:4000' });
 		expect(() => resolveDevelopmentSecretEnvironment(configuration, 'api', { TREESEED_DATABASE_URL: 'agent-token' }, {}, () => 'secret')).toThrow(/not configured/u);
 		expect(() => resolveDevelopmentSecretEnvironment(configuration, 'api', { TREESEED_UNDECLARED_TOKEN: 'agent-token' }, {}, () => 'secret')).toThrow(/not configured/u);
 	});

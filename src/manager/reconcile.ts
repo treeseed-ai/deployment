@@ -18,6 +18,16 @@ import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
+export function sandboxGuestTrustDigest(
+	releasedDigest: string | undefined,
+	heldByDevelopmentSession: boolean,
+) {
+	// A development session owns guest trust for its lifetime. Its candidate
+	// import binds the exact local digest atomically; normal reconciliation must
+	// neither pull the released image nor replace that binding mid-session.
+	return heldByDevelopmentSession ? undefined : releasedDigest;
+}
+
 function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
 }
@@ -144,6 +154,20 @@ export function managedDevelopmentConnectionEnvironment(host: HostConfiguration,
 
 export function managedContainerDevelopmentConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], routes: readonly EdgeRoute[]) {
 	const values = managedConnectionEnvironment(host, component, releases), selection = host.components[component.componentId], selected = new Map(releases.map((release) => [release.componentId, release]));
+	// Selected development peers override released internal service names. This is
+	// intentionally session-scoped and lets a containerized API reach a candidate
+	// TreeDX (and similar peers) through its manager-owned loopback route.
+	for (const route of routes) {
+		if (!route.projectId) continue;
+		const prefix = `TREESEED_${route.projectId.replaceAll('-', '_').toUpperCase()}`;
+		values[`${prefix}_URL`] = route.upstream;
+		if (route.projectId === 'treedx') {
+			const hostname = new URL(route.upstream).hostname;
+			values.TREESEED_LOCAL_TREEDX_HOSTS = [values.TREESEED_LOCAL_TREEDX_HOSTS, hostname]
+				.filter((candidate): candidate is string => Boolean(candidate))
+				.join(',');
+		}
+	}
 	for (const dependency of component.runtime.dependencies) {
 		const connection = selection?.connections[dependency.id]; if (!connection || connection.kind !== 'local') continue;
 		const target = selected.get(connection.componentId), service = target?.runtime.services.find((candidate) => candidate.id === connection.serviceId), endpoint = service?.endpoints.find((candidate) => candidate.id === connection.endpointId);
@@ -305,8 +329,10 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const hostDevelopment = agent && heldDevelopmentComponents.has('agent')
 		? await requestSupervisor<{ status: string; guestImageDigest: string | null } | undefined>({ operation: 'host.development.status' })
 		: undefined;
-	const developmentGuestDigest = (hostDevelopment?.status === 'active' || hostDevelopment?.status === 'activating') ? hostDevelopment.guestImageDigest : null;
-	const selectedGuestDigest = developmentGuestDigest ?? agent?.images.find((image) => image.role === 'sandbox-guest')?.digest;
+	const selectedGuestDigest = sandboxGuestTrustDigest(
+		agent?.images.find((image) => image.role === 'sandbox-guest')?.digest,
+		heldDevelopmentComponents.has('agent'),
+	);
 	const configuredGuestDigests = agent && selectedGuestDigest ? await requestSupervisor<string[]>({ operation: 'sandbox.guest-trust.digests' }) : [];
 	if (agent && selectedGuestDigest && (configuredGuestDigests.length === 0 || configuredGuestDigests.some((digest) => digest !== selectedGuestDigest))) {
 		await requestSupervisor({ operation: 'sandbox.guest-trust.bind', digest: selectedGuestDigest });
