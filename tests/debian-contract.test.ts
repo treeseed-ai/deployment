@@ -156,7 +156,12 @@ describe('Debian and systemd contracts', () => {
 		expect(bootstrap).toContain('treeseed-deployment-development.sources');
 		expect(bootstrap).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
 		expect(bootstrap).toContain('--target-release "$suite"');
-		expect(bootstrap).toContain('$package/$suite');
+		expect(bootstrap).toContain("deployment_version=$(dpkg-query -W -f='${Version}' treeseed)");
+		expect(bootstrap).toContain('bootstrap release %s is not yet visible');
+		expect(bootstrap).toContain('treeseed-host-runtime=$deployment_version');
+		expect(bootstrap).toContain('treeseed-kata-runtime=$deployment_version');
+		expect(bootstrap).toContain('treeseed-manager=$deployment_version');
+		expect(bootstrap).toContain('treeseed-release-catalog-development=$deployment_version');
 		expect(bootstrap).toContain('--allow-downgrades');
 		expect(bootstrap).toContain('systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer');
 		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
@@ -195,6 +200,9 @@ describe('Debian and systemd contracts', () => {
 		expect(workflow).toContain('checked_out_head="$(git rev-parse HEAD)"');
 		expect(workflow).toContain('test "$checked_out_head" = "$(git rev-list -n 1');
 		expect(workflow).not.toContain('"$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}"');
+		expect(workflow).toContain('APT Pages read-back converged');
+		expect(workflow).toContain('expected_inrelease=');
+		expect(workflow).toContain('?commit=${pages_commit}&attempt=${attempt}');
 		const stable = readFileSync('release/apt/stable.fingerprint', 'utf8').trim();
 		const development = readFileSync('release/apt/development.fingerprint', 'utf8').trim();
 		expect(stable).toMatch(/^[A-F0-9]{40}$/u);

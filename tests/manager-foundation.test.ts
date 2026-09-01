@@ -384,8 +384,10 @@ describe('unified host manager foundation', () => {
 		expect(corePackagesForTrack('development', { 'treeseed-edge': '0.1.0-1' })).toContain('treeseed-edge/development');
 		expect(corePackagesForTrack('development', { 'treeseed-edge': null })).not.toContain('treeseed-edge/development');
 		const bootstrap = readFileSync(resolve(process.cwd(), 'scripts/bootstrap/bootstrap.sh'), 'utf8');
-		expect(bootstrap).toContain('$package/$suite');
-		expect(bootstrap).toContain('treeseed-release-catalog-development/development');
+		expect(bootstrap).toContain("deployment_version=$(dpkg-query -W -f='${Version}' treeseed)");
+		expect(bootstrap).toContain('candidate=$(apt-cache policy "$package"');
+		expect(bootstrap).toContain('treeseed-manager=$deployment_version');
+		expect(bootstrap).toContain('treeseed-release-catalog-development=$deployment_version');
 		expect(bootstrap).toContain('--allow-downgrades');
 		const aptHelper = readFileSync(resolve(process.cwd(), 'src/supervisor/apt-helper.ts'), 'utf8');
 		expect(aptHelper).not.toContain("'--only-upgrade'");
