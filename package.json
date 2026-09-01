@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.209",
+  "version": "0.1.0-rc.210",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
