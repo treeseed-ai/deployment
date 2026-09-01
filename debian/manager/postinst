@@ -25,6 +25,11 @@ chown treeseed-manager:treeseed-manager /var/lib/treeseed/manager/events.jsonl
 chmod 0660 /var/lib/treeseed/manager/events.jsonl
 if [ -f /etc/treeseed/platform.json ]; then chown root:treeseed-manager /etc/treeseed/platform.json; chmod 0640 /etc/treeseed/platform.json; fi
 systemctl daemon-reload
-systemctl enable treeseed-manager-supervisor.service treeseed-provider-volume.service treeseed-sandbox-broker.service treeseed-manager-api.service treeseed-manager-stable.timer treeseed-manager-development.timer >/dev/null
-systemctl restart treeseed-manager-stable.timer treeseed-manager-development.timer
+systemctl enable treeseed-manager-supervisor.service treeseed-provider-volume.service treeseed-sandbox-broker.service treeseed-manager-api.service >/dev/null
+if [ -f /etc/treeseed/platform.json ]; then
+	systemctl enable treeseed-manager-stable.timer treeseed-manager-development.timer >/dev/null
+	systemctl restart treeseed-manager-stable.timer treeseed-manager-development.timer
+else
+	systemctl disable --now treeseed-manager-stable.timer treeseed-manager-development.timer >/dev/null 2>&1 || true
+fi
 exit 0

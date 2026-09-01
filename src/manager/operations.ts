@@ -24,7 +24,7 @@ import { credentialInitializerStatus, loadCredentialInitializers } from '../secu
 import { hostDevelopmentActivationSchema } from '../supervisor/host-development.js';
 import { storageEnvironmentForRolloutGroup } from '../cloudflare/r2-replication-provisioning.js';
 import { assertTreeDxResetSafe } from './reset-safety.js';
-import { planHostInitialization, validateHostInitializationInputs } from './initialization.js';
+import { planHostInitialization, renderHostInitializationConfiguration, validateHostInitializationInputs } from './initialization.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -163,10 +163,21 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		const proposed = planHostInitialization(profile, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, host);
 		if (request.options.plan === true) return proposed;
 		if (request.options.confirm !== true) throw new Error('Host initialization execution requires confirmation after reviewing the plan.');
-		const payload = developmentPayload(request) as { profile?: unknown; inputs?: unknown };
+		const payload = z.object({
+			profile: z.string(), hostId: z.string().regex(/^[a-z][a-z0-9.-]{1,63}$/u),
+			catalog: z.object({ release: z.string().min(1), generation: z.number().int().positive(), digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u) }).strict(),
+			inputs: z.unknown(),
+		}).strict().parse(developmentPayload(request));
 		if (payload.profile !== profile) throw new Error('Host initialization payload does not match the planned profile.');
+		if (payload.hostId !== proposed.hostId || payload.catalog.release !== proposed.catalog.release || payload.catalog.generation !== proposed.catalog.generation
+			|| payload.catalog.digest !== proposed.catalog.digest) throw new Error('Host initialization payload does not match the immutable catalog-bound plan.');
 		validateHostInitializationInputs(proposed, payload.inputs);
-		throw new Error('Host initialization execution is not enabled until configuration rendering and capacity-provider registration handoff are accepted. No input was retained.');
+		if (proposed.inputs.length) throw new Error('Host initialization profiles with external inputs remain disabled until their one-time handoff is accepted. No input was retained.');
+		if (host) return { ...proposed, mode: 'execute', mutation: false, configured: true, initialized: false, securityRequired: proposed.security.requirement === 'required' };
+		const configuration = renderHostInitializationConfiguration(profile, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined);
+		await requestSupervisor({ operation: 'configuration.initialize', configuration });
+		return { ...proposed, mode: 'execute', mutation: true, configured: true, initialized: true, configurationId: configuration.configurationId, generation: configuration.generation,
+			securityRequired: proposed.security.requirement === 'required', nextAction: proposed.security.requirement === 'required' ? 'host security initialize' : 'host reconcile' };
 	}
 	if (request.handlerId === 'local.host.uninstall') {
 		if (!context.local) throw new Error('Host uninstall is available only through the protected local manager socket.');

@@ -11,7 +11,7 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const activation = {
 	generationId: 'dev-1788100000000-deadbeef',
-	worktree: '/home/developer/Projects/treeseed/platform/packages/deployment',
+	worktree: '/workspace/treeseed/platform/packages/deployment',
 	packageSha256: digest,
 	files: [
 		{ path: 'package.json', size: 100, sha256: digest },

@@ -158,11 +158,14 @@ describe('Debian and systemd contracts', () => {
 		expect(bootstrap).toContain('--target-release "$suite"');
 		expect(bootstrap).toContain('$package/$suite');
 		expect(bootstrap).toContain('--allow-downgrades');
+		expect(bootstrap).toContain('systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer');
 		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
 		expect(readFileSync('src/manager/operations.ts', 'utf8')).not.toContain('/var/lib/treeseed/bootstrap/');
 		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
 		expect(managerPostinstall).toContain('addgroup --system treeseed-component-secrets');
 		expect(managerPostinstall).toContain('-g treeseed-component-secrets -m 0710 /var/lib/treeseed/component-secrets');
+		expect(managerPostinstall).toContain('if [ -f /etc/treeseed/platform.json ]');
+		expect(managerPostinstall).toContain('systemctl disable --now treeseed-manager-stable.timer treeseed-manager-development.timer');
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
 	});
 
