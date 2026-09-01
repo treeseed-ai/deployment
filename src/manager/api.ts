@@ -12,7 +12,7 @@ import { aiModeStatus, recoverAiMode, requestAiMode } from './ai-mode.js';
 // this bounded, but large enough for the Deployment production dependency
 // closure (currently ~235 KiB). This applies equally to the protected local
 // socket and authenticated remote manager API.
-const maximumRequestBytes = 512 * 1024;
+const maximumRequestBytes = 1_200_000;
 
 function json(response: import('node:http').ServerResponse, status: number, value: unknown) {
 	response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
