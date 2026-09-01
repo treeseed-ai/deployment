@@ -20,6 +20,7 @@ import { ensureSandboxNetwork } from '../sandbox/network.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
 import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 import { waitForStartingActivation } from './activation-wait.js';
+import { ensureDevelopmentConfiguration } from './development-configuration.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -348,6 +349,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
 			configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
+		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {

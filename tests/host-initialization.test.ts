@@ -24,6 +24,9 @@ function integratedCatalog(): ReleaseCatalog {
 	agent.images[0] = { ...agent.images[0]!, role: 'sandbox-guest', repository: 'treeseed/sandbox-codex' };
 	const treedx = component('treedx', 'development', 'e', 'treedx.treeseed.localhost');
 	treedx.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
+	treedx.runtime.configuration.environment = ['TREEDX_GIT_ALLOWED_HOSTS', 'TREEDX_JWT_ALLOWED_ALGS', 'TREEDX_JWT_AUDIENCE', 'TREEDX_JWT_ISSUER', 'TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID']
+		.map((name) => ({ name, required: true, source: 'configuration' as const }));
+	treedx.runtime.configuration.secretEnvironment = ['TREEDX_REMOTE_CREDENTIAL_BROKER_ASSERTION', 'TREEDX_SECRET_KEY_BASE'].map((name) => ({ name, required: true }));
 	const lab = component('lab', 'development', 'f', 'lab.treeseed.localhost');
 	const profile = hostInitializationProfileSchema.parse({ schemaVersion: 'treeseed.host-initialization-profile/v1', id: 'core', role: 'integrated', runtime: { management: 'managed', environment: 'track-default' }, components: ['api', 'admin', 'agent', 'treedx', 'lab'], security: { requirement: 'required' }, inputs: [] });
 	return { ...catalog(), components: [api, admin, agent, treedx, lab], hostProfiles: [profile] };
@@ -61,6 +64,11 @@ describe('host initialization planning', () => {
 		expect(rendered.components.agent?.connections['control-plane']).toEqual({ kind: 'local', componentId: 'api', serviceId: 'api', endpointId: 'http' });
 		expect(rendered.components.treedx?.connections['control-plane']).toEqual({ kind: 'local', componentId: 'api', serviceId: 'api', endpointId: 'http' });
 		expect(rendered.components.api?.configuration).toMatchObject({ secretEnvironment: { TREESEED_DATABASE_URL: 'api-database-url' } });
+		expect(rendered.components.treedx?.configuration).toEqual({
+			environment: { TREEDX_GIT_ALLOWED_HOSTS: 'github.com', TREEDX_JWT_ALLOWED_ALGS: 'RS256', TREEDX_JWT_AUDIENCE: 'treedx', TREEDX_JWT_ISSUER: 'https://api.treeseed.localhost/treedx', TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID: 'treedx' },
+			secretEnvironment: { TREEDX_REMOTE_CREDENTIAL_BROKER_ASSERTION: 'treedx-credential-broker-assertion', TREEDX_SECRET_KEY_BASE: 'treedx-secret-key-base' },
+		});
+		expect(rendered.secrets['treedx-secret-key-base']).toEqual({ provider: 'file', reference: '/etc/treeseed/credentials/treedx-secret-key-base' });
 		expect(rendered.components.agent?.configuration).toEqual({ files: { 'treeseed.capacity-provider.yaml': 'schemaVersion: 5\nconnections: []\n' } });
 		expect(rendered.security?.sandbox.profiles.every(({ guestImage }) => guestImage === 'treeseed/sandbox-codex')).toBe(true);
 		expect(JSON.stringify(rendered)).not.toMatch(/adrian|\/home\//u);
