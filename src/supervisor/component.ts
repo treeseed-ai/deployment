@@ -28,6 +28,7 @@ export function componentStateDirectories(componentId: string) {
 }
 
 export function componentStateRoot(host: HostConfiguration, componentId: string) {
+	if (componentId === 'agent' && host.security) return resolve(host.security.providerVolume.mountPath);
 	const root = host.runtime.environment === 'development' ? host.runtime.dataRoot : '/var/lib/treeseed/components';
 	if (!root || !root.startsWith('/') || root === '/' || root === '/home' || root === '/var') throw new Error('Configured component data root is unsafe.');
 	return resolve(root, componentId);
@@ -99,6 +100,7 @@ export function renderComponentEnvironment(host: HostConfiguration, componentId:
 		if (!values.has('LOCAL_DEV_MODE')) values.set('LOCAL_DEV_MODE', '1');
 		values.set('TREESEED_COMPONENT_DATA_ROOT', host.runtime.dataRoot!);
 	}
+	if (componentId === 'agent') values.set('TREESEED_COMPONENT_DATA_ROOT', componentStateRoot(host, componentId));
 	return [...values].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + (values.size ? '\n' : '');
 }
 

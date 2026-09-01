@@ -8,7 +8,7 @@ import { validateProductionCompose } from '../src/index.js';
 
 const digest = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 
-function releaseFor(source: string): { release: ComponentRelease; root: string } {
+function releaseFor(source: string, componentId = 'test'): { release: ComponentRelease; root: string } {
 	const root = mkdtempSync(resolve(tmpdir(), 'treeseed-compose-volume-'));
 	const imageDigest = digest('image');
 	const compose = `services:\n  service:\n    image: treeseed/test@${imageDigest}\n    healthcheck: { test: ["CMD", "true"] }\n    volumes: ["${source}:/data:ro"]\n`;
@@ -16,7 +16,7 @@ function releaseFor(source: string): { release: ComponentRelease; root: string }
 	return {
 		root,
 		release: {
-			schemaVersion: 'treeseed.component-release/v1', componentId: 'test', version: '1.0.0',
+			schemaVersion: 'treeseed.component-release/v1', componentId, version: '1.0.0',
 			images: [{ id: 'service', repository: 'treeseed/test', digest: imageDigest }],
 			runtime: { services: [{ id: 'service', composeService: 'service' }], compose: { files: [{ path: 'compose.yml', digest: digest(readFileSync(resolve(root, 'compose.yml'), 'utf8')) }] } }
 		} as unknown as ComponentRelease
@@ -32,5 +32,13 @@ describe('Compose volume validation', () => {
 	it('rejects other variable source mounts', () => {
 		const { release, root } = releaseFor('${UNMANAGED_ROOT:-/tmp}/experience');
 		expect(() => validateProductionCompose(release, root)).toThrow(/unrecognized variable source mount/u);
+	});
+
+	it('accepts only the Agent required secure-root expression', () => {
+		const source = '${TREESEED_COMPONENT_DATA_ROOT:?TREESEED_COMPONENT_DATA_ROOT is required}';
+		const agent = releaseFor(source, 'agent');
+		expect(() => validateProductionCompose(agent.release, agent.root)).not.toThrow();
+		const api = releaseFor(source, 'api');
+		expect(() => validateProductionCompose(api.release, api.root)).toThrow(/unrecognized variable source mount/u);
 	});
 });
