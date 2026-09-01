@@ -12,6 +12,7 @@ const preserved = resolve(temporary, 'unmanaged-preserved.txt');
 writeFileSync(preserved, 'preserve\n');
 const run = (executable: string, arguments_: string[]) => execFileSync(executable, arguments_, { stdio: 'pipe', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } });
 const ensureGroup = (name: string) => { try { run('/usr/sbin/groupadd', ['--system', name]); } catch { /* fixture already exists */ } };
+let dockerFixtureImage = false;
 
 function fixturePackage(name: string) {
 	const stage = resolve(temporary, name), control = resolve(stage, 'DEBIAN');
@@ -32,6 +33,9 @@ function materialize(generation: 'current' | 'legacy') {
 		writeFileSync('/etc/treeseed/credentials/fixture', 'redacted\n'); writeFileSync('/etc/credstore.encrypted/treeseed-fixture.cred', 'encrypted\n');
 		writeFileSync('/etc/cni/net.d/20-treeseed-sandboxes.conflist', '{}\n');
 		symlinkSync('/opt/treeseed/kata/test', '/opt/kata'); symlinkSync('/opt/kata/runtime-rs/bin/containerd-shim-kata-v2', '/usr/local/bin/containerd-shim-kata-v2');
+		run('/usr/bin/docker', ['pull', 'alpine:3.22']); dockerFixtureImage = true;
+		run('/usr/bin/docker', ['network', 'create', '--label', 'org.treeseed.manager=true', 'treeseed-uninstall-fixture']);
+		run('/usr/bin/docker', ['run', '--detach', '--label', 'com.docker.compose.project=treeseed-uninstall-fixture', '--network', 'treeseed-uninstall-fixture', '--name', 'treeseed-uninstall-fixture', 'alpine:3.22', 'sleep', '300']);
 	}
 	const unit = `/etc/systemd/system/treeseed-${generation}-fixture.service`;
 	writeFileSync(unit, '[Unit]\nDescription=TreeSeed uninstall fixture\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\n');
@@ -48,6 +52,9 @@ try {
 		if (!existsSync(preserved)) throw new Error(`${generation} uninstall removed unmanaged data.`);
 	}
 } finally {
+	try { run('/usr/bin/docker', ['rm', '--force', 'treeseed-uninstall-fixture']); } catch { /* removed by acceptance */ }
+	try { run('/usr/bin/docker', ['network', 'rm', 'treeseed-uninstall-fixture']); } catch { /* removed by acceptance */ }
+	if (dockerFixtureImage) try { run('/usr/bin/docker', ['image', 'rm', 'alpine:3.22']); } catch { /* runner cleanup owns any shared image */ }
 	rmSync(temporary, { recursive: true, force: true });
 }
 
