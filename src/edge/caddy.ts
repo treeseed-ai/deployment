@@ -1,7 +1,13 @@
 import type { ComponentRelease } from '@treeseed/sdk/deployment';
 import { collectHostAliases } from '@treeseed/sdk/deployment';
 
-export interface EdgeRoute { alias: string; upstream: string; authentication: 'none' | 'application' | 'mtls' }
+export interface EdgeRoute {
+	alias: string;
+	upstream: string;
+	authentication: 'none' | 'application' | 'mtls';
+	projectId?: string;
+	targetId?: string;
+}
 
 export function edgeRoutes(components: readonly ComponentRelease[], overrides: Record<string, string> = {}): EdgeRoute[] {
 	for (const component of components) for (const service of component.runtime.services) for (const endpoint of service.endpoints) {
