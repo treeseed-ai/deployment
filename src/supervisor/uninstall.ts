@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -32,6 +32,16 @@ const ownedLinks = [
 const unitRoots = ['/etc/systemd/system', '/usr/lib/systemd/system', '/lib/systemd/system'] as const;
 const itemKey = (item: UninstallItem) => `${item.kind}:${item.id}`;
 const ownedSymbolicLink = (path: string, target: string) => { try { return lstatSync(path).isSymbolicLink() && readlinkSync(path).startsWith(target); } catch { return false; } };
+const pathEntryExists = (path: string) => { try { lstatSync(path); return true; } catch (error) { if ((error as { code?: string }).code === 'ENOENT') return false; throw error; } };
+export const uninstallReceiptMode = 0o644;
+export function writeUninstallReceipt(receiptPath: string, receipt: object) {
+	const temporaryPath = `${receiptPath}.new`;
+	writeFileSync(temporaryPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: uninstallReceiptMode });
+	// writeFile mode is filtered through the service umask. Apply the public,
+	// redacted receipt contract explicitly before the atomic rename.
+	chmodSync(temporaryPath, uninstallReceiptMode);
+	renameSync(temporaryPath, receiptPath);
+}
 
 export function planHostUninstall(options: { root?: string; command?: UninstallCommand } = {}): UninstallPlan {
 	const root = resolve(options.root ?? '/'), command = options.command ?? run, items: UninstallItem[] = [];
@@ -99,6 +109,7 @@ export function uninstallReceiptPath(operationId: string) {
 export function executeHostUninstall(purgeSecurity: boolean, options: { root?: string; command?: UninstallCommand; operationId?: string; receiptPath?: string } = {}) {
 	const root = resolve(options.root ?? '/'), command = options.command ?? run, plan = planHostUninstall({ root, command });
 	const selected = plan.items.filter((item) => purgeSecurity || !item.security), by = (kind: UninstallKind) => selected.filter((item) => item.kind === kind).map((item) => item.id);
+	const selectedPaths = by('path').sort((a, b) => b.length - a.length), ownedLinkPaths = new Set<string>(ownedLinks.map(({ path }) => path));
 	for (const unit of by('unit')) attempt(command, '/usr/bin/systemctl', ['disable', '--now', unit]);
 	for (const id of by('container')) command('/usr/bin/docker', ['rm', '--force', id]);
 	for (const id of by('image')) command('/usr/bin/docker', ['image', 'rm', '--force', id]);
@@ -108,14 +119,19 @@ export function executeHostUninstall(purgeSecurity: boolean, options: { root?: s
 	if (by('nft-table').length) command('/usr/sbin/nft', ['delete', 'table', 'inet', 'treeseed_sandbox']);
 	for (const target of by('mount')) command('/usr/bin/umount', [target]);
 	for (const mapper of by('mapper')) command('/usr/sbin/cryptsetup', ['close', mapper]);
+	// Remove package-created links while their targets still exist. This avoids
+	// leaving a dangling host link when package and managed-root removal follows.
+	for (const path of selectedPaths.filter((path) => ownedLinkPaths.has(path))) rmSync(rooted(root, path), { recursive: true, force: true });
 	const packages = by('package'); if (packages.length) command('/usr/bin/apt-get', ['-y', 'purge', ...packages]);
 	for (const unit of by('unit')) for (const directory of unitRoots) rmSync(rooted(root, `${directory}/${unit}`), { recursive: true, force: true });
-	for (const path of by('path').sort((a, b) => b.length - a.length)) rmSync(rooted(root, path), { recursive: true, force: true });
+	for (const path of selectedPaths.filter((path) => !ownedLinkPaths.has(path))) rmSync(rooted(root, path), { recursive: true, force: true });
+	const pathResidue = selectedPaths.filter((path) => pathEntryExists(rooted(root, path)));
+	if (pathResidue.length) throw new Error(`TreeSeed path removal incomplete: ${pathResidue.join(', ')}`);
 	for (const user of by('user')) command('/usr/sbin/userdel', [user]);
 	for (const group of by('group')) attempt(command, '/usr/sbin/groupdel', [group]);
 	attempt(command, '/usr/bin/systemctl', ['daemon-reload']);
 	const receipt = { schemaVersion: 'treeseed.host-uninstall-receipt/v1', receiptId: options.operationId ?? `uninstall-${Date.now()}`, state: 'completed', purgedSecurity: purgeSecurity, removed: Object.fromEntries([...new Set(selected.map((item) => item.kind))].map((kind) => [kind, selected.filter((item) => item.kind === kind).length])), preserved: plan.preserves, completedAt: new Date().toISOString() };
-	if (options.receiptPath) { writeFileSync(`${options.receiptPath}.new`, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }); renameSync(`${options.receiptPath}.new`, options.receiptPath); }
+	if (options.receiptPath) writeUninstallReceipt(options.receiptPath, receipt);
 	return receipt;
 }
 

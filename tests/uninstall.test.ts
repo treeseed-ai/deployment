@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -66,13 +66,27 @@ describe('host uninstall', () => {
 
 	it('removes only exact TreeSeed Kata links and the isolated containerd namespace', () => {
 		const base = root(), bin = materialize(base, '/usr/local/bin'), opt = materialize(base, '/opt');
+		materialize(base, '/opt/treeseed/kata/test');
+		symlinkSync('/opt/treeseed/kata/test', resolve(opt, 'kata'));
 		symlinkSync('/opt/kata/runtime-rs/bin/containerd-shim-kata-v2', resolve(bin, 'containerd-shim-kata-v2'));
 		symlinkSync('/srv/unrelated-kata', resolve(opt, 'unrelated-kata'));
 		const command: UninstallCommand = (executable, arguments_) => executable.endsWith('ctr') && arguments_.join(' ') === 'namespaces list --quiet' ? 'treeseed-sandboxes\nother\n' : '';
 		const plan = planHostUninstall({ root: base, command });
 		expect(plan.items).toContainEqual({ kind: 'path', id: '/usr/local/bin/containerd-shim-kata-v2', security: false });
+		expect(plan.items).toContainEqual({ kind: 'path', id: '/opt/kata', security: false });
 		expect(plan.items).toContainEqual({ kind: 'containerd-namespace', id: 'treeseed-sandboxes', security: false });
 		expect(plan.items.some((item) => item.id.includes('unrelated-kata'))).toBe(false);
+		executeHostUninstall(true, { root: base, command });
+		expect(() => lstatSync(resolve(opt, 'kata'))).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+	});
+
+	it('writes redacted uninstall receipts that remain readable after operator-group removal', () => {
+		const base = root(), receiptPath = resolve(base, 'uninstall-receipt.json');
+		executeHostUninstall(true, { root: base, command: () => '', operationId: 'uninstall-test', receiptPath });
+		expect(statSync(receiptPath).mode & 0o777).toBe(0o644);
+		const receipt = readFileSync(receiptPath, 'utf8');
+		expect(receipt).toContain('treeseed.host-uninstall-receipt/v1');
+		expect(receipt).not.toMatch(/credential|passphrase|token/iu);
 	});
 
 	it('empties the TreeSeed containerd namespace without the invalid namespace-cgroup option', () => {
