@@ -12,7 +12,9 @@ import { containerdImageReference } from './image-reference.js';
 
 interface Prepared {
 	sandboxId: string; assignment: SandboxAssignment; directory: string; inputDirectory: string; outputDirectory: string;
-	tokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
+	tokenHash: Buffer; guestTokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
+	toolRequests: Array<{ id:string; tool:string; arguments:Record<string,unknown>; createdAt:string }>;
+	toolWaiters: Map<string,{ resolve:(value:unknown)=>void; reject:(error:Error)=>void; timer:ReturnType<typeof setTimeout> }>;
 }
 export const safeContainerId = (value: string) => value.replace(/[^a-zA-Z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80) || 'assignment';
 export const authorizedGuestImage = (configured: SandboxBrokerConfiguration['guestImages'], assignment: Pick<SandboxAssignment, 'guestImage' | 'guestImageDigest' | 'profile'>) => {
@@ -80,8 +82,8 @@ export class KataSandboxRuntime {
 		if (!directory.startsWith(`${this.configuration.stateRoot}/`)) throw new Error('Resolved sandbox state path escaped its root.');
 		await mkdir(inputDirectory, { recursive: true, mode: 0o700 }); await mkdir(outputDirectory, { mode: 0o700 }); await chown(inputDirectory, 65_532, 65_532); await chown(outputDirectory, 65_532, 65_532);
 		await writeFile(resolve(inputDirectory, 'assignment.json'), `${JSON.stringify(assignment)}\n`, { mode: 0o400, flag: 'wx' });
-		const token = randomBytes(32).toString('base64url');
-		await writeFile(resolve(inputDirectory, 'operation-token'), token, { mode: 0o400, flag: 'wx' });
+		const token = randomBytes(32).toString('base64url'), guestToken = randomBytes(32).toString('base64url');
+		await writeFile(resolve(inputDirectory, 'operation-token'), guestToken, { mode: 0o400, flag: 'wx' });
 		await writeFile(resolve(inputDirectory, 'sandbox-id'), `${sandboxId}\n`, { mode: 0o400, flag: 'wx' });
 		const brokerFiles = ['assignment.json', 'operation-token', 'sandbox-id'];
 		if (modelGateway?.authenticationMode === 'codex-subscription') {
@@ -90,7 +92,7 @@ export class KataSandboxRuntime {
 			await writeFile(resolve(inputDirectory, 'codex-auth.json'), authentication, { mode: 0o400, flag: 'wx' }); brokerFiles.push('codex-auth.json');
 		}
 		for (const name of brokerFiles) await chown(resolve(inputDirectory, name), 65_532, 65_532);
-		const sandbox: Prepared = { sandboxId, assignment, directory, inputDirectory, outputDirectory, tokenHash: hash(token), uploaded: new Set(), events: [] };
+		const sandbox: Prepared = { sandboxId, assignment, directory, inputDirectory, outputDirectory, tokenHash: hash(token), guestTokenHash: hash(guestToken), uploaded: new Set(), events: [], toolRequests: [], toolWaiters: new Map() };
 		this.sandboxes.set(sandboxId, sandbox); await this.emit(sandbox, 'sandbox.created', { profile: assignment.profile, guestImageDigest: assignment.guestImageDigest });
 		await this.emit(sandbox, 'sandbox.ready', { requiredInputCount: assignment.inputs.length, modelAuthentication: modelGateway?.authenticationMode ?? null });
 		return { sandboxId, operationToken: token, requiredInputs: assignment.inputs.map(({ id, bytes, digest }) => ({ id, bytes, digest })) };
@@ -100,6 +102,27 @@ export class KataSandboxRuntime {
 		const sandbox = this.sandboxes.get(sandboxId); if (!sandbox) throw new Error('Sandbox does not exist.');
 		const actual = hash(token); if (!token || actual.length !== sandbox.tokenHash.length || !timingSafeEqual(actual, sandbox.tokenHash)) throw new Error('Sandbox operation token is invalid.');
 		return sandbox;
+	}
+	private authorizedGuest(sandboxId:string,token:string) {
+		const sandbox=this.sandboxes.get(sandboxId); if(!sandbox) throw new Error('Sandbox does not exist.');
+		const actual=hash(token); if(!token||actual.length!==sandbox.guestTokenHash.length||!timingSafeEqual(actual,sandbox.guestTokenHash)) throw new Error('Sandbox guest relay token is invalid.');
+		return sandbox;
+	}
+
+	async requestTreeDxTool(sandboxId:string,token:string,value:unknown) {
+		const sandbox=this.authorizedGuest(sandboxId,token), request=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
+		if(!sandbox.assignment.network.allowedServices.includes('treedx-relay')||sandbox.assignment.treeDxHandleIds.length===0) throw new Error('Assignment does not authorize TreeDX tools.');
+		if(Date.parse(sandbox.assignment.leaseExpiresAt)<=Date.now()) throw new Error('Assignment TreeDX authority expired.');
+		const tool=String(request.tool??''), arguments_=request.arguments&&typeof request.arguments==='object'&&!Array.isArray(request.arguments)?request.arguments as Record<string,unknown>:{};
+		if(!['treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths'].includes(tool)) throw new Error('TreeDX tool is not supported.');
+		const id=randomUUID(), createdAt=new Date().toISOString(); sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt}); await this.emit(sandbox,'tool.requested',{requestId:id,tool});
+		return new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
+	}
+	nextToolRequest(sandboxId:string,token:string) { const sandbox=this.authorized(sandboxId,token); return {request:sandbox.toolRequests.shift()??null}; }
+	async completeToolRequest(sandboxId:string,token:string,requestId:string,value:unknown) {
+		const sandbox=this.authorized(sandboxId,token), waiter=sandbox.toolWaiters.get(requestId); if(!waiter) throw new Error('TreeDX tool request is not pending.');
+		const result=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}; clearTimeout(waiter.timer); sandbox.toolWaiters.delete(requestId);
+		if(result.error) waiter.reject(new Error(String(result.error))); else waiter.resolve(result.result); await this.emit(sandbox,'tool.completed',{requestId,ok:!result.error}); return {completed:true};
 	}
 
 	async upload(sandboxId: string, inputId: string, token: string, request: IncomingMessage) {
@@ -182,9 +205,9 @@ export class KataSandboxRuntime {
 	}
 
 	inspect(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); return { sandboxId, assignmentId: sandbox.assignment.assignmentId, uploadedInputs: [...sandbox.uploaded], running: Boolean(sandbox.child), events: sandbox.events, result: sandbox.result ?? null }; }
-	modelPolicy(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment model authority expired.'); return sandbox.assignment.modelPolicy; }
+	modelPolicy(sandboxId: string, token: string) { const sandbox = this.authorizedGuest(sandboxId, token); if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment model authority expired.'); return sandbox.assignment.modelPolicy; }
 	authorizeSubscriptionProxy(sandboxId: string, token: string) {
-		const sandbox = this.authorized(sandboxId, token);
+		const sandbox = this.authorizedGuest(sandboxId, token);
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment subscription proxy authority expired.');
 		if (this.configuration.modelGateway?.authenticationMode !== 'codex-subscription' || !sandbox.assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription proxy access.');
 		return true;
@@ -205,6 +228,7 @@ export class KataSandboxRuntime {
 	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
 	async destroy(sandboxId: string, token: string) {
 		const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGKILL'); const verified = this.removeContainer(sandboxId);
+		for(const waiter of sandbox.toolWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Sandbox was destroyed.'));} sandbox.toolWaiters.clear();
 		await this.emit(sandbox, 'sandbox.destroyed', { verified });
 		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }
 		return { sandboxId, destroyed: verified, teardown: { verified, completedAt: new Date().toISOString() }, events: sandbox.events };

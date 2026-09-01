@@ -39,6 +39,10 @@ export function startSandboxBroker() {
 			if (request.method === 'GET' && artifact?.[1] && artifact[2]) {
 				const collected = runtime.collectArtifact(artifact[1], artifact[2], token(request)); response.writeHead(200, { 'content-type': collected.artifact.mediaType, 'content-length': String(collected.artifact.bytes), 'x-content-sha256': collected.artifact.digest }); collected.stream.pipe(response); return;
 			}
+			const nextTool=request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/tool-requests\/next$/u);
+			if(nextTool?.[1]&&request.method==='GET') return respond(response,200,runtime.nextToolRequest(nextTool[1],token(request)));
+			const completeTool=request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/tool-requests\/([a-zA-Z0-9-]+)$/u);
+			if(completeTool?.[1]&&completeTool[2]&&request.method==='POST') return respond(response,200,await runtime.completeToolRequest(completeTool[1],token(request),completeTool[2],await body(request)));
 			const operation = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)(?:\/(execute|cancel|outputs|renew))?$/u), sandboxId = operation?.[1], action = operation?.[2];
 			const model = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/model\/responses$/u);
 			if (model?.[1]) return await proxyModelRequest({ request, response, configuration, policy: runtime.modelPolicy(model[1], token(request)) });
@@ -61,6 +65,8 @@ export function startSandboxBroker() {
 	server.listen(configuration.socketPath, () => chmodSync(configuration.socketPath, 0o660));
 	const relay = createTlsServer({ cert: readFileSync(configuration.relay.certificateFile), key: readFileSync(configuration.relay.privateKeyFile), minVersion: 'TLSv1.3' }, async (request, response) => {
 		try {
+			const tool=request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/tools\/treedx$/u);
+			if(tool?.[1]&&request.method==='POST') return respond(response,200,await runtime.requestTreeDxTool(tool[1],token(request),await body(request)));
 			const model = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/model\/responses$/u);
 			if (!model?.[1] || request.method !== 'POST') return respond(response, 404, { error: 'relay_operation_not_found' });
 			await proxyModelRequest({ request, response, configuration, policy: runtime.modelPolicy(model[1], token(request)) });

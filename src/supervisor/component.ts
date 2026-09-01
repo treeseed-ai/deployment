@@ -49,8 +49,9 @@ export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, com
 	const values: Record<string, string> = { ...connectionEnvironment };
 	for (const [key, value] of Object.entries(environment)) {
 		if (!environmentKey.test(key) || typeof value !== 'string' || value.length > 16_384) throw new Error(`Invalid environment entry ${key}.`);
-		if (values[key] !== undefined) throw new Error(`Environment entry ${key} is reserved for a managed connection.`);
-		values[key] = value;
+		// Manager-owned development connections deliberately supersede the
+		// released component's static peer URL for the lifetime of the lease.
+		values[key] ??= value;
 	}
 	for (const [key, secretId] of Object.entries(requested).sort(([left], [right]) => left.localeCompare(right))) {
 		if (!environmentKey.test(key) || !fileName.test(secretId)) throw new Error(`Invalid development secret entry ${key}.`);
