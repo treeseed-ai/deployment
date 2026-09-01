@@ -105,6 +105,18 @@ function developmentApiConfiguration(selectedComponents: Set<string>) {
 	return { environment, secretEnvironment: { ...developmentApiSecrets } };
 }
 
+function componentInitializationConfiguration(selected: SelectedInitializationProfile, componentId: string, environment: HostConfiguration['runtime']['environment'], selectedComponents: Set<string>) {
+	const release = selected.catalog.components.find((candidate) => candidate.componentId === componentId);
+	if (!release) throw new Error(`Host initialization component ${componentId} is absent from the selected catalog.`);
+	const files = Object.fromEntries(release.runtime.configuration.files.flatMap((declaration) => {
+		if (declaration.default !== undefined) return [[declaration.id, declaration.default]];
+		if (declaration.required) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
+		return [];
+	}));
+	const configuration = componentId === 'api' && environment === 'development' ? developmentApiConfiguration(selectedComponents) : {};
+	return Object.keys(files).length ? { ...configuration, files } : configuration;
+}
+
 function requiredSecurity(selected: SelectedInitializationProfile) {
 	if (selected.profile.security.requirement !== 'required') return undefined;
 	const agent = selected.catalog.components.find(({ componentId }) => componentId === 'agent');
@@ -130,7 +142,7 @@ export function renderHostInitializationConfiguration(profileId: string, stable:
 	const selectedComponents = new Set(selected.profile.components);
 	const components = Object.fromEntries(selected.profile.components.map((componentId) => [componentId, {
 		enabled: true, track: selected.catalog.track, profile: selected.profile.id, aliases: {},
-		configuration: componentId === 'api' && environment === 'development' ? developmentApiConfiguration(selectedComponents) : {},
+		configuration: componentInitializationConfiguration(selected, componentId, environment, selectedComponents),
 		resources: { gpuDevices: [] }, connections: localConnections(selected, componentId),
 	}]));
 	const secrets = environment === 'development' && selectedComponents.has('api')
