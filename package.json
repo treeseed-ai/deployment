@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.211",
+  "version": "0.1.0-rc.212",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
@@ -22,7 +22,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.68",
+    "@treeseed/sdk": "0.13.0-rc.70",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },

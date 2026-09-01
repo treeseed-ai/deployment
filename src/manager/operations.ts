@@ -25,6 +25,7 @@ import { hostDevelopmentActivationSchema } from '../supervisor/host-development.
 import { storageEnvironmentForRolloutGroup } from '../cloudflare/r2-replication-provisioning.js';
 import { assertTreeDxResetSafe } from './reset-safety.js';
 import { planHostInitialization, renderHostInitializationConfiguration, validateHostInitializationInputs } from './initialization.js';
+import { executeProviderEnvironmentCommand } from './provider-environment.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -195,6 +196,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		await requestSupervisor({ operation: 'manager.restart' });
 		return { adopted: true, recoveredInvalidConfiguration: true, configurationId: candidate.configurationId, generation: candidate.generation };
 	}
+	if (request.handlerId.startsWith('local.host.provider.environment.')) return executeProviderEnvironmentCommand(request, context);
 	switch (request.handlerId) {
 		case 'local.dev.host.activate': {
 			if (!context.local) throw new Error('Host runtime development may be activated only through the protected local manager socket.');

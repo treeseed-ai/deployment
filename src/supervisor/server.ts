@@ -14,7 +14,7 @@ export function createSupervisorServer() {
 		connection.setEncoding('utf8');
 		connection.on('data', (chunk) => {
 			input += chunk;
-			if (input.length > 1_048_576) connection.destroy(new Error('Supervisor request exceeds one MiB.'));
+			if (input.length > 1_200_000) connection.destroy(new Error('Supervisor request exceeds its bounded request limit.'));
 		});
 		connection.on('end', () => {
 			let operation = 'unknown';

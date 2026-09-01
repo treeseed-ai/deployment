@@ -21,6 +21,7 @@ import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
 import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 import { waitForStartingActivation } from './activation-wait.js';
 import { ensureDevelopmentConfiguration } from './development-configuration.js';
+import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -319,6 +320,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	sleep: (milliseconds: number) => void = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); }, now: () => number = Date.now) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
+	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
 	switch (operation.operation) {
 		case 'supervisor.ping': return { ready: true };
 		case 'security.plan': return providerSecurityPlan();
