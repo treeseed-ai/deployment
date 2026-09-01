@@ -17,6 +17,11 @@ on:
       development_lock_url:
         description: Exact-commit raw URL for the Platform development integration release
         required: false
+      resume_apt_only:
+        description: Reuse an exact published release and resume only signed APT publication
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -61,7 +66,24 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Restore exact release assets for APT-only resume
+        if: inputs.resume_apt_only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release/out
+          gh release download "${{ inputs.tag }}" --pattern '*.deb' --pattern exact-head.json --dir release/out
+          expected_commit="$(git rev-list -n 1 "${{ inputs.tag }}")"
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$expected_commit" \
+            --arg tag "${{ inputs.tag }}" \
+            --arg suite "${{ inputs.suite }}" \
+            '.repository == $repository and .commit == $commit and .tag == $tag and .suite == $suite' \
+            release/out/exact-head.json
+          compgen -G 'release/out/*.deb' >/dev/null
       - run: npm run verify:direct
+        if: ${{ !inputs.resume_apt_only }}
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
         if: ${{ false }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -123,9 +145,13 @@ jobs:
             fi
           done
       - run: npm run verify:deb
+        if: ${{ !inputs.resume_apt_only }}
       - uses: anchore/sbom-action/download-syft@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+        if: ${{ !inputs.resume_apt_only }}
       - run: syft dir:. -o spdx-json=release/out/deployment.spdx.json
+        if: ${{ !inputs.resume_apt_only }}
       - name: Seal exact-head evidence
+        if: ${{ !inputs.resume_apt_only }}
         run: |
           if [ "${{ inputs.suite }}" = development ]; then
             mapfile -t lab_bundles < <(find .treeseed/artifacts/components/lab -mindepth 2 -maxdepth 2 -name component-release.json -type f)
@@ -137,14 +163,17 @@ jobs:
           test "$checked_out_head" = "$(git rev-list -n 1 "${{ inputs.tag }}")"
           printf '{"repository":"%s","commit":"%s","tag":"%s","suite":"%s","diagnostics":"%s","mailpit":"%s"}\n' "$GITHUB_REPOSITORY" "$checked_out_head" "${{ inputs.tag }}" "${{ inputs.suite }}" "${{ steps.diagnostics.outputs.digest }}" "${{ steps.mailpit.outputs.digest }}" > release/out/exact-head.json
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        if: ${{ !inputs.resume_apt_only }}
         with:
           subject-path: release/out/*.deb
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ !inputs.resume_apt_only }}
         with:
           name: deployment-release-${{ github.sha }}
           path: release/out/**
           if-no-files-found: error
       - name: Publish immutable GitHub release assets
+        if: ${{ !inputs.resume_apt_only }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
