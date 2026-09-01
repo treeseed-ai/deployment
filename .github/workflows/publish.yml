@@ -36,6 +36,10 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
+      - name: Require the protected workflow ref for the selected suite
+        run: |
+          expected_ref="${{ inputs.suite == 'stable' && 'refs/heads/main' || 'refs/heads/staging' }}"
+          test "$GITHUB_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/publish.yml@$expected_ref"
       - name: Require exact annotated tag and allowed branch ancestry
         run: |
           test "$(git describe --tags --exact-match HEAD)" = "${{ inputs.tag }}"
@@ -148,7 +152,19 @@ jobs:
           prerelease=()
           if [ "${{ inputs.suite }}" = development ]; then prerelease=(--prerelease); fi
           if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
-            gh release upload "${{ inputs.tag }}" release/out/*
+            existing_dir="$(mktemp -d)"
+            trap 'rm -rf "$existing_dir"' EXIT
+            for asset in release/out/*; do
+              name="$(basename "$asset")"
+              if gh release download "${{ inputs.tag }}" --pattern "$name" --dir "$existing_dir"; then
+                cmp --silent "$asset" "$existing_dir/$name" || {
+                  echo "Published release asset differs: $name" >&2
+                  exit 1
+                }
+              else
+                gh release upload "${{ inputs.tag }}" "$asset"
+              fi
+            done
           else
             gh release create "${{ inputs.tag }}" release/out/* --verify-tag --generate-notes "${prerelease[@]}"
           fi
