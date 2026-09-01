@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { executeHostUninstall, planHostUninstall } from '../src/supervisor/uninstall.js';
 
@@ -52,6 +52,7 @@ try {
 		if (!before.items.length) throw new Error(`${generation} fixture was not inventoried.`);
 		const receipt = executeHostUninstall(true);
 		if (receipt.state !== 'completed' || planHostUninstall().items.length) throw new Error(`${generation} fixture left TreeSeed residue.`);
+		try { lstatSync('/opt/kata'); throw new Error(`${generation} uninstall left the TreeSeed Kata link.`); } catch (error) { if ((error as { code?: string }).code !== 'ENOENT') throw error; }
 		if (!existsSync(preserved)) throw new Error(`${generation} uninstall removed unmanaged data.`);
 	}
 } finally {
