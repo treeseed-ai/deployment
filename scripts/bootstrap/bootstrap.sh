@@ -23,6 +23,7 @@ suite_packages=
 for package in $packages; do suite_packages="$suite_packages $package/$suite"; done
 if [ "$suite" = development ]; then suite_packages="$suite_packages treeseed-release-catalog-development/development"; fi
 apt-get -o DPkg::Lock::Timeout=600 --allow-downgrades --no-remove --no-install-recommends --target-release "$suite" install -y $suite_packages
+systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer >/dev/null 2>&1 || true
 install -d -o treeseed-manager -g treeseed-manager -m 0750 "$manager_state"
 printf '{"complete":false,"foundationReady":false,"initializationRequired":true,"installerCredentialsRetained":false}\n' >"$state/bootstrap-status.json"
 install -o root -g treeseed-manager -m 0640 "$state/bootstrap-status.json" "$manager_state/bootstrap-status.json"

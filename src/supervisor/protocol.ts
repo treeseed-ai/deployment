@@ -57,9 +57,11 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('platform.uninstall.execute'), purgeSecurity: z.boolean(), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('cli.configure'), controlPlaneUrl: z.string().url().refine((value) => value.startsWith('https://') || value.startsWith('http://127.0.0.1'), 'Control-plane URL must use HTTPS or loopback HTTP.') }).strict(),
 	z.object({ operation: z.literal('manager.restart') }).strict(),
+	z.object({ operation: z.literal('configuration.initialize'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.replace'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.adopt'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.recover'), configuration: hostConfigurationSchema }).strict(),
+	z.object({ operation: z.literal('updates.activate') }).strict(),
 	z.object({ operation: z.literal('pki.enroll'), clientId: z.string().regex(/^client-[a-z0-9-]{8,64}$/u) }).strict(),
 ]);
 

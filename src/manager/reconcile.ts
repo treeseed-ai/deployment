@@ -418,6 +418,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
 	atomicJson(`${paths.managerState}/active-components.json`, effective);
+	await requestSupervisor({ operation: 'updates.activate' });
 	recordEvent('reconcile.complete', { receiptId: receipt.receiptId, planId: receipt.planId });
 	return receipt;
 	}, () => recordEvent('manager.core-upgrade-handoff', { track: track ?? 'all' })));

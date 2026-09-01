@@ -293,6 +293,16 @@ export function recoverInvalidConfiguration(configuration: SupervisorOperation &
 	return { recovered: true, archive };
 }
 
+export function initializeHostConfiguration(configuration: SupervisorOperation & { operation: 'configuration.initialize' }, command: CommandRunner = run,
+	configurationPath: string = paths.configuration, marker: string = `${paths.managerState}/bootstrap-status.json`) {
+	if (existsSync(configurationPath)) throw new Error('Host configuration initialization requires an unconfigured foundation.');
+	atomicJson(configurationPath, configuration.configuration, 0o640);
+	command('/usr/bin/chown', ['root:treeseed-manager', configurationPath]);
+	atomicJson(marker, { complete: true, foundationReady: true, initializationRequired: false, installerCredentialsRetained: false }, 0o640);
+	command('/usr/bin/chown', ['treeseed-manager:treeseed-manager', marker]);
+	return { initialized: true, configurationId: configuration.configuration.configurationId, generation: configuration.configuration.generation };
+}
+
 export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles, captureCommand: CommandRunner = command === run ? capture : command) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
@@ -434,6 +444,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		}
 		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
+		case 'configuration.initialize': return initializeHostConfiguration(operation, command);
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
@@ -448,6 +459,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		}
 		case 'configuration.recover': return recoverInvalidConfiguration(operation);
+		case 'updates.activate':
+			command('/usr/bin/systemctl', ['enable', '--now', 'treeseed-manager-stable.timer', 'treeseed-manager-development.timer']);
+			break;
 		case 'pki.enroll': return enrollClient(operation.clientId, command);
 	}
 }

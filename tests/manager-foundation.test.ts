@@ -100,7 +100,7 @@ describe('unified host manager foundation', () => {
 		writeFileSync(file, valid('    volumes: ["./source:/app"]\n'));
 		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/relative source mount/u);
-		writeFileSync(file, valid('    volumes: ["/home/developer/project:/app"]\n'));
+		writeFileSync(file, valid('    volumes: ["/workspace/project:/app"]\n'));
 		bindCompose();
 		expect(() => validateProductionCompose(release, root)).toThrow(/outside manager-owned roots/u);
 		writeFileSync(file, valid('    volumes: ["/var/lib/treeseed/components/api:/data", "api-cache:/cache"]\n'));
@@ -127,6 +127,8 @@ describe('unified host manager foundation', () => {
 		expect(supervisorOperationSchema.parse({ operation: 'backup.list' })).toEqual({ operation: 'backup.list' });
 		expect(supervisorOperationSchema.parse({ operation: 'compose.status', projectName: 'treeseed-api' })).toEqual({ operation: 'compose.status', projectName: 'treeseed-api' });
 		expect(supervisorOperationSchema.parse({ operation: 'manager.restart' })).toEqual({ operation: 'manager.restart' });
+		expect(supervisorOperationSchema.parse({ operation: 'configuration.initialize', configuration: host() })).toMatchObject({ operation: 'configuration.initialize' });
+		expect(supervisorOperationSchema.parse({ operation: 'updates.activate' })).toEqual({ operation: 'updates.activate' });
 		expect(supervisorOperationSchema.parse({ operation: 'supervisor.ping' })).toEqual({ operation: 'supervisor.ping' });
 		expect(supervisorOperationSchema.parse({ operation: 'component.reset-unaccepted', componentId: 'api' })).toEqual({ operation: 'component.reset-unaccepted', componentId: 'api' });
 		expect(supervisorOperationSchema.parse({ operation: 'development.environment', componentId: 'api', connectionEnvironment: {}, secretRefs: { TREESEED_DATABASE_URL: 'api-database-url' } })).toEqual({ operation: 'development.environment', componentId: 'api', connectionEnvironment: {}, secretRefs: { TREESEED_DATABASE_URL: 'api-database-url' } });
