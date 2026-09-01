@@ -136,8 +136,8 @@ function componentId(request: HostCommandRequest) {
 	return value;
 }
 
-export function updateTrack(request: Pick<HostCommandRequest, 'arguments' | 'options'>): 'stable' | 'development' {
-	const value = request.options.track ?? request.arguments[0] ?? 'stable';
+export function updateTrack(request: Pick<HostCommandRequest, 'arguments' | 'options'>, fallback: 'stable' | 'development' = 'stable'): 'stable' | 'development' {
+	const value = request.options.track ?? request.arguments[0] ?? fallback;
 	if (value !== 'stable' && value !== 'development') throw new Error('Update track must be stable or development.');
 	return value;
 }
@@ -417,7 +417,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.update.pause':
 		case 'local.host.update.resume': {
-			const selected = updateTrack(request);
+			const selected = updateTrack(request, host.updates.defaultTrack);
 			if (request.options.plan === true) return { track: selected, paused: request.handlerId.endsWith('.pause'), mutation: false };
 			return updatePaused(selected, request.handlerId.endsWith('.pause'));
 		}

@@ -378,7 +378,7 @@ describe('unified host manager foundation', () => {
 	it('selects an explicit update track without silently falling back to stable', () => {
 		expect(updateTrack({ arguments: ['development'], options: {} })).toBe('development');
 		expect(updateTrack({ arguments: [], options: { track: 'development' } })).toBe('development');
-		expect(updateTrack({ arguments: [], options: {} })).toBe('stable');
+		expect(updateTrack({ arguments: [], options: {} })).toBe('stable'); expect(updateTrack({ arguments: [], options: {} }, 'development')).toBe('development');
 		expect(() => updateTrack({ arguments: ['nightly'], options: {} })).toThrow(/stable or development/u);
 	});
 

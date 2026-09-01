@@ -32,7 +32,7 @@ function volumeSource(volume: string | ComposeVolume) {
 	return source?.startsWith('.') || source?.startsWith('/') || source?.startsWith('$') ? source : undefined;
 }
 
-function validateVolumes(serviceName: string, volumes: Array<string | ComposeVolume> = []) {
+function validateVolumes(componentId: string, serviceName: string, volumes: Array<string | ComposeVolume> = []) {
 	for (const volume of volumes) {
 		const source = volumeSource(volume);
 		if (!source) continue;
@@ -41,6 +41,7 @@ function validateVolumes(serviceName: string, volumes: Array<string | ComposeVol
 			if (source.includes('/../') || source.endsWith('/..')) throw new Error(`${serviceName} uses an unsafe managed component source mount.`);
 			continue;
 		}
+		if (source === '${TREESEED_COMPONENT_DATA_ROOT:?TREESEED_COMPONENT_DATA_ROOT is required}' && componentId === 'agent') continue;
 		if (source.startsWith('$')) throw new Error(`${serviceName} uses an unrecognized variable source mount: ${source}.`);
 		if (!isAbsolute(source)) throw new Error(`${serviceName} uses a forbidden relative source mount: ${source}.`);
 		const absolute = resolve(source);
@@ -69,7 +70,7 @@ export function validateProductionCompose(release: ComponentRelease, bundleRoot:
 			if ('ports' in service) throw new Error(`${name} publishes a host port; manager-owned edge routing is required.`);
 			if (service.network_mode === 'host') throw new Error(`${name} uses forbidden host networking.`);
 			if (!service.healthcheck && service.restart !== 'no') throw new Error(`${name} has neither a Compose health gate nor a one-shot completion gate.`);
-			validateVolumes(name, service.volumes);
+			validateVolumes(release.componentId, name, service.volumes);
 		}
 		for (const service of services) if (!document.services[service]) throw new Error(`Declared service ${service} is absent from ${file}.`);
 	}
