@@ -104,6 +104,21 @@ describe('host uninstall', () => {
 		expect(plan.items).not.toContainEqual(expect.objectContaining({ kind: 'unit', id: 'treeseed-manager-api.service.d' }));
 	});
 
+	it('completes when user deletion already removed a planned private group', () => {
+		const base = root(), calls: string[] = [];
+		const command: UninstallCommand = (executable, arguments_) => {
+			const invocation = `${executable} ${arguments_.join(' ')}`; calls.push(invocation);
+			if (invocation === '/usr/bin/getent passwd') return 'treeseed-private:x:900:900::/nonexistent:/usr/sbin/nologin\n';
+			if (invocation === '/usr/bin/getent group') return 'treeseed-private:x:900:\n';
+			if (invocation === '/usr/sbin/groupdel treeseed-private') throw new Error('group does not exist');
+			return '';
+		};
+		const receipt = executeHostUninstall(true, { root: base, command });
+		expect(receipt.state).toBe('completed');
+		expect(calls).toContain('/usr/sbin/userdel treeseed-private');
+		expect(calls).toContain('/usr/sbin/groupdel treeseed-private');
+	});
+
 	it('schedules finalization in a separate transient service and returns only redacted custody', () => {
 		const calls: Array<{ executable: string; arguments_: readonly string[] }> = [];
 		const accepted = scheduleHostUninstall(true, (executable, arguments_) => { calls.push({ executable, arguments_ }); return ''; });
