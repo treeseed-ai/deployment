@@ -17,7 +17,7 @@ function catalogs(withInputs = false) {
 	const profile = hostInitializationProfileSchema.parse({ schemaVersion: 'treeseed.host-initialization-profile/v1', id: withInputs ? 'capacity-provider' : 'core',
 		role: withInputs ? 'capacity-provider' : 'integrated', runtime: { management: 'managed', environment: 'track-default' }, components: ['lab'], security: { requirement: 'none' },
 		inputs: withInputs ? [{ name: 'teamRegistrationCode', required: true, sensitive: true, description: 'Team registration code' }] : [] });
-	state.stable = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [], hostProfiles: [], createdAt: '2026-09-01T00:00:00.000Z' };
+	state.stable = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [lab], hostProfiles: [profile], createdAt: '2026-09-01T00:00:00.000Z' };
 	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc1', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: '1.0.0', catalogDigest: hash('a') }, components: [lab], hostProfiles: [profile], createdAt: '2026-09-01T00:01:00.000Z' };
 }
 
