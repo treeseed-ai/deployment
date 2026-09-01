@@ -491,4 +491,5 @@ describe('unified host manager foundation', () => {
 		await expect(withCoreUpgradeHandoff(false, 'previous', operate, () => { handoffs += 1; })).resolves.toBe('new');
 		expect({ operations, handoffs }).toEqual({ operations: 1, handoffs: 1 });
 	});
+
 });

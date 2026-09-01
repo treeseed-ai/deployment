@@ -18,6 +18,26 @@ import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
+export interface HostSecurityActivationStatus {
+	backingExists: boolean;
+	mapperOpen: boolean;
+	mounted: boolean;
+	credentialKeksReady: boolean;
+	recoveryBundleVerified: boolean;
+	sandboxSocketReady: boolean;
+}
+
+export function hostSecurityActivationBlockers(
+	required: boolean,
+	status: HostSecurityActivationStatus,
+) {
+	if (!required) return [];
+	return (Object.entries(status) as Array<[keyof HostSecurityActivationStatus, boolean]>)
+		.filter(([, ready]) => !ready)
+		.map(([name]) => name)
+		.sort();
+}
+
 export function sandboxGuestTrustDigest(
 	releasedDigest: string | undefined,
 	heldByDevelopmentSession: boolean,
@@ -296,6 +316,14 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		? { coreUpdated: false, previousCore: new Map<string, string>() }
 		: await refreshAvailableCatalogs(host, track, true, forceMetadata);
 	return withDeferredManagerRestart(refresh.coreUpdated, () => withCoreUpgradeHandoff(refresh.coreUpdated, previous, async () => {
+	if (host.security) {
+		const security = await requestSupervisor<HostSecurityActivationStatus>({ operation: 'security.status' });
+		const missing = hostSecurityActivationBlockers(true, security);
+		if (missing.length) {
+			recordEvent('security.activation-blocked', { missing });
+			throw new Error('host_security_initialization_required');
+		}
+	}
 	if (host.components.agent?.enabled) await requestSupervisor({ operation: 'sandbox.trust-anchor.repair' });
 	const stable = loadCatalog(`${paths.catalogs}/stable.json`);
 	const developmentPath = `${paths.catalogs}/development.json`;

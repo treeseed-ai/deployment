@@ -58,9 +58,11 @@ function managerHandler(requireMtls: boolean, local: boolean): RequestListener {
 				const data = await executeHostCommand(await readJson(request), { local });
 				return json(response, 200, { ok: true, data, error: null });
 			} catch (error) {
+				const value = error as { code?: unknown; status?: unknown };
 				const message = error instanceof Error ? error.message : 'host_command_failed';
-				const status = message === 'request_too_large' ? 413 : 400;
-				return json(response, status, { ok: false, data: null, error: { code: message.replaceAll(/[^a-z0-9]+/giu, '_').toLowerCase(), message } });
+				const status = typeof value.status === 'number' ? value.status : message === 'request_too_large' ? 413 : 400;
+				const code = typeof value.code === 'string' ? value.code : message.replaceAll(/[^a-z0-9]+/giu, '_').toLowerCase();
+				return json(response, status, { ok: false, data: null, error: { code, message } });
 			}
 		}
 		return json(response, 404, { ok: false, error: 'not_found' });
