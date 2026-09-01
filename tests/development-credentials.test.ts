@@ -12,7 +12,10 @@ function configuredHost(environment: 'development' | 'production' = 'development
 		TREESEED_TREEDX_DELEGATION_PRIVATE_KEY: 'api-treedx-delegation-private-key',
 		TREESEED_TREEDX_CREDENTIAL_BROKER_ASSERTION: 'treedx-credential-broker-assertion',
 	} };
-	for (const id of ['api-postgres-password', 'api-database-url', 'api-session-secret', 'api-treedx-delegation-private-key', 'treedx-credential-broker-assertion']) value.secrets[id] = { provider: 'file', reference: `/etc/treeseed/credentials/${id}` };
+	value.components.treedx = { enabled: true, track: 'development', aliases: {}, resources: { gpuDevices: [] }, connections: {}, configuration: { secretEnvironment: {
+		TREEDX_REMOTE_CREDENTIAL_BROKER_ASSERTION: 'treedx-credential-broker-assertion', TREEDX_SECRET_KEY_BASE: 'treedx-secret-key-base',
+	} } };
+	for (const id of ['api-postgres-password', 'api-database-url', 'api-session-secret', 'api-treedx-delegation-private-key', 'treedx-credential-broker-assertion', 'treedx-secret-key-base']) value.secrets[id] = { provider: 'file', reference: `/etc/treeseed/credentials/${id}` };
 	return value;
 }
 
@@ -30,10 +33,11 @@ describe('managed development credentials', () => {
 	it('creates the complete local service set once and derives the database URL from the retained password', () => {
 		const state = memory(), configuration = configuredHost();
 		const first = ensureDevelopmentCredentials(configuration, state.operations);
-		expect(first.created).toHaveLength(5);
+		expect(first.created).toHaveLength(6);
 		expect(state.files.get('/etc/treeseed/credentials/api-database-url')).toBe('postgresql://treeseed:random-32@database:5432/treeseed_api');
 		expect(ensureDevelopmentCredentials(configuration, state.operations)).toEqual({ created: [], unchanged: true });
-		expect(state.writes).toHaveLength(5);
+		expect(state.files.get('/etc/treeseed/credentials/treedx-secret-key-base')).toBe('random-64');
+		expect(state.writes).toHaveLength(6);
 	});
 
 	it('preserves existing values and never generates credentials for production', () => {

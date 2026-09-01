@@ -305,12 +305,19 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
 	configurationComponentScope: readonly string[] = []) {
-	const host = loadHostConfiguration();
+	let host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
 	const configurationScope = new Set(configurationComponentScope);
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
 		return previous;
+	}
+	if (host.runtime.environment === 'development') {
+		const ensured = await requestSupervisor<{ changed: boolean; generation: number }>({ operation: 'development.configuration.ensure' });
+		if (ensured.changed) {
+			host = loadHostConfiguration();
+			recordEvent('development.configuration-reconciled', { generation: ensured.generation, componentId: 'treedx' });
+		}
 	}
 	const refresh = configurationScope.size
 		? { coreUpdated: false, previousCore: new Map<string, string>() }

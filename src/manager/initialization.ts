@@ -1,5 +1,6 @@
 import { arch, hostname } from 'node:os';
 import { hostConfigurationSchema, type HostConfiguration, type HostInitializationProfile, type ReleaseCatalog } from '@treeseed/sdk/deployment';
+import { developmentTreedxConfiguration, developmentTreedxSecretIds } from '../core/development-configuration.js';
 
 export interface HostInitializationPlan {
 	schemaVersion: 'treeseed.host-initialization-result/v1';
@@ -113,7 +114,9 @@ function componentInitializationConfiguration(selected: SelectedInitializationPr
 		if (declaration.required) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
 		return [];
 	}));
-	const configuration = componentId === 'api' && environment === 'development' ? developmentApiConfiguration(selectedComponents) : {};
+	const configuration = environment !== 'development' ? {}
+		: componentId === 'api' ? developmentApiConfiguration(selectedComponents)
+			: componentId === 'treedx' ? developmentTreedxConfiguration() : {};
 	return Object.keys(files).length ? { ...configuration, files } : configuration;
 }
 
@@ -145,8 +148,11 @@ export function renderHostInitializationConfiguration(profileId: string, stable:
 		configuration: componentInitializationConfiguration(selected, componentId, environment, selectedComponents),
 		resources: { gpuDevices: [] }, connections: localConnections(selected, componentId),
 	}]));
-	const secrets = environment === 'development' && selectedComponents.has('api')
-		? Object.fromEntries(Object.values(developmentApiSecrets).map((id) => [id, { provider: 'file' as const, reference: `/etc/treeseed/credentials/${id}` }])) : {};
+	const developmentSecretIds = environment !== 'development' ? [] : [
+		...(selectedComponents.has('api') ? Object.values(developmentApiSecrets) : []),
+		...(selectedComponents.has('treedx') ? Object.values(developmentTreedxSecretIds) : []),
+	];
+	const secrets = Object.fromEntries([...new Set(developmentSecretIds)].map((id) => [id, { provider: 'file' as const, reference: `/etc/treeseed/credentials/${id}` }]));
 	const security = requiredSecurity(selected);
 	return hostConfigurationSchema.parse({
 		schemaVersion: 'treeseed.host/v1', configurationId: hostId, generation: 1,

@@ -1,6 +1,7 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
+import { developmentTreedxSecretIds } from '../core/development-configuration.js';
 
 const credentialRoot = '/etc/treeseed/credentials';
 const managedApiSecrets = {
@@ -33,16 +34,20 @@ const operations: DevelopmentCredentialOperations = {
 };
 
 function configuredSecretIds(host: HostConfiguration) {
-	const configuration = host.components.api?.configuration;
-	const configured = configuration && typeof configuration === 'object' && !Array.isArray(configuration)
-		&& configuration.secretEnvironment && typeof configuration.secretEnvironment === 'object' && !Array.isArray(configuration.secretEnvironment)
-		? configuration.secretEnvironment as Record<string, unknown> : {};
-	for (const [name, id] of Object.entries(managedApiSecrets)) {
-		if (configured[name] !== undefined && configured[name] !== id) throw new Error(`Managed development credential ${name} must use ${id}.`);
-		const secret = host.secrets[id];
-		if (configured[name] === id && (!secret || secret.provider !== 'file' || secret.reference !== `${credentialRoot}/${id}`)) throw new Error(`Managed development credential ${id} is outside fixed file custody.`);
+	const configuredIds = new Set<string>();
+	for (const [componentId, managed] of [['api', managedApiSecrets], ['treedx', developmentTreedxSecretIds]] as const) {
+		const configuration = host.components[componentId]?.configuration;
+		const configured = configuration && typeof configuration === 'object' && !Array.isArray(configuration)
+			&& configuration.secretEnvironment && typeof configuration.secretEnvironment === 'object' && !Array.isArray(configuration.secretEnvironment)
+			? configuration.secretEnvironment as Record<string, unknown> : {};
+		for (const [name, id] of Object.entries(managed)) {
+			if (configured[name] !== undefined && configured[name] !== id) throw new Error(`Managed development credential ${name} must use ${id}.`);
+			const secret = host.secrets[id];
+			if (configured[name] === id && (!secret || secret.provider !== 'file' || secret.reference !== `${credentialRoot}/${id}`)) throw new Error(`Managed development credential ${id} is outside fixed file custody.`);
+			if (configured[name] === id) configuredIds.add(id);
+		}
 	}
-	return new Set<string>(Object.values(managedApiSecrets).filter((id) => Object.values(configured).includes(id)));
+	return configuredIds;
 }
 
 /** Creates only non-portable local service secrets, never external/provider credentials. */
@@ -63,5 +68,6 @@ export function ensureDevelopmentCredentials(host: HostConfiguration, io: Develo
 	ensure(managedApiSecrets.SESSION_SECRET, () => io.random(48));
 	ensure(managedApiSecrets.TREESEED_TREEDX_DELEGATION_PRIVATE_KEY, () => io.privateKey());
 	ensure(managedApiSecrets.TREESEED_TREEDX_CREDENTIAL_BROKER_ASSERTION, () => io.random(48));
+	ensure(developmentTreedxSecretIds.TREEDX_SECRET_KEY_BASE, () => io.random(64));
 	return { created: created.sort(), unchanged: created.length === 0 };
 }
