@@ -19,6 +19,7 @@ import { containerdImageReference } from '../sandbox/image-reference.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
 import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
+import { waitForStartingActivation } from './activation-wait.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -195,6 +196,15 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 	return diagnostics;
 }
 
+function expectedComposeServices(operation: Extract<SupervisorOperation, { operation: 'compose.activate' }>, command: CommandRunner) {
+	if (operation.services) return operation.services;
+	const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'config', '--services'], '');
+	if (typeof output !== 'string') throw new Error('Compose did not report its expected services.');
+	const services = [...new Set(output.trim().split(/\s+/u).filter(Boolean))];
+	if (services.length === 0 || services.some((service) => !/^[a-z][a-z0-9.-]{0,127}$/u.test(service))) throw new Error('Compose reported an invalid expected service set.');
+	return services;
+}
+
 function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: CommandRunner) {
 	try { command('/usr/bin/docker', ['network', 'inspect', name]); }
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
@@ -303,7 +313,9 @@ export function initializeHostConfiguration(configuration: SupervisorOperation &
 	return { initialized: true, configurationId: configuration.configuration.configurationId, generation: configuration.configuration.generation };
 }
 
-export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles, captureCommand: CommandRunner = command === run ? capture : command) {
+export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles,
+	captureCommand: CommandRunner = command === run ? capture : command,
+	sleep: (milliseconds: number) => void = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); }, now: () => number = Date.now) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	switch (operation.operation) {
@@ -367,13 +379,26 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
-			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
+			try {
+				const deadline = now() + operation.waitTimeoutSeconds * 1_000;
+				try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
+				catch (error) {
+					const initial = composeFailureDiagnostics(operation.componentId, operation.projectName, command, captureCommand);
+					let result = { ready: false, diagnostics: initial };
+					try {
+						const expected = expectedComposeServices(operation, command);
+						result = waitForStartingActivation(initial, expected, () => composeFailureDiagnostics(operation.componentId, operation.projectName, command, captureCommand), deadline, sleep, now);
+					} catch { /* preserve the original failure and bounded diagnostics */ }
+					if (!result.ready) {
+						if (result.diagnostics.length === 0) throw error;
+						const message = error instanceof Error ? error.message : String(error);
+						throw new Error(`${message}; component health: ${JSON.stringify(result.diagnostics)}`, { cause: error });
+					}
+				}
+			}
 			catch (error) {
-				const diagnostics = composeFailureDiagnostics(operation.componentId, operation.projectName, command, captureCommand);
 				restoreSecrets(operation.componentId);
-				if (diagnostics.length === 0) throw error;
-				const message = error instanceof Error ? error.message : String(error);
-				throw new Error(`${message}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
+				throw error;
 			}
 			if (operation.componentId === 'agent') {
 				const input = `${JSON.stringify({ action: 'identities' })}\n`;
