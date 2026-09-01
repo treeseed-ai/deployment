@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 export type UninstallKind = 'package' | 'unit' | 'path' | 'container' | 'image' | 'network' | 'volume' | 'mount' | 'mapper' | 'user' | 'group' | 'containerd-namespace' | 'nft-table';
@@ -120,6 +121,7 @@ export function executeHostUninstall(purgeSecurity: boolean, options: { root?: s
 
 export function scheduleHostUninstall(purgeSecurity: boolean, command: UninstallCommand = run) {
 	const operationId = `uninstall-${randomUUID()}`, receiptPath = uninstallReceiptPath(operationId), unit = `treeseed-uninstall-${operationId.slice('uninstall-'.length)}`;
-	command('/usr/bin/systemd-run', ['--unit', unit, '--collect', '--no-block', '--property=Type=exec', '/usr/lib/treeseed/runtime/bin/node', '/usr/lib/treeseed/manager/dist/src/bin/uninstall.js', `--operation-id=${operationId}`, `--purge-security=${purgeSecurity ? 'true' : 'false'}`]);
+	const uninstaller = fileURLToPath(new URL('../bin/uninstall.js', import.meta.url));
+	command('/usr/bin/systemd-run', ['--unit', unit, '--collect', '--no-block', '--property=Type=exec', '/usr/lib/treeseed/runtime/bin/node', uninstaller, `--operation-id=${operationId}`, `--purge-security=${purgeSecurity ? 'true' : 'false'}`]);
 	return { schemaVersion: 'treeseed.host-uninstall-accepted/v1', operationId, state: 'accepted', receiptPath };
 }

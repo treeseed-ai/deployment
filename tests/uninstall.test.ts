@@ -133,6 +133,8 @@ describe('host uninstall', () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0]!.executable).toBe('/usr/bin/systemd-run');
 		expect(calls[0]!.arguments_).toContain('--purge-security=true');
+		expect(calls[0]!.arguments_.find((argument) => argument.endsWith('/src/bin/uninstall.js'))).toBeTruthy();
+		expect(calls[0]!.arguments_).not.toContain('/usr/lib/treeseed/manager/dist/src/bin/uninstall.js');
 		expect(JSON.stringify(accepted)).not.toMatch(/credential|passphrase|token/iu);
 	});
 });
