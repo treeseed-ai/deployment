@@ -2,6 +2,53 @@ import { describe, expect, it } from 'vitest';
 import { executeSupervisorOperation } from '../src/supervisor/execute.js';
 
 describe('bounded component activation diagnostics', () => {
+	it('continues a bounded wait when every expected service is only starting', () => {
+		const activation = { operation: 'compose.activate' as const, componentId: 'treedx', files: ['treedx/release/compose.yml'], projectName: 'treeseed-treedx', waitTimeoutSeconds: 60 };
+		let inspections = 0, currentTime = 0;
+		const command = (_executable: string, arguments_: readonly string[], input?: string) => {
+			if (arguments_[0] === 'network') return undefined;
+			if (arguments_[0] === 'compose' && arguments_.includes('up')) throw new Error('premature wait failure');
+			if (arguments_[0] === 'compose' && arguments_.includes('config')) return 'treedx\n';
+			if (arguments_[0] === 'ps') return 'container-treedx\n';
+			if (arguments_[0] === 'inspect' && input === '') return `treedx\trunning\t${inspections++ === 0 ? 'starting' : 'healthy'}\t0\n`;
+			return undefined;
+		};
+		expect(executeSupervisorOperation(activation, command, () => undefined, command, (milliseconds) => { currentTime += milliseconds; }, () => currentTime)).toBeUndefined();
+		expect(inspections).toBe(2);
+	});
+
+	it.each([
+		['missing', '', ''],
+		['unhealthy', 'container-treedx\n', 'treedx\trunning\tunhealthy\t0\n'],
+	])('fails closed for an %s expected service', (_case, containers, inspection) => {
+		const activation = { operation: 'compose.activate' as const, componentId: 'treedx', files: ['treedx/release/compose.yml'], projectName: 'treeseed-treedx', waitTimeoutSeconds: 60 };
+		const command = (_executable: string, arguments_: readonly string[], input?: string) => {
+			if (arguments_[0] === 'network') return undefined;
+			if (arguments_[0] === 'compose' && arguments_.includes('up')) throw new Error('activation failed');
+			if (arguments_[0] === 'compose' && arguments_.includes('config')) return 'treedx\n';
+			if (arguments_[0] === 'ps') return containers;
+			if (arguments_[0] === 'inspect' && input === '') return inspection;
+			return undefined;
+		};
+		expect(() => executeSupervisorOperation(activation, command, () => undefined, command, () => undefined, () => 0)).toThrow('activation failed');
+	});
+
+	it('fails closed with the latest diagnostics when starting exceeds the deadline', () => {
+		const activation = { operation: 'compose.activate' as const, componentId: 'treedx', files: ['treedx/release/compose.yml'], projectName: 'treeseed-treedx', waitTimeoutSeconds: 2 };
+		let currentTime = 0;
+		const command = (_executable: string, arguments_: readonly string[], input?: string) => {
+			if (arguments_[0] === 'network') return undefined;
+			if (arguments_[0] === 'compose' && arguments_.includes('up')) throw new Error('premature wait failure');
+			if (arguments_[0] === 'compose' && arguments_.includes('config')) return 'treedx\n';
+			if (arguments_[0] === 'ps') return 'container-treedx\n';
+			if (arguments_[0] === 'inspect' && input === '') return 'treedx\trunning\tstarting\t0\n';
+			return undefined;
+		};
+		expect(() => executeSupervisorOperation(activation, command, () => undefined, command, (milliseconds) => { currentTime += milliseconds; }, () => currentTime))
+			.toThrow(/premature wait failure; component health:.*"health":"starting"/u);
+		expect(currentTime).toBe(2_000);
+	});
+
 	it('surfaces only structured Agent health fields and redacts reasons', () => {
 		const activation = { operation: 'compose.activate' as const, componentId: 'agent', files: ['agent/release/compose.yml'], projectName: 'treeseed-agent', waitTimeoutSeconds: 60 };
 		const command = (_executable: string, arguments_: readonly string[], input?: string) => {
