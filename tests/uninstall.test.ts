@@ -83,6 +83,9 @@ describe('host uninstall', () => {
 			if (invocation.endsWith('ctr --namespace treeseed-sandboxes tasks list --quiet')) return 'task-1\n';
 			if (invocation.endsWith('ctr --namespace treeseed-sandboxes containers list --quiet')) return 'container-1\n';
 			if (invocation.endsWith('ctr --namespace treeseed-sandboxes images list --quiet')) return 'image-1\n';
+			if (invocation.endsWith('ctr --namespace treeseed-sandboxes leases list --quiet')) return 'lease-1\n';
+			if (invocation.endsWith('ctr --namespace treeseed-sandboxes snapshots list')) return 'KEY PARENT KIND\nsnapshot-parent  Committed\nsnapshot-child snapshot-parent Committed\n';
+			if (invocation.endsWith('ctr --namespace treeseed-sandboxes content list --quiet')) return 'sha256:aaaaaaaa\n';
 			return '';
 		};
 		executeHostUninstall(true, { root: base, command });
@@ -90,6 +93,9 @@ describe('host uninstall', () => {
 		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes tasks delete --force task-1'));
 		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes containers delete container-1'));
 		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes images remove image-1'));
+		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes leases delete --sync lease-1'));
+		expect(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes snapshots delete snapshot-child')).toBeLessThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes snapshots delete snapshot-parent'));
+		expect(namespaceRemoval).toBeGreaterThan(calls.indexOf('/usr/bin/ctr --namespace treeseed-sandboxes content delete sha256:aaaaaaaa'));
 		expect(calls).not.toContain('/usr/bin/ctr namespaces remove --cgroup treeseed-sandboxes');
 		expect(calls.at(namespaceRemoval + 1)).toBe('/usr/bin/rmdir /sys/fs/cgroup/treeseed-sandboxes');
 	});
