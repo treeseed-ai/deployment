@@ -27,6 +27,7 @@ function materialize(generation: 'current' | 'legacy') {
 	fixturePackage(`treeseed-${generation}-fixture`);
 	ensureGroup('treeseed-manager'); ensureGroup('treeseed-operators'); ensureGroup('treeseed-component-secrets');
 	try { run('/usr/sbin/useradd', ['--system', '--gid', 'treeseed-manager', '--home-dir', '/nonexistent', '--no-create-home', 'treeseed-manager']); } catch { /* fixture already exists */ }
+	try { run('/usr/sbin/useradd', ['--system', '--user-group', '--home-dir', '/nonexistent', '--no-create-home', 'treeseed-private-fixture']); } catch { /* fixture already exists */ }
 	for (const path of generation === 'current'
 		? ['/etc/treeseed/credentials', '/var/lib/treeseed/manager', '/var/cache/treeseed', '/run/treeseed', '/usr/lib/treeseed', '/usr/share/treeseed', '/opt/treeseed/kata/test', '/etc/cni/net.d', '/etc/credstore.encrypted']
 		: ['/etc/treeai', '/var/lib/treeai', '/opt/treeseed']) mkdirSync(path, { recursive: true });

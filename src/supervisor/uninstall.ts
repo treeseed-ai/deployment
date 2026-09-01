@@ -104,7 +104,7 @@ export function executeHostUninstall(purgeSecurity: boolean, options: { root?: s
 	for (const unit of by('unit')) for (const directory of unitRoots) rmSync(rooted(root, `${directory}/${unit}`), { recursive: true, force: true });
 	for (const path of by('path').sort((a, b) => b.length - a.length)) rmSync(rooted(root, path), { recursive: true, force: true });
 	for (const user of by('user')) command('/usr/sbin/userdel', [user]);
-	for (const group of by('group')) command('/usr/sbin/groupdel', [group]);
+	for (const group of by('group')) attempt(command, '/usr/sbin/groupdel', [group]);
 	attempt(command, '/usr/bin/systemctl', ['daemon-reload']);
 	const receipt = { schemaVersion: 'treeseed.host-uninstall-receipt/v1', receiptId: options.operationId ?? `uninstall-${Date.now()}`, state: 'completed', purgedSecurity: purgeSecurity, removed: Object.fromEntries([...new Set(selected.map((item) => item.kind))].map((kind) => [kind, selected.filter((item) => item.kind === kind).length])), preserved: plan.preserves, completedAt: new Date().toISOString() };
 	if (options.receiptPath) { writeFileSync(`${options.receiptPath}.new`, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }); renameSync(`${options.receiptPath}.new`, options.receiptPath); }
