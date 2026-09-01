@@ -54,6 +54,11 @@ export function planHostUninstall(options: { root?: string; command?: UninstallC
 		['network', ['network', 'ls', '--quiet', '--filter', 'label=org.treeseed.manager=true']],
 		['volume', ['volume', 'ls', '--quiet', '--filter', 'label=org.treeseed.manager=true']],
 	] as const) for (const id of query(command, '/usr/bin/docker', arguments_)) if (/^[a-zA-Z0-9_.:-]+$/u.test(id)) add(kind, id);
+	for (const id of query(command, '/usr/bin/docker', ['ps', '--all', '--quiet', '--filter', 'label=com.docker.compose.project'])) {
+		if (!/^[a-f0-9]{12,64}$/u.test(id)) continue;
+		const project = query(command, '/usr/bin/docker', ['inspect', '--format={{ index .Config.Labels "com.docker.compose.project" }}', id])[0];
+		if (project && /^treeseed-[a-z0-9_.-]+$/u.test(project)) add('container', id);
+	}
 	if (query(command, '/usr/bin/ctr', ['namespaces', 'list', '--quiet']).includes('treeseed-sandboxes')) add('containerd-namespace', 'treeseed-sandboxes');
 	if (query(command, '/usr/sbin/nft', ['list', 'table', 'inet', 'treeseed_sandbox']).length) add('nft-table', 'inet:treeseed_sandbox');
 	if (query(command, '/usr/bin/findmnt', ['--noheadings', '--output', 'TARGET', '/var/lib/treeseed/agent']).includes('/var/lib/treeseed/agent')) add('mount', '/var/lib/treeseed/agent', true);

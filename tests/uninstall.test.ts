@@ -39,6 +39,26 @@ describe('host uninstall', () => {
 		expect(existsSync(security)).toBe(false);
 	});
 
+	it('inventories only exact TreeSeed Compose project containers before managed networks', () => {
+		const base = root(), calls: string[] = [];
+		const managed = 'a'.repeat(64), unrelated = 'b'.repeat(64), network = 'c'.repeat(12);
+		const command: UninstallCommand = (executable, arguments_) => {
+			calls.push(`${executable} ${arguments_.join(' ')}`);
+			if (executable.endsWith('docker') && arguments_.join(' ') === 'ps --all --quiet --filter label=com.docker.compose.project') return `${managed}\n${unrelated}\n`;
+			if (executable.endsWith('docker') && arguments_[0] === 'inspect') return arguments_.at(-1) === managed ? 'treeseed-api\n' : 'customer-api\n';
+			if (executable.endsWith('docker') && arguments_.join(' ') === 'network ls --quiet --filter label=org.treeseed.manager=true') return `${network}\n`;
+			return '';
+		};
+		const plan = planHostUninstall({ root: base, command });
+		expect(plan.items).toContainEqual({ kind: 'container', id: managed, security: false });
+		expect(plan.items).not.toContainEqual({ kind: 'container', id: unrelated, security: false });
+		executeHostUninstall(true, { root: base, command });
+		const containerRemoval = calls.indexOf(`/usr/bin/docker rm --force ${managed}`);
+		const networkRemoval = calls.indexOf(`/usr/bin/docker network rm ${network}`);
+		expect(containerRemoval).toBeGreaterThan(-1);
+		expect(networkRemoval).toBeGreaterThan(containerRemoval);
+	});
+
 	it('requires an explicit confirmed protocol operation for security purge', () => {
 		expect(() => supervisorOperationSchema.parse({ operation: 'platform.uninstall.execute', purgeSecurity: true })).toThrow();
 		expect(supervisorOperationSchema.parse({ operation: 'platform.uninstall.execute', purgeSecurity: true, confirm: true })).toMatchObject({ purgeSecurity: true });
