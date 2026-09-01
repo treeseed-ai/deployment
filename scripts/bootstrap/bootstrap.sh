@@ -17,11 +17,19 @@ install -m 0644 "/usr/share/treeseed/bootstrap/preferences.$suite" /etc/apt/pref
 install -m 0644 /usr/share/treeseed/bootstrap/stable.sources /etc/apt/sources.list.d/treeseed-deployment-stable.sources
 install -m 0644 /usr/share/treeseed/bootstrap/development.sources /etc/apt/sources.list.d/treeseed-deployment-development.sources
 apt-get -o DPkg::Lock::Timeout=600 update
-packages='treeseed-host-runtime treeseed-kata-runtime treeseed-sdk treeseed-cli treeseed-manager'
-if [ "$suite" = stable ]; then packages="$packages treeseed-release-catalog"; fi
-suite_packages=
-for package in $packages; do suite_packages="$suite_packages $package/$suite"; done
-if [ "$suite" = development ]; then suite_packages="$suite_packages treeseed-release-catalog-development/development"; fi
+deployment_version=$(dpkg-query -W -f='${Version}' treeseed)
+release_packages='treeseed-host-runtime treeseed-kata-runtime treeseed-manager'
+if [ "$suite" = development ]; then release_packages="$release_packages treeseed-release-catalog-development"; fi
+for package in $release_packages; do
+	candidate=$(apt-cache policy "$package" | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p' | head -n 1)
+	if [ "$candidate" != "$deployment_version" ]; then
+		printf '%s bootstrap release %s is not yet visible for %s (candidate %s); retrying after repository convergence\n' "$(date -u +%FT%TZ)" "$deployment_version" "$package" "${candidate:-none}" >>"$log"
+		exit 75
+	fi
+done
+suite_packages="treeseed-host-runtime=$deployment_version treeseed-kata-runtime=$deployment_version treeseed-manager=$deployment_version"
+if [ "$suite" = stable ]; then suite_packages="$suite_packages treeseed-release-catalog/stable"; fi
+if [ "$suite" = development ]; then suite_packages="$suite_packages treeseed-release-catalog-development=$deployment_version"; fi
 apt-get -o DPkg::Lock::Timeout=600 --allow-downgrades --no-remove --no-install-recommends --target-release "$suite" install -y $suite_packages
 systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer >/dev/null 2>&1 || true
 install -d -o treeseed-manager -g treeseed-manager -m 0750 "$manager_state"
