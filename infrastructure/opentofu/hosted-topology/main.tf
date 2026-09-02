@@ -1,4 +1,5 @@
 resource "cloudflare_workers_script" "managed" {
+  provider           = cloudflare.runtime
   for_each           = var.cloudflare_workers
   account_id         = each.value.account_id
   script_name        = each.value.script_name
@@ -14,6 +15,7 @@ resource "cloudflare_workers_script" "managed" {
 }
 
 resource "cloudflare_dns_record" "managed" {
+  provider = cloudflare.dns
   for_each = var.cloudflare_dns_records
   zone_id  = each.value.zone_id
   name     = each.value.name
@@ -27,6 +29,7 @@ resource "cloudflare_dns_record" "managed" {
 }
 
 resource "cloudflare_zone_setting" "managed" {
+  provider   = cloudflare.dns
   for_each   = var.cloudflare_tls_policies
   zone_id    = each.value.zone_id
   setting_id = "ssl"

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { authorizeHostedTopologyPlan, hostedTopologyDeclarationSchema, planHostedTopology, type HostedResourceObservation } from '@treeseed/sdk/deployment';
-import { HostedInfrastructureExecutor, hostedInfrastructureToolchain, renderHostedInfrastructureWorkspace, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
+import { HostedInfrastructureExecutor, hostedInfrastructureToolchain, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
 
 const workerSource = 'export default { fetch() { return new Response("ok") } };\n';
 const digest = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -34,14 +34,19 @@ function topology() {
 
 function connections() {
 	return {
-		cloudflare: { connectionRef: 'cloudflare-production', nonSecretConfig: { accountId: 'cf-account', zoneId: 'cf-zone' } },
-		railway: { connectionRef: 'railway-production', nonSecretConfig: { workspaceId: 'rw-workspace', projectId: 'rw-project', environmentId: 'rw-environment', environmentName: 'production' } },
+		cloudflare: { connectionRef: 'cloudflare-production', nonSecretConfig: { deploymentEnvironment: 'production', accountId: 'cf-account', zoneId: 'cf-zone' } },
+		railway: { connectionRef: 'railway-production', nonSecretConfig: { deploymentEnvironment: 'production', workspaceId: 'rw-workspace', projectId: 'rw-project', environmentId: 'rw-environment', environmentName: 'production' } },
 	};
 }
 
 function plan(observations: HostedResourceObservation[] = []) { return planHostedTopology({ declaration: topology(), observations, connections: connections() }); }
 function approved(input = plan()) { return authorizeHostedTopologyPlan(input, { schemaVersion: 'treeseed.hosted-topology-approval/v1', planDigest: input.planDigest, environment: 'production', decision: 'approved', approvedBy: 'release-approver', approvedAt: now }); }
-const backend = { type: 's3' as const, bucket: 'treeseed-infrastructure-state', key: 'production/topology.tfstate', region: 'auto', endpoint: 'https://r2.example.test', usePathStyle: true };
+const backend = { type: 's3' as const, bucket: 'treeseed-infrastructure-state', key: 'production/topology.tfstate', region: 'auto', endpoint: 'https://r2.example.test', usePathStyle: true, authority: { provider: 'cloudflare' as const, connectionRef: 'cloudflare-production', credentialProfileId: 'cloudflare-storage' as const } };
+
+const values = (request: HostedInfrastructureAuthorityRequest) => request.credentialProfileId === 'railway-workspace' ? { apiToken: 'railway-secret' }
+	: request.credentialProfileId === 'cloudflare-storage' ? { accessKeyId: 'state-key', secretAccessKey: 'state-secret' }
+		: { apiToken: request.credentialProfileId === 'cloudflare-dns' ? 'dns-secret' : 'runtime-secret' };
+const vaultResolver = async (request: HostedInfrastructureAuthorityRequest) => ({ schemaVersion: 'treeseed.service-credential-material/v1' as const, source: 'treeseed-service-credential-vault' as const, requestId: request.requestId, authorityId: `authority-${request.credentialProfileId}`, authorityVersion: 2, environment: request.environment, provider: request.provider, connectionRef: request.connectionRef, credentialProfileId: request.credentialProfileId, capabilities: request.capabilities, scheme: 'external-vault' as const, expiresAt: null, values: values(request) });
 
 describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 	it('locks the exact OpenTofu and provider supply chain', async () => {
@@ -58,9 +63,25 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		expect(Object.keys(first.files)).toEqual(expect.arrayContaining(['versions.tf', 'main.tf', '.terraform.lock.hcl', 'backend.tf.json', 'terraform.tfvars.json']));
 		const rendered = Object.values(first.files).join('\n');
 		expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
-		expect(rendered).not.toMatch(/super-secret|apiToken|RAILWAY_TOKEN|CLOUDFLARE_API_TOKEN/u);
+		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
 		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.mjs', digest: digest(workerSource), path: 'artifacts/admin' }]);
 		expect(renderHostedInfrastructureWorkspace({ plan: approved(), backend }).executable).toBe(true);
+	});
+
+	it('requires environment-bound TreeSeed service-vault authority', async () => {
+		const workspace = renderHostedInfrastructureWorkspace({ plan: approved(), backend });
+		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'cloudflare-storage', 'railway-workspace']);
+		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
+		expect(authority.environment).toBe('production');
+		await expect(resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({ ...await vaultResolver(request), environment: 'staging' }))).rejects.toThrow(/environment/u);
+		await expect(resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({ ...await vaultResolver(request), source: 'caller-environment' as any }))).rejects.toThrow(/service credential vault/u);
+		await expect(resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({ ...await vaultResolver(request), expiresAt: '2026-01-01T00:00:00.000Z' }), new Date('2026-09-02T00:00:00.000Z'))).rejects.toThrow(/expired/u);
+	});
+
+	it('rejects a connection bound to a different deployment environment', () => {
+		const selected = connections(); selected.railway.nonSecretConfig.deploymentEnvironment = 'staging';
+		const mismatched = planHostedTopology({ declaration: topology(), observations: [], connections: selected });
+		expect(() => renderHostedInfrastructureWorkspace({ plan: mismatched, backend })).toThrow(/not bound to the production/u);
 	});
 
 	it('renders imports for reviewed existing resources without replacement', () => {
@@ -84,17 +105,31 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		};
 		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
 		const unauthorized = renderHostedInfrastructureWorkspace({ plan: plan(), backend });
-		const result = await executor.plan(unauthorized, root, { PATH: process.env.PATH, RAILWAY_TOKEN: 'super-secret' });
-		await expect(executor.apply(unauthorized, root, {}, result.executionPlanDigest)).rejects.toThrow(/authorized executable/u);
+		const authority = await resolveHostedInfrastructureVaultAuthority(unauthorized, vaultResolver), result = await executor.plan(unauthorized, root, authority);
+		await expect(executor.apply(unauthorized, root, authority, result)).rejects.toThrow(/authorized executable/u);
 		const authorized = renderHostedInfrastructureWorkspace({ plan: approved(), backend });
-		await executor.prepare(authorized, root);
-		await expect(executor.apply(authorized, root, {}, `sha256:${'f'.repeat(64)}`)).rejects.toThrow(/approved digest/u);
-		expect((await executor.apply(authorized, root, {}, result.executionPlanDigest)).applied).toBe(true);
+		const authorizedAuthority = await resolveHostedInfrastructureVaultAuthority(authorized, vaultResolver);
+		const approvedResult = await executor.plan(authorized, root, authorizedAuthority);
+		const rotatedAuthority = { ...authorizedAuthority, materials: authorizedAuthority.materials.map((material, index) => index ? material : { ...material, authorityVersion: material.authorityVersion + 1 }) };
+		await expect(executor.apply(authorized, root, rotatedAuthority, approvedResult)).rejects.toThrow(/changed after planning/u);
+		await expect(executor.apply(authorized, root, authorizedAuthority, { ...approvedResult, executionPlanDigest: `sha256:${'f'.repeat(64)}` })).rejects.toThrow(/approved digest/u);
+		expect((await executor.apply(authorized, root, authorizedAuthority, approvedResult)).applied).toBe(true);
 		expect(calls.some((args) => args[0] === 'init')).toBe(true); expect(calls.some((args) => args[0] === 'apply')).toBe(true);
 	});
 
 	it('redacts provider authority from failures', async () => {
 		const executor = new HostedInfrastructureExecutor(async () => ({ code: 1, stdout: '', stderr: 'provider rejected super-secret' }));
 		await expect(executor.verifyVersion('/tmp', { RAILWAY_TOKEN: 'super-secret' })).rejects.not.toThrow(/super-secret/u);
+	});
+
+	it('redacts service-vault material from OpenTofu failures', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-redaction-')); roots.push(root);
+		const workspace = renderHostedInfrastructureWorkspace({ plan: approved(), backend }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
+		const executor = new HostedInfrastructureExecutor(async (args) => args[0] === 'version'
+			? { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' }
+			: { code: 1, stdout: '', stderr: 'provider returned runtime-secret and state-secret' }, async () => new Response(workerSource));
+		let message = '';
+		try { await executor.plan(workspace, root, authority); } catch (error) { message = error instanceof Error ? error.message : String(error); }
+		expect(message).not.toMatch(/runtime-secret|state-secret/u); expect(message).toContain('[redacted]');
 	});
 });

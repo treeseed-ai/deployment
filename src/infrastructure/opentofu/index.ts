@@ -1,4 +1,5 @@
 export * from './toolchain.js';
+export * from './authority.js';
 export * from './parameters.js';
 export * from './module.js';
 export * from './workspace.js';
