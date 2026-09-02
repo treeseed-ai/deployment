@@ -83,11 +83,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const first = renderHostedInfrastructureWorkspace({ plan: plan(), backend }), second = renderHostedInfrastructureWorkspace({ plan: plan(), backend });
 		expect(second.bundleDigest).toBe(first.bundleDigest); expect(first.executable).toBe(false);
 		expect(Object.keys(first.files)).toEqual(expect.arrayContaining(['versions.tf', 'main.tf', '.terraform.lock.hcl', 'backend.tf.json', 'terraform.tfvars.json']));
+		expect(JSON.parse(first.files['backend.tf.json']!).terraform.backend.s3).toMatchObject({ key: 'production/topology.tfstate', encrypt: true, use_lockfile: true });
 		const rendered = Object.values(first.files).join('\n');
 		expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
 		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
 		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.mjs', digest: digest(workerSource), path: 'artifacts/admin' }]);
 		expect(renderHostedInfrastructureWorkspace({ plan: approved(), backend }).executable).toBe(true);
+		expect(() => renderHostedInfrastructureWorkspace({ plan: approved(), backend: { ...backend, key: 'staging/topology.tfstate' } })).toThrow(/scoped beneath production/u);
 	});
 
 	it('requires environment-bound TreeSeed service-vault authority', async () => {

@@ -120,9 +120,11 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 	return { variables: { cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 }
 
-function backendConfiguration(backend: HostedInfrastructureBackend): Json {
+function backendConfiguration(backend: HostedInfrastructureBackend, environment: HostedInfrastructureEnvironment): Json {
 	if (!backend.bucket.trim() || !backend.key.trim() || !backend.region.trim()) throw new Error('Hosted infrastructure state backend requires bucket, key, and region.');
-	return { terraform: { backend: { s3: { bucket: backend.bucket, key: backend.key, region: backend.region, ...(backend.endpoint ? { endpoints: { s3: backend.endpoint }, skip_credentials_validation: true, skip_region_validation: true, skip_requesting_account_id: true, skip_metadata_api_check: true } : {}), ...(backend.usePathStyle === undefined ? {} : { use_path_style: backend.usePathStyle }), encrypt: true } } } };
+	const segments = backend.key.split('/');
+	if (segments[0] !== environment || segments.length < 2 || segments.some((segment) => !segment || segment === '.' || segment === '..')) throw new Error(`Hosted infrastructure state key must be scoped beneath ${environment}/.`);
+	return { terraform: { backend: { s3: { bucket: backend.bucket, key: backend.key, region: backend.region, ...(backend.endpoint ? { endpoints: { s3: backend.endpoint }, skip_credentials_validation: true, skip_region_validation: true, skip_requesting_account_id: true, skip_metadata_api_check: true } : {}), ...(backend.usePathStyle === undefined ? {} : { use_path_style: backend.usePathStyle }), encrypt: true, use_lockfile: true } } } };
 }
 
 export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan; backend: HostedInfrastructureBackend }): HostedInfrastructureWorkspace {
@@ -137,7 +139,7 @@ export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopolog
 	}, new Map<string, HostedInfrastructureAuthorityRequest>());
 	const files = {
 		...hostedInfrastructureModuleFiles(),
-		'backend.tf.json': `${JSON.stringify(backendConfiguration(input.backend), null, 2)}\n`,
+		'backend.tf.json': `${JSON.stringify(backendConfiguration(input.backend, plan.environment), null, 2)}\n`,
 		'terraform.tfvars.json': `${JSON.stringify(rendered.variables, null, 2)}\n`,
 	};
 	const core = { planDigest: plan.planDigest, environment: plan.environment, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, imports: rendered.imports, resources: rendered.resources, removedResources: [], authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
