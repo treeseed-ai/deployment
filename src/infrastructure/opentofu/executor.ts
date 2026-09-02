@@ -49,7 +49,7 @@ async function verifiedArtifacts(workspace: HostedInfrastructureWorkspace, root:
 
 function sanitizedFailure(result: OpenTofuCommandResult, operation: string, env: NodeJS.ProcessEnv = {}) {
 	let output = `${result.stderr}\n${result.stdout}`.replace(/[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY)[A-Za-z0-9_]*\s*[=:]\s*\S+/giu, '[redacted]');
-	for (const [key, value] of Object.entries(env)) if (value && /(?:TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL)/iu.test(key)) output = output.replaceAll(value, '[redacted]');
+	for (const [key, value] of Object.entries(env)) if (value && /(?:TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL|ENCRYPTION|SESSION)/iu.test(key)) output = output.replaceAll(value, '[redacted]');
 	const detail = output.trim().slice(0, 2_000);
 	return new Error(`OpenTofu ${operation} failed with exit ${result.code}${detail ? `: ${detail}` : '.'}`);
 }
@@ -67,7 +67,7 @@ export class HostedInfrastructureExecutor {
 			const target = safeTarget(root, relative); await mkdir(dirname(target), { recursive: true }); await writeFile(target, content, { mode: 0o600 });
 		}
 		await verifiedArtifacts(workspace, root, this.fetchImpl);
-		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, environment: workspace.environment, toolchain: workspace.toolchain, imports: workspace.imports, resources: workspace.resources, removedResources: workspace.removedResources, authorities: workspace.authorities };
+		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, teamId: workspace.teamId, deploymentId: workspace.deploymentId, stackId: workspace.stackId, environment: workspace.environment, stateBackend: workspace.stateBackend, toolchain: workspace.toolchain, imports: workspace.imports, resources: workspace.resources, removedResources: workspace.removedResources, authorities: workspace.authorities };
 		await writeFile(safeTarget(root, 'treeseed-workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 	}
 
