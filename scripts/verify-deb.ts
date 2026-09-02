@@ -15,6 +15,12 @@ const componentPackages = selected.flatMap((component) => component.packages.map
 const expected = [...new Set([...core, ...componentPackages])];
 const files = readdirSync(output).filter((name) => name.endsWith('.deb'));
 if (files.length !== expected.length) throw new Error(`Expected exactly ${expected.length} suite artifacts; found ${files.length}.`);
+const runtime = readdirSync(output).find((name) => /^treeseed-deployment-runtime-.+\.tgz$/u.test(name));
+if (!runtime) throw new Error('Deployment runtime package is missing.');
+const runtimeFiles = execFileSync('tar', ['-tzf', resolve(output, runtime)], { encoding: 'utf8' }).split('\n');
+for (const path of ['package/dist/src/infrastructure/opentofu/index.js', 'package/infrastructure/opentofu/hosted-topology/.terraform.lock.hcl', 'package/infrastructure/opentofu/hosted-topology/main.tf']) {
+	if (!runtimeFiles.includes(path)) throw new Error(`Deployment runtime package is missing ${path}.`);
+}
 
 const packageFile = (name: string) => {
 	const matches = files.filter((candidate) => candidate.startsWith(`${name}_`));

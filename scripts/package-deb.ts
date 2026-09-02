@@ -47,6 +47,7 @@ function normalize(path: string) {
 function managerPayload(stage: string) {
 	directory(resolve(stage, 'usr/lib/treeseed/manager'));
 	cpSync(resolve(root, 'dist/src'), resolve(stage, 'usr/lib/treeseed/manager/dist/src'), { recursive: true });
+	cpSync(resolve(root, 'infrastructure'), resolve(stage, 'usr/lib/treeseed/manager/infrastructure'), { recursive: true });
 	writeFileSync(resolve(stage, 'usr/lib/treeseed/manager/package.json'), '{"type":"module"}\n');
 	for (const dependency of ['@treeseed/sdk', '@treeseed/treedx', 'typescript', 'yaml', 'zod']) {
 		const source = resolve(root, 'node_modules', dependency);

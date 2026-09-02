@@ -5,6 +5,7 @@ export * from './core/events.js';
 export * from './core/paths.js';
 export * from './edge/caddy.js';
 export * from './edge/certificates.js';
+export * from './infrastructure/opentofu/index.js';
 export * from './manager/plan.js';
 export * from './manager/api.js';
 export * from './manager/operations.js';
