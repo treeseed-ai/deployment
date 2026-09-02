@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { HostedInfrastructureWorkspace } from './workspace.js';
+import type { HostedResourceObservation } from '@treeseed/sdk/deployment';
 import { hostedInfrastructureToolchain } from './toolchain.js';
 import { acquireOpenTofu, type OpenTofuAcquisitionOptions } from './acquisition.js';
 import { hostedInfrastructureAuthorityBindingDigest, hostedInfrastructureAuthorityEnvironment, type HostedInfrastructureVaultAuthority } from './authority.js';
@@ -66,7 +67,7 @@ export class HostedInfrastructureExecutor {
 			const target = safeTarget(root, relative); await mkdir(dirname(target), { recursive: true }); await writeFile(target, content, { mode: 0o600 });
 		}
 		await verifiedArtifacts(workspace, root, this.fetchImpl);
-		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, environment: workspace.environment, toolchain: workspace.toolchain, imports: workspace.imports, authorities: workspace.authorities };
+		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, environment: workspace.environment, toolchain: workspace.toolchain, imports: workspace.imports, resources: workspace.resources, removedResources: workspace.removedResources, authorities: workspace.authorities };
 		await writeFile(safeTarget(root, 'treeseed-workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 	}
 
@@ -108,6 +109,26 @@ export class HostedInfrastructureExecutor {
 			if (result.code !== 0) throw sanitizedFailure(result, 'apply', authorityEnvironment);
 			return { applied: true, executionPlanDigest: execution.executionPlanDigest, authorityBindingDigest: execution.authorityBindingDigest, bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
 		} finally { await rm(safeTarget(root, 'treeseed.plan'), { force: true }); }
+	}
+
+	async readback(workspace: HostedInfrastructureWorkspace, root: string, authority: HostedInfrastructureVaultAuthority): Promise<HostedResourceObservation[]> {
+		if (!workspace.executable) throw new Error('Hosted infrastructure read-back requires an SDK-authorized executable plan.');
+		const command = await this.commandFor(root), authorityEnvironment = hostedInfrastructureAuthorityEnvironment(workspace, authority, root);
+		const drift = await command(['plan', '-input=false', '-detailed-exitcode'], { cwd: root, env: authorityEnvironment });
+		if (drift.code === 2) throw new Error('Authoritative OpenTofu read-back detected hosted infrastructure drift.');
+		if (drift.code !== 0) throw sanitizedFailure(drift, 'authoritative read-back plan', authorityEnvironment);
+		const result = await command(['output', '-json'], { cwd: root, env: authorityEnvironment });
+		if (result.code !== 0) throw sanitizedFailure(result, 'authoritative output read-back', authorityEnvironment);
+		let outputs: Record<string, { value?: Record<string, unknown> }>;
+		try { outputs = JSON.parse(result.stdout); } catch { throw new Error('Authoritative OpenTofu output read-back was not valid JSON.'); }
+		const observedAt = new Date().toISOString();
+		const resources: HostedResourceObservation[] = workspace.resources.map((resource) => {
+			const providerResourceId = outputs[resource.output]?.value?.[resource.resourceId];
+			if (typeof providerResourceId !== 'string' || !providerResourceId.trim()) throw new Error(`Authoritative OpenTofu read-back is missing hosted resource ${resource.resourceId}.`);
+			return { resourceId: resource.resourceId, provider: resource.provider, kind: resource.kind, providerResourceId, state: 'healthy', managedBy: 'treeseed', observedDigest: resource.desiredDigest, observedAt };
+		});
+		return [...resources, ...workspace.removedResources.map((resource): HostedResourceObservation => ({ ...resource, providerResourceId: null, state: 'missing', managedBy: null, observedDigest: null, observedAt }))]
+			.sort((left, right) => left.resourceId.localeCompare(right.resourceId));
 	}
 
 	async discard(root: string) { await rm(safeTarget(root, 'treeseed.plan'), { force: true }); }
