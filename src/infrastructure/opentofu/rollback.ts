@@ -38,7 +38,7 @@ export function renderHostedInfrastructureRollbackWorkspace(input: {
 	const targetWorkspace = renderHostedInfrastructureWorkspace({ plan: targetPlan });
 	const authorities = [...sourceWorkspace.authorities, ...targetWorkspace.authorities].reduce((map, authority) => {
 		const existing = map.get(authority.requestId);
-		if (existing && (existing.environment !== authority.environment || existing.provider !== authority.provider || existing.connectionRef !== authority.connectionRef || existing.credentialProfileId !== authority.credentialProfileId || existing.purpose !== authority.purpose)) throw new Error(`Hosted infrastructure rollback authority ${authority.requestId} changed.`);
+		if (existing && (existing.environment !== authority.environment || existing.provider !== authority.provider || existing.connectionRef !== authority.connectionRef || existing.secretRef !== authority.secretRef || existing.credentialProfileId !== authority.credentialProfileId || existing.purpose !== authority.purpose)) throw new Error(`Hosted infrastructure rollback authority ${authority.requestId} changed.`);
 		map.set(authority.requestId, existing ? { ...existing, capabilities: [...new Set([...existing.capabilities, ...authority.capabilities])].sort() } : authority);
 		return map;
 	}, new Map<string, HostedInfrastructureWorkspace['authorities'][number]>());

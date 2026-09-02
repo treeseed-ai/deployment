@@ -48,7 +48,7 @@ const values = (request: HostedInfrastructureAuthorityRequest) => request.creden
 	: request.credentialProfileId === 's3-state-session' ? { accessKeyId: 'state-key', secretAccessKey: 'state-secret', sessionToken: 'state-session' }
 		: request.credentialProfileId === 'opentofu-state-encryption' ? { key: 'a'.repeat(64) }
 		: { apiToken: request.credentialProfileId === 'cloudflare-dns' ? 'dns-secret' : 'runtime-secret' };
-const vaultResolver = async (request: HostedInfrastructureAuthorityRequest) => ({ schemaVersion: 'treeseed.service-credential-material/v1' as const, source: 'treeseed-service-credential-vault' as const, requestId: request.requestId, teamId: request.teamId, deploymentId: request.deploymentId, stackId: request.stackId, authorityId: `authority-${request.credentialProfileId}`, authorityVersion: 2, environment: request.environment, backendBindingDigest: request.backendBindingDigest, provider: request.provider, connectionRef: request.connectionRef, credentialProfileId: request.credentialProfileId, capabilities: request.capabilities, purpose: request.purpose, scheme: 'external-vault' as const, expiresAt: request.purpose === 'provider' ? null : new Date(Date.now() + 30 * 60 * 1_000).toISOString(), values: values(request) });
+const vaultResolver = async (request: HostedInfrastructureAuthorityRequest) => ({ schemaVersion: 'treeseed.service-credential-material/v1' as const, source: 'treeseed-service-credential-vault' as const, requestId: request.requestId, teamId: request.teamId, deploymentId: request.deploymentId, stackId: request.stackId, authorityId: `authority-${request.credentialProfileId}`, authorityVersion: 2, environment: request.environment, backendBindingDigest: request.backendBindingDigest, provider: request.provider, connectionRef: request.connectionRef, ...(request.secretRef ? { secretRef: request.secretRef } : {}), credentialProfileId: request.credentialProfileId, capabilities: request.capabilities, purpose: request.purpose, scheme: 'external-vault' as const, expiresAt: request.purpose === 'provider' ? null : new Date(Date.now() + 30 * 60 * 1_000).toISOString(), values: values(request) });
 
 describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 	it('locks the exact OpenTofu and provider supply chain', async () => {
@@ -98,6 +98,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 	it('requires environment-bound TreeSeed service-vault authority', async () => {
 		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() });
 		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'railway-workspace', 's3-state-session', 'opentofu-state-encryption']);
+		expect(workspace.authorities.find(({ purpose }) => purpose === 'state-encryption')).toMatchObject({ connectionRef: 'cloudflare-state', secretRef: 'treeseed-cloud-state' });
 		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
 		expect(authority.environment).toBe('production');
 		await expect(resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({ ...await vaultResolver(request), environment: 'staging' }))).rejects.toThrow(/environment/u);
