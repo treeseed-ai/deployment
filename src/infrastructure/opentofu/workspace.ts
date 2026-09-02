@@ -96,7 +96,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 			const zoneId = parameter(action, 'zoneId', context) ?? context.config.zoneId;
 			if (action.kind === 'pages-application') {
 				const artifact = parameter(action, 'artifact', context);
-				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact)) throw new Error(`Cloudflare Pages application ${action.resourceId} requires an artifact.`);
+				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact) || !('kind' in artifact) || artifact.kind !== 'archive' || !('format' in artifact) || artifact.format !== 'tar+gzip') throw new Error(`Cloudflare Pages application ${action.resourceId} requires a tar+gzip archive artifact.`);
 				if (parameter(action, 'artifact-format', context) !== 'tar+gzip') throw new Error(`Cloudflare Pages application ${action.resourceId} requires a tar+gzip artifact.`);
 				const path = `artifacts/${String(artifact.id)}.tgz`;
 				artifacts.push({ id: String(artifact.id), source: String(artifact.source), digest: String(artifact.digest), path });
@@ -105,7 +105,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 				pagesDeployments.push({ resourceId: action.resourceId, accountId, projectName: name, branch, artifactPath: path, destinationDirectory, commit: plan.platformCommit, marker: `treeseed:${action.desiredDigest}:${String(artifact.digest)}`, changed: action.action !== 'noop' });
 			} else if (action.kind === 'admin-application' || action.kind === 'api-proxy') {
 				const artifact = parameter(action, 'artifact', context);
-				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact)) throw new Error(`Cloudflare worker ${action.resourceId} requires an artifact.`);
+				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact) || !('kind' in artifact) || artifact.kind !== 'file') throw new Error(`Cloudflare worker ${action.resourceId} requires a file artifact.`);
 				const path = `artifacts/${String(artifact.id)}`;
 				artifacts.push({ id: String(artifact.id), source: String(artifact.source), digest: String(artifact.digest), path });
 				cloudflareWorkers[action.resourceId] = { account_id: requiredInfrastructureString(context.config.accountId, 'accountId'), script_name: resourceName(action, context), content_file: path, content_sha256: String(artifact.digest).replace(/^sha256:/u, ''), compatibility_date: String(parameter(action, 'compatibility-date', context) ?? '2026-08-01'), desired_digest: action.desiredDigest };
@@ -117,7 +117,10 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 			continue;
 		}
 		const projectId = requiredInfrastructureString(context.config.projectId, 'projectId'), environmentId = requiredInfrastructureString(context.config.environmentId, 'environmentId');
-		const artifact = parameter(action, 'artifact', context), sourceImage = action.kind === 'postgresql' ? String(parameter(action, 'image', context) ?? 'postgres:17') : artifact && typeof artifact === 'object' && 'source' in artifact ? String(artifact.source) : requiredInfrastructureString(parameter(action, 'image', context), 'image');
+		const artifact = parameter(action, 'artifact', context);
+		const sourceImage = artifact && typeof artifact === 'object' && 'kind' in artifact && artifact.kind === 'oci-image' && 'identity' in artifact
+			? String(artifact.identity) : requiredInfrastructureString(parameter(action, 'image', context), 'image');
+		if (!/@sha256:[a-f0-9]{64}$/u.test(sourceImage)) throw new Error(`Railway service ${action.resourceId} requires an immutable OCI image identity.`);
 		const variables: Record<string, string> = { TREESEED_RESOURCE_DIGEST: action.desiredDigest };
 		for (const key of Object.keys(action.desiredResource.parameters).sort()) if (key.startsWith('variable.')) variables[key.slice(9)] = String(parameter(action, key, context));
 		railwayServices[action.resourceId] = { project_id: projectId, environment_id: environmentId, environment_name: requiredInfrastructureString(context.config.environmentName, 'environmentName'), name: resourceName(action, context), source_image: sourceImage, healthcheck_path: parameter(action, 'healthcheck-path', context) ?? null, start_command: parameter(action, 'start-command', context) ?? null, num_replicas: Number(parameter(action, 'replicas', context) ?? 1), vcpus: Number(parameter(action, 'vcpus', context) ?? 1), memory_gb: Number(parameter(action, 'memory-gb', context) ?? 1), volume_name: parameter(action, 'volume-name', context) ?? null, volume_mount_path: parameter(action, 'volume-mount-path', context) ?? null, variables, desired_digest: action.desiredDigest };
