@@ -1,3 +1,7 @@
+output "cloudflare_pages" {
+  value = { for key, resource in cloudflare_pages_project.managed : key => resource.id }
+}
+
 output "cloudflare_workers" {
   value = { for key, resource in cloudflare_workers_script.managed : key => resource.id }
 }

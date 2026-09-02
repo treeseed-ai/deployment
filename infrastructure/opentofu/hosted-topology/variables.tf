@@ -1,3 +1,15 @@
+variable "cloudflare_pages" {
+  type = map(object({
+    account_id        = string
+    name              = string
+    production_branch = string
+    destination_dir   = string
+    artifact_sha256   = string
+    desired_digest    = string
+  }))
+  default = {}
+}
+
 variable "cloudflare_workers" {
   type = map(object({
     account_id         = string

@@ -42,7 +42,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "github:treeseed-ai/sdk#246ae35d16315ca27684b9fde8b573c5a4c33897",
+    "@treeseed/sdk": "github:treeseed-ai/sdk#4936ec8652929683c5ad6d6fd5f7973cfa67299d",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },
