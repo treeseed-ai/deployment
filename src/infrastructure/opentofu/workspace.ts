@@ -40,6 +40,8 @@ export interface HostedInfrastructureWorkspace {
 	artifacts: HostedInfrastructureArtifactRequest[];
 	imports: HostedInfrastructureImport[];
 	authorities: HostedInfrastructureAuthorityRequest[];
+	resources: Array<{ resourceId: string; provider: Action['provider']; kind: Action['kind']; desiredDigest: string; output: 'cloudflare_workers' | 'cloudflare_dns_records' | 'cloudflare_tls_policies' | 'railway_services' }>;
+	removedResources: Array<{ resourceId: string; provider: Action['provider']; kind: Action['kind'] }>;
 }
 
 function authorityProfile(provider: 'cloudflare' | 'railway', kind: Action['kind']): { credentialProfileId: HostedInfrastructureCredentialProfile; capability: string } {
@@ -81,7 +83,7 @@ function importEntries(action: Action, context: Parameters<typeof resolveHostedI
 
 function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan) {
 	const cloudflareWorkers: Record<string, Json> = {}, cloudflareDns: Record<string, Json> = {}, cloudflareTls: Record<string, Json> = {};
-	const railwayServices: Record<string, Json> = {}, artifacts: HostedInfrastructureArtifactRequest[] = [], imports: HostedInfrastructureImport[] = [], authorityMap = new Map<string, HostedInfrastructureAuthorityRequest>();
+	const railwayServices: Record<string, Json> = {}, artifacts: HostedInfrastructureArtifactRequest[] = [], imports: HostedInfrastructureImport[] = [], resources: HostedInfrastructureWorkspace['resources'] = [], authorityMap = new Map<string, HostedInfrastructureAuthorityRequest>();
 	for (const action of plan.actions) {
 		const connection = plan.providerConnections[action.provider];
 		if (!connection) throw new Error(`Hosted infrastructure plan is missing its ${action.provider} connection.`);
@@ -92,6 +94,8 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		if (existing) existing.capabilities = [...new Set([...existing.capabilities, selected.capability])].sort();
 		else authorityMap.set(requestId, { requestId, environment: plan.environment, provider: action.provider, connectionRef: connection.connectionRef, credentialProfileId: selected.credentialProfileId, capabilities: [selected.capability], purpose: 'provider' });
 		imports.push(...importEntries(action, context));
+		resources.push({ resourceId: action.resourceId, provider: action.provider, kind: action.kind, desiredDigest: action.desiredDigest,
+			output: action.provider === 'railway' ? 'railway_services' : action.kind === 'dns-record' ? 'cloudflare_dns_records' : action.kind === 'tls-policy' ? 'cloudflare_tls_policies' : 'cloudflare_workers' });
 		if (action.provider === 'cloudflare') {
 			const zoneId = parameter(action, 'zoneId', context) ?? context.config.zoneId;
 			if (action.kind === 'admin-application' || action.kind === 'api-proxy') {
@@ -113,12 +117,14 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		for (const key of Object.keys(action.desiredResource.parameters).sort()) if (key.startsWith('variable.')) variables[key.slice(9)] = String(parameter(action, key, context));
 		railwayServices[action.resourceId] = { project_id: projectId, environment_id: environmentId, environment_name: requiredInfrastructureString(context.config.environmentName, 'environmentName'), name: resourceName(action, context), source_image: sourceImage, healthcheck_path: parameter(action, 'healthcheck-path', context) ?? null, start_command: parameter(action, 'start-command', context) ?? null, num_replicas: Number(parameter(action, 'replicas', context) ?? 1), vcpus: Number(parameter(action, 'vcpus', context) ?? 1), memory_gb: Number(parameter(action, 'memory-gb', context) ?? 1), volume_name: parameter(action, 'volume-name', context) ?? null, volume_mount_path: parameter(action, 'volume-mount-path', context) ?? null, variables, desired_digest: action.desiredDigest };
 	}
-	return { variables: { cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
+	return { variables: { cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 }
 
-function backendConfiguration(backend: HostedInfrastructureBackend): Json {
+function backendConfiguration(backend: HostedInfrastructureBackend, environment: HostedInfrastructureEnvironment): Json {
 	if (!backend.bucket.trim() || !backend.key.trim() || !backend.region.trim()) throw new Error('Hosted infrastructure state backend requires bucket, key, and region.');
-	return { terraform: { backend: { s3: { bucket: backend.bucket, key: backend.key, region: backend.region, ...(backend.endpoint ? { endpoints: { s3: backend.endpoint }, skip_credentials_validation: true, skip_region_validation: true, skip_requesting_account_id: true, skip_metadata_api_check: true } : {}), ...(backend.usePathStyle === undefined ? {} : { use_path_style: backend.usePathStyle }), encrypt: true } } } };
+	const segments = backend.key.split('/');
+	if (segments[0] !== environment || segments.length < 2 || segments.some((segment) => !segment || segment === '.' || segment === '..')) throw new Error(`Hosted infrastructure state key must be scoped beneath ${environment}/.`);
+	return { terraform: { backend: { s3: { bucket: backend.bucket, key: backend.key, region: backend.region, ...(backend.endpoint ? { endpoints: { s3: backend.endpoint }, skip_credentials_validation: true, skip_region_validation: true, skip_requesting_account_id: true, skip_metadata_api_check: true } : {}), ...(backend.usePathStyle === undefined ? {} : { use_path_style: backend.usePathStyle }), encrypt: true, use_lockfile: true } } } };
 }
 
 export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan; backend: HostedInfrastructureBackend }): HostedInfrastructureWorkspace {
@@ -133,9 +139,9 @@ export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopolog
 	}, new Map<string, HostedInfrastructureAuthorityRequest>());
 	const files = {
 		...hostedInfrastructureModuleFiles(),
-		'backend.tf.json': `${JSON.stringify(backendConfiguration(input.backend), null, 2)}\n`,
+		'backend.tf.json': `${JSON.stringify(backendConfiguration(input.backend, plan.environment), null, 2)}\n`,
 		'terraform.tfvars.json': `${JSON.stringify(rendered.variables, null, 2)}\n`,
 	};
-	const core = { planDigest: plan.planDigest, environment: plan.environment, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, imports: rendered.imports, authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
+	const core = { planDigest: plan.planDigest, environment: plan.environment, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, imports: rendered.imports, resources: rendered.resources, removedResources: [], authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 	return { schemaVersion: 'treeseed.hosted-infrastructure-workspace/v1', ...core, bundleDigest: infrastructureDigest(core) };
 }

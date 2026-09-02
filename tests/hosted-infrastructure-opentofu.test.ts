@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { authorizeHostedTopologyPlan, hostedTopologyDeclarationSchema, planHostedTopology, type HostedResourceObservation } from '@treeseed/sdk/deployment';
-import { acquireOpenTofu, HostedInfrastructureExecutor, hostedInfrastructureToolchain, openTofuArchive, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
+import { authorizeHostedTopologyPlan, hostedTopologyDeclarationSchema, planHostedTopology, planHostedTopologyRollback, planHostedTopologyRollbackExecution, verifyHostedTopologyReadback, type HostedResourceObservation } from '@treeseed/sdk/deployment';
+import { acquireOpenTofu, HostedInfrastructureExecutor, hostedInfrastructureToolchain, openTofuArchive, renderHostedInfrastructureRollbackWorkspace, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
 
 const workerSource = 'export default { fetch() { return new Response("ok") } };\n';
 const digest = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -83,11 +83,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const first = renderHostedInfrastructureWorkspace({ plan: plan(), backend }), second = renderHostedInfrastructureWorkspace({ plan: plan(), backend });
 		expect(second.bundleDigest).toBe(first.bundleDigest); expect(first.executable).toBe(false);
 		expect(Object.keys(first.files)).toEqual(expect.arrayContaining(['versions.tf', 'main.tf', '.terraform.lock.hcl', 'backend.tf.json', 'terraform.tfvars.json']));
+		expect(JSON.parse(first.files['backend.tf.json']!).terraform.backend.s3).toMatchObject({ key: 'production/topology.tfstate', encrypt: true, use_lockfile: true });
 		const rendered = Object.values(first.files).join('\n');
 		expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
 		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
 		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.mjs', digest: digest(workerSource), path: 'artifacts/admin' }]);
 		expect(renderHostedInfrastructureWorkspace({ plan: approved(), backend }).executable).toBe(true);
+		expect(() => renderHostedInfrastructureWorkspace({ plan: approved(), backend: { ...backend, key: 'staging/topology.tfstate' } })).toThrow(/scoped beneath production/u);
 	});
 
 	it('requires environment-bound TreeSeed service-vault authority', async () => {
@@ -122,7 +124,8 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const command: OpenTofuCommand = async (args, options) => {
 			calls.push(args);
 			if (args[0] === 'version') return { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' };
-			if (args[0] === 'plan') { await writeFile(join(options.cwd, 'treeseed.plan'), 'immutable-binary-plan'); return { code: 2, stdout: '', stderr: '' }; }
+			if (args[0] === 'plan' && args.some((value) => value.startsWith('-out='))) { await writeFile(join(options.cwd, 'treeseed.plan'), 'immutable-binary-plan'); return { code: 2, stdout: '', stderr: '' }; }
+			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ cloudflare_workers: { value: { admin: 'worker-id' } }, cloudflare_dns_records: { value: { 'admin-dns': 'dns-id' } }, cloudflare_tls_policies: { value: { 'admin-tls': 'tls-id' } }, railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
 			return { code: 0, stdout: '', stderr: '' };
 		};
 		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
@@ -136,7 +139,42 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		await expect(executor.apply(authorized, root, rotatedAuthority, approvedResult)).rejects.toThrow(/changed after planning/u);
 		await expect(executor.apply(authorized, root, authorizedAuthority, { ...approvedResult, executionPlanDigest: `sha256:${'f'.repeat(64)}` })).rejects.toThrow(/approved digest/u);
 		expect((await executor.apply(authorized, root, authorizedAuthority, approvedResult)).applied).toBe(true);
+		const observations = await executor.readback(authorized, root, authorizedAuthority);
+		expect(observations).toHaveLength(5); expect(observations.every(({ state, managedBy }) => state === 'healthy' && managedBy === 'treeseed')).toBe(true);
 		expect(calls.some((args) => args[0] === 'init')).toBe(true); expect(calls.some((args) => args[0] === 'apply')).toBe(true);
+	});
+
+	it('rejects authoritative read-back when refresh detects drift', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-drift-readback-')); roots.push(root);
+		const workspace = renderHostedInfrastructureWorkspace({ plan: approved(), backend }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
+		const executor = new HostedInfrastructureExecutor(async (args) => args[0] === 'plan' ? { code: 2, stdout: '', stderr: '' } : { code: 0, stdout: '', stderr: '' });
+		await expect(executor.readback(workspace, root, authority)).rejects.toThrow(/detected hosted infrastructure drift/u);
+	});
+
+	it('executes only a complete approved rollback closure and reads back removals', async () => {
+		const sourcePlan = approved(), observedAt = now;
+		const resources: HostedResourceObservation[] = sourcePlan.actions.map((action, index) => ({ resourceId: action.resourceId, provider: action.provider, kind: action.kind, providerResourceId: `${action.resourceId}-id`, state: 'healthy', managedBy: 'treeseed', observedDigest: action.desiredDigest, observedAt }));
+		const previousResources = resources.map((resource) => resource.provider === 'cloudflare' ? { ...resource, providerResourceId: null, state: 'missing' as const, managedBy: null, observedDigest: null } : resource);
+		const receipt = verifyHostedTopologyReadback({ plan: sourcePlan, previousResources, resources, completedAt: now });
+		const rollback = planHostedTopologyRollback(receipt), declaration = topology();
+		const targetDeclaration = hostedTopologyDeclarationSchema.parse({ ...declaration, resources: declaration.resources.filter(({ provider }) => provider === 'railway') });
+		const targetPlan = planHostedTopology({ declaration: targetDeclaration, observations: previousResources.filter(({ provider }) => provider === 'railway'), connections: connections() });
+		const execution = planHostedTopologyRollbackExecution({ rollback, sourceReceipt: receipt, sourcePlan, targetPlan });
+		const workspace = renderHostedInfrastructureRollbackWorkspace({ execution, approval: { schemaVersion: 'treeseed.hosted-topology-rollback-execution-approval/v1', executionDigest: execution.executionDigest, environment: rollback.environment, decision: 'approved', approvedBy: 'release-approver', approvedAt: now }, sourceReceipt: receipt, sourcePlan, targetPlan, backend });
+		expect(workspace.executable).toBe(true); expect(workspace.planDigest).toBe(rollback.rollbackDigest); expect(workspace.files['main.tf']).toContain('prevent_destroy = false');
+		expect(workspace.removedResources.map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls']);
+		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'cloudflare-storage', 'railway-workspace']);
+		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver), root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-rollback-')); roots.push(root);
+		const command: OpenTofuCommand = async (args, options) => {
+			if (args[0] === 'version') return { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' };
+			if (args[0] === 'plan' && args.some((value) => value.startsWith('-out='))) { await writeFile(join(options.cwd, 'treeseed.plan'), 'rollback-plan'); return { code: 2, stdout: '', stderr: '' }; }
+			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
+			return { code: 0, stdout: '', stderr: '' };
+		};
+		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
+		const binaryExecution = await executor.plan(workspace, root, authority); await executor.apply(workspace, root, authority, binaryExecution);
+		const readback = await executor.readback(workspace, root, authority);
+		expect(readback.filter(({ state }) => state === 'missing').map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls']);
 	});
 
 	it('redacts provider authority from failures', async () => {
