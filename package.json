@@ -42,7 +42,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "github:treeseed-ai/sdk#4936ec8652929683c5ad6d6fd5f7973cfa67299d",
+    "@treeseed/sdk": "github:treeseed-ai/sdk#3a812b1eccf095bde75570277889be7a9b351981",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
     "yaml": "^2.8.1",

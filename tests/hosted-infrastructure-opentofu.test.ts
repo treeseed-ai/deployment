@@ -29,15 +29,18 @@ function topology() {
 		stateBackend: { connectionRef: 'cloudflare-state' },
 		providerConnections: { cloudflare: { connectionRef: 'cloudflare-production' }, railway: { connectionRef: 'railway-production' } },
 		artifacts: {
-			admin: { digest: digest(pagesArchive), source: 'https://artifacts.example.test/admin.tgz' },
-			api: { digest: `sha256:${'b'.repeat(64)}`, source: 'https://ghcr.example.test/treeseed/api@sha256:bbbb' },
+			admin: { kind: 'archive', format: 'tar+gzip', digest: digest(pagesArchive), source: 'https://artifacts.example.test/admin.tgz' },
+			proxy: { kind: 'file', mediaType: 'application/javascript', digest: digest(workerSource), source: 'https://artifacts.example.test/api-proxy.mjs' },
+			api: { kind: 'oci-image', digest: `sha256:${'b'.repeat(64)}`, identity: `ghcr.io/treeseed-ai/api@sha256:${'b'.repeat(64)}` },
+			postgres: { kind: 'oci-image', digest: `sha256:${'c'.repeat(64)}`, identity: `docker.io/library/postgres@sha256:${'c'.repeat(64)}` },
 		},
 		resources: [
 			{ id: 'admin', provider: 'cloudflare', kind: 'pages-application', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-admin' }, artifact: { artifact: 'admin' }, 'artifact-format': { literal: 'tar+gzip' }, 'production-branch': { literal: 'main' }, 'destination-dir': { literal: '.' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'api-proxy', provider: 'cloudflare', kind: 'api-proxy', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-api-proxy' }, artifact: { artifact: 'proxy' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-dns', provider: 'cloudflare', kind: 'dns-record', dependsOn: ['admin'], parameters: { name: { literal: 'admin.example.test' }, type: { literal: 'CNAME' }, content: { literal: 'treeseed-admin.pages.dev' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-tls', provider: 'cloudflare', kind: 'tls-policy', dependsOn: ['admin-dns'], parameters: { mode: { literal: 'strict' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'api', provider: 'railway', kind: 'control-plane-api', dependsOn: ['postgres'], parameters: { name: { literal: 'production-api' }, artifact: { artifact: 'api' }, 'healthcheck-path': { literal: '/health' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
-			{ id: 'postgres', provider: 'railway', kind: 'postgresql', dependsOn: [], parameters: { name: { literal: 'production-postgres' }, 'volume-name': { literal: 'postgres-data' }, 'volume-mount-path': { literal: '/var/lib/postgresql/data' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'postgres', provider: 'railway', kind: 'postgresql', dependsOn: [], parameters: { name: { literal: 'production-postgres' }, artifact: { artifact: 'postgres' }, 'volume-name': { literal: 'postgres-data' }, 'volume-mount-path': { literal: '/var/lib/postgresql/data' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 		],
 	});
 }
@@ -99,7 +102,10 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const rendered = Object.values(first.files).join('\n');
 		expect(rendered).toContain('cloudflare_pages_project'); expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
 		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
-		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.tgz', digest: digest(pagesArchive), path: 'artifacts/admin.tgz' }]);
+		expect(first.artifacts).toEqual([
+			{ id: 'admin', source: 'https://artifacts.example.test/admin.tgz', digest: digest(pagesArchive), path: 'artifacts/admin.tgz' },
+			{ id: 'proxy', source: 'https://artifacts.example.test/api-proxy.mjs', digest: digest(workerSource), path: 'artifacts/proxy' },
+		]);
 		expect(first.pagesDeployments).toHaveLength(1);
 		expect(renderHostedInfrastructureWorkspace({ plan: approved() }).executable).toBe(true);
 		expect(() => renderHostedInfrastructureWorkspace({ plan: { ...approved(), stateBackend: { ...backend, teamId: 'other-team' } } as never })).toThrow(/custody|digest/u);
@@ -156,11 +162,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 			calls.push(args);
 			if (args[0] === 'version') return { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' };
 			if (args[0] === 'plan' && args.some((value) => value.startsWith('-out='))) { await writeFile(join(options.cwd, 'treeseed.plan'), 'immutable-binary-plan'); return { code: 2, stdout: '', stderr: '' }; }
-			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ cloudflare_pages: { value: { admin: 'pages-id' } }, cloudflare_dns_records: { value: { 'admin-dns': 'dns-id' } }, cloudflare_tls_policies: { value: { 'admin-tls': 'tls-id' } }, railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
+			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ cloudflare_pages: { value: { admin: 'pages-id' } }, cloudflare_workers: { value: { 'api-proxy': 'worker-id' } }, cloudflare_dns_records: { value: { 'admin-dns': 'dns-id' } }, cloudflare_tls_policies: { value: { 'admin-tls': 'tls-id' } }, railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
 			return { code: 0, stdout: '', stderr: '' };
 		};
 		let authorized: ReturnType<typeof renderHostedInfrastructureWorkspace>;
-		const fetchImpl = async (url: string | URL | Request) => String(url).includes('artifacts.example.test') ? new Response(pagesArchive) : Response.json({ success: true, result: [{ environment: 'production', latest_stage: { status: 'success' }, deployment_trigger: { metadata: { branch: 'main', commit_hash: authorized.pagesDeployments[0]!.commit, commit_message: authorized.pagesDeployments[0]!.marker } } }] });
+		const fetchImpl = async (url: string | URL | Request) => String(url).endsWith('admin.tgz') ? new Response(pagesArchive)
+			: String(url).endsWith('api-proxy.mjs') ? new Response(workerSource)
+				: Response.json({ success: true, result: [{ environment: 'production', latest_stage: { status: 'success' }, deployment_trigger: { metadata: { branch: 'main', commit_hash: authorized.pagesDeployments[0]!.commit, commit_message: authorized.pagesDeployments[0]!.marker } } }] });
 		const executor = new HostedInfrastructureExecutor(command, fetchImpl as typeof fetch, {}, async () => ({ code: 0, stdout: 'deployed', stderr: '' }));
 		const unauthorized = renderHostedInfrastructureWorkspace({ plan: plan() });
 		const authority = await resolveHostedInfrastructureVaultAuthority(unauthorized, vaultResolver), result = await executor.plan(unauthorized, root, authority);
@@ -173,7 +181,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		await expect(executor.apply(authorized, root, authorizedAuthority, { ...approvedResult, executionPlanDigest: `sha256:${'f'.repeat(64)}` })).rejects.toThrow(/approved digest/u);
 		expect((await executor.apply(authorized, root, authorizedAuthority, approvedResult)).applied).toBe(true);
 		const observations = await executor.readback(authorized, root, authorizedAuthority);
-		expect(observations).toHaveLength(5); expect(observations.every(({ state, managedBy }) => state === 'healthy' && managedBy === 'treeseed')).toBe(true);
+		expect(observations).toHaveLength(6); expect(observations.every(({ state, managedBy }) => state === 'healthy' && managedBy === 'treeseed')).toBe(true);
 		expect(calls.some((args) => args[0] === 'init')).toBe(true); expect(calls.some((args) => args[0] === 'apply')).toBe(true);
 	});
 
@@ -202,7 +210,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const execution = planHostedTopologyRollbackExecution({ rollback, sourceReceipt: receipt, sourcePlan, targetPlan });
 		const workspace = renderHostedInfrastructureRollbackWorkspace({ execution, approval: { schemaVersion: 'treeseed.hosted-topology-rollback-execution-approval/v1', executionDigest: execution.executionDigest, teamId: execution.teamId, deploymentId: execution.deploymentId, stackId: execution.stackId, environment: rollback.environment, backendBindingDigest: execution.backendBindingDigest, decision: 'approved', approvedBy: 'release-approver', approvedAt: now }, sourceReceipt: receipt, sourcePlan, targetPlan });
 		expect(workspace.executable).toBe(true); expect(workspace.planDigest).toBe(rollback.rollbackDigest); expect(workspace.files['main.tf']).toContain('prevent_destroy = false');
-		expect(workspace.removedResources.map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls']);
+		expect(workspace.removedResources.map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls', 'api-proxy']);
 		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'railway-workspace', 's3-state-session', 'opentofu-state-encryption']);
 		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver), root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-rollback-')); roots.push(root);
 		const command: OpenTofuCommand = async (args, options) => {
@@ -214,7 +222,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
 		const binaryExecution = await executor.plan(workspace, root, authority); await executor.apply(workspace, root, authority, binaryExecution);
 		const readback = await executor.readback(workspace, root, authority);
-		expect(readback.filter(({ state }) => state === 'missing').map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls']);
+		expect(readback.filter(({ state }) => state === 'missing').map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls', 'api-proxy']);
 	});
 
 	it('redacts provider authority from failures', async () => {
@@ -227,7 +235,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
 		const executor = new HostedInfrastructureExecutor(async (args) => args[0] === 'version'
 			? { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' }
-			: { code: 1, stdout: '', stderr: 'provider returned runtime-secret and state-secret' }, async () => new Response(pagesArchive));
+			: { code: 1, stdout: '', stderr: 'provider returned runtime-secret and state-secret' }, async (url) => new Response(String(url).endsWith('api-proxy.mjs') ? workerSource : pagesArchive));
 		let message = '';
 		try { await executor.plan(workspace, root, authority); } catch (error) { message = error instanceof Error ? error.message : String(error); }
 		expect(message).not.toMatch(/runtime-secret|state-secret/u); expect(message).toContain('[redacted]');
