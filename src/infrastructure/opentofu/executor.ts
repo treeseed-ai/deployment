@@ -1,12 +1,20 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { HostedInfrastructureWorkspace } from './workspace.js';
 import { hostedInfrastructureToolchain } from './toolchain.js';
+import { hostedInfrastructureAuthorityBindingDigest, hostedInfrastructureAuthorityEnvironment, type HostedInfrastructureVaultAuthority } from './authority.js';
 
 export interface OpenTofuCommandResult { code: number; stdout: string; stderr: string }
 export type OpenTofuCommand = (args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => Promise<OpenTofuCommandResult>;
+export interface HostedInfrastructureExecutionPlan {
+	changed: boolean;
+	executionPlanDigest: string;
+	authorityBindingDigest: string;
+	bundleDigest: string;
+	planDigest: string;
+}
 
 export function runOpenTofuCommand(args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): Promise<OpenTofuCommandResult> {
 	return new Promise((done, reject) => {
@@ -44,11 +52,12 @@ export class HostedInfrastructureExecutor {
 	constructor(private readonly command: OpenTofuCommand = runOpenTofuCommand, private readonly fetchImpl: typeof fetch = fetch) {}
 
 	async prepare(workspace: HostedInfrastructureWorkspace, root: string) {
+		await mkdir(root, { recursive: true, mode: 0o700 }); await chmod(root, 0o700);
 		for (const [relative, content] of Object.entries(workspace.files)) {
 			const target = safeTarget(root, relative); await mkdir(dirname(target), { recursive: true }); await writeFile(target, content, { mode: 0o600 });
 		}
 		await verifiedArtifacts(workspace, root, this.fetchImpl);
-		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, toolchain: workspace.toolchain, imports: workspace.imports };
+		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, environment: workspace.environment, toolchain: workspace.toolchain, imports: workspace.imports, authorities: workspace.authorities };
 		await writeFile(safeTarget(root, 'treeseed-workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 	}
 
@@ -58,8 +67,10 @@ export class HostedInfrastructureExecutor {
 		if (parsed.terraform_version !== hostedInfrastructureToolchain.opentofu.version) throw new Error(`OpenTofu ${hostedInfrastructureToolchain.opentofu.version} is required; received ${String(parsed.terraform_version)}.`);
 	}
 
-	async plan(workspace: HostedInfrastructureWorkspace, root: string, authorityEnvironment: NodeJS.ProcessEnv) {
-		await this.prepare(workspace, root); await this.verifyVersion(root, authorityEnvironment);
+	async plan(workspace: HostedInfrastructureWorkspace, root: string, authority: HostedInfrastructureVaultAuthority) {
+		const authorityEnvironment = hostedInfrastructureAuthorityEnvironment(workspace, authority, root);
+		if (workspace.imports.length && !workspace.executable) throw new Error('Hosted infrastructure imports require an SDK-authorized executable plan.');
+		await mkdir(resolve(root, '.home'), { recursive: true }); await this.prepare(workspace, root); await this.verifyVersion(root, authorityEnvironment);
 		for (const [args, operation] of [
 			[['init', '-input=false', '-lockfile=readonly'], 'initialization'],
 			[['validate', '-json'], 'validation'],
@@ -71,15 +82,22 @@ export class HostedInfrastructureExecutor {
 		const result = await this.command(['plan', '-input=false', '-detailed-exitcode', '-out=treeseed.plan'], { cwd: root, env: authorityEnvironment });
 		if (result.code !== 0 && result.code !== 2) throw sanitizedFailure(result, 'plan', authorityEnvironment);
 		const data = await readFile(safeTarget(root, 'treeseed.plan'));
-		return { changed: result.code === 2, executionPlanDigest: `sha256:${createHash('sha256').update(data).digest('hex')}`, bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
+		return { changed: result.code === 2, executionPlanDigest: `sha256:${createHash('sha256').update(data).digest('hex')}`, authorityBindingDigest: hostedInfrastructureAuthorityBindingDigest(authority), bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
 	}
 
-	async apply(workspace: HostedInfrastructureWorkspace, root: string, authorityEnvironment: NodeJS.ProcessEnv, executionPlanDigest: string) {
+	async apply(workspace: HostedInfrastructureWorkspace, root: string, authority: HostedInfrastructureVaultAuthority, execution: HostedInfrastructureExecutionPlan) {
 		if (!workspace.executable) throw new Error('Hosted infrastructure apply requires an SDK-authorized executable plan.');
+		const authorityEnvironment = hostedInfrastructureAuthorityEnvironment(workspace, authority, root);
+		if (execution.bundleDigest !== workspace.bundleDigest || execution.planDigest !== workspace.planDigest) throw new Error('Hosted infrastructure execution plan does not match its workspace closure.');
+		if (hostedInfrastructureAuthorityBindingDigest(authority) !== execution.authorityBindingDigest) throw new Error('Hosted infrastructure vault authority changed after planning.');
 		const data = await readFile(safeTarget(root, 'treeseed.plan')), actual = `sha256:${createHash('sha256').update(data).digest('hex')}`;
-		if (actual !== executionPlanDigest) throw new Error('OpenTofu execution plan no longer matches its approved digest.');
-		const result = await this.command(['apply', '-input=false', '-auto-approve', 'treeseed.plan'], { cwd: root, env: authorityEnvironment });
-		if (result.code !== 0) throw sanitizedFailure(result, 'apply', authorityEnvironment);
-		return { applied: true, executionPlanDigest, bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
+		if (actual !== execution.executionPlanDigest) throw new Error('OpenTofu execution plan no longer matches its approved digest.');
+		try {
+			const result = await this.command(['apply', '-input=false', '-auto-approve', 'treeseed.plan'], { cwd: root, env: authorityEnvironment });
+			if (result.code !== 0) throw sanitizedFailure(result, 'apply', authorityEnvironment);
+			return { applied: true, executionPlanDigest: execution.executionPlanDigest, authorityBindingDigest: execution.authorityBindingDigest, bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
+		} finally { await rm(safeTarget(root, 'treeseed.plan'), { force: true }); }
 	}
+
+	async discard(root: string) { await rm(safeTarget(root, 'treeseed.plan'), { force: true }); }
 }

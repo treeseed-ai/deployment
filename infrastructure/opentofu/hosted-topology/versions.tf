@@ -13,7 +13,25 @@ terraform {
   }
 }
 
-provider "cloudflare" {}
+variable "cloudflare_runtime_token" {
+  type      = string
+  sensitive = true
+}
+
+variable "cloudflare_dns_token" {
+  type      = string
+  sensitive = true
+}
+
+provider "cloudflare" {
+  alias     = "runtime"
+  api_token = var.cloudflare_runtime_token
+}
+
+provider "cloudflare" {
+  alias     = "dns"
+  api_token = var.cloudflare_dns_token
+}
 
 provider "railway" {
   strict_env_scoping = true

@@ -12,11 +12,18 @@ The hosted runner uses OpenTofu 1.12.6 with exact provider locks:
   provider and therefore remains behind Deployment
   contract and disposable-project acceptance tests.
 
-Provider credentials enter only as process environment authority. They are not
-rendered into configuration, workspaces, plan summaries, logs, or receipts.
+Provider credentials and state-backend keys resolve only through the TreeSeed
+service credential vault. Each vault request binds the exact team connection,
+credential profile, capability set, authority version, and `staging` or
+`production` environment. Raw caller-supplied process environments are not an
+executor interface. Deployment alone maps validated in-memory material into a
+minimal, short-lived OpenTofu process environment. Cloudflare runtime and DNS
+tokens use separate provider aliases, so their least-privilege profiles need
+not share a token. Credentials are not rendered into configuration,
+workspaces, plan summaries, logs, or receipts.
 Production state must use an encrypted remote S3-compatible backend with
-credentials supplied separately to OpenTofu. Local state is not an accepted
-production mode.
+credentials supplied by a separately scoped storage profile in the same vault.
+Local state is not an accepted production mode.
 
 Every execution uses the following closure:
 
@@ -26,7 +33,8 @@ Every execution uses the following closure:
 4. Initialize with the checked-in provider lock, import reviewed existing
    resources, validate, and save a binary OpenTofu plan.
 5. Record the binary plan digest alongside the SDK and bundle digests.
-6. Apply only that unchanged binary plan after exact environment approval.
+6. Bind the plan to the versioned vault authorities, apply only that unchanged
+   binary plan after exact environment approval, and delete it after use.
 7. Perform authoritative provider read-back through the Deployment runner and
    issue the SDK known-good receipt only when all desired digests match.
 8. Repeat planning and require no changes.
