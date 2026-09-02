@@ -37,6 +37,12 @@ resource "cloudflare_workers_script" "managed" {
   content_sha256     = each.value.content_sha256
   compatibility_date = each.value.compatibility_date
 
+  bindings = [for name, value in each.value.plain_text_bindings : {
+    name = name
+    type = "plain_text"
+    text = value
+  }]
+
   annotations = {
     workers_message = "TreeSeed ${each.value.desired_digest}"
   }

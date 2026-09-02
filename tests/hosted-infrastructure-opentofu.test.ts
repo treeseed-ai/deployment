@@ -36,10 +36,10 @@ function topology() {
 		},
 		resources: [
 			{ id: 'admin', provider: 'cloudflare', kind: 'pages-application', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-admin' }, artifact: { artifact: 'admin' }, 'artifact-format': { literal: 'tar+gzip' }, 'production-branch': { literal: 'main' }, 'destination-dir': { literal: '.' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
-			{ id: 'api-proxy', provider: 'cloudflare', kind: 'api-proxy', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-api-proxy' }, artifact: { artifact: 'proxy' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'api-proxy', provider: 'cloudflare', kind: 'api-proxy', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-api-proxy' }, artifact: { artifact: 'proxy' }, 'variable.TREESEED_UPSTREAM_URL': { input: 'api-public-url' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-dns', provider: 'cloudflare', kind: 'dns-record', dependsOn: ['admin'], parameters: { name: { literal: 'admin.example.test' }, type: { literal: 'CNAME' }, content: { literal: 'treeseed-admin.pages.dev' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-tls', provider: 'cloudflare', kind: 'tls-policy', dependsOn: ['admin-dns'], parameters: { mode: { literal: 'strict' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
-			{ id: 'api', provider: 'railway', kind: 'control-plane-api', dependsOn: ['postgres'], parameters: { name: { literal: 'production-api' }, artifact: { artifact: 'api' }, 'healthcheck-path': { literal: '/health' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'api', provider: 'railway', kind: 'control-plane-api', dependsOn: ['postgres'], parameters: { name: { literal: 'production-api' }, artifact: { artifact: 'api' }, 'healthcheck-path': { literal: '/health' }, 'variable.TREESEED_DATABASE_URL': { resourceOutput: { resourceId: 'postgres', output: 'database-url' } } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'postgres', provider: 'railway', kind: 'postgresql', dependsOn: [], parameters: { name: { literal: 'production-postgres' }, artifact: { artifact: 'postgres' }, 'volume-name': { literal: 'postgres-data' }, 'volume-mount-path': { literal: '/var/lib/postgresql/data' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 		],
 	});
@@ -47,7 +47,7 @@ function topology() {
 
 function connections() {
 	return {
-		cloudflare: { connectionRef: 'cloudflare-production', nonSecretConfig: { deploymentEnvironment: 'production', accountId: 'cf-account', zoneId: 'cf-zone' } },
+		cloudflare: { connectionRef: 'cloudflare-production', nonSecretConfig: { deploymentEnvironment: 'production', accountId: 'cf-account', zoneId: 'cf-zone', 'api-public-url': 'https://api.example.test' } },
 		railway: { connectionRef: 'railway-production', nonSecretConfig: { deploymentEnvironment: 'production', workspaceId: 'rw-workspace', projectId: 'rw-project', environmentId: 'rw-environment', environmentName: 'production' } },
 	};
 }
@@ -69,6 +69,11 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		expect(hostedInfrastructureToolchain.providers.railway.source).toBe('registry.opentofu.org/jamesprnich/railway');
 		const lock = await readFile(new URL('../infrastructure/opentofu/hosted-topology/.terraform.lock.hcl', import.meta.url), 'utf8');
 		expect(lock).toContain('registry.opentofu.org/cloudflare/cloudflare'); expect(lock).toContain('registry.opentofu.org/jamesprnich/railway'); expect(lock).toContain('0.11.5');
+	});
+
+	it('ships a portable Cloudflare API proxy owned by Deployment', async () => {
+		const source = await readFile(new URL('../infrastructure/cloudflare/api-proxy.mjs', import.meta.url), 'utf8');
+		expect(source).toContain('TREESEED_UPSTREAM_URL'); expect(source).not.toMatch(/https:\/\/api\./u);
 	});
 
 	it('acquires the exact pinned OpenTofu binary inside the private workspace', async () => {
@@ -101,6 +106,8 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		expect(JSON.parse(first.files['encryption.tf.json']!).terraform.encryption).toEqual({ state: { enforced: true }, plan: { enforced: true } });
 		const rendered = Object.values(first.files).join('\n');
 		expect(rendered).toContain('cloudflare_pages_project'); expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
+		expect(JSON.parse(first.files['terraform.tfvars.json']!).railway_services.api.variables.TREESEED_DATABASE_URL).toBe('${{production-postgres.DATABASE_URL}}');
+		expect(JSON.parse(first.files['terraform.tfvars.json']!).cloudflare_workers['api-proxy'].plain_text_bindings).toEqual({ TREESEED_UPSTREAM_URL: 'https://api.example.test' });
 		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
 		expect(first.artifacts).toEqual([
 			{ id: 'admin', source: 'https://artifacts.example.test/admin.tgz', digest: digest(pagesArchive), path: 'artifacts/admin.tgz' },
@@ -143,6 +150,15 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const selected = connections(); selected.railway.nonSecretConfig.deploymentEnvironment = 'staging';
 		const mismatched = planHostedTopology({ declaration: topology(), observations: [], connections: selected, stateBackend: backend });
 		expect(() => renderHostedInfrastructureWorkspace({ plan: mismatched })).toThrow(/not bound to the production/u);
+	});
+
+	it('keeps Railway relationship syntax inside Deployment', () => {
+		const base = topology(), operationsImage = `sha256:${'d'.repeat(64)}`;
+		const operation = { id: 'operations', provider: 'railway' as const, kind: 'operations-runner' as const, dependsOn: ['api'], parameters: { name: { literal: 'production-operations' }, artifact: { artifact: 'operations' }, 'variable.TREESEED_API_BASE_URL': { resourceOutput: { resourceId: 'api', output: 'private-url' } } }, adoption: { mode: 'adopt-or-create' as const, replacement: 'forbidden' as const } };
+		const declaration = hostedTopologyDeclarationSchema.parse({ ...base, artifacts: { ...base.artifacts, operations: { kind: 'oci-image', digest: operationsImage, identity: `ghcr.io/treeseed-ai/api@${operationsImage}` } }, resources: [...base.resources, operation] });
+		const workspace = renderHostedInfrastructureWorkspace({ plan: planHostedTopology({ declaration, observations: [], connections: connections(), stateBackend: backend }) });
+		expect(JSON.parse(workspace.files['terraform.tfvars.json']!).railway_services.operations.variables.TREESEED_API_BASE_URL).toBe('http://${{production-api.RAILWAY_PRIVATE_DOMAIN}}');
+		expect(() => renderHostedInfrastructureWorkspace({ plan: planHostedTopology({ declaration: hostedTopologyDeclarationSchema.parse({ ...declaration, resources: declaration.resources.map((resource) => resource.id === 'operations' ? { ...resource, dependsOn: [] } : resource) }), observations: [], connections: connections(), stateBackend: backend }) })).toThrow(/depended-on Railway resource/u);
 	});
 
 	it('renders imports for reviewed existing resources without replacement', () => {

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = process.cwd(), output = resolve(root, 'release/out');
@@ -10,4 +10,6 @@ if (!packed) throw new Error('npm pack did not produce the Deployment runtime ar
 const version = (JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { version: string }).version;
 const target = resolve(output, `treeseed-deployment-runtime-${version}.tgz`);
 rmSync(target, { force: true }); renameSync(resolve(output, packed), target);
-console.log(JSON.stringify({ ok: true, artifact: target, version }));
+const apiProxy = resolve(output, 'treeseed-api-proxy.mjs');
+copyFileSync(resolve(root, 'infrastructure/cloudflare/api-proxy.mjs'), apiProxy);
+console.log(JSON.stringify({ ok: true, artifact: target, apiProxy, version }));

@@ -52,6 +52,19 @@ function resourceName(action: Action, context: Parameters<typeof resolveHostedIn
 	return String(parameter(action, 'name', context) ?? action.resourceId);
 }
 
+function railwayVariable(action: Action, name: string, plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan, context: Parameters<typeof resolveHostedInfrastructureParameter>[1]) {
+	const binding = action.desiredResource.parameters[`variable.${name}`];
+	if (!binding || !('resourceOutput' in binding)) return String(parameter(action, `variable.${name}`, context));
+	const reference = binding.resourceOutput, target = plan.actions.find(({ resourceId }) => resourceId === reference.resourceId);
+	if (!target || target.provider !== 'railway' || !action.desiredResource.dependsOn.includes(target.resourceId)) throw new Error(`Railway variable ${name} requires a depended-on Railway resource.`);
+	const targetConnection = plan.providerConnections.railway;
+	if (!targetConnection) throw new Error('Railway resource output requires a Railway connection.');
+	const targetName = resourceName(target, { config: targetConnection.nonSecretConfig, artifacts: plan.artifacts });
+	if (reference.output === 'database-url' && target.kind === 'postgresql') return `\${{${targetName}.DATABASE_URL}}`;
+	if (reference.output === 'private-url' && target.kind !== 'postgresql') return `http://\${{${targetName}.RAILWAY_PRIVATE_DOMAIN}}`;
+	throw new Error(`Railway resource output ${target.resourceId}.${reference.output} is unsupported.`);
+}
+
 function importEntries(action: Action, context: Parameters<typeof resolveHostedInfrastructureParameter>[1]): HostedInfrastructureImport[] {
 	if (!action.providerResourceId) return [];
 	if (action.provider === 'cloudflare') {
@@ -108,7 +121,8 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact) || !('kind' in artifact) || artifact.kind !== 'file') throw new Error(`Cloudflare worker ${action.resourceId} requires a file artifact.`);
 				const path = `artifacts/${String(artifact.id)}`;
 				artifacts.push({ id: String(artifact.id), source: String(artifact.source), digest: String(artifact.digest), path });
-				cloudflareWorkers[action.resourceId] = { account_id: requiredInfrastructureString(context.config.accountId, 'accountId'), script_name: resourceName(action, context), content_file: path, content_sha256: String(artifact.digest).replace(/^sha256:/u, ''), compatibility_date: String(parameter(action, 'compatibility-date', context) ?? '2026-08-01'), desired_digest: action.desiredDigest };
+				const plainTextBindings = Object.fromEntries(Object.keys(action.desiredResource.parameters).filter((key) => key.startsWith('variable.')).sort().map((key) => [key.slice(9), String(parameter(action, key, context))]));
+				cloudflareWorkers[action.resourceId] = { account_id: requiredInfrastructureString(context.config.accountId, 'accountId'), script_name: resourceName(action, context), content_file: path, content_sha256: String(artifact.digest).replace(/^sha256:/u, ''), compatibility_date: String(parameter(action, 'compatibility-date', context) ?? '2026-08-01'), plain_text_bindings: plainTextBindings, desired_digest: action.desiredDigest };
 			} else if (action.kind === 'dns-record') {
 				cloudflareDns[action.resourceId] = { zone_id: requiredInfrastructureString(zoneId, 'zoneId'), name: requiredInfrastructureString(parameter(action, 'name', context), 'name'), type: String(parameter(action, 'type', context) ?? 'CNAME'), content: requiredInfrastructureString(parameter(action, 'content', context), 'content'), ttl: Number(parameter(action, 'ttl', context) ?? 1), proxied: Boolean(parameter(action, 'proxied', context) ?? true), desired_digest: action.desiredDigest };
 			} else {
@@ -122,7 +136,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 			? String(artifact.identity) : requiredInfrastructureString(parameter(action, 'image', context), 'image');
 		if (!/@sha256:[a-f0-9]{64}$/u.test(sourceImage)) throw new Error(`Railway service ${action.resourceId} requires an immutable OCI image identity.`);
 		const variables: Record<string, string> = { TREESEED_RESOURCE_DIGEST: action.desiredDigest };
-		for (const key of Object.keys(action.desiredResource.parameters).sort()) if (key.startsWith('variable.')) variables[key.slice(9)] = String(parameter(action, key, context));
+		for (const key of Object.keys(action.desiredResource.parameters).sort()) if (key.startsWith('variable.')) variables[key.slice(9)] = railwayVariable(action, key.slice(9), plan, context);
 		railwayServices[action.resourceId] = { project_id: projectId, environment_id: environmentId, environment_name: requiredInfrastructureString(context.config.environmentName, 'environmentName'), name: resourceName(action, context), source_image: sourceImage, healthcheck_path: parameter(action, 'healthcheck-path', context) ?? null, start_command: parameter(action, 'start-command', context) ?? null, num_replicas: Number(parameter(action, 'replicas', context) ?? 1), vcpus: Number(parameter(action, 'vcpus', context) ?? 1), memory_gb: Number(parameter(action, 'memory-gb', context) ?? 1), volume_name: parameter(action, 'volume-name', context) ?? null, volume_mount_path: parameter(action, 'volume-mount-path', context) ?? null, variables, desired_digest: action.desiredDigest };
 	}
 	return { variables: { cloudflare_pages: cloudflarePages, cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), pagesDeployments: pagesDeployments.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };

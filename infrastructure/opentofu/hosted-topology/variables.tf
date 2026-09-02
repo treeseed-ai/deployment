@@ -17,6 +17,7 @@ variable "cloudflare_workers" {
     content_file       = string
     content_sha256     = string
     compatibility_date = string
+    plain_text_bindings = map(string)
     desired_digest     = string
   }))
   default = {}
