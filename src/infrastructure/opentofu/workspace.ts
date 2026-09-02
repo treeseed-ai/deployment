@@ -1,4 +1,4 @@
-import { authorizedHostedTopologyPlanSchema, hostedTopologyPlanSchema, type AuthorizedHostedTopologyPlan, type HostedTopologyPlan } from '@treeseed/sdk/deployment';
+import { authorizedHostedTopologyPlanSchema, hostedTopologyPlanSchema, type AuthorizedHostedTopologyPlan, type HostedStateBackend, type HostedTopologyPlan } from '@treeseed/sdk/deployment';
 import { infrastructureDigest, hostedInfrastructureToolchain } from './toolchain.js';
 import { requiredInfrastructureString, resolveHostedInfrastructureParameter } from './parameters.js';
 import { hostedInfrastructureModuleFiles } from './module.js';
@@ -6,16 +6,6 @@ import type { HostedInfrastructureAuthorityRequest, HostedInfrastructureCredenti
 
 type Action = HostedTopologyPlan['actions'][number];
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-
-export interface HostedInfrastructureBackend {
-	type: 's3';
-	bucket: string;
-	key: string;
-	region: string;
-	endpoint?: string;
-	usePathStyle?: boolean;
-	authority: { provider: 'cloudflare'; connectionRef: string; credentialProfileId: 'cloudflare-storage' };
-}
 
 export interface HostedInfrastructureArtifactRequest {
 	id: string;
@@ -32,7 +22,11 @@ export interface HostedInfrastructureImport {
 export interface HostedInfrastructureWorkspace {
 	schemaVersion: 'treeseed.hosted-infrastructure-workspace/v1';
 	planDigest: string;
+	teamId: string;
+	deploymentId: string;
+	stackId: string;
 	environment: HostedInfrastructureEnvironment;
+	stateBackend: HostedStateBackend;
 	executable: boolean;
 	bundleDigest: string;
 	toolchain: typeof hostedInfrastructureToolchain;
@@ -92,7 +86,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		const selected = authorityProfile(action.provider, action.kind), requestId = `${connection.connectionRef}:${selected.credentialProfileId}`;
 		const existing = authorityMap.get(requestId);
 		if (existing) existing.capabilities = [...new Set([...existing.capabilities, selected.capability])].sort();
-		else authorityMap.set(requestId, { requestId, environment: plan.environment, provider: action.provider, connectionRef: connection.connectionRef, credentialProfileId: selected.credentialProfileId, capabilities: [selected.capability], purpose: 'provider' });
+		else authorityMap.set(requestId, { requestId, teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, backendBindingDigest: plan.stateBackend!.bindingDigest, provider: action.provider, connectionRef: connection.connectionRef, credentialProfileId: selected.credentialProfileId, capabilities: [selected.capability], purpose: 'provider' });
 		imports.push(...importEntries(action, context));
 		resources.push({ resourceId: action.resourceId, provider: action.provider, kind: action.kind, desiredDigest: action.desiredDigest,
 			output: action.provider === 'railway' ? 'railway_services' : action.kind === 'dns-record' ? 'cloudflare_dns_records' : action.kind === 'tls-policy' ? 'cloudflare_tls_policies' : 'cloudflare_workers' });
@@ -120,28 +114,29 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 	return { variables: { cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 }
 
-function backendConfiguration(backend: HostedInfrastructureBackend, environment: HostedInfrastructureEnvironment): Json {
-	if (!backend.bucket.trim() || !backend.key.trim() || !backend.region.trim()) throw new Error('Hosted infrastructure state backend requires bucket, key, and region.');
-	const segments = backend.key.split('/');
-	if (segments[0] !== environment || segments.length < 2 || segments.some((segment) => !segment || segment === '.' || segment === '..')) throw new Error(`Hosted infrastructure state key must be scoped beneath ${environment}/.`);
+function backendConfiguration(backend: HostedStateBackend): Json {
 	return { terraform: { backend: { s3: { bucket: backend.bucket, key: backend.key, region: backend.region, ...(backend.endpoint ? { endpoints: { s3: backend.endpoint }, skip_credentials_validation: true, skip_region_validation: true, skip_requesting_account_id: true, skip_metadata_api_check: true } : {}), ...(backend.usePathStyle === undefined ? {} : { use_path_style: backend.usePathStyle }), encrypt: true, use_lockfile: true } } } };
 }
 
-export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan; backend: HostedInfrastructureBackend }): HostedInfrastructureWorkspace {
+export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan }): HostedInfrastructureWorkspace {
 	const plan = 'approval' in input.plan ? authorizedHostedTopologyPlanSchema.parse(input.plan) : hostedTopologyPlanSchema.parse(input.plan);
 	if (plan.blockers.length) throw new Error('Hosted infrastructure plan has unresolved blockers.');
+	if (!plan.stateBackend) throw new Error('Hosted infrastructure plan has no state backend authority.');
 	const rendered = renderVariables(plan);
-	const backendRequest: HostedInfrastructureAuthorityRequest = { requestId: `${input.backend.authority.connectionRef}:${input.backend.authority.credentialProfileId}`, environment: plan.environment, provider: input.backend.authority.provider, connectionRef: input.backend.authority.connectionRef, credentialProfileId: input.backend.authority.credentialProfileId, capabilities: ['object-storage'], purpose: 'state-backend' };
-	const authorities = [...rendered.authorities, backendRequest].reduce((map, request) => {
+	const custody = { teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, backendBindingDigest: plan.stateBackend.bindingDigest };
+	const backendRequest: HostedInfrastructureAuthorityRequest = { requestId: `state-backend:${plan.stateBackend.bindingDigest}`, ...custody, provider: 'treeseed', connectionRef: plan.stateBackend.connectionRef, credentialProfileId: 's3-state-session', capabilities: ['object-storage'], purpose: 'state-backend' };
+	const encryptionRequest: HostedInfrastructureAuthorityRequest = { requestId: `state-encryption:${plan.stateBackend.bindingDigest}`, ...custody, provider: 'treeseed', connectionRef: plan.stateBackend.encryptionKeyRef, credentialProfileId: 'opentofu-state-encryption', capabilities: ['state-encryption'], purpose: 'state-encryption' };
+	const authorities = [...rendered.authorities, backendRequest, encryptionRequest].reduce((map, request) => {
 		const existing = map.get(request.requestId);
 		if (existing && existing.purpose !== request.purpose) throw new Error(`Hosted infrastructure authority ${request.requestId} cannot serve provider and state-backend purposes together.`);
 		map.set(request.requestId, request); return map;
 	}, new Map<string, HostedInfrastructureAuthorityRequest>());
 	const files = {
 		...hostedInfrastructureModuleFiles(),
-		'backend.tf.json': `${JSON.stringify(backendConfiguration(input.backend, plan.environment), null, 2)}\n`,
+		'backend.tf.json': `${JSON.stringify(backendConfiguration(plan.stateBackend), null, 2)}\n`,
+		'encryption.tf.json': `${JSON.stringify({ terraform: { encryption: { state: { enforced: true }, plan: { enforced: true } } } }, null, 2)}\n`,
 		'terraform.tfvars.json': `${JSON.stringify(rendered.variables, null, 2)}\n`,
 	};
-	const core = { planDigest: plan.planDigest, environment: plan.environment, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, imports: rendered.imports, resources: rendered.resources, removedResources: [], authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
+	const core = { planDigest: plan.planDigest, teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, stateBackend: plan.stateBackend, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, imports: rendered.imports, resources: rendered.resources, removedResources: [], authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 	return { schemaVersion: 'treeseed.hosted-infrastructure-workspace/v1', ...core, bundleDigest: infrastructureDigest(core) };
 }

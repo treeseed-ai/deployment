@@ -1,6 +1,6 @@
 import { authorizeHostedTopologyRollbackExecution, authorizedHostedTopologyPlanSchema, hostedTopologyPlanSchema, hostedTopologyReceiptSchema, planHostedTopologyRollbackExecution } from '@treeseed/sdk/deployment';
 import { infrastructureDigest } from './toolchain.js';
-import { renderHostedInfrastructureWorkspace, type HostedInfrastructureBackend, type HostedInfrastructureWorkspace } from './workspace.js';
+import { renderHostedInfrastructureWorkspace, type HostedInfrastructureWorkspace } from './workspace.js';
 
 export function renderHostedInfrastructureRollbackWorkspace(input: {
 	execution: unknown;
@@ -8,7 +8,6 @@ export function renderHostedInfrastructureRollbackWorkspace(input: {
 	sourceReceipt: unknown;
 	sourcePlan: unknown;
 	targetPlan: unknown;
-	backend: HostedInfrastructureBackend;
 }): HostedInfrastructureWorkspace {
 	const authorized = authorizeHostedTopologyRollbackExecution(input.execution as never, input.approval as never);
 	const rollback = authorized.execution.rollback, sourceReceipt = hostedTopologyReceiptSchema.parse(input.sourceReceipt);
@@ -35,8 +34,8 @@ export function renderHostedInfrastructureRollbackWorkspace(input: {
 		}
 	}
 	if ([...targetActions.keys()].some((resourceId) => !sourceActions.has(resourceId))) throw new Error('Hosted infrastructure rollback target introduces an unapproved resource.');
-	const sourceWorkspace = renderHostedInfrastructureWorkspace({ plan: sourcePlan, backend: input.backend });
-	const targetWorkspace = renderHostedInfrastructureWorkspace({ plan: targetPlan, backend: input.backend });
+	const sourceWorkspace = renderHostedInfrastructureWorkspace({ plan: sourcePlan });
+	const targetWorkspace = renderHostedInfrastructureWorkspace({ plan: targetPlan });
 	const authorities = [...sourceWorkspace.authorities, ...targetWorkspace.authorities].reduce((map, authority) => {
 		const existing = map.get(authority.requestId);
 		if (existing && (existing.environment !== authority.environment || existing.provider !== authority.provider || existing.connectionRef !== authority.connectionRef || existing.credentialProfileId !== authority.credentialProfileId || existing.purpose !== authority.purpose)) throw new Error(`Hosted infrastructure rollback authority ${authority.requestId} changed.`);
