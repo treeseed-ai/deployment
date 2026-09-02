@@ -59,9 +59,38 @@ describe('component runtime input custody', () => {
 
 	it('validates configured inputs without duplicating them into the supervisor connection environment', () => {
 		const configuration = host(), release = component('api', 'development', 'b');
-		release.runtime.configuration = { environment: [{ name: 'NODE_ENV', required: false, source: 'configuration' }], secretEnvironment: [], secretFiles: [], files: [] };
+		release.runtime.configuration = { environment: [{ name: 'NODE_ENV', required: false, source: 'configuration', default: 'development' }], secretEnvironment: [], secretFiles: [], files: [] };
 		configuration.components.api!.configuration = { environment: { NODE_ENV: 'production' } };
 		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment).toEqual({});
+	});
+
+	it('materializes an absent package-owned public default for supervisor rendering', () => {
+		const configuration = host(), release = component('treedx', 'development', 'b');
+		release.runtime.configuration = {
+			environment: [
+				{ name: 'TREEDX_BOOTSTRAP_TRUST_ACTOR_ID', required: true, source: 'configuration', default: 'treeseed-api' },
+				{ name: 'TREEDX_BOOTSTRAP_TRUST_TENANT_ID', required: true, source: 'configuration', default: 'treeseed-control-plane' },
+			], secretEnvironment: [], secretFiles: [], files: [],
+		};
+		configuration.components.treedx = { enabled: true, track: 'development', aliases: {}, connections: {}, configuration: {} } as any;
+		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment).toEqual({
+			TREEDX_BOOTSTRAP_TRUST_ACTOR_ID: 'treeseed-api',
+			TREEDX_BOOTSTRAP_TRUST_TENANT_ID: 'treeseed-control-plane',
+		});
+	});
+
+	it('rejects a package default that collides with a managed connection', () => {
+		const configuration = host(), release = component('treedx', 'development', 'b'), api = component('api', 'stable', 'a');
+		release.runtime.configuration = {
+			environment: [{ name: 'TREESEED_CONTROL_PLANE_URL', required: true, source: 'configuration', default: 'https://fallback.invalid' }],
+			secretEnvironment: [], secretFiles: [], files: [],
+		};
+		release.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
+		configuration.components.treedx = {
+			enabled: true, track: 'development', aliases: {}, configuration: {}, resources: { gpuDevices: [] },
+			connections: { 'control-plane': { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } },
+		} as any;
+		expect(() => componentActivationInputs(configuration, release, [api, release])).toThrow(/conflicts with a managed connection/u);
 	});
 
 	it('prepares the mode controller environment before privileged activation', () => {
