@@ -1,3 +1,33 @@
+resource "cloudflare_pages_project" "managed" {
+  provider          = cloudflare.runtime
+  for_each          = var.cloudflare_pages
+  account_id        = each.value.account_id
+  name              = each.value.name
+  production_branch = each.value.production_branch
+
+  build_config = {
+    destination_dir = each.value.destination_dir
+  }
+
+  deployment_configs = {
+    production = {
+      fail_open = false
+      env_vars = {
+        TREESEED_RESOURCE_DIGEST = {
+          type  = "plain_text"
+          value = each.value.desired_digest
+        }
+        TREESEED_ARTIFACT_SHA256 = {
+          type  = "plain_text"
+          value = each.value.artifact_sha256
+        }
+      }
+    }
+  }
+
+  lifecycle { prevent_destroy = true }
+}
+
 resource "cloudflare_workers_script" "managed" {
   provider           = cloudflare.runtime
   for_each           = var.cloudflare_workers

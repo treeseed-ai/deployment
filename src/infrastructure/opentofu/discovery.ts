@@ -45,6 +45,16 @@ async function railwayJson(fetchImpl: typeof fetch, token: string, query: string
 
 async function discoverCloudflare(input: { resource: Resource; config: Record<string, string | number | boolean>; artifacts: HostedTopologyDeclaration['artifacts']; token: string; managed: boolean; fetchImpl: typeof fetch }): Promise<HostedResourceObservation> {
 	const { resource, config, artifacts, token, fetchImpl } = input, context = { config, artifacts }, observedAt = new Date().toISOString(), desiredDigest = deploymentDigest(resource);
+	if (resource.kind === 'pages-application') {
+		const accountId = requiredInfrastructureString(config.accountId, 'accountId'), name = requiredInfrastructureString(parameter(resource, 'name', context), 'name');
+		const response = await fetchImpl(`${cloudflareApi}/accounts/${encodeURIComponent(accountId)}/pages/projects/${encodeURIComponent(name)}`, { headers: { authorization: `Bearer ${token}` } });
+		if (response.status === 404) return { resourceId: resource.id, provider: 'cloudflare', kind: resource.kind, providerResourceId: null, state: 'missing', managedBy: null, observedDigest: null, observedAt };
+		if (!response.ok) throw new Error(`Cloudflare Pages discovery failed (HTTP ${response.status}).`);
+		const payload: any = await response.json(); if (payload.success === false || !payload.result) throw new Error('Cloudflare rejected Pages discovery.');
+		const project = payload.result, marker = project.deployment_configs?.production?.env_vars?.TREESEED_RESOURCE_DIGEST?.value;
+		const matches = project.name === name && project.production_branch === String(parameter(resource, 'production-branch', context)) && project.build_config?.destination_dir === String(parameter(resource, 'destination-dir', context)) && marker === desiredDigest;
+		return { resourceId: resource.id, provider: 'cloudflare', kind: resource.kind, providerResourceId: name, state: 'healthy', managedBy: marker || input.managed ? 'treeseed' : 'external', observedDigest: matches ? desiredDigest : deploymentDigest({ name, productionBranch: project.production_branch ?? null, destinationDir: project.build_config?.destination_dir ?? null, marker: marker ?? null }), observedAt };
+	}
 	if (resource.kind === 'admin-application' || resource.kind === 'api-proxy') {
 		const accountId = requiredInfrastructureString(config.accountId, 'accountId'), name = String(parameter(resource, 'name', context) ?? resource.id);
 		const response = await fetchImpl(`${cloudflareApi}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(name)}`, { headers: { authorization: `Bearer ${token}` } });

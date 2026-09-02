@@ -34,7 +34,7 @@ export interface HostedInfrastructureWorkspace {
 	artifacts: HostedInfrastructureArtifactRequest[];
 	imports: HostedInfrastructureImport[];
 	authorities: HostedInfrastructureAuthorityRequest[];
-	resources: Array<{ resourceId: string; provider: Action['provider']; kind: Action['kind']; desiredDigest: string; output: 'cloudflare_workers' | 'cloudflare_dns_records' | 'cloudflare_tls_policies' | 'railway_services' }>;
+	resources: Array<{ resourceId: string; provider: Action['provider']; kind: Action['kind']; desiredDigest: string; output: 'cloudflare_pages' | 'cloudflare_workers' | 'cloudflare_dns_records' | 'cloudflare_tls_policies' | 'railway_services' }>;
 	removedResources: Array<{ resourceId: string; provider: Action['provider']; kind: Action['kind'] }>;
 }
 
@@ -63,6 +63,7 @@ function importEntries(action: Action, context: Parameters<typeof resolveHostedI
 			return [{ address: `cloudflare_zone_setting.managed[\"${action.resourceId}\"]`, id: `${zoneId}/ssl` }];
 		}
 		const accountId = requiredInfrastructureString(context.config.accountId, 'accountId');
+		if (action.kind === 'pages-application') return [{ address: `cloudflare_pages_project.managed[\"${action.resourceId}\"]`, id: `${accountId}/${resourceName(action, context)}` }];
 		return [{ address: `cloudflare_workers_script.managed[\"${action.resourceId}\"]`, id: `${accountId}/${resourceName(action, context)}` }];
 	}
 	const environmentId = requiredInfrastructureString(context.config.environmentId, 'environmentId');
@@ -76,7 +77,7 @@ function importEntries(action: Action, context: Parameters<typeof resolveHostedI
 }
 
 function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan) {
-	const cloudflareWorkers: Record<string, Json> = {}, cloudflareDns: Record<string, Json> = {}, cloudflareTls: Record<string, Json> = {};
+	const cloudflarePages: Record<string, Json> = {}, cloudflareWorkers: Record<string, Json> = {}, cloudflareDns: Record<string, Json> = {}, cloudflareTls: Record<string, Json> = {};
 	const railwayServices: Record<string, Json> = {}, artifacts: HostedInfrastructureArtifactRequest[] = [], imports: HostedInfrastructureImport[] = [], resources: HostedInfrastructureWorkspace['resources'] = [], authorityMap = new Map<string, HostedInfrastructureAuthorityRequest>();
 	for (const action of plan.actions) {
 		const connection = plan.providerConnections[action.provider];
@@ -89,10 +90,16 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		else authorityMap.set(requestId, { requestId, teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, backendBindingDigest: plan.stateBackend!.bindingDigest, provider: action.provider, connectionRef: connection.connectionRef, credentialProfileId: selected.credentialProfileId, capabilities: [selected.capability], purpose: 'provider' });
 		imports.push(...importEntries(action, context));
 		resources.push({ resourceId: action.resourceId, provider: action.provider, kind: action.kind, desiredDigest: action.desiredDigest,
-			output: action.provider === 'railway' ? 'railway_services' : action.kind === 'dns-record' ? 'cloudflare_dns_records' : action.kind === 'tls-policy' ? 'cloudflare_tls_policies' : 'cloudflare_workers' });
+			output: action.provider === 'railway' ? 'railway_services' : action.kind === 'pages-application' ? 'cloudflare_pages' : action.kind === 'dns-record' ? 'cloudflare_dns_records' : action.kind === 'tls-policy' ? 'cloudflare_tls_policies' : 'cloudflare_workers' });
 		if (action.provider === 'cloudflare') {
 			const zoneId = parameter(action, 'zoneId', context) ?? context.config.zoneId;
-			if (action.kind === 'admin-application' || action.kind === 'api-proxy') {
+			if (action.kind === 'pages-application') {
+				const artifact = parameter(action, 'artifact', context);
+				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact)) throw new Error(`Cloudflare Pages application ${action.resourceId} requires an artifact.`);
+				const path = `artifacts/${String(artifact.id)}`;
+				artifacts.push({ id: String(artifact.id), source: String(artifact.source), digest: String(artifact.digest), path });
+				cloudflarePages[action.resourceId] = { account_id: requiredInfrastructureString(context.config.accountId, 'accountId'), name: resourceName(action, context), production_branch: requiredInfrastructureString(parameter(action, 'production-branch', context), 'production-branch'), destination_dir: requiredInfrastructureString(parameter(action, 'destination-dir', context), 'destination-dir'), artifact_sha256: String(artifact.digest).replace(/^sha256:/u, ''), desired_digest: action.desiredDigest };
+			} else if (action.kind === 'admin-application' || action.kind === 'api-proxy') {
 				const artifact = parameter(action, 'artifact', context);
 				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact)) throw new Error(`Cloudflare worker ${action.resourceId} requires an artifact.`);
 				const path = `artifacts/${String(artifact.id)}`;
@@ -111,7 +118,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		for (const key of Object.keys(action.desiredResource.parameters).sort()) if (key.startsWith('variable.')) variables[key.slice(9)] = String(parameter(action, key, context));
 		railwayServices[action.resourceId] = { project_id: projectId, environment_id: environmentId, environment_name: requiredInfrastructureString(context.config.environmentName, 'environmentName'), name: resourceName(action, context), source_image: sourceImage, healthcheck_path: parameter(action, 'healthcheck-path', context) ?? null, start_command: parameter(action, 'start-command', context) ?? null, num_replicas: Number(parameter(action, 'replicas', context) ?? 1), vcpus: Number(parameter(action, 'vcpus', context) ?? 1), memory_gb: Number(parameter(action, 'memory-gb', context) ?? 1), volume_name: parameter(action, 'volume-name', context) ?? null, volume_mount_path: parameter(action, 'volume-mount-path', context) ?? null, variables, desired_digest: action.desiredDigest };
 	}
-	return { variables: { cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
+	return { variables: { cloudflare_pages: cloudflarePages, cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 }
 
 function backendConfiguration(backend: HostedStateBackend): Json {

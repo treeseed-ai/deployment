@@ -24,8 +24,8 @@ function topology() {
 			api: { digest: `sha256:${'b'.repeat(64)}`, source: 'https://ghcr.example.test/treeseed/api@sha256:bbbb' },
 		},
 		resources: [
-			{ id: 'admin', provider: 'cloudflare', kind: 'admin-application', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-admin' }, artifact: { artifact: 'admin' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
-			{ id: 'admin-dns', provider: 'cloudflare', kind: 'dns-record', dependsOn: ['admin'], parameters: { name: { literal: 'admin.example.test' }, type: { literal: 'CNAME' }, content: { literal: 'treeseed-admin.workers.dev' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'admin', provider: 'cloudflare', kind: 'pages-application', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-admin' }, artifact: { artifact: 'admin' }, 'production-branch': { literal: 'main' }, 'destination-dir': { literal: '.treeseed/app-dist' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'admin-dns', provider: 'cloudflare', kind: 'dns-record', dependsOn: ['admin'], parameters: { name: { literal: 'admin.example.test' }, type: { literal: 'CNAME' }, content: { literal: 'treeseed-admin.pages.dev' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-tls', provider: 'cloudflare', kind: 'tls-policy', dependsOn: ['admin-dns'], parameters: { mode: { literal: 'strict' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'api', provider: 'railway', kind: 'control-plane-api', dependsOn: ['postgres'], parameters: { name: { literal: 'production-api' }, artifact: { artifact: 'api' }, 'healthcheck-path': { literal: '/health' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'postgres', provider: 'railway', kind: 'postgresql', dependsOn: [], parameters: { name: { literal: 'production-postgres' }, 'volume-name': { literal: 'postgres-data' }, 'volume-mount-path': { literal: '/var/lib/postgresql/data' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
@@ -88,7 +88,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		expect(JSON.parse(first.files['backend.tf.json']!).terraform.backend.s3).toMatchObject({ key: 'teams/team-treeseed/opentofu/v1/deployments/treeseed-cloud/environments/production/stacks/control-plane/terraform.tfstate', encrypt: true, use_lockfile: true });
 		expect(JSON.parse(first.files['encryption.tf.json']!).terraform.encryption).toEqual({ state: { enforced: true }, plan: { enforced: true } });
 		const rendered = Object.values(first.files).join('\n');
-		expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
+		expect(rendered).toContain('cloudflare_pages_project'); expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
 		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
 		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.mjs', digest: digest(workerSource), path: 'artifacts/admin' }]);
 		expect(renderHostedInfrastructureWorkspace({ plan: approved() }).executable).toBe(true);
@@ -116,7 +116,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const authority = { schemaVersion: 'treeseed.hosted-infrastructure-authority/v1' as const, environment: 'production' as const, materials: await Promise.all(requests.map(vaultResolver)) };
 		const root = await mkdtemp(join(tmpdir(), 'treeseed-discovery-')); roots.push(root);
 		const fetchImpl = async (url: string | URL | Request) => String(url).includes('cloudflare.com')
-			? new Response(workerSource)
+			? Response.json({ success: true, result: { name: 'treeseed-admin', production_branch: 'main', build_config: { destination_dir: '.treeseed/app-dist' }, deployment_configs: { production: { env_vars: {} } } } })
 			: Response.json({ data: { project: { services: { edges: [] } }, variables: {} } });
 		const observations = await discoverHostedInfrastructure({ declaration, stateBackend: backend, connections: connections(), authority, root, fetchImpl: fetchImpl as typeof fetch });
 		expect(observations.find(({ resourceId }) => resourceId === 'admin')).toMatchObject({ state: 'healthy', managedBy: 'external' });
@@ -132,7 +132,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 	it('renders imports for reviewed existing resources without replacement', () => {
 		const declaration = topology(), observations = declaration.resources.map((resource): HostedResourceObservation => ({ resourceId: resource.id, provider: resource.provider, kind: resource.kind, providerResourceId: `${resource.id}-provider-id`, state: 'healthy', managedBy: 'treeseed', observedDigest: null, observedAt: now }));
 		const workspace = renderHostedInfrastructureWorkspace({ plan: approved(plan(observations)) });
-		expect(workspace.imports).toContainEqual({ address: 'cloudflare_workers_script.managed["admin"]', id: 'cf-account/treeseed-admin' });
+		expect(workspace.imports).toContainEqual({ address: 'cloudflare_pages_project.managed["admin"]', id: 'cf-account/treeseed-admin' });
 		expect(workspace.imports).toContainEqual({ address: 'cloudflare_dns_record.managed["admin-dns"]', id: 'cf-zone/admin-dns-provider-id' });
 		expect(workspace.imports).toContainEqual({ address: 'railway_service.managed["api"]', id: 'api-provider-id:rw-environment' });
 		expect(workspace.imports).toContainEqual({ address: 'railway_variable.managed["api:TREESEED_RESOURCE_DIGEST"]', id: 'api-provider-id:production:TREESEED_RESOURCE_DIGEST' });
@@ -146,7 +146,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 			calls.push(args);
 			if (args[0] === 'version') return { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' };
 			if (args[0] === 'plan' && args.some((value) => value.startsWith('-out='))) { await writeFile(join(options.cwd, 'treeseed.plan'), 'immutable-binary-plan'); return { code: 2, stdout: '', stderr: '' }; }
-			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ cloudflare_workers: { value: { admin: 'worker-id' } }, cloudflare_dns_records: { value: { 'admin-dns': 'dns-id' } }, cloudflare_tls_policies: { value: { 'admin-tls': 'tls-id' } }, railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
+			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ cloudflare_pages: { value: { admin: 'pages-id' } }, cloudflare_dns_records: { value: { 'admin-dns': 'dns-id' } }, cloudflare_tls_policies: { value: { 'admin-tls': 'tls-id' } }, railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
 			return { code: 0, stdout: '', stderr: '' };
 		};
 		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
