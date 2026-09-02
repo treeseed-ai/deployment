@@ -125,7 +125,7 @@ export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopolog
 	const rendered = renderVariables(plan);
 	const custody = { teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, backendBindingDigest: plan.stateBackend.bindingDigest };
 	const backendRequest: HostedInfrastructureAuthorityRequest = { requestId: `state-backend:${plan.stateBackend.bindingDigest}`, ...custody, provider: 'treeseed', connectionRef: plan.stateBackend.connectionRef, credentialProfileId: 's3-state-session', capabilities: ['object-storage'], purpose: 'state-backend' };
-	const encryptionRequest: HostedInfrastructureAuthorityRequest = { requestId: `state-encryption:${plan.stateBackend.bindingDigest}`, ...custody, provider: 'treeseed', connectionRef: plan.stateBackend.encryptionKeyRef, credentialProfileId: 'opentofu-state-encryption', capabilities: ['state-encryption'], purpose: 'state-encryption' };
+	const encryptionRequest: HostedInfrastructureAuthorityRequest = { requestId: `state-encryption:${plan.stateBackend.bindingDigest}`, ...custody, provider: 'treeseed', connectionRef: plan.stateBackend.connectionRef, secretRef: plan.stateBackend.encryptionKeyRef, credentialProfileId: 'opentofu-state-encryption', capabilities: ['state-encryption'], purpose: 'state-encryption' };
 	const authorities = [...rendered.authorities, backendRequest, encryptionRequest].reduce((map, request) => {
 		const existing = map.get(request.requestId);
 		if (existing && existing.purpose !== request.purpose) throw new Error(`Hosted infrastructure authority ${request.requestId} cannot serve provider and state-backend purposes together.`);

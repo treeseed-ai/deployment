@@ -14,6 +14,7 @@ export interface HostedInfrastructureAuthorityRequest {
 	backendBindingDigest: string;
 	provider: 'cloudflare' | 'railway' | 'treeseed';
 	connectionRef: string;
+	secretRef?: string;
 	credentialProfileId: HostedInfrastructureCredentialProfile;
 	capabilities: string[];
 	purpose: 'provider' | 'state-backend' | 'state-encryption';
@@ -32,6 +33,7 @@ export interface HostedInfrastructureVaultMaterial {
 	backendBindingDigest: string;
 	provider: 'cloudflare' | 'railway' | 'treeseed';
 	connectionRef: string;
+	secretRef?: string;
 	credentialProfileId: HostedInfrastructureCredentialProfile;
 	capabilities: string[];
 	purpose: 'provider' | 'state-backend' | 'state-encryption';
@@ -71,6 +73,7 @@ function processBindings(material: HostedInfrastructureVaultMaterial) {
 function validateMaterial(request: HostedInfrastructureAuthorityRequest, material: HostedInfrastructureVaultMaterial, now: Date) {
 	if (material.schemaVersion !== 'treeseed.service-credential-material/v1' || material.source !== 'treeseed-service-credential-vault') throw new Error('Hosted infrastructure authority must originate from the TreeSeed service credential vault.');
 	for (const field of ['requestId', 'teamId', 'deploymentId', 'stackId', 'environment', 'backendBindingDigest', 'provider', 'connectionRef', 'credentialProfileId', 'purpose'] as const) if (material[field] !== request[field]) throw new Error(`Hosted infrastructure vault material does not match ${field}.`);
+	if (material.secretRef !== request.secretRef) throw new Error('Hosted infrastructure vault material does not match secretRef.');
 	if (!material.authorityId || !Number.isInteger(material.authorityVersion) || material.authorityVersion < 1) throw new Error('Hosted infrastructure vault material has no versioned authority identity.');
 	if (request.capabilities.some((capability) => !material.capabilities.includes(capability))) throw new Error('Hosted infrastructure vault material is missing a required capability.');
 	if (material.expiresAt !== null && new Date(material.expiresAt).getTime() <= now.getTime()) throw new Error('Hosted infrastructure vault material has expired.');
