@@ -1,17 +1,26 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { c as createTar } from 'tar';
 import { authorizeHostedTopologyPlan, bindHostedStateBackend, hostedTopologyDeclarationSchema, hostedTopologyStateKey, planHostedTopology, planHostedTopologyRollback, planHostedTopologyRollbackExecution, verifyHostedTopologyReadback, type HostedResourceObservation } from '@treeseed/sdk/deployment';
-import { acquireOpenTofu, discoverHostedInfrastructure, HostedInfrastructureExecutor, hostedInfrastructureDiscoveryRequests, hostedInfrastructureToolchain, openTofuArchive, renderHostedInfrastructureRollbackWorkspace, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
+import { acquireOpenTofu, discoverHostedInfrastructure, extractPagesArchive, HostedInfrastructureExecutor, hostedInfrastructureDiscoveryRequests, hostedInfrastructureToolchain, openTofuArchive, renderHostedInfrastructureRollbackWorkspace, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
 
 const workerSource = 'export default { fetch() { return new Response("ok") } };\n';
-const digest = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+let pagesArchive = Buffer.alloc(0);
+const digest = (value: string | Buffer) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const now = '2026-09-02T12:00:00.000Z';
 const roots: string[] = [];
 
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+beforeAll(async () => {
+	const root = await mkdtemp(join(tmpdir(), 'treeseed-pages-fixture-')); roots.push(root);
+	await writeFile(join(root, 'index.html'), '<h1>TreeSeed</h1>\n');
+	await createTar({ cwd: root, gzip: true, file: join(root, 'admin.tgz') }, ['index.html']);
+	pagesArchive = await readFile(join(root, 'admin.tgz'));
+});
+
+afterAll(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 function topology() {
 	return hostedTopologyDeclarationSchema.parse({
@@ -20,11 +29,11 @@ function topology() {
 		stateBackend: { connectionRef: 'cloudflare-state' },
 		providerConnections: { cloudflare: { connectionRef: 'cloudflare-production' }, railway: { connectionRef: 'railway-production' } },
 		artifacts: {
-			admin: { digest: digest(workerSource), source: 'https://artifacts.example.test/admin.mjs' },
+			admin: { digest: digest(pagesArchive), source: 'https://artifacts.example.test/admin.tgz' },
 			api: { digest: `sha256:${'b'.repeat(64)}`, source: 'https://ghcr.example.test/treeseed/api@sha256:bbbb' },
 		},
 		resources: [
-			{ id: 'admin', provider: 'cloudflare', kind: 'pages-application', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-admin' }, artifact: { artifact: 'admin' }, 'production-branch': { literal: 'main' }, 'destination-dir': { literal: '.treeseed/app-dist' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
+			{ id: 'admin', provider: 'cloudflare', kind: 'pages-application', dependsOn: ['api'], parameters: { name: { literal: 'treeseed-admin' }, artifact: { artifact: 'admin' }, 'artifact-format': { literal: 'tar+gzip' }, 'production-branch': { literal: 'main' }, 'destination-dir': { literal: '.' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-dns', provider: 'cloudflare', kind: 'dns-record', dependsOn: ['admin'], parameters: { name: { literal: 'admin.example.test' }, type: { literal: 'CNAME' }, content: { literal: 'treeseed-admin.pages.dev' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'admin-tls', provider: 'cloudflare', kind: 'tls-policy', dependsOn: ['admin-dns'], parameters: { mode: { literal: 'strict' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
 			{ id: 'api', provider: 'railway', kind: 'control-plane-api', dependsOn: ['postgres'], parameters: { name: { literal: 'production-api' }, artifact: { artifact: 'api' }, 'healthcheck-path': { literal: '/health' } }, adoption: { mode: 'adopt-or-create', replacement: 'forbidden' } },
@@ -90,7 +99,8 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const rendered = Object.values(first.files).join('\n');
 		expect(rendered).toContain('cloudflare_pages_project'); expect(rendered).toContain('cloudflare_workers_script'); expect(rendered).toContain('railway_service_instance'); expect(rendered).toContain('railway_variable');
 		expect(rendered).not.toMatch(/railway-secret|dns-secret|runtime-secret|state-secret/u);
-		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.mjs', digest: digest(workerSource), path: 'artifacts/admin' }]);
+		expect(first.artifacts).toEqual([{ id: 'admin', source: 'https://artifacts.example.test/admin.tgz', digest: digest(pagesArchive), path: 'artifacts/admin.tgz' }]);
+		expect(first.pagesDeployments).toHaveLength(1);
 		expect(renderHostedInfrastructureWorkspace({ plan: approved() }).executable).toBe(true);
 		expect(() => renderHostedInfrastructureWorkspace({ plan: { ...approved(), stateBackend: { ...backend, teamId: 'other-team' } } as never })).toThrow(/custody|digest/u);
 	});
@@ -149,11 +159,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 			if (args[0] === 'output') return { code: 0, stdout: JSON.stringify({ cloudflare_pages: { value: { admin: 'pages-id' } }, cloudflare_dns_records: { value: { 'admin-dns': 'dns-id' } }, cloudflare_tls_policies: { value: { 'admin-tls': 'tls-id' } }, railway_services: { value: { api: 'api-id', postgres: 'postgres-id' } } }), stderr: '' };
 			return { code: 0, stdout: '', stderr: '' };
 		};
-		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
+		let authorized: ReturnType<typeof renderHostedInfrastructureWorkspace>;
+		const fetchImpl = async (url: string | URL | Request) => String(url).includes('artifacts.example.test') ? new Response(pagesArchive) : Response.json({ success: true, result: [{ environment: 'production', latest_stage: { status: 'success' }, deployment_trigger: { metadata: { branch: 'main', commit_hash: authorized.pagesDeployments[0]!.commit, commit_message: authorized.pagesDeployments[0]!.marker } } }] });
+		const executor = new HostedInfrastructureExecutor(command, fetchImpl as typeof fetch, {}, async () => ({ code: 0, stdout: 'deployed', stderr: '' }));
 		const unauthorized = renderHostedInfrastructureWorkspace({ plan: plan() });
 		const authority = await resolveHostedInfrastructureVaultAuthority(unauthorized, vaultResolver), result = await executor.plan(unauthorized, root, authority);
 		await expect(executor.apply(unauthorized, root, authority, result)).rejects.toThrow(/authorized executable/u);
-		const authorized = renderHostedInfrastructureWorkspace({ plan: approved() });
+		authorized = renderHostedInfrastructureWorkspace({ plan: approved() });
 		const authorizedAuthority = await resolveHostedInfrastructureVaultAuthority(authorized, vaultResolver);
 		const approvedResult = await executor.plan(authorized, root, authorizedAuthority);
 		const rotatedAuthority = { ...authorizedAuthority, materials: authorizedAuthority.materials.map((material, index) => index ? material : { ...material, authorityVersion: material.authorityVersion + 1 }) };
@@ -163,6 +175,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const observations = await executor.readback(authorized, root, authorizedAuthority);
 		expect(observations).toHaveLength(5); expect(observations.every(({ state, managedBy }) => state === 'healthy' && managedBy === 'treeseed')).toBe(true);
 		expect(calls.some((args) => args[0] === 'init')).toBe(true); expect(calls.some((args) => args[0] === 'apply')).toBe(true);
+	});
+
+	it('rejects unsafe Pages archive entries before deployment', async () => {
+		const source = await mkdtemp(join(tmpdir(), 'treeseed-pages-unsafe-')), output = await mkdtemp(join(tmpdir(), 'treeseed-pages-output-')); roots.push(source, output);
+		await symlink('/etc/passwd', join(source, 'escape'));
+		const archive = join(source, 'unsafe.tgz'); await createTar({ cwd: source, gzip: true, file: archive }, ['escape']);
+		await expect(extractPagesArchive(archive, output)).rejects.toThrow(/unsafe archive entry/u);
 	});
 
 	it('rejects authoritative read-back when refresh detects drift', async () => {
@@ -208,7 +227,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
 		const executor = new HostedInfrastructureExecutor(async (args) => args[0] === 'version'
 			? { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' }
-			: { code: 1, stdout: '', stderr: 'provider returned runtime-secret and state-secret' }, async () => new Response(workerSource));
+			: { code: 1, stdout: '', stderr: 'provider returned runtime-secret and state-secret' }, async () => new Response(pagesArchive));
 		let message = '';
 		try { await executor.plan(workspace, root, authority); } catch (error) { message = error instanceof Error ? error.message : String(error); }
 		expect(message).not.toMatch(/runtime-secret|state-secret/u); expect(message).toContain('[redacted]');

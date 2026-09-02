@@ -7,6 +7,7 @@ import type { HostedResourceObservation } from '@treeseed/sdk/deployment';
 import { hostedInfrastructureToolchain } from './toolchain.js';
 import { acquireOpenTofu, type OpenTofuAcquisitionOptions } from './acquisition.js';
 import { hostedInfrastructureAuthorityBindingDigest, hostedInfrastructureAuthorityEnvironment, type HostedInfrastructureVaultAuthority } from './authority.js';
+import { deployPagesArtifacts, type PagesCommand } from './pages-deployment.js';
 
 export interface OpenTofuCommandResult { code: number; stdout: string; stderr: string }
 export type OpenTofuCommand = (args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => Promise<OpenTofuCommandResult>;
@@ -55,7 +56,7 @@ function sanitizedFailure(result: OpenTofuCommandResult, operation: string, env:
 }
 
 export class HostedInfrastructureExecutor {
-	constructor(private readonly command?: OpenTofuCommand, private readonly fetchImpl: typeof fetch = fetch, private readonly acquisition: Omit<OpenTofuAcquisitionOptions, 'fetchImpl'> = {}) {}
+	constructor(private readonly command?: OpenTofuCommand, private readonly fetchImpl: typeof fetch = fetch, private readonly acquisition: Omit<OpenTofuAcquisitionOptions, 'fetchImpl'> = {}, private readonly pagesCommand?: PagesCommand) {}
 
 	private async commandFor(root: string) {
 		return this.command ?? createOpenTofuCommand(await acquireOpenTofu(root, { ...this.acquisition, fetchImpl: this.fetchImpl }));
@@ -67,7 +68,7 @@ export class HostedInfrastructureExecutor {
 			const target = safeTarget(root, relative); await mkdir(dirname(target), { recursive: true }); await writeFile(target, content, { mode: 0o600 });
 		}
 		await verifiedArtifacts(workspace, root, this.fetchImpl);
-		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, teamId: workspace.teamId, deploymentId: workspace.deploymentId, stackId: workspace.stackId, environment: workspace.environment, stateBackend: workspace.stateBackend, toolchain: workspace.toolchain, imports: workspace.imports, resources: workspace.resources, removedResources: workspace.removedResources, authorities: workspace.authorities };
+		const manifest = { schemaVersion: workspace.schemaVersion, planDigest: workspace.planDigest, bundleDigest: workspace.bundleDigest, teamId: workspace.teamId, deploymentId: workspace.deploymentId, stackId: workspace.stackId, environment: workspace.environment, stateBackend: workspace.stateBackend, toolchain: workspace.toolchain, imports: workspace.imports, resources: workspace.resources, pagesDeployments: workspace.pagesDeployments, removedResources: workspace.removedResources, authorities: workspace.authorities };
 		await writeFile(safeTarget(root, 'treeseed-workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 	}
 
@@ -107,6 +108,7 @@ export class HostedInfrastructureExecutor {
 		try {
 			const result = await command(['apply', '-input=false', '-auto-approve', 'treeseed.plan'], { cwd: root, env: authorityEnvironment });
 			if (result.code !== 0) throw sanitizedFailure(result, 'apply', authorityEnvironment);
+			await deployPagesArtifacts({ workspace, root, env: authorityEnvironment, ...(this.pagesCommand ? { command: this.pagesCommand } : {}), fetchImpl: this.fetchImpl });
 			return { applied: true, executionPlanDigest: execution.executionPlanDigest, authorityBindingDigest: execution.authorityBindingDigest, bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
 		} finally { await rm(safeTarget(root, 'treeseed.plan'), { force: true }); }
 	}
@@ -117,6 +119,7 @@ export class HostedInfrastructureExecutor {
 		const drift = await command(['plan', '-input=false', '-detailed-exitcode'], { cwd: root, env: authorityEnvironment });
 		if (drift.code === 2) throw new Error('Authoritative OpenTofu read-back detected hosted infrastructure drift.');
 		if (drift.code !== 0) throw sanitizedFailure(drift, 'authoritative read-back plan', authorityEnvironment);
+		await deployPagesArtifacts({ workspace, root, env: authorityEnvironment, deploy: false, ...(this.pagesCommand ? { command: this.pagesCommand } : {}), fetchImpl: this.fetchImpl });
 		const result = await command(['output', '-json'], { cwd: root, env: authorityEnvironment });
 		if (result.code !== 0) throw sanitizedFailure(result, 'authoritative output read-back', authorityEnvironment);
 		let outputs: Record<string, { value?: Record<string, unknown> }>;

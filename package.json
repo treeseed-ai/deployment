@@ -43,6 +43,8 @@
   },
   "dependencies": {
     "@treeseed/sdk": "github:treeseed-ai/sdk#4936ec8652929683c5ad6d6fd5f7973cfa67299d",
+    "tar": "7.5.22",
+    "wrangler": "4.128.0",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },

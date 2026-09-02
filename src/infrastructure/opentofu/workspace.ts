@@ -32,6 +32,7 @@ export interface HostedInfrastructureWorkspace {
 	toolchain: typeof hostedInfrastructureToolchain;
 	files: Record<string, string>;
 	artifacts: HostedInfrastructureArtifactRequest[];
+	pagesDeployments: Array<{ resourceId: string; accountId: string; projectName: string; branch: string; artifactPath: string; destinationDirectory: string; commit: string; marker: string; changed: boolean }>;
 	imports: HostedInfrastructureImport[];
 	authorities: HostedInfrastructureAuthorityRequest[];
 	resources: Array<{ resourceId: string; provider: Action['provider']; kind: Action['kind']; desiredDigest: string; output: 'cloudflare_pages' | 'cloudflare_workers' | 'cloudflare_dns_records' | 'cloudflare_tls_policies' | 'railway_services' }>;
@@ -78,7 +79,7 @@ function importEntries(action: Action, context: Parameters<typeof resolveHostedI
 
 function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan) {
 	const cloudflarePages: Record<string, Json> = {}, cloudflareWorkers: Record<string, Json> = {}, cloudflareDns: Record<string, Json> = {}, cloudflareTls: Record<string, Json> = {};
-	const railwayServices: Record<string, Json> = {}, artifacts: HostedInfrastructureArtifactRequest[] = [], imports: HostedInfrastructureImport[] = [], resources: HostedInfrastructureWorkspace['resources'] = [], authorityMap = new Map<string, HostedInfrastructureAuthorityRequest>();
+	const railwayServices: Record<string, Json> = {}, artifacts: HostedInfrastructureArtifactRequest[] = [], pagesDeployments: HostedInfrastructureWorkspace['pagesDeployments'] = [], imports: HostedInfrastructureImport[] = [], resources: HostedInfrastructureWorkspace['resources'] = [], authorityMap = new Map<string, HostedInfrastructureAuthorityRequest>();
 	for (const action of plan.actions) {
 		const connection = plan.providerConnections[action.provider];
 		if (!connection) throw new Error(`Hosted infrastructure plan is missing its ${action.provider} connection.`);
@@ -96,9 +97,12 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 			if (action.kind === 'pages-application') {
 				const artifact = parameter(action, 'artifact', context);
 				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact)) throw new Error(`Cloudflare Pages application ${action.resourceId} requires an artifact.`);
-				const path = `artifacts/${String(artifact.id)}`;
+				if (parameter(action, 'artifact-format', context) !== 'tar+gzip') throw new Error(`Cloudflare Pages application ${action.resourceId} requires a tar+gzip artifact.`);
+				const path = `artifacts/${String(artifact.id)}.tgz`;
 				artifacts.push({ id: String(artifact.id), source: String(artifact.source), digest: String(artifact.digest), path });
-				cloudflarePages[action.resourceId] = { account_id: requiredInfrastructureString(context.config.accountId, 'accountId'), name: resourceName(action, context), production_branch: requiredInfrastructureString(parameter(action, 'production-branch', context), 'production-branch'), destination_dir: requiredInfrastructureString(parameter(action, 'destination-dir', context), 'destination-dir'), artifact_sha256: String(artifact.digest).replace(/^sha256:/u, ''), desired_digest: action.desiredDigest };
+				const accountId = requiredInfrastructureString(context.config.accountId, 'accountId'), name = resourceName(action, context), branch = requiredInfrastructureString(parameter(action, 'production-branch', context), 'production-branch'), destinationDirectory = requiredInfrastructureString(parameter(action, 'destination-dir', context), 'destination-dir');
+				cloudflarePages[action.resourceId] = { account_id: accountId, name, production_branch: branch, destination_dir: destinationDirectory, artifact_sha256: String(artifact.digest).replace(/^sha256:/u, ''), desired_digest: action.desiredDigest };
+				pagesDeployments.push({ resourceId: action.resourceId, accountId, projectName: name, branch, artifactPath: path, destinationDirectory, commit: plan.platformCommit, marker: `treeseed:${action.desiredDigest}:${String(artifact.digest)}`, changed: action.action !== 'noop' });
 			} else if (action.kind === 'admin-application' || action.kind === 'api-proxy') {
 				const artifact = parameter(action, 'artifact', context);
 				if (!artifact || typeof artifact !== 'object' || !('source' in artifact) || !('digest' in artifact) || !('id' in artifact)) throw new Error(`Cloudflare worker ${action.resourceId} requires an artifact.`);
@@ -118,7 +122,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		for (const key of Object.keys(action.desiredResource.parameters).sort()) if (key.startsWith('variable.')) variables[key.slice(9)] = String(parameter(action, key, context));
 		railwayServices[action.resourceId] = { project_id: projectId, environment_id: environmentId, environment_name: requiredInfrastructureString(context.config.environmentName, 'environmentName'), name: resourceName(action, context), source_image: sourceImage, healthcheck_path: parameter(action, 'healthcheck-path', context) ?? null, start_command: parameter(action, 'start-command', context) ?? null, num_replicas: Number(parameter(action, 'replicas', context) ?? 1), vcpus: Number(parameter(action, 'vcpus', context) ?? 1), memory_gb: Number(parameter(action, 'memory-gb', context) ?? 1), volume_name: parameter(action, 'volume-name', context) ?? null, volume_mount_path: parameter(action, 'volume-mount-path', context) ?? null, variables, desired_digest: action.desiredDigest };
 	}
-	return { variables: { cloudflare_pages: cloudflarePages, cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
+	return { variables: { cloudflare_pages: cloudflarePages, cloudflare_workers: cloudflareWorkers, cloudflare_dns_records: cloudflareDns, cloudflare_tls_policies: cloudflareTls, railway_services: railwayServices }, artifacts: [...new Map(artifacts.map((item) => [item.id, item])).values()].sort((left, right) => left.id.localeCompare(right.id)), pagesDeployments: pagesDeployments.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), imports: imports.sort((left, right) => left.address.localeCompare(right.address)), resources: resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId)), authorities: [...authorityMap.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 }
 
 function backendConfiguration(backend: HostedStateBackend): Json {
@@ -144,6 +148,6 @@ export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopolog
 		'encryption.tf.json': `${JSON.stringify({ terraform: { encryption: { state: { enforced: true }, plan: { enforced: true } } } }, null, 2)}\n`,
 		'terraform.tfvars.json': `${JSON.stringify(rendered.variables, null, 2)}\n`,
 	};
-	const core = { planDigest: plan.planDigest, teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, stateBackend: plan.stateBackend, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, imports: rendered.imports, resources: rendered.resources, removedResources: [], authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
+	const core = { planDigest: plan.planDigest, teamId: plan.teamId, deploymentId: plan.deploymentId, stackId: plan.stackId, environment: plan.environment, stateBackend: plan.stateBackend, executable: plan.executable, toolchain: hostedInfrastructureToolchain, files, artifacts: rendered.artifacts, pagesDeployments: rendered.pagesDeployments, imports: rendered.imports, resources: rendered.resources, removedResources: [], authorities: [...authorities.values()].sort((left, right) => left.requestId.localeCompare(right.requestId)) };
 	return { schemaVersion: 'treeseed.hosted-infrastructure-workspace/v1', ...core, bundleDigest: infrastructureDigest(core) };
 }
