@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.226",
+  "version": "0.1.0-rc.227",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
@@ -43,7 +43,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "github:treeseed-ai/sdk#ed9210aabc569bc520c3cff76df912f6a7459484",
+    "@treeseed/sdk": "0.13.0-rc.80",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
     "yaml": "^2.8.1",
