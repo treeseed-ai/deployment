@@ -4,6 +4,7 @@ import { dirname, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { HostedInfrastructureWorkspace } from './workspace.js';
 import { hostedInfrastructureToolchain } from './toolchain.js';
+import { acquireOpenTofu, type OpenTofuAcquisitionOptions } from './acquisition.js';
 import { hostedInfrastructureAuthorityBindingDigest, hostedInfrastructureAuthorityEnvironment, type HostedInfrastructureVaultAuthority } from './authority.js';
 
 export interface OpenTofuCommandResult { code: number; stdout: string; stderr: string }
@@ -16,9 +17,13 @@ export interface HostedInfrastructureExecutionPlan {
 	planDigest: string;
 }
 
-export function runOpenTofuCommand(args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): Promise<OpenTofuCommandResult> {
+export function createOpenTofuCommand(binary: string): OpenTofuCommand {
+	return (args, options) => runOpenTofuCommand(binary, args, options);
+}
+
+function runOpenTofuCommand(binary: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): Promise<OpenTofuCommandResult> {
 	return new Promise((done, reject) => {
-		const child = spawn('tofu', args, { cwd: options.cwd, env: options.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+		const child = spawn(binary, args, { cwd: options.cwd, env: options.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
 		let stdout = '', stderr = '';
 		child.stdout.setEncoding('utf8').on('data', (value) => { stdout += value; });
 		child.stderr.setEncoding('utf8').on('data', (value) => { stderr += value; });
@@ -49,7 +54,11 @@ function sanitizedFailure(result: OpenTofuCommandResult, operation: string, env:
 }
 
 export class HostedInfrastructureExecutor {
-	constructor(private readonly command: OpenTofuCommand = runOpenTofuCommand, private readonly fetchImpl: typeof fetch = fetch) {}
+	constructor(private readonly command?: OpenTofuCommand, private readonly fetchImpl: typeof fetch = fetch, private readonly acquisition: Omit<OpenTofuAcquisitionOptions, 'fetchImpl'> = {}) {}
+
+	private async commandFor(root: string) {
+		return this.command ?? createOpenTofuCommand(await acquireOpenTofu(root, { ...this.acquisition, fetchImpl: this.fetchImpl }));
+	}
 
 	async prepare(workspace: HostedInfrastructureWorkspace, root: string) {
 		await mkdir(root, { recursive: true, mode: 0o700 }); await chmod(root, 0o700);
@@ -62,30 +71,32 @@ export class HostedInfrastructureExecutor {
 	}
 
 	async verifyVersion(root: string, env: NodeJS.ProcessEnv) {
-		const result = await this.command(['version', '-json'], { cwd: root, env }); if (result.code !== 0) throw sanitizedFailure(result, 'version inspection', env);
+		const result = await (await this.commandFor(root))(['version', '-json'], { cwd: root, env }); if (result.code !== 0) throw sanitizedFailure(result, 'version inspection', env);
 		const parsed = JSON.parse(result.stdout) as { terraform_version?: string };
 		if (parsed.terraform_version !== hostedInfrastructureToolchain.opentofu.version) throw new Error(`OpenTofu ${hostedInfrastructureToolchain.opentofu.version} is required; received ${String(parsed.terraform_version)}.`);
 	}
 
 	async plan(workspace: HostedInfrastructureWorkspace, root: string, authority: HostedInfrastructureVaultAuthority) {
+		const command = await this.commandFor(root);
 		const authorityEnvironment = hostedInfrastructureAuthorityEnvironment(workspace, authority, root);
 		if (workspace.imports.length && !workspace.executable) throw new Error('Hosted infrastructure imports require an SDK-authorized executable plan.');
 		await mkdir(resolve(root, '.home'), { recursive: true }); await this.prepare(workspace, root); await this.verifyVersion(root, authorityEnvironment);
 		for (const [args, operation] of [
 			[['init', '-input=false', '-lockfile=readonly'], 'initialization'],
 			[['validate', '-json'], 'validation'],
-		] as const) { const result = await this.command([...args], { cwd: root, env: authorityEnvironment }); if (result.code !== 0) throw sanitizedFailure(result, operation, authorityEnvironment); }
+		] as const) { const result = await command([...args], { cwd: root, env: authorityEnvironment }); if (result.code !== 0) throw sanitizedFailure(result, operation, authorityEnvironment); }
 		for (const item of workspace.imports) {
-			const result = await this.command(['import', '-input=false', item.address, item.id], { cwd: root, env: authorityEnvironment });
+			const result = await command(['import', '-input=false', item.address, item.id], { cwd: root, env: authorityEnvironment });
 			if (result.code !== 0 && !/already managed/iu.test(`${result.stdout}\n${result.stderr}`)) throw sanitizedFailure(result, `import of ${item.address}`, authorityEnvironment);
 		}
-		const result = await this.command(['plan', '-input=false', '-detailed-exitcode', '-out=treeseed.plan'], { cwd: root, env: authorityEnvironment });
+		const result = await command(['plan', '-input=false', '-detailed-exitcode', '-out=treeseed.plan'], { cwd: root, env: authorityEnvironment });
 		if (result.code !== 0 && result.code !== 2) throw sanitizedFailure(result, 'plan', authorityEnvironment);
 		const data = await readFile(safeTarget(root, 'treeseed.plan'));
 		return { changed: result.code === 2, executionPlanDigest: `sha256:${createHash('sha256').update(data).digest('hex')}`, authorityBindingDigest: hostedInfrastructureAuthorityBindingDigest(authority), bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
 	}
 
 	async apply(workspace: HostedInfrastructureWorkspace, root: string, authority: HostedInfrastructureVaultAuthority, execution: HostedInfrastructureExecutionPlan) {
+		const command = await this.commandFor(root);
 		if (!workspace.executable) throw new Error('Hosted infrastructure apply requires an SDK-authorized executable plan.');
 		const authorityEnvironment = hostedInfrastructureAuthorityEnvironment(workspace, authority, root);
 		if (execution.bundleDigest !== workspace.bundleDigest || execution.planDigest !== workspace.planDigest) throw new Error('Hosted infrastructure execution plan does not match its workspace closure.');
@@ -93,7 +104,7 @@ export class HostedInfrastructureExecutor {
 		const data = await readFile(safeTarget(root, 'treeseed.plan')), actual = `sha256:${createHash('sha256').update(data).digest('hex')}`;
 		if (actual !== execution.executionPlanDigest) throw new Error('OpenTofu execution plan no longer matches its approved digest.');
 		try {
-			const result = await this.command(['apply', '-input=false', '-auto-approve', 'treeseed.plan'], { cwd: root, env: authorityEnvironment });
+			const result = await command(['apply', '-input=false', '-auto-approve', 'treeseed.plan'], { cwd: root, env: authorityEnvironment });
 			if (result.code !== 0) throw sanitizedFailure(result, 'apply', authorityEnvironment);
 			return { applied: true, executionPlanDigest: execution.executionPlanDigest, authorityBindingDigest: execution.authorityBindingDigest, bundleDigest: workspace.bundleDigest, planDigest: workspace.planDigest };
 		} finally { await rm(safeTarget(root, 'treeseed.plan'), { force: true }); }
