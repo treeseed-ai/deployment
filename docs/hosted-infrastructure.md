@@ -12,22 +12,32 @@ The hosted runner uses OpenTofu 1.12.6 with exact provider locks:
   provider and therefore remains behind Deployment
   contract and disposable-project acceptance tests.
 
-Provider credentials and state-backend keys resolve only through the TreeSeed
+Provider credentials, state-backend sessions, and state-encryption keys resolve only through the TreeSeed
 service credential vault. Each vault request binds the exact team connection,
-credential profile, capability set, authority version, and `staging` or
-`production` environment. Raw caller-supplied process environments are not an
+deployment, stack, backend digest, credential profile, capability set,
+authority version, purpose, and `staging` or `production` environment. Raw caller-supplied process environments are not an
 executor interface. Deployment alone maps validated in-memory material into a
 minimal, short-lived OpenTofu process environment. Cloudflare runtime and DNS
 tokens use separate provider aliases, so their least-privilege profiles need
 not share a token. Credentials are not rendered into configuration,
 workspaces, plan summaries, logs, or receipts.
-Production state must use an encrypted remote S3-compatible backend with
-credentials supplied by a separately scoped storage profile in the same vault.
-Local state is not an accepted production mode.
+State uses an encrypted remote S3-compatible backend with a key derived by the
+SDK, never accepted from a caller:
+
+```text
+teams/<teamId>/opentofu/v1/deployments/<deploymentId>/environments/<environment>/stacks/<stackId>/terraform.tfstate
+```
+
+The backend receives a separately scoped session token valid for no more than
+one hour. OpenTofu native S3 locking is mandatory. A separate short-lived vault
+authority supplies the 32-byte client-side encryption key; both state and plan
+encryption are enforced. Local state and OpenTofu workspace-based tenant
+isolation are not accepted modes.
 
 Every execution uses the following closure:
 
-1. Validate the SDK plan and resolve only declared non-secret inputs.
+1. Discover existing resources through Deployment-owned read-only provider
+   adapters, validate the SDK plan, and resolve only declared non-secret inputs.
 2. Render a deterministic workspace and bind it to an exact bundle digest.
 3. Download immutable artifacts and verify their SHA-256 digests.
 4. Initialize with the checked-in provider lock, import reviewed existing
