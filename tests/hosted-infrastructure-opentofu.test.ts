@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { authorizeHostedTopologyPlan, hostedTopologyDeclarationSchema, planHostedTopology, type HostedResourceObservation } from '@treeseed/sdk/deployment';
-import { HostedInfrastructureExecutor, hostedInfrastructureToolchain, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
+import { acquireOpenTofu, HostedInfrastructureExecutor, hostedInfrastructureToolchain, openTofuArchive, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
 
 const workerSource = 'export default { fetch() { return new Response("ok") } };\n';
 const digest = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -55,6 +55,28 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		expect(hostedInfrastructureToolchain.providers.railway.source).toBe('registry.opentofu.org/jamesprnich/railway');
 		const lock = await readFile(new URL('../infrastructure/opentofu/hosted-topology/.terraform.lock.hcl', import.meta.url), 'utf8');
 		expect(lock).toContain('registry.opentofu.org/cloudflare/cloudflare'); expect(lock).toContain('registry.opentofu.org/jamesprnich/railway'); expect(lock).toContain('0.11.5');
+	});
+
+	it('acquires the exact pinned OpenTofu binary inside the private workspace', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-acquire-')); roots.push(root);
+		const archive = Buffer.from('locked-opentofu-archive');
+		const expected = createHash('sha256').update(archive).digest('hex');
+		const locked = hostedInfrastructureToolchain.opentofu as { linuxAmd64ArchiveSha256: string };
+		const previous = locked.linuxAmd64ArchiveSha256; locked.linuxAmd64ArchiveSha256 = expected;
+		try {
+			const binary = await acquireOpenTofu(root, {
+				platform: 'linux', arch: 'x64', fetchImpl: async (input) => { expect(String(input)).toBe(openTofuArchive('linux', 'x64').url); return new Response(archive); },
+				extract: async (_source, destination) => { await writeFile(join(destination, 'tofu'), '#!/bin/sh\n', { mode: 0o600 }); },
+			});
+			expect(binary.startsWith(root)).toBe(true); expect((await stat(binary)).mode & 0o777).toBe(0o700);
+		} finally { locked.linuxAmd64ArchiveSha256 = previous; }
+	});
+
+	it('fails closed for unsupported runners and archive digest drift', async () => {
+		expect(() => openTofuArchive('darwin', 'arm64')).toThrow(/only on Linux/u);
+		expect(() => openTofuArchive('linux', 'riscv64')).toThrow(/does not support/u);
+		const root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-drift-')); roots.push(root);
+		await expect(acquireOpenTofu(root, { platform: 'linux', arch: 'x64', fetchImpl: async () => new Response('wrong') })).rejects.toThrow(/digest verification/u);
 	});
 
 	it('renders a deterministic, portable, credential-free workspace', () => {
