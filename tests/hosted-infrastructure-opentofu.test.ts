@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { authorizeHostedTopologyPlan, hostedTopologyDeclarationSchema, planHostedTopology, planHostedTopologyRollback, verifyHostedTopologyReadback, type HostedResourceObservation } from '@treeseed/sdk/deployment';
+import { authorizeHostedTopologyPlan, hostedTopologyDeclarationSchema, planHostedTopology, planHostedTopologyRollback, planHostedTopologyRollbackExecution, verifyHostedTopologyReadback, type HostedResourceObservation } from '@treeseed/sdk/deployment';
 import { acquireOpenTofu, HostedInfrastructureExecutor, hostedInfrastructureToolchain, openTofuArchive, renderHostedInfrastructureRollbackWorkspace, renderHostedInfrastructureWorkspace, resolveHostedInfrastructureVaultAuthority, type HostedInfrastructureAuthorityRequest, type OpenTofuCommand } from '../src/infrastructure/opentofu/index.js';
 
 const workerSource = 'export default { fetch() { return new Response("ok") } };\n';
@@ -159,7 +159,8 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const rollback = planHostedTopologyRollback(receipt), declaration = topology();
 		const targetDeclaration = hostedTopologyDeclarationSchema.parse({ ...declaration, resources: declaration.resources.filter(({ provider }) => provider === 'railway') });
 		const targetPlan = planHostedTopology({ declaration: targetDeclaration, observations: previousResources.filter(({ provider }) => provider === 'railway'), connections: connections() });
-		const workspace = renderHostedInfrastructureRollbackWorkspace({ rollback, approval: { schemaVersion: 'treeseed.hosted-topology-rollback-approval/v1', rollbackDigest: rollback.rollbackDigest, environment: rollback.environment, decision: 'approved', approvedBy: 'release-approver', approvedAt: now }, sourceReceipt: receipt, sourcePlan, targetPlan, backend });
+		const execution = planHostedTopologyRollbackExecution({ rollback, sourceReceipt: receipt, sourcePlan, targetPlan });
+		const workspace = renderHostedInfrastructureRollbackWorkspace({ execution, approval: { schemaVersion: 'treeseed.hosted-topology-rollback-execution-approval/v1', executionDigest: execution.executionDigest, environment: rollback.environment, decision: 'approved', approvedBy: 'release-approver', approvedAt: now }, sourceReceipt: receipt, sourcePlan, targetPlan, backend });
 		expect(workspace.executable).toBe(true); expect(workspace.planDigest).toBe(rollback.rollbackDigest); expect(workspace.files['main.tf']).toContain('prevent_destroy = false');
 		expect(workspace.removedResources.map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls']);
 		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'cloudflare-storage', 'railway-workspace']);
@@ -171,7 +172,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 			return { code: 0, stdout: '', stderr: '' };
 		};
 		const executor = new HostedInfrastructureExecutor(command, async () => new Response(workerSource));
-		const execution = await executor.plan(workspace, root, authority); await executor.apply(workspace, root, authority, execution);
+		const binaryExecution = await executor.plan(workspace, root, authority); await executor.apply(workspace, root, authority, binaryExecution);
 		const readback = await executor.readback(workspace, root, authority);
 		expect(readback.filter(({ state }) => state === 'missing').map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls']);
 	});

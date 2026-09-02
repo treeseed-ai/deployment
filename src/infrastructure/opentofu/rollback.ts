@@ -1,21 +1,23 @@
-import { authorizeHostedTopologyRollback, authorizedHostedTopologyPlanSchema, hostedTopologyPlanSchema, hostedTopologyReceiptSchema } from '@treeseed/sdk/deployment';
+import { authorizeHostedTopologyRollbackExecution, authorizedHostedTopologyPlanSchema, hostedTopologyPlanSchema, hostedTopologyReceiptSchema, planHostedTopologyRollbackExecution } from '@treeseed/sdk/deployment';
 import { infrastructureDigest } from './toolchain.js';
 import { renderHostedInfrastructureWorkspace, type HostedInfrastructureBackend, type HostedInfrastructureWorkspace } from './workspace.js';
 
 export function renderHostedInfrastructureRollbackWorkspace(input: {
-	rollback: unknown;
+	execution: unknown;
 	approval: unknown;
 	sourceReceipt: unknown;
 	sourcePlan: unknown;
 	targetPlan: unknown;
 	backend: HostedInfrastructureBackend;
 }): HostedInfrastructureWorkspace {
-	const authorized = authorizeHostedTopologyRollback(input.rollback as never, input.approval as never);
-	const rollback = authorized.rollback, sourceReceipt = hostedTopologyReceiptSchema.parse(input.sourceReceipt);
+	const authorized = authorizeHostedTopologyRollbackExecution(input.execution as never, input.approval as never);
+	const rollback = authorized.execution.rollback, sourceReceipt = hostedTopologyReceiptSchema.parse(input.sourceReceipt);
 	const sourcePlan = input.sourcePlan && typeof input.sourcePlan === 'object' && 'approval' in input.sourcePlan
 		? authorizedHostedTopologyPlanSchema.parse(input.sourcePlan)
 		: hostedTopologyPlanSchema.parse(input.sourcePlan);
 	const targetPlan = hostedTopologyPlanSchema.parse(input.targetPlan);
+	const expectedExecution = planHostedTopologyRollbackExecution({ rollback, sourceReceipt, sourcePlan, targetPlan });
+	if (expectedExecution.executionDigest !== authorized.execution.executionDigest) throw new Error('Hosted infrastructure rollback execution does not match its approved source and target plans.');
 	if (sourceReceipt.receiptId !== rollback.sourceReceiptId || sourceReceipt.planDigest !== sourcePlan.planDigest) throw new Error('Hosted infrastructure rollback source receipt is stale.');
 	if ([sourceReceipt.environment, sourcePlan.environment, targetPlan.environment].some((environment) => environment !== rollback.environment)) throw new Error('Hosted infrastructure rollback environment does not match its source and target plans.');
 	if (sourcePlan.topologyId !== targetPlan.topologyId || sourcePlan.topologyId !== sourceReceipt.topologyId) throw new Error('Hosted infrastructure rollback topology identity changed.');
