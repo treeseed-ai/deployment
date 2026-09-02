@@ -52,7 +52,11 @@ async function discoverCloudflare(input: { resource: Resource; config: Record<st
 		if (!response.ok) throw new Error(`Cloudflare Pages discovery failed (HTTP ${response.status}).`);
 		const payload: any = await response.json(); if (payload.success === false || !payload.result) throw new Error('Cloudflare rejected Pages discovery.');
 		const project = payload.result, marker = project.deployment_configs?.production?.env_vars?.TREESEED_RESOURCE_DIGEST?.value;
-		const matches = project.name === name && project.production_branch === String(parameter(resource, 'production-branch', context)) && project.build_config?.destination_dir === String(parameter(resource, 'destination-dir', context)) && marker === desiredDigest;
+		const artifact = parameter(resource, 'artifact', context), artifactDigest = artifact && typeof artifact === 'object' && 'digest' in artifact ? String(artifact.digest) : '';
+		const deployment = project.latest_deployment, deploymentMarker = deployment?.deployment_trigger?.metadata?.commit_message;
+		const productionBranch = String(parameter(resource, 'production-branch', context));
+		const matches = project.name === name && project.production_branch === productionBranch && project.build_config?.destination_dir === String(parameter(resource, 'destination-dir', context)) && marker === desiredDigest
+			&& deployment?.environment === 'production' && deployment?.latest_stage?.status === 'success' && deployment?.deployment_trigger?.metadata?.branch === productionBranch && deploymentMarker === `treeseed:${desiredDigest}:${artifactDigest}`;
 		return { resourceId: resource.id, provider: 'cloudflare', kind: resource.kind, providerResourceId: name, state: 'healthy', managedBy: marker || input.managed ? 'treeseed' : 'external', observedDigest: matches ? desiredDigest : deploymentDigest({ name, productionBranch: project.production_branch ?? null, destinationDir: project.build_config?.destination_dir ?? null, marker: marker ?? null }), observedAt };
 	}
 	if (resource.kind === 'admin-application' || resource.kind === 'api-proxy') {

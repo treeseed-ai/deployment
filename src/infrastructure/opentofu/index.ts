@@ -6,4 +6,5 @@ export * from './module.js';
 export * from './workspace.js';
 export * from './rollback.js';
 export * from './executor.js';
+export * from './pages-deployment.js';
 export * from './discovery.js';
