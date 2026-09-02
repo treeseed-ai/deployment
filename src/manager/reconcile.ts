@@ -252,9 +252,13 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 	}
 	const runtimeEnvironment = managedRuntimeInputEnvironment(host, component, undefined, connectionEnvironment);
 	const managerInputs = new Set(component.runtime.configuration.environment.filter(({ source }) => source === 'manager').map(({ name }) => name));
+	const configuredEnvironment = (host.components[component.componentId]?.configuration?.environment ?? {}) as Record<string, string>;
 	for (const [name, value] of Object.entries(runtimeEnvironment)) {
+		const packageDefault = component.runtime.configuration.environment.some((declaration) =>
+			declaration.name === name && declaration.source === 'configuration' && declaration.default !== undefined && configuredEnvironment[name] === undefined);
+		if (!managerInputs.has(name) && !packageDefault) continue;
 		if (connectionEnvironment[name] !== undefined) throw new Error(`Runtime input ${name} conflicts with a managed connection for ${component.componentId}.`);
-		if (managerInputs.has(name)) connectionEnvironment[name] = value;
+		connectionEnvironment[name] = value;
 	}
 	const secretFileIds = component.runtime.configuration.secretFiles.filter(({ id }) => host.secrets[id] !== undefined).map(({ id }) => id);
 	const optionalSecretEnvironment = component.runtime.configuration.secretEnvironment.filter(({ required }) => !required).map(({ name }) => name);
