@@ -104,7 +104,7 @@ export class HostedInfrastructureExecutor {
 		if (execution.bundleDigest !== workspace.bundleDigest || execution.planDigest !== workspace.planDigest) throw new Error('Hosted infrastructure execution plan does not match its workspace closure.');
 		if (hostedInfrastructureAuthorityBindingDigest(authority) !== execution.authorityBindingDigest) throw new Error('Hosted infrastructure vault authority changed after planning.');
 		const data = await readFile(safeTarget(root, 'treeseed.plan')), actual = `sha256:${createHash('sha256').update(data).digest('hex')}`;
-		if (actual !== execution.executionPlanDigest) throw new Error('OpenTofu execution plan no longer matches its approved digest.');
+		if (actual !== execution.executionPlanDigest) throw new Error('OpenTofu execution plan no longer matches its authorized digest.');
 		try {
 			const result = await command(['apply', '-input=false', '-auto-approve', 'treeseed.plan'], { cwd: root, env: authorityEnvironment });
 			if (result.code !== 0) throw sanitizedFailure(result, 'apply', authorityEnvironment);
