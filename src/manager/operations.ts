@@ -173,10 +173,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		if (payload.hostId !== proposed.hostId || payload.catalog.release !== proposed.catalog.release || payload.catalog.generation !== proposed.catalog.generation
 			|| payload.catalog.digest !== proposed.catalog.digest) throw new Error('Host initialization payload does not match the immutable catalog-bound plan.');
 		validateHostInitializationInputs(proposed, payload.inputs);
-		if (proposed.inputs.length) throw new Error('Host initialization profiles with external inputs remain disabled until their one-time handoff is accepted. No input was retained.');
 		if (host) return { ...proposed, mode: 'execute', mutation: false, configured: true, initialized: false, securityRequired: proposed.security.requirement === 'required' };
-		const configuration = renderHostInitializationConfiguration(profile, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined);
-		await requestSupervisor({ operation: 'configuration.initialize', configuration });
+		const initializationInputs = payload.inputs as Record<string, string>;
+		const configuration = renderHostInitializationConfiguration(profile, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, undefined, initializationInputs);
+		const oneTimeCredentials = initializationInputs.teamRegistrationCode ? { 'provider-registration': initializationInputs.teamRegistrationCode } : undefined;
+		await requestSupervisor({ operation: 'configuration.initialize', configuration, ...(oneTimeCredentials ? { oneTimeCredentials } : {}) });
 		return { ...proposed, mode: 'execute', mutation: true, configured: true, initialized: true, configurationId: configuration.configurationId, generation: configuration.generation,
 			securityRequired: proposed.security.requirement === 'required', nextAction: proposed.security.requirement === 'required' ? 'host security initialize' : 'host reconcile' };
 	}

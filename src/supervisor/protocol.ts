@@ -45,7 +45,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('host.development.status') }).strict(),
 	z.object({ operation: z.literal('host.development.deactivate') }).strict(),
 	z.object({ operation: z.literal('component.reset-unaccepted'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).strict(),
-	z.object({ operation: z.literal('provider.enroll'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), teamId: z.string().min(1).max(256), controlPlaneUrl: z.string().url().startsWith('https://'), controlPlaneAudience: z.string().url().startsWith('https://'), registrationSecretId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), offer: z.object({ maxConcurrentRunners: z.number().int().positive().max(1_024), capabilities: z.array(z.string().min(1).max(128)).max(256), metadata: z.record(z.union([z.string(), z.number(), z.boolean()])).optional() }).strict(), files: z.array(z.string().min(1)).min(1), projectName: z.literal('treeseed-agent') }).strict(),
+	z.object({ operation: z.literal('provider.enroll'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), controlPlaneUrl: z.string().url().startsWith('https://'), controlPlaneAudience: z.string().url().startsWith('https://'), registrationSecretId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), offer: z.object({ maxConcurrentRunners: z.number().int().positive().max(1_024), capabilities: z.array(z.string().min(1).max(128)).max(256), metadata: z.record(z.union([z.string(), z.number(), z.boolean()])).optional() }).strict(), files: z.array(z.string().min(1)).min(1), projectName: z.literal('treeseed-agent') }).strict(),
 	z.object({ operation: z.literal('provider.enrollment-handoff'), payload: z.discriminatedUnion('action', [
 		z.object({ action: z.literal('begin'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), teamId: z.string().min(1).max(256), controlPlaneUrl: z.string().url(), controlPlaneAudience: z.string().url(), enrollmentToken: z.string().min(1).max(16_384) }).strict(),
 		z.object({ action: z.literal('complete'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).strict(),
@@ -64,7 +64,8 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('platform.uninstall.execute'), purgeSecurity: z.boolean(), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('cli.configure'), controlPlaneUrl: z.string().url().refine((value) => value.startsWith('https://') || value.startsWith('http://127.0.0.1'), 'Control-plane URL must use HTTPS or loopback HTTP.') }).strict(),
 	z.object({ operation: z.literal('manager.restart') }).strict(),
-	z.object({ operation: z.literal('configuration.initialize'), configuration: hostConfigurationSchema }).strict(),
+	z.object({ operation: z.literal('configuration.initialize'), configuration: hostConfigurationSchema,
+		oneTimeCredentials: z.record(z.string().regex(/^[a-z][a-z0-9.-]{1,127}$/u), z.string().min(1).max(16_384)).optional() }).strict(),
 	z.object({ operation: z.literal('configuration.replace'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.adopt'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.recover'), configuration: hostConfigurationSchema }).strict(),

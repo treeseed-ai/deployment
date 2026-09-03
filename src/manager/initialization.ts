@@ -22,6 +22,8 @@ interface SelectedInitializationProfile {
 	profile: HostInitializationProfile;
 }
 
+type InitializationInputValues = Record<string, string>;
+
 const localDependencies: Record<string, { componentId: string; serviceId: string; endpointId: string }> = {
 	'control-plane-api': { componentId: 'api', serviceId: 'api', endpointId: 'http' },
 	'treeai-inference-api': { componentId: 'ai-inference', serviceId: 'inference-api', endpointId: 'inference' },
@@ -75,11 +77,17 @@ export function planHostInitialization(profileId: string, stable: ReleaseCatalog
 	};
 }
 
-function localConnections(selected: SelectedInitializationProfile, componentId: string) {
+function componentConnections(selected: SelectedInitializationProfile, componentId: string, inputs: InitializationInputValues) {
 	const components = new Set(selected.profile.components), release = selected.catalog.components.find((candidate) => candidate.componentId === componentId);
 	if (!release) throw new Error(`Host initialization component ${componentId} is absent from the selected catalog.`);
-	const connections: Record<string, { kind: 'local'; componentId: string; serviceId: string; endpointId: string }> = {};
+	const connections: HostConfiguration['components'][string]['connections'] = {};
 	for (const dependency of release.runtime.dependencies) {
+		if (componentId === 'agent' && dependency.capability === 'control-plane-api' && inputs.controlPlaneUrl) {
+			const url = inputs.controlPlaneUrl.replace(/\/$/u, '');
+			connections[dependency.id] = { kind: 'remote', url, audience: url, tls: { trust: 'system' }, authentication: { mode: 'none' },
+				healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 120 } };
+			continue;
+		}
 		const target = localDependencies[dependency.capability];
 		if (!target || !components.has(target.componentId)) {
 			if (dependency.optional) continue;
@@ -106,7 +114,7 @@ function developmentApiConfiguration(selectedComponents: Set<string>) {
 	return { environment, secretEnvironment: { ...developmentApiSecrets } };
 }
 
-function componentInitializationConfiguration(selected: SelectedInitializationProfile, componentId: string, environment: HostConfiguration['runtime']['environment'], selectedComponents: Set<string>) {
+function componentInitializationConfiguration(selected: SelectedInitializationProfile, componentId: string, environment: HostConfiguration['runtime']['environment'], selectedComponents: Set<string>, inputs: InitializationInputValues) {
 	const release = selected.catalog.components.find((candidate) => candidate.componentId === componentId);
 	if (!release) throw new Error(`Host initialization component ${componentId} is absent from the selected catalog.`);
 	const files = Object.fromEntries(release.runtime.configuration.files.flatMap((declaration) => {
@@ -114,7 +122,9 @@ function componentInitializationConfiguration(selected: SelectedInitializationPr
 		if (declaration.required) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
 		return [];
 	}));
-	const configuration = environment !== 'development' ? {}
+	const configuration = componentId === 'agent' && inputs.teamRegistrationCode ? {
+		providerEnrollment: { connectionId: 'primary', registrationSecretId: 'provider-registration', offer: { maxConcurrentRunners: 1, capabilities: [] } },
+	} : environment !== 'development' ? {}
 		: componentId === 'api' ? developmentApiConfiguration(selectedComponents)
 			: componentId === 'treedx' ? developmentTreedxConfiguration() : {};
 	return Object.keys(files).length ? { ...configuration, files } : configuration;
@@ -136,23 +146,23 @@ function requiredSecurity(selected: SelectedInitializationProfile) {
 	};
 }
 
-export function renderHostInitializationConfiguration(profileId: string, stable: ReleaseCatalog, development?: ReleaseCatalog, hostName?: string): HostConfiguration {
+export function renderHostInitializationConfiguration(profileId: string, stable: ReleaseCatalog, development?: ReleaseCatalog, hostName?: string, inputs: InitializationInputValues = {}): HostConfiguration {
 	const selected = selectHostInitializationProfile(profileId, stable, development);
-	if (selected.profile.inputs.length) throw new Error('Host initialization profiles with external inputs remain disabled until their one-time handoff is accepted. No input was retained.');
 	const hostId = runtimeHostId(hostName), environment = selected.profile.runtime.environment === 'track-default'
 		? selected.catalog.track === 'stable' ? 'production' : 'development'
 		: selected.profile.runtime.environment;
 	const selectedComponents = new Set(selected.profile.components);
 	const components = Object.fromEntries(selected.profile.components.map((componentId) => [componentId, {
 		enabled: true, track: selected.catalog.track, profile: selected.profile.id, aliases: {},
-		configuration: componentInitializationConfiguration(selected, componentId, environment, selectedComponents),
-		resources: { gpuDevices: [] }, connections: localConnections(selected, componentId),
+		configuration: componentInitializationConfiguration(selected, componentId, environment, selectedComponents, inputs),
+		resources: { gpuDevices: [] }, connections: componentConnections(selected, componentId, inputs),
 	}]));
 	const developmentSecretIds = environment !== 'development' ? [] : [
 		...(selectedComponents.has('api') ? Object.values(developmentApiSecrets) : []),
 		...(selectedComponents.has('treedx') ? Object.values(developmentTreedxSecretIds) : []),
 	];
-	const secrets = Object.fromEntries([...new Set(developmentSecretIds)].map((id) => [id, { provider: 'file' as const, reference: `/etc/treeseed/credentials/${id}` }]));
+	const secretIds = [...developmentSecretIds, ...(inputs.teamRegistrationCode ? ['provider-registration'] : [])];
+	const secrets = Object.fromEntries([...new Set(secretIds)].map((id) => [id, { provider: 'file' as const, reference: `/etc/treeseed/credentials/${id}` }]));
 	const security = requiredSecurity(selected);
 	return hostConfigurationSchema.parse({
 		schemaVersion: 'treeseed.host/v1', configurationId: hostId, generation: 1,

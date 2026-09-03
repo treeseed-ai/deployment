@@ -228,11 +228,9 @@ export async function enrollProvider(host: HostConfiguration, component: Compone
 	const enrollment = record(configuration.providerEnrollment, 'Provider enrollment');
 	const connection = host.components.agent?.connections['control-plane'];
 	if (!connection || connection.kind !== 'remote') throw new Error('Provider enrollment requires an explicit remote control-plane connection.');
-	const connectionId = enrollment.connectionId, teamId = enrollment.teamId, offer = record(enrollment.offer, 'Provider enrollment offer');
-	if (typeof connectionId !== 'string' || typeof teamId !== 'string' || typeof offer.maxConcurrentRunners !== 'number' || !Array.isArray(offer.capabilities) || !offer.capabilities.every((item) => typeof item === 'string')) throw new Error('Provider enrollment configuration is invalid.');
-	const registrationSecretId = connection.authentication.secretRef;
-	if (!registrationSecretId) throw new Error('Provider enrollment requires a one-time registration secret reference.');
-	await requestSupervisor({ operation: 'provider.enroll', connectionId, teamId, controlPlaneUrl: connection.url, controlPlaneAudience: connection.audience, registrationSecretId, offer: { maxConcurrentRunners: offer.maxConcurrentRunners, capabilities: offer.capabilities, metadata: { hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup } }, files: composeFiles(component), projectName: 'treeseed-agent' });
+	const connectionId = enrollment.connectionId, registrationSecretId = enrollment.registrationSecretId, offer = record(enrollment.offer, 'Provider enrollment offer');
+	if (typeof connectionId !== 'string' || typeof registrationSecretId !== 'string' || typeof offer.maxConcurrentRunners !== 'number' || !Array.isArray(offer.capabilities) || !offer.capabilities.every((item) => typeof item === 'string')) throw new Error('Provider enrollment configuration is invalid.');
+	await requestSupervisor({ operation: 'provider.enroll', connectionId, controlPlaneUrl: connection.url, controlPlaneAudience: connection.audience, registrationSecretId, offer: { maxConcurrentRunners: offer.maxConcurrentRunners, capabilities: offer.capabilities, metadata: { hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup } }, files: composeFiles(component), projectName: 'treeseed-agent' });
 }
 
 export async function stopComponent(component: ComponentRelease) {

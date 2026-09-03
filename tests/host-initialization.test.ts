@@ -84,6 +84,18 @@ describe('host initialization planning', () => {
 	it('normalizes runtime identity and refuses external-input execution rendering', () => {
 		expect(runtimeHostId(' 03-Capacity Provider ')).toBe('host-03-capacity-provider');
 		const stable = { ...catalog(), track: 'stable' as const, release: '0.1.0', generation: 36, stableBase: null, hostProfiles: [] };
-		expect(() => renderHostInitializationConfiguration('capacity-provider', stable, catalog(), 'provider-01')).toThrow(/external inputs remain disabled/u);
+		const development = catalog();
+		const agent = component('agent', 'development', 'b');
+		agent.images[0] = { ...agent.images[0]!, role: 'sandbox-guest' };
+		agent.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
+		development.components = [agent];
+		const rendered = renderHostInitializationConfiguration('capacity-provider', stable, development, 'provider-01', {
+			controlPlaneUrl: 'https://api.example.test/', teamRegistrationCode: 'registration-code',
+		});
+		expect(rendered.components.agent?.connections['control-plane']).toEqual({ kind: 'remote', url: 'https://api.example.test', audience: 'https://api.example.test',
+			tls: { trust: 'system' }, authentication: { mode: 'none' }, healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 120 } });
+		expect(rendered.components.agent?.configuration.providerEnrollment).toEqual({ connectionId: 'primary', registrationSecretId: 'provider-registration',
+			offer: { maxConcurrentRunners: 1, capabilities: [] } });
+		expect(JSON.stringify(rendered)).not.toContain('registration-code');
 	});
 });
