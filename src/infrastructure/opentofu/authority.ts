@@ -37,7 +37,7 @@ export interface HostedInfrastructureVaultMaterial {
 	credentialProfileId: HostedInfrastructureCredentialProfile;
 	capabilities: string[];
 	purpose: 'provider' | 'state-backend' | 'state-encryption';
-	scheme: 'environment-reference' | 'external-vault' | 'workload-identity';
+	scheme: 'environment-reference' | 'client-encrypted' | 'external-vault' | 'workload-identity';
 	expiresAt: string | null;
 	values: Record<string, string>;
 }
@@ -65,7 +65,8 @@ const allowedVariables: Record<HostedInfrastructureCredentialProfile, readonly s
 function processBindings(material: HostedInfrastructureVaultMaterial) {
 	if (material.credentialProfileId === 'cloudflare-runtime') return { TF_VAR_cloudflare_runtime_token: material.values.apiToken! };
 	if (material.credentialProfileId === 'cloudflare-dns') return { TF_VAR_cloudflare_dns_token: material.values.apiToken! };
-	if (material.credentialProfileId === 's3-state-session') return { AWS_ACCESS_KEY_ID: material.values.accessKeyId!, AWS_SECRET_ACCESS_KEY: material.values.secretAccessKey!, AWS_SESSION_TOKEN: material.values.sessionToken! };
+	if (material.credentialProfileId === 's3-state-session') return { AWS_ACCESS_KEY_ID: material.values.accessKeyId!, AWS_SECRET_ACCESS_KEY: material.values.secretAccessKey!,
+		...(material.values.sessionToken ? { AWS_SESSION_TOKEN: material.values.sessionToken } : {}) };
 	if (material.credentialProfileId === 'opentofu-state-encryption') return { TF_ENCRYPTION: `key_provider "static" "treeseed" { key = "${material.values.key}" encrypted_metadata_alias = "treeseed-state" }\nmethod "aes_gcm" "treeseed" { keys = key_provider.static.treeseed }\nstate { method = method.aes_gcm.treeseed enforced = true }\nplan { method = method.aes_gcm.treeseed enforced = true }` };
 	return { RAILWAY_TOKEN: material.values.apiToken! };
 }
@@ -79,7 +80,10 @@ function validateMaterial(request: HostedInfrastructureAuthorityRequest, materia
 	if (material.expiresAt !== null && new Date(material.expiresAt).getTime() <= now.getTime()) throw new Error('Hosted infrastructure vault material has expired.');
 	if (request.purpose !== 'provider' && (material.expiresAt === null || new Date(material.expiresAt).getTime() > now.getTime() + 60 * 60 * 1_000)) throw new Error('Hosted infrastructure state authority must be a short-lived session of at most one hour.');
 	const allowed = allowedVariables[request.credentialProfileId], names = Object.keys(material.values).sort();
-	if (names.length !== allowed.length || names.some((name) => !allowed.includes(name)) || allowed.some((name) => !material.values[name])) throw new Error(`Hosted infrastructure vault material for ${request.credentialProfileId} has invalid process bindings.`);
+	const required = request.credentialProfileId === 's3-state-session' ? ['accessKeyId', 'secretAccessKey'] : allowed;
+	if (names.some((name) => !allowed.includes(name)) || required.some((name) => !material.values[name])
+		|| (request.credentialProfileId !== 's3-state-session' && names.length !== allowed.length))
+		throw new Error(`Hosted infrastructure vault material for ${request.credentialProfileId} has invalid process bindings.`);
 	if (material.credentialProfileId === 'opentofu-state-encryption' && !/^[a-f0-9]{64}$/u.test(material.values.key!)) throw new Error('Hosted infrastructure state encryption material must be a 32-byte hexadecimal key.');
 	return material;
 }

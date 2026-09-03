@@ -131,6 +131,19 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		await expect(resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({ ...await vaultResolver(request), expiresAt: request.purpose === 'state-backend' ? new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString() : request.purpose === 'provider' ? null : new Date(Date.now() + 30 * 60 * 1_000).toISOString() }))).rejects.toThrow(/short-lived session/u);
 	});
 
+	it('accepts single-use client-encrypted R2 authority without requiring an STS token', async () => {
+		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() });
+		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({
+			...await vaultResolver(request), scheme: 'client-encrypted' as const,
+			expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+			values: request.credentialProfileId === 's3-state-session'
+				? { accessKeyId: 'state-key', secretAccessKey: 'state-secret' }
+				: values(request),
+		}));
+		const state = authority.materials.find(({ credentialProfileId }) => credentialProfileId === 's3-state-session');
+		expect(state?.values).toEqual({ accessKeyId: 'state-key', secretAccessKey: 'state-secret' });
+	});
+
 	it('discovers adoption candidates only through custody-bound Deployment provider authority', async () => {
 		const original = topology(), declaration = hostedTopologyDeclarationSchema.parse({ ...original,
 			resources: original.resources.filter(({ id }) => ['admin', 'api'].includes(id)).map((resource) => ({ ...resource, dependsOn: [] })) });
