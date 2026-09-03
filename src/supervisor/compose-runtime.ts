@@ -42,8 +42,9 @@ function composeServiceObservations(projectName: string, command: CommandRunner)
 function expectedComposeImages(componentId: string, files: readonly string[], projectName: string, command: CommandRunner) {
 	const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments(componentId, files), '--project-name', projectName, 'config', '--format', 'json'], '');
 	if (typeof output !== 'string') throw new Error('Compose did not report its expected runtime configuration.');
-	const configured = JSON.parse(output) as { services?: Record<string, { image?: unknown }> };
-	return new Map(Object.entries(configured.services ?? {}).flatMap(([service, value]) => typeof value.image === 'string' && value.image.length > 0 && value.image.length <= 512 ? [[service, value.image] as const] : []));
+	const configured = JSON.parse(output) as { services?: Record<string, { image?: unknown; restart?: unknown }> };
+	return new Map(Object.entries(configured.services ?? {}).flatMap(([service, value]) => typeof value.image === 'string' && value.image.length > 0 && value.image.length <= 512
+		? [[service, { image: value.image, persistent: value.restart !== 'no' }] as const] : []));
 }
 
 export function composeRuntimeStatus(operation: Extract<SupervisorOperation, { operation: 'compose.status' }>, command: CommandRunner) {
@@ -54,13 +55,14 @@ export function composeRuntimeStatus(operation: Extract<SupervisorOperation, { o
 	const observations = composeServiceObservations(operation.projectName, command);
 	const expectedImages = expectedComposeImages(componentId, files, operation.projectName, command);
 	const issues: Array<{ service: string; reason: 'missing' | 'stopped' | 'unhealthy' | 'wrong-image' }> = [];
-	for (const service of services) {
+	const persistentServices = services.filter((service) => expectedImages.get(service)?.persistent !== false);
+	for (const service of persistentServices) {
 		const instances = observations.filter((item) => item.service === service);
 		if (instances.length === 0) { issues.push({ service, reason: 'missing' }); continue; }
 		if (instances.some((item) => item.state !== 'running')) { issues.push({ service, reason: 'stopped' }); continue; }
 		if (instances.some((item) => item.health === 'starting' || item.health === 'unhealthy')) { issues.push({ service, reason: 'unhealthy' }); continue; }
-		const expectedImage = expectedImages.get(service);
+		const expectedImage = expectedImages.get(service)?.image;
 		if (!expectedImage || instances.some((item) => item.image !== expectedImage)) issues.push({ service, reason: 'wrong-image' });
 	}
-	return { present: containers.length > 0, running: running.length > 0, ready: issues.length === 0, containers: containers.length, runningContainers: running.length, expectedServices: services.length, issues };
+	return { present: containers.length > 0, running: running.length > 0, ready: issues.length === 0, containers: containers.length, runningContainers: running.length, expectedServices: persistentServices.length, issues };
 }

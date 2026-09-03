@@ -31,4 +31,22 @@ describe('managed Compose runtime status', () => {
 		});
 		expect(status).toMatchObject({ present: true, running: true, ready: true, expectedServices: 1, issues: [] });
 	});
+
+	it('does not treat successfully stopped one-shot services as persistent runtime drift', () => {
+		const status = executeSupervisorOperation({ operation: 'compose.status', projectName: 'treeseed-api', runtime: { componentId: 'api', files: ['api/1.0.0/compose.yml'], services: ['migration', 'api', 'diagnostics-backfill'] } }, (_executable, arguments_) => {
+			if (arguments_[0] === 'ps') return 'migration\napi\ndiagnostics\n';
+			if (arguments_[0] === 'inspect') {
+				const id = String(arguments_.at(-1));
+				if (id === 'api') return ['api', 'running', 'healthy', 'treeseed/api@sha256:expected'].join('\t');
+				return [id === 'diagnostics' ? 'diagnostics-backfill' : id, 'exited', 'none', `treeseed/${id}@sha256:expected`].join('\t');
+			}
+			if (arguments_[0] === 'compose') return JSON.stringify({ services: {
+				migration: { image: 'treeseed/migration@sha256:expected', restart: 'no' },
+				api: { image: 'treeseed/api@sha256:expected', restart: 'unless-stopped' },
+				'diagnostics-backfill': { image: 'treeseed/diagnostics@sha256:expected', restart: 'no' },
+			} });
+			throw new Error(`Unexpected command ${arguments_.join(' ')}`);
+		});
+		expect(status).toMatchObject({ present: true, running: true, ready: true, expectedServices: 1, issues: [] });
+	});
 });
