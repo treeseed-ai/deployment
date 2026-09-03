@@ -13,10 +13,14 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 const { executeHostCommand } = await import('../src/manager/operations.js');
 
 function catalogs(withInputs = false) {
-	const lab = component('lab', 'development', 'f', 'lab.treeseed.localhost');
+	const lab = component(withInputs ? 'agent' : 'lab', 'development', 'f', withInputs ? undefined : 'lab.treeseed.localhost');
+	if (withInputs) lab.runtime.dependencies = [{ id: 'control-plane', capability: 'control-plane-api', locality: 'either', optional: false }];
 	const profile = hostInitializationProfileSchema.parse({ schemaVersion: 'treeseed.host-initialization-profile/v1', id: withInputs ? 'capacity-provider' : 'core',
-		role: withInputs ? 'capacity-provider' : 'integrated', runtime: { management: 'managed', environment: 'track-default' }, components: ['lab'], security: { requirement: 'none' },
-		inputs: withInputs ? [{ name: 'teamRegistrationCode', required: true, sensitive: true, description: 'Team registration code' }] : [] });
+		role: withInputs ? 'capacity-provider' : 'integrated', runtime: { management: 'managed', environment: 'track-default' }, components: [withInputs ? 'agent' : 'lab'], security: { requirement: 'none' },
+		inputs: withInputs ? [
+			{ name: 'controlPlaneUrl', required: true, sensitive: false, description: 'Control-plane URL' },
+			{ name: 'teamRegistrationCode', required: true, sensitive: true, description: 'Team registration code' },
+		] : [] });
 	state.stable = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.0.0', generation: 1, track: 'stable', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('a'), stableBase: null, components: [lab], hostProfiles: [profile], createdAt: '2026-09-01T00:00:00.000Z' };
 	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc1', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: '1.0.0', catalogDigest: hash('a') }, components: [lab], hostProfiles: [], createdAt: '2026-09-01T00:01:00.000Z' };
 }
@@ -37,12 +41,16 @@ describe('host initialize command boundary', () => {
 			runtime: { environment: 'production' }, components: { lab: { profile: 'core' } } } });
 	});
 
-	it('keeps external-input profiles blocked without supervisor mutation', async () => {
+	it('hands external inputs to one-time credential custody without retaining their value', async () => {
 		catalogs(true);
 		const plan = await executeHostCommand({ handlerId: 'local.host.initialize', arguments: [], options: { plan: true, profile: 'capacity-provider' } }, { local: true }) as { hostId: string; catalog: unknown };
-		await expect(executeHostCommand({ handlerId: 'local.host.initialize', arguments: [], options: { profile: 'capacity-provider', confirm: true,
-			payload: JSON.stringify({ profile: 'capacity-provider', hostId: plan.hostId, catalog: plan.catalog, inputs: { teamRegistrationCode: 'registration-code' } }) } }, { local: true })).rejects.toThrow(/external inputs remain disabled/u);
-		expect(state.operations).toEqual([]);
+		const result = await executeHostCommand({ handlerId: 'local.host.initialize', arguments: [], options: { profile: 'capacity-provider', confirm: true,
+			payload: JSON.stringify({ profile: 'capacity-provider', hostId: plan.hostId, catalog: plan.catalog,
+				inputs: { controlPlaneUrl: 'https://api.example.test', teamRegistrationCode: 'registration-code' } }) } }, { local: true });
+		expect(result).toMatchObject({ initialized: true, profile: 'capacity-provider' });
+		expect(state.operations[0]).toMatchObject({ operation: 'configuration.initialize', oneTimeCredentials: { 'provider-registration': 'registration-code' },
+			configuration: { components: { agent: { connections: { 'control-plane': { kind: 'remote', url: 'https://api.example.test' } } } } } });
+		expect(JSON.stringify((state.operations[0] as any).configuration)).not.toContain('registration-code');
 	});
 
 	it('rejects a moved catalog binding before supervisor mutation', async () => {

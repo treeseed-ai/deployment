@@ -22,6 +22,7 @@ import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStat
 import { waitForStartingActivation } from './activation-wait.js';
 import { ensureDevelopmentConfiguration } from './development-configuration.js';
 import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
+import { initializeHostConfiguration } from './configuration-initialize.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 const run: CommandRunner = (executable, arguments_, input) => {
@@ -305,16 +306,6 @@ export function recoverInvalidConfiguration(configuration: SupervisorOperation &
 	return { recovered: true, archive };
 }
 
-export function initializeHostConfiguration(configuration: SupervisorOperation & { operation: 'configuration.initialize' }, command: CommandRunner = run,
-	configurationPath: string = paths.configuration, marker: string = `${paths.managerState}/bootstrap-status.json`) {
-	if (existsSync(configurationPath)) throw new Error('Host configuration initialization requires an unconfigured foundation.');
-	atomicJson(configurationPath, configuration.configuration, 0o640);
-	command('/usr/bin/chown', ['root:treeseed-manager', configurationPath]);
-	atomicJson(marker, { complete: true, foundationReady: true, initializationRequired: false, installerCredentialsRetained: false }, 0o640);
-	command('/usr/bin/chown', ['treeseed-manager:treeseed-manager', marker]);
-	return { initialized: true, configurationId: configuration.configuration.configurationId, generation: configuration.configuration.generation };
-}
-
 export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles,
 	captureCommand: CommandRunner = command === run ? capture : command,
 	sleep: (milliseconds: number) => void = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); }, now: () => number = Date.now) {
@@ -368,7 +359,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			const secretPath = `/etc/treeseed/credentials/${operation.registrationSecretId}`;
 			const enrollmentToken = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
 			if (!enrollmentToken) throw new Error('Provider registration credential is empty.');
-			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, teamId: operation.teamId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, enrollmentToken })}\n`;
+			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, registrationCode: enrollmentToken })}\n`;
 			const enrollment = enrollmentReceipt(command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input), operation.connectionId);
 			trustProviderSandboxIdentity(enrollment);
 			unlinkSync(secretPath);
