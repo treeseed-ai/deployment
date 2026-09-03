@@ -147,7 +147,7 @@ function backendConfiguration(backend: HostedStateBackend): Json {
 }
 
 export function renderHostedInfrastructureWorkspace(input: { plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan }): HostedInfrastructureWorkspace {
-	const plan = 'approval' in input.plan ? authorizedHostedTopologyPlanSchema.parse(input.plan) : hostedTopologyPlanSchema.parse(input.plan);
+	const plan = input.plan.executable === true ? authorizedHostedTopologyPlanSchema.parse(input.plan) : hostedTopologyPlanSchema.parse(input.plan);
 	if (plan.blockers.length) throw new Error('Hosted infrastructure plan has unresolved blockers.');
 	if (!plan.stateBackend) throw new Error('Hosted infrastructure plan has no state backend authority.');
 	const rendered = renderVariables(plan);

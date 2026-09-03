@@ -4,19 +4,18 @@ import { renderHostedInfrastructureWorkspace, type HostedInfrastructureWorkspace
 
 export function renderHostedInfrastructureRollbackWorkspace(input: {
 	execution: unknown;
-	approval: unknown;
 	sourceReceipt: unknown;
 	sourcePlan: unknown;
 	targetPlan: unknown;
 }): HostedInfrastructureWorkspace {
-	const authorized = authorizeHostedTopologyRollbackExecution(input.execution as never, input.approval as never);
+	const authorized = authorizeHostedTopologyRollbackExecution(input.execution as never);
 	const rollback = authorized.execution.rollback, sourceReceipt = hostedTopologyReceiptSchema.parse(input.sourceReceipt);
-	const sourcePlan = input.sourcePlan && typeof input.sourcePlan === 'object' && 'approval' in input.sourcePlan
+	const sourcePlan = input.sourcePlan && typeof input.sourcePlan === 'object' && 'executable' in input.sourcePlan && input.sourcePlan.executable === true
 		? authorizedHostedTopologyPlanSchema.parse(input.sourcePlan)
 		: hostedTopologyPlanSchema.parse(input.sourcePlan);
 	const targetPlan = hostedTopologyPlanSchema.parse(input.targetPlan);
 	const expectedExecution = planHostedTopologyRollbackExecution({ rollback, sourceReceipt, sourcePlan, targetPlan });
-	if (expectedExecution.executionDigest !== authorized.execution.executionDigest) throw new Error('Hosted infrastructure rollback execution does not match its approved source and target plans.');
+	if (expectedExecution.executionDigest !== authorized.execution.executionDigest) throw new Error('Hosted infrastructure rollback execution does not match its authorized source and target plans.');
 	if (sourceReceipt.receiptId !== rollback.sourceReceiptId || sourceReceipt.planDigest !== sourcePlan.planDigest) throw new Error('Hosted infrastructure rollback source receipt is stale.');
 	if ([sourceReceipt.environment, sourcePlan.environment, targetPlan.environment].some((environment) => environment !== rollback.environment)) throw new Error('Hosted infrastructure rollback environment does not match its source and target plans.');
 	if (sourcePlan.topologyId !== targetPlan.topologyId || sourcePlan.topologyId !== sourceReceipt.topologyId) throw new Error('Hosted infrastructure rollback topology identity changed.');
@@ -33,7 +32,7 @@ export function renderHostedInfrastructureRollbackWorkspace(input: {
 			throw new Error(`Hosted infrastructure rollback target specification mismatch for ${operation.resourceId}.`);
 		}
 	}
-	if ([...targetActions.keys()].some((resourceId) => !sourceActions.has(resourceId))) throw new Error('Hosted infrastructure rollback target introduces an unapproved resource.');
+	if ([...targetActions.keys()].some((resourceId) => !sourceActions.has(resourceId))) throw new Error('Hosted infrastructure rollback target introduces an unauthorized resource.');
 	const sourceWorkspace = renderHostedInfrastructureWorkspace({ plan: sourcePlan });
 	const targetWorkspace = renderHostedInfrastructureWorkspace({ plan: targetPlan });
 	const authorities = [...sourceWorkspace.authorities, ...targetWorkspace.authorities].reduce((map, authority) => {

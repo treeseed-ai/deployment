@@ -24,7 +24,7 @@ afterAll(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, 
 
 function topology() {
 	return hostedTopologyDeclarationSchema.parse({
-		schemaVersion: 'treeseed.hosted-topology/v1', id: 'tree-production', teamId: 'team-treeseed', deploymentId: 'treeseed-cloud', stackId: 'control-plane', environment: 'production', mutation: 'approval-required',
+		schemaVersion: 'treeseed.hosted-topology/v1', id: 'tree-production', teamId: 'team-treeseed', deploymentId: 'treeseed-cloud', stackId: 'control-plane', environment: 'production', mutation: 'agent-authorized',
 		platform: { repository: 'treeseed-ai/platform', commit: 'a'.repeat(40) },
 		stateBackend: { connectionRef: 'cloudflare-state' },
 		providerConnections: { cloudflare: { connectionRef: 'cloudflare-production' }, railway: { connectionRef: 'railway-production' } },
@@ -54,7 +54,7 @@ function connections() {
 
 const backend = bindHostedStateBackend({ schemaVersion: 'treeseed.hosted-state-backend/v1', type: 's3', teamId: 'team-treeseed', deploymentId: 'treeseed-cloud', environment: 'production', stackId: 'control-plane', connectionRef: 'cloudflare-state', bucket: 'treeseed-infrastructure-state', key: hostedTopologyStateKey({ teamId: 'team-treeseed', deploymentId: 'treeseed-cloud', environment: 'production', stackId: 'control-plane' }), region: 'auto', endpoint: 'https://r2.example.test', usePathStyle: true, encryptionKeyRef: 'treeseed-cloud-state' });
 function plan(observations: HostedResourceObservation[] = []) { return planHostedTopology({ declaration: topology(), observations, connections: connections(), stateBackend: backend }); }
-function approved(input = plan()) { return authorizeHostedTopologyPlan(input, { schemaVersion: 'treeseed.hosted-topology-approval/v1', planDigest: input.planDigest, teamId: input.teamId, deploymentId: input.deploymentId, stackId: input.stackId, environment: input.environment, backendBindingDigest: input.stateBackend!.bindingDigest, decision: 'approved', approvedBy: 'release-approver', approvedAt: now }); }
+function executable(input = plan()) { return authorizeHostedTopologyPlan(input); }
 
 const values = (request: HostedInfrastructureAuthorityRequest) => request.credentialProfileId === 'railway-workspace' ? { apiToken: 'railway-secret' }
 	: request.credentialProfileId === 's3-state-session' ? { accessKeyId: 'state-key', secretAccessKey: 'state-secret', sessionToken: 'state-session' }
@@ -114,12 +114,12 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 			{ id: 'proxy', source: 'https://artifacts.example.test/api-proxy.mjs', digest: digest(workerSource), path: 'artifacts/proxy' },
 		]);
 		expect(first.pagesDeployments).toHaveLength(1);
-		expect(renderHostedInfrastructureWorkspace({ plan: approved() }).executable).toBe(true);
-		expect(() => renderHostedInfrastructureWorkspace({ plan: { ...approved(), stateBackend: { ...backend, teamId: 'other-team' } } as never })).toThrow(/custody|digest/u);
+		expect(renderHostedInfrastructureWorkspace({ plan: executable() }).executable).toBe(true);
+		expect(() => renderHostedInfrastructureWorkspace({ plan: { ...executable(), stateBackend: { ...backend, teamId: 'other-team' } } as never })).toThrow(/custody|digest/u);
 	});
 
 	it('requires environment-bound TreeSeed service-vault authority', async () => {
-		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() });
+		const workspace = renderHostedInfrastructureWorkspace({ plan: executable() });
 		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'railway-workspace', 's3-state-session', 'opentofu-state-encryption']);
 		expect(workspace.authorities.find(({ purpose }) => purpose === 'state-encryption')).toMatchObject({ connectionRef: 'cloudflare-state', secretRef: 'treeseed-cloud-state' });
 		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
@@ -132,7 +132,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 	});
 
 	it('accepts single-use client-encrypted R2 authority without requiring an STS token', async () => {
-		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() });
+		const workspace = renderHostedInfrastructureWorkspace({ plan: executable() });
 		const authority = await resolveHostedInfrastructureVaultAuthority(workspace, async (request) => ({
 			...await vaultResolver(request), scheme: 'client-encrypted' as const,
 			expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
@@ -176,7 +176,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 
 	it('renders imports for reviewed existing resources without replacement', () => {
 		const declaration = topology(), observations = declaration.resources.map((resource): HostedResourceObservation => ({ resourceId: resource.id, provider: resource.provider, kind: resource.kind, providerResourceId: `${resource.id}-provider-id`, state: 'healthy', managedBy: 'treeseed', observedDigest: null, observedAt: now }));
-		const workspace = renderHostedInfrastructureWorkspace({ plan: approved(plan(observations)) });
+		const workspace = renderHostedInfrastructureWorkspace({ plan: executable(plan(observations)) });
 		expect(workspace.imports).toContainEqual({ address: 'cloudflare_pages_project.managed["admin"]', id: 'cf-account/treeseed-admin' });
 		expect(workspace.imports).toContainEqual({ address: 'cloudflare_dns_record.managed["admin-dns"]', id: 'cf-zone/admin-dns-provider-id' });
 		expect(workspace.imports).toContainEqual({ address: 'railway_service.managed["api"]', id: 'api-provider-id:rw-environment' });
@@ -202,13 +202,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const unauthorized = renderHostedInfrastructureWorkspace({ plan: plan() });
 		const authority = await resolveHostedInfrastructureVaultAuthority(unauthorized, vaultResolver), result = await executor.plan(unauthorized, root, authority);
 		await expect(executor.apply(unauthorized, root, authority, result)).rejects.toThrow(/authorized executable/u);
-		authorized = renderHostedInfrastructureWorkspace({ plan: approved() });
+		authorized = renderHostedInfrastructureWorkspace({ plan: executable() });
 		const authorizedAuthority = await resolveHostedInfrastructureVaultAuthority(authorized, vaultResolver);
-		const approvedResult = await executor.plan(authorized, root, authorizedAuthority);
+		const executableResult = await executor.plan(authorized, root, authorizedAuthority);
 		const rotatedAuthority = { ...authorizedAuthority, materials: authorizedAuthority.materials.map((material, index) => index ? material : { ...material, authorityVersion: material.authorityVersion + 1 }) };
-		await expect(executor.apply(authorized, root, rotatedAuthority, approvedResult)).rejects.toThrow(/changed after planning/u);
-		await expect(executor.apply(authorized, root, authorizedAuthority, { ...approvedResult, executionPlanDigest: `sha256:${'f'.repeat(64)}` })).rejects.toThrow(/approved digest/u);
-		expect((await executor.apply(authorized, root, authorizedAuthority, approvedResult)).applied).toBe(true);
+		await expect(executor.apply(authorized, root, rotatedAuthority, executableResult)).rejects.toThrow(/changed after planning/u);
+		await expect(executor.apply(authorized, root, authorizedAuthority, { ...executableResult, executionPlanDigest: `sha256:${'f'.repeat(64)}` })).rejects.toThrow(/authorized digest/u);
+		expect((await executor.apply(authorized, root, authorizedAuthority, executableResult)).applied).toBe(true);
 		const observations = await executor.readback(authorized, root, authorizedAuthority);
 		expect(observations).toHaveLength(6); expect(observations.every(({ state, managedBy }) => state === 'healthy' && managedBy === 'treeseed')).toBe(true);
 		expect(calls.some((args) => args[0] === 'init')).toBe(true); expect(calls.some((args) => args[0] === 'apply')).toBe(true);
@@ -223,13 +223,13 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 
 	it('rejects authoritative read-back when refresh detects drift', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-drift-readback-')); roots.push(root);
-		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
+		const workspace = renderHostedInfrastructureWorkspace({ plan: executable() }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
 		const executor = new HostedInfrastructureExecutor(async (args) => args[0] === 'plan' ? { code: 2, stdout: '', stderr: '' } : { code: 0, stdout: '', stderr: '' });
 		await expect(executor.readback(workspace, root, authority)).rejects.toThrow(/detected hosted infrastructure drift/u);
 	});
 
-	it('executes only a complete approved rollback closure and reads back removals', async () => {
-		const sourcePlan = approved(), observedAt = now;
+	it('executes only a complete authorized rollback closure and reads back removals', async () => {
+		const sourcePlan = executable(), observedAt = now;
 		const resources: HostedResourceObservation[] = sourcePlan.actions.map((action, index) => ({ resourceId: action.resourceId, provider: action.provider, kind: action.kind, providerResourceId: `${action.resourceId}-id`, state: 'healthy', managedBy: 'treeseed', observedDigest: action.desiredDigest, observedAt }));
 		const previousResources = resources.map((resource) => resource.provider === 'cloudflare' ? { ...resource, providerResourceId: null, state: 'missing' as const, managedBy: null, observedDigest: null } : resource);
 		const receipt = verifyHostedTopologyReadback({ plan: sourcePlan, previousResources, resources, completedAt: now });
@@ -237,7 +237,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 		const targetDeclaration = hostedTopologyDeclarationSchema.parse({ ...declaration, resources: declaration.resources.filter(({ provider }) => provider === 'railway') });
 		const targetPlan = planHostedTopology({ declaration: targetDeclaration, observations: previousResources.filter(({ provider }) => provider === 'railway'), connections: connections(), stateBackend: backend });
 		const execution = planHostedTopologyRollbackExecution({ rollback, sourceReceipt: receipt, sourcePlan, targetPlan });
-		const workspace = renderHostedInfrastructureRollbackWorkspace({ execution, approval: { schemaVersion: 'treeseed.hosted-topology-rollback-execution-approval/v1', executionDigest: execution.executionDigest, teamId: execution.teamId, deploymentId: execution.deploymentId, stackId: execution.stackId, environment: rollback.environment, backendBindingDigest: execution.backendBindingDigest, decision: 'approved', approvedBy: 'release-approver', approvedAt: now }, sourceReceipt: receipt, sourcePlan, targetPlan });
+		const workspace = renderHostedInfrastructureRollbackWorkspace({ execution, sourceReceipt: receipt, sourcePlan, targetPlan });
 		expect(workspace.executable).toBe(true); expect(workspace.planDigest).toBe(rollback.rollbackDigest); expect(workspace.files['main.tf']).toContain('prevent_destroy = false');
 		expect(workspace.removedResources.map(({ resourceId }) => resourceId)).toEqual(['admin', 'admin-dns', 'admin-tls', 'api-proxy']);
 		expect(workspace.authorities.map(({ credentialProfileId }) => credentialProfileId)).toEqual(['cloudflare-dns', 'cloudflare-runtime', 'railway-workspace', 's3-state-session', 'opentofu-state-encryption']);
@@ -261,7 +261,7 @@ describe('Deployment-owned OpenTofu hosted infrastructure', () => {
 
 	it('redacts service-vault material from OpenTofu failures', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'treeseed-opentofu-redaction-')); roots.push(root);
-		const workspace = renderHostedInfrastructureWorkspace({ plan: approved() }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
+		const workspace = renderHostedInfrastructureWorkspace({ plan: executable() }), authority = await resolveHostedInfrastructureVaultAuthority(workspace, vaultResolver);
 		const executor = new HostedInfrastructureExecutor(async (args) => args[0] === 'version'
 			? { code: 0, stdout: JSON.stringify({ terraform_version: '1.12.6' }), stderr: '' }
 			: { code: 1, stdout: '', stderr: 'provider returned runtime-secret and state-secret' }, async (url) => new Response(String(url).endsWith('api-proxy.mjs') ? workerSource : pagesArchive));
