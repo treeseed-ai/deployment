@@ -23,8 +23,10 @@ import { waitForStartingActivation } from './activation-wait.js';
 import { ensureDevelopmentConfiguration } from './development-configuration.js';
 import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
 import { initializeHostConfiguration } from './configuration-initialize.js';
+import { componentComposeArguments, composeProjectContainerIds, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
 
-export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
+export type { CommandRunner } from './compose-runtime.js';
+
 const run: CommandRunner = (executable, arguments_, input) => {
 	const output = execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'pipe', 'inherit'], ...(input === undefined ? {} : { input, encoding: 'utf8' }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } });
 	return typeof output === 'string' ? output : undefined;
@@ -104,25 +106,6 @@ export function importDevelopmentSandboxGuest(archivePath: string, image: string
 	atomicJson(options.brokerPath ?? '/etc/treeseed/sandbox/broker.json', next, 0o640);
 	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
 	return { image, digest, architecture, imported: true };
-}
-
-function bundledComposeFiles(files: readonly string[]) {
-	return files.flatMap((file) => {
-		const absolute = resolve(paths.bundles, file), root = resolve(paths.bundles);
-		if (!absolute.startsWith(`${root}${sep}`)) throw new Error('Compose file is outside the packaged component root.');
-		return ['--file', absolute];
-	});
-}
-
-function componentComposeArguments(componentId: string, files: readonly string[]) {
-	return ['--env-file', `/etc/treeseed/components/${componentId}/environment`, ...bundledComposeFiles(files)];
-}
-
-function composeProjectContainerIds(projectName: string, command: CommandRunner, runningOnly = false) {
-	const output = command('/usr/bin/docker', [
-		'ps', ...(runningOnly ? [] : ['--all']), '--quiet', '--filter', `label=com.docker.compose.project=${projectName}`,
-	], '');
-	return typeof output === 'string' ? output.trim().split(/\s+/u).filter(Boolean) : [];
 }
 
 function safeDiagnosticText(value: unknown) {
@@ -412,9 +395,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			}
 		} finally { restoreSecrets(operation.componentId); } break;
 		case 'compose.status': {
-			const containers = composeProjectContainerIds(operation.projectName, command);
-			const running = composeProjectContainerIds(operation.projectName, command, true);
-			return { present: containers.length > 0, running: running.length > 0, containers: containers.length, runningContainers: running.length };
+			return composeRuntimeStatus(operation, command);
 		}
 		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;
 		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);

@@ -17,7 +17,7 @@ const state = vi.hoisted(() => ({
 	refreshFailure: null as Error | null,
 	installFailure: null as Error | null,
 	activationFailure: null as Error | null,
-	composeStatus: null as null | { present: boolean; running: boolean },
+	composeStatus: null as null | { present: boolean; running: boolean; ready?: boolean; issues?: Array<{ service: string; reason: string }> },
 	operations: [] as any[],
 	events: [] as any[],
 	evidence: [] as any[],
@@ -209,6 +209,22 @@ describe('isolated update fault qualification', () => {
 		expect(repaired?.receiptId).not.toBe(state.previous.receiptId);
 		expect(state.operations.filter(({ operation }) => operation === 'compose.activate')).toHaveLength(1);
 		expect(state.events).toContainEqual({ type: 'component.repair-required', details: { componentId: 'agent', present: false, running: false } });
+	});
+
+	it.each([
+		['missing', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'missing' }] }],
+		['stopped', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'stopped' }] }],
+		['unhealthy', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'unhealthy' }] }],
+		['wrong-image', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'wrong-image' }] }],
+	])('repairs %s service drift even when another project service is running', async (_reason, status) => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.composeStatus = status; state.operations = [];
+		const repaired = await reconcile('development');
+		expect(repaired?.receiptId).not.toBe(state.previous.receiptId);
+		expect(state.operations.filter(({ operation }) => operation === 'compose.activate')).toHaveLength(1);
+		expect(state.events).toContainEqual({ type: 'component.repair-required', details: { componentId: 'agent', present: true, running: true, issues: status.issues } });
 	});
 });
 

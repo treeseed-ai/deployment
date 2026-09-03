@@ -377,10 +377,11 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	}
 	if (previous) {
 		for (const component of targets.filter((candidate) => !heldDevelopmentComponents.has(candidate.componentId))) {
-			const status = await requestSupervisor<{ present?: boolean; running?: boolean }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName });
-			if (typeof status?.present === 'boolean' && (!status.present || !status.running)) {
+			const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
+			const status = await requestSupervisor<{ present?: boolean; running?: boolean; ready?: boolean; issues?: Array<{ service: string; reason: string }> }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName, runtime: { componentId: component.componentId, files: composeFiles(component), services } });
+			if (status?.ready === false || typeof status?.present === 'boolean' && (!status.present || !status.running)) {
 				changedIds.add(component.componentId);
-				recordEvent('component.repair-required', { componentId: component.componentId, present: status.present, running: status.running === true });
+				recordEvent('component.repair-required', { componentId: component.componentId, present: status.present === true, running: status.running === true, ...(status.issues?.length ? { issues: status.issues } : {}) });
 			}
 		}
 	}
