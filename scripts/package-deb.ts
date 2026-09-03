@@ -44,12 +44,13 @@ function normalize(path: string) {
 	if (stat.isDirectory()) for (const name of readdirSync(path)) normalize(resolve(path, name));
 	if (!stat.isSymbolicLink()) chmodSync(path, stat.mode & ~0o022);
 }
+const sdkRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod'] as const;
 function managerPayload(stage: string) {
 	directory(resolve(stage, 'usr/lib/treeseed/manager'));
 	cpSync(resolve(root, 'dist/src'), resolve(stage, 'usr/lib/treeseed/manager/dist/src'), { recursive: true });
 	cpSync(resolve(root, 'infrastructure'), resolve(stage, 'usr/lib/treeseed/manager/infrastructure'), { recursive: true });
 	writeFileSync(resolve(stage, 'usr/lib/treeseed/manager/package.json'), '{"type":"module"}\n');
-	for (const dependency of ['@treeseed/sdk', '@treeseed/treedx', 'typescript', 'yaml', 'zod']) {
+	for (const dependency of sdkRuntimePaths) {
 		const source = resolve(root, 'node_modules', dependency);
 		if (!existsSync(source)) throw new Error(`Runtime dependency ${dependency} is not installed.`);
 		cpSync(source, resolve(stage, 'usr/lib/treeseed/manager/node_modules', dependency), { recursive: true });
@@ -96,7 +97,7 @@ function componentDefinitions(integration: IntegrationRelease) {
 const packageIntegration = aptSuite ? selectedIntegration() : developmentIntegration ?? stableIntegration;
 const sdkPayload = packageIntegration && hostPayload('sdk', packageIntegration);
 const cliPayload = packageIntegration && hostPayload('cli', packageIntegration);
-const sdkOwnedCliRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'yaml', 'zod'] as const;
+const sdkOwnedCliRuntimePaths = sdkRuntimePaths.filter((path) => path !== 'typescript');
 const cliPackageVersion = cliPayload ? `${debianVersion(cliPayload.version).replace(/-1$/u, '-2')}+deployment${deploymentVersion.replace(/-1$/u, '')}` : deploymentVersion;
 const packages: Record<string, Definition> = {
 	'treeseed': { architecture: 'amd64', depends: 'systemd, ca-certificates, curl, gnupg, openssl, jq, apt (>= 2.4)', description: 'Generic credential-free TreeSeed host bootstrap foundation', postinst: 'debian/bootstrap/postinst', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/bootstrap/keyrings')); for (const file of ['stable.sources', 'development.sources', 'preferences.stable', 'preferences.development']) install(`deploy/bootstrap/${file}`, resolve(stage, `usr/share/treeseed/bootstrap/${file}`)); for (const track of ['stable', 'development']) install(`release/apt/${track}.asc`, resolve(stage, `usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-${track}.asc`)); for (const track of ['stable', 'development']) { const keyring = resolve(stage, `usr/share/treeseed/bootstrap/keyrings/treeseed-deployment-${track}.gpg`); execFileSync('gpg', ['--batch', '--yes', '--dearmor', '--output', keyring, resolve(root, `release/apt/${track}.asc`)]); chmodSync(keyring, 0o644); } const suite = resolve(stage, 'usr/share/treeseed/bootstrap/suite'); writeFileSync(suite, aptSuite === 'stable' ? 'stable\n' : 'development\n'); chmodSync(suite, 0o644); install('scripts/bootstrap/bootstrap.sh', resolve(stage, 'usr/lib/treeseed/bootstrap/bootstrap.sh'), 0o755); unit(stage, 'treeseed-bootstrap.service'); } },
@@ -110,6 +111,11 @@ const packages: Record<string, Definition> = {
 		for (const [id, target] of [['treedx', '@treeseed/treedx'], ['yaml', 'yaml'], ['zod', 'zod']] as const) {
 			const payload = hostPayload(id, packageIntegration!);
 			extractNpm(payload.archive, resolve(modules, target));
+		}
+		for (const dependency of ['libsodium-sumo', 'libsodium-wrappers-sumo'] as const) {
+			const source = resolve(root, 'node_modules', dependency);
+			if (!existsSync(source)) throw new Error(`SDK runtime dependency ${dependency} is not installed.`);
+			cpSync(source, resolve(modules, dependency), { recursive: true });
 		}
 		cpSync(resolve(modules, '@treeseed/sdk'), resolve(stage, 'usr/share/treeseed/sdk'), { recursive: true });
 	} },

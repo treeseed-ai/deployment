@@ -60,7 +60,7 @@ try {
 	const bootstrap = readFileSync(resolve(root, 'usr/lib/treeseed/bootstrap/bootstrap.sh'), 'utf8');
 	if (bootstrap.includes('/etc/treeseed/platform.json') || bootstrap.includes('credentials.json') || bootstrap.includes('treeseed-component-')) throw new Error('Generic bootstrap contains configured host or component activation behavior.');
 	execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), [resolve(root, 'usr/lib/treeseed/cli/dist/cli/main.js'), 'host', 'status', '--help'], { encoding: 'utf8' });
-	for (const module of ['operator-contracts/operation-builder.js', 'standards/typescript/extract.js']) execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/dist', module)}`)})`], { encoding: 'utf8' });
+	for (const module of ['operator-contracts/operation-builder.js', 'secrets-capability/service-vault-crypto.js', 'standards/typescript/extract.js']) execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/dist', module)}`)})`], { encoding: 'utf8' });
 	const verifiedCatalog = (path: string) => {
 		const catalog = releaseCatalogSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
 		const declared = catalog.catalogDigest;

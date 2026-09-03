@@ -27,7 +27,7 @@ describe('Debian and systemd contracts', () => {
 	it('keeps SDK-owned runtime dependencies out of the Debian CLI payload', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
-		expect(packaging).toContain("const sdkOwnedCliRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'yaml', 'zod']");
+		expect(packaging).toContain("const sdkOwnedCliRuntimePaths = sdkRuntimePaths.filter((path) => path !== 'typescript')");
 		expect(packaging).toContain('for (const path of sdkOwnedCliRuntimePaths) rmSync');
 		expect(verification).toContain('both own ${path}');
 	});
@@ -35,8 +35,9 @@ describe('Debian and systemd contracts', () => {
 	it('ships and imports the manager SDK runtime closure', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
-		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'typescript', 'yaml', 'zod']");
-		expect(verification).toContain("'operator-contracts/operation-builder.js', 'standards/typescript/extract.js'");
+		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod']");
+		expect(packaging).toContain("['libsodium-sumo', 'libsodium-wrappers-sumo']");
+		expect(verification).toContain("'operator-contracts/operation-builder.js', 'secrets-capability/service-vault-crypto.js', 'standards/typescript/extract.js'");
 	});
 
 	it('ships provider credential initializers as replaceable data registrations', () => {
