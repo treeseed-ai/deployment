@@ -46,3 +46,30 @@ release:
   imagePlatforms:
     - linux/amd64
     - linux/arm64
+development:
+  schemaVersion: treeseed.development-runtime/v1
+  project: { id: deployment, repository: treeseed-ai/deployment }
+  defaults: { leaseSeconds: 14400, restoreOnFailure: true }
+  targets:
+    - id: package
+      kind: package-watch
+      platforms: [linux-amd64, linux-arm64, darwin-arm64, darwin-amd64]
+      runtimeRequirements: [node>=22]
+      sourceRoots: [src, scripts/development, package.json, tsconfig.json]
+      ignoredPaths: [dist, node_modules]
+      operations:
+        watch: { command: node, args: [--watch-path=src, --watch-path=package.json, --import, tsx, scripts/development/build-watch.ts], environment: {}, timeoutSeconds: 86400 }
+        build: { command: node, args: [--import, tsx, scripts/development/build-watch.ts], environment: {}, timeoutSeconds: 900 }
+        verify: { command: npm, args: [test], environment: {}, timeoutSeconds: 1800 }
+      ready: { kind: marker, path: dist/.treeseed-build-complete.json, timeoutSeconds: 120 }
+      outputs: [{ path: dist, mediaType: application/vnd.treeseed.node-package, completionMarker: dist/.treeseed-build-complete.json, digestAlgorithm: sha256 }]
+      endpoints: []
+      dependencies: [{ id: sdk, target: package, locality: local, reaction: rebuild }]
+      statePolicy: stateless
+      migrationPolicy: none
+      secretRefs: {}
+      shutdown: { graceSeconds: 10, activeWorkPolicy: block }
+      resources: {}
+      logs: [.treeseed/development/package.log]
+      forbiddenOperations: [publish, production-tag]
+      promotion: { liveAdmissible: false, candidateRequiresVerification: true }
