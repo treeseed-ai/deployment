@@ -17,24 +17,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Hydrate exact SDK artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          sdk_sha="$(node -e "const spec=require('./package.json').dependencies['@treeseed/sdk']; process.stdout.write(spec.match(/#([0-9a-f]{40})$/)?.[1] ?? '')")"
-          test -n "$sdk_sha"
-          run_id="$(gh run list --repo treeseed-ai/sdk --workflow verify.yml --commit "$sdk_sha" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$run_id"
-          mkdir -p artifacts/sdk
-          gh run download "$run_id" --repo treeseed-ai/sdk --name "sdk-${sdk_sha}" --dir artifacts/sdk
       - run: npm ci
-      - name: Install sealed SDK artifact
-        run: |
-          sdk_archive="$(find artifacts/sdk -name '*.tgz' -type f -print -quit)"
-          test -n "$sdk_archive"
-          rm -rf node_modules/@treeseed/sdk
-          mkdir -p node_modules/@treeseed/sdk
-          tar -xzf "$sdk_archive" --strip-components=1 -C node_modules/@treeseed/sdk
       - run: npm run verify:direct
       - run: npm run verify:deb
         env:
@@ -58,24 +41,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Hydrate exact SDK artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          sdk_sha="$(node -e "const spec=require('./package.json').dependencies['@treeseed/sdk']; process.stdout.write(spec.match(/#([0-9a-f]{40})$/)?.[1] ?? '')")"
-          test -n "$sdk_sha"
-          run_id="$(gh run list --repo treeseed-ai/sdk --workflow verify.yml --commit "$sdk_sha" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$run_id"
-          mkdir -p artifacts/sdk
-          gh run download "$run_id" --repo treeseed-ai/sdk --name "sdk-${sdk_sha}" --dir artifacts/sdk
       - run: npm ci
-      - name: Install sealed SDK artifact
-        run: |
-          sdk_archive="$(find artifacts/sdk -name '*.tgz' -type f -print -quit)"
-          test -n "$sdk_archive"
-          rm -rf node_modules/@treeseed/sdk
-          mkdir -p node_modules/@treeseed/sdk
-          tar -xzf "$sdk_archive" --strip-components=1 -C node_modules/@treeseed/sdk
       - name: Verify current and legacy uninstall on disposable VM
         run: sudo --preserve-env=GITHUB_ACTIONS,TREESEED_UNINSTALL_DISPOSABLE_VM "$(command -v node)" --import tsx scripts/verify-uninstall-vm.ts | tee uninstall-vm.json
         env:
