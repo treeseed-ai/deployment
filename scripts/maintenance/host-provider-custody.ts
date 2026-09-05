@@ -1,7 +1,7 @@
 // Temporary maintenance payload; removed after the accepted cutover, never a startup hook.
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { constants, closeSync, existsSync, fstatSync, fsyncSync, openSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
 import { convertProviderCustody } from './provider-custody.js';
@@ -38,6 +38,7 @@ function inventory() {
       if(state.generatedCredentialRef)refs.add(state.generatedCredentialRef);
     }
   }
+  if(refs.size>128)throw new Error();
   const records=[...refs].sort().map(ref=>{
     if(!/^data:\/\/[a-zA-Z0-9][a-zA-Z0-9_.\/-]*$/u.test(ref)||ref.slice(7).split('/').some(p=>!p||p==='.'||p==='..'))throw new Error();
     const source=join(root,ref.slice(7));
@@ -51,6 +52,12 @@ function inventory() {
 }
 function status() {
   const plan=JSON.parse(read(planPath));
+  const current=inventory();if(current.digest!==plan.digest)throw new Error();
+  const sourceBoundaries=current.records.map(({ref})=>{
+    const source=join(root,ref.slice(7)),backup=join(root,'custody-recovery',`${createHash('sha256').update(ref).digest('hex')}.envelope`);
+    const stat=lstatSync(existsSync(source)?source:backup);
+    return {ownerMatches:stat.uid===process.getuid?.(),mode:stat.mode&0o777,singleLink:stat.nlink===1};
+  });
   const receipt=existsSync(receiptPath)?JSON.parse(read(receiptPath)):null;
   const failures=['convert','convert-retired-development-v1'].flatMap(phase=>{
     const file=join(root,`.provider-custody-failure-${phase}.json`);if(!existsSync(file))return [];
@@ -60,6 +67,7 @@ function status() {
   });
   return {ok:true,inventoryDigest:plan.digest,records:plan.records.length,
     failures,
+    sourceBoundaries,
     converted:receipt?.converted??null,identityPreserved:receipt?.identityPreserved===true,
     fingerprint:typeof receipt?.fingerprint==='string'&&/^sha256:[A-Za-z0-9_-]{43}$/u.test(receipt.fingerprint)?receipt.fingerprint:null};
 }
