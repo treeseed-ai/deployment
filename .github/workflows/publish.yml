@@ -220,14 +220,14 @@ jobs:
           expected_inrelease="$(sha256sum ".treeseed/pages/apt/dists/${{ inputs.suite }}/InRelease" | awk '{print $1}')"
           pages_commit="$(git -C .treeseed/pages rev-parse HEAD)"
           pages_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/apt/dists/${{ inputs.suite }}/InRelease"
-          for attempt in {1..90}; do
+          for attempt in {1..240}; do
             if actual_inrelease="$(curl --fail --silent --show-error --location --max-time 30 "${pages_url}?commit=${pages_commit}&attempt=${attempt}" | sha256sum | awk '{print $1}')" \
               && [ "$actual_inrelease" = "$expected_inrelease" ]; then
               printf 'APT Pages read-back converged at %s after %s attempt(s).\n' "$pages_commit" "$attempt"
               exit 0
             fi
-            printf 'APT Pages read-back attempt %s/90 has not converged for %s.\n' "$attempt" "$pages_commit" >&2
-            if [ "$attempt" -lt 90 ]; then sleep 10; fi
+            printf 'APT Pages read-back attempt %s/240 has not converged for %s.\n' "$attempt" "$pages_commit" >&2
+            if [ "$attempt" -lt 240 ]; then sleep 10; fi
           done
           printf 'APT Pages read-back did not converge for %s; expected InRelease SHA-256 %s.\n' "$pages_commit" "$expected_inrelease" >&2
           exit 1
