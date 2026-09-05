@@ -9,6 +9,31 @@ permissions:
   contents: read
 
 jobs:
+  secret-custody:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Fetch digest-pinned disposable OpenBao
+        shell: bash
+        run: |
+          custody_dir=$(mktemp -d)
+          curl --fail --silent --show-error --location https://github.com/openbao/openbao/releases/download/v2.6.2/openbao_2.6.2_linux_amd64.tar.gz --output "$custody_dir/openbao.tar.gz"
+          printf '8dc11cc5fca0b539a9e352727dacb4e2d304daffcf9a66e0718ac325a20d05aa  %s/openbao.tar.gz\n' "$custody_dir" | sha256sum --check --strict
+          tar -xzf "$custody_dir/openbao.tar.gz" -C "$custody_dir" bao
+          printf 'TREESEED_TEST_OPENBAO_BINARY=%s/bao\n' "$custody_dir" >> "$GITHUB_ENV"
+      - name: Verify TLS custody against real OpenBao
+        run: node --import tsx scripts/verify-secret-custody.ts | tee secret-custody.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: secret-custody-${{ github.sha }}
+          path: secret-custody.json
+          if-no-files-found: error
+          retention-days: 14
   verify:
     runs-on: ubuntu-latest
     steps:

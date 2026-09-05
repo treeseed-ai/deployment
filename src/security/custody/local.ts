@@ -3,6 +3,8 @@ import { constants, closeSync, existsSync, fsyncSync, fstatSync, lstatSync, open
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { CustodyError, secretPath, validateSecretValues, validateVersion, type SecretRecord, type SecretScope } from './contracts.js';
 
+type StoredRecord = { version: number; values: Record<string, string> | null };
+
 /** The caller provisions an owner-only directory and supplies a key from OS custody.
  * No key files, environment fallback, default keys, or plaintext import are supported.
  * The directory must not be writable by another principal (including its ancestors).
@@ -53,7 +55,7 @@ export class LocalSecretCustody {
 			aad: Buffer.from(`treeseed.local-secret/v1:${canonical}`) };
 	}
 
-	#read(path: string, aad: Buffer): SecretRecord | null {
+	#read(path: string, aad: Buffer): StoredRecord | null {
 		let fd: number;
 		try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
 		catch (error) {
@@ -71,10 +73,10 @@ export class LocalSecretCustody {
 			decipher.setAuthTag(encoded.subarray(12, 28));
 			const plaintext = Buffer.concat([decipher.update(encoded.subarray(28)), decipher.final()]);
 			try {
-				const record: SecretRecord = JSON.parse(plaintext.toString('utf8'));
+				const record: StoredRecord = JSON.parse(plaintext.toString('utf8'));
 				validateVersion(record.version);
 				if (!record.version) throw new CustodyError('invalid_record');
-				validateSecretValues(record.values);
+				if (record.values !== null) validateSecretValues(record.values);
 				return record;
 			} finally { plaintext.fill(0); }
 		} catch { throw new CustodyError('invalid_record'); }
@@ -83,11 +85,27 @@ export class LocalSecretCustody {
 
 	read(scope: SecretScope): SecretRecord | null {
 		const { path, aad } = this.#location(scope);
-		return this.#read(path, aad);
+		const record = this.#read(path, aad);
+		return record?.values ? { version: record.version, values: record.values } : null;
+	}
+
+	version(scope: SecretScope): number {
+		const { path, aad } = this.#location(scope);
+		return this.#read(path, aad)?.version ?? 0;
 	}
 
 	write(scope: SecretScope, values: Record<string, string>, expectedVersion: number): number {
 		validateSecretValues(values);
+		return this.#mutate(scope, values, expectedVersion);
+	}
+
+	/** Deletion advances the CAS counter, so a stale writer cannot recreate a removed value. */
+	tombstone(scope: SecretScope, expectedVersion: number): number {
+		if (expectedVersion === 0) throw new CustodyError('invalid_version');
+		return this.#mutate(scope, null, expectedVersion);
+	}
+
+	#mutate(scope: SecretScope, values: Record<string, string> | null, expectedVersion: number): number {
 		validateVersion(expectedVersion);
 		const { path, aad } = this.#location(scope), lock = `${path}.lock`;
 		let lockFd: number;

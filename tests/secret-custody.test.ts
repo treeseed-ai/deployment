@@ -46,6 +46,17 @@ describe('OS-key local custody', () => {
 		expect(store.read(scope)?.values.token).toBe('two');
 	});
 
+	it('removes values with a versioned tombstone and denies stale resurrection', () => {
+		const { store, root } = local();
+		store.write(scope, { token: 'removed' }, 0);
+		expect(store.tombstone(scope, 1)).toBe(2);
+		expect(store.read(scope)).toBeNull(); expect(store.version(scope)).toBe(2);
+		expect(() => store.write(scope, { token: 'stale' }, 0)).toThrow('version_conflict');
+		expect(() => store.tombstone(scope, 1)).toThrow('version_conflict');
+		expect(store.write(scope, { token: 'recreated' }, 2)).toBe(3);
+		expect(readdirSync(root)).toHaveLength(1);
+	});
+
 	it.each(['team', 'project', 'environment', 'purpose', 'name'] as const)('binds ciphertext to %s', (part) => {
 		const { store, root } = local();
 		store.write(scope, { token: 'original' }, 0);
