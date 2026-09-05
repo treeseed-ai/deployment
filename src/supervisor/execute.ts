@@ -7,7 +7,8 @@ import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
-import { configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
+import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
+import { providerRuntimeStatus } from './provider-runtime.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { resetPlatformState } from './reset.js';
@@ -295,6 +296,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
+	if (operation.operation === 'provider.runtime.status') return providerRuntimeStatus(componentStateRoot(loadHostConfiguration(), 'agent'));
 	switch (operation.operation) {
 		case 'supervisor.ping': return { ready: true };
 		case 'security.plan': return providerSecurityPlan();
