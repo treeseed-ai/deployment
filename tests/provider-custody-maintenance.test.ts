@@ -38,6 +38,14 @@ describe('maintenance-only provider conversion',()=>{
     expect(()=>convertProviderCustody(f.input)).toThrow('conversion failed');
     expect(existsSync(join(f.root,'identity-v3.json'))).toBe(true);
   });
+  it('requires explicit source key selection and always re-encrypts under current OS custody',()=>{
+    const f=fixture(),newOsKey=randomBytes(32);
+    expect(()=>convertProviderCustody({...f.input,osKey:newOsKey})).toThrow();
+    const receipt=convertProviderCustody({...f.input,osKey:newOsKey,sourceKey:f.input.osKey});
+    expect(receipt.identityPreserved).toBe(true);
+    const store=new LocalSecretCustody(join(f.root,'custody'));store.unlock(createHash('sha256').update(newOsKey).digest());
+    expect(store.read({team:'host',project:'agent',environment:'local',purpose:'provider',name:createHash('sha256').update(f.input.identityRef).digest('hex')})?.values.value).toBe(f.identity);store.lock();
+  });
   it('rejects plaintext, path traversal, symlinks and unquiesced execution',()=>{
     const f=fixture();
     expect(()=>convertProviderCustody({...f.input,quiesced:false as true})).toThrow();
