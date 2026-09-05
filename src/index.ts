@@ -19,6 +19,7 @@ export * from './manager/reset-safety.js';
 export * from './manager/update-policy.js';
 export * from './manager/update-state.js';
 export * from './sandbox/image-reference.js';
+export * from './security/custody/index.js';
 export * from './runtime/compose.js';
 export * from './supervisor/execute.js';
 export * from './supervisor/host-runtime.js';
