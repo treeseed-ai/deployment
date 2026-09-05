@@ -5,12 +5,13 @@ import { resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { managedHostRuntimeEnvironment } from './host-runtime.js';
+import { prepareManagedOpenBao } from '../security/custody/managed-files.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
 const credentialPath = /^\/etc\/treeseed\/credentials\/[a-z0-9][a-z0-9._-]{0,127}$/u;
 const stateDirectories: Record<string, string[]> = {
-	api: ['postgres', 'operations-runner'],
+	api: ['postgres', 'operations-runner', 'openbao', 'openbao-custody', 'openbao-os'],
 	admin: [],
 	agent: [],
 	treedx: ['data'],
@@ -245,6 +246,7 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	}
 	if (componentId === 'agent') { const historical = applicationKeys.filter((entry) => !entry.active).map((entry) => `${entry.version}:/run/credentials/credentials-v${entry.version}`).join(','); if (historical) connectionEnvironment.TREESEED_PROVIDER_CREDENTIAL_HISTORICAL_KEY_FILES = historical; }
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
+	if (componentId === 'api') prepareManagedOpenBao(stateRoot);
 	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
 	let files: Record<string, unknown>;
 	try {

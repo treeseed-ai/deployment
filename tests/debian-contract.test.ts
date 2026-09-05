@@ -37,7 +37,7 @@ describe('Debian and systemd contracts', () => {
 		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
 		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod']");
 		expect(packaging).toContain("['libsodium-sumo', 'libsodium-wrappers-sumo']");
-		expect(verification).toContain("'operator-contracts/operation-builder.js', 'secrets-capability/service-vault-crypto.js', 'standards/typescript/extract.js'");
+		for (const entry of ['operator-contracts/operation-builder.js', 'secrets-capability/secret-contracts.js', 'secrets-capability/github-actions-encryption.js', 'standards/typescript/extract.js']) expect(verification).toContain(entry);
 	});
 
 	it('ships provider credential initializers as replaceable data registrations', () => {

@@ -37,7 +37,7 @@ export interface HostedInfrastructureVaultMaterial {
 	credentialProfileId: HostedInfrastructureCredentialProfile;
 	capabilities: string[];
 	purpose: 'provider' | 'state-backend' | 'state-encryption';
-	scheme: 'environment-reference' | 'client-encrypted' | 'external-vault' | 'workload-identity';
+	scheme: 'openbao';
 	expiresAt: string | null;
 	values: Record<string, string>;
 }
@@ -72,6 +72,7 @@ function processBindings(material: HostedInfrastructureVaultMaterial) {
 }
 
 function validateMaterial(request: HostedInfrastructureAuthorityRequest, material: HostedInfrastructureVaultMaterial, now: Date) {
+	if (material.scheme !== 'openbao') throw new Error('Hosted credentials require core OpenBao custody.');
 	if (material.schemaVersion !== 'treeseed.service-credential-material/v1' || material.source !== 'treeseed-service-credential-vault') throw new Error('Hosted infrastructure authority must originate from the TreeSeed service credential vault.');
 	for (const field of ['requestId', 'teamId', 'deploymentId', 'stackId', 'environment', 'backendBindingDigest', 'provider', 'connectionRef', 'credentialProfileId', 'purpose'] as const) if (material[field] !== request[field]) throw new Error(`Hosted infrastructure vault material does not match ${field}.`);
 	if (material.secretRef !== request.secretRef) throw new Error('Hosted infrastructure vault material does not match secretRef.');

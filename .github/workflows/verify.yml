@@ -28,10 +28,14 @@ jobs:
           printf 'TREESEED_TEST_OPENBAO_BINARY=%s/bao\n' "$custody_dir" >> "$GITHUB_ENV"
       - name: Verify TLS custody against real OpenBao
         run: node --import tsx scripts/verify-secret-custody.ts | tee secret-custody.json
+      - name: Verify persistent core OpenBao bootstrap and restart
+        run: node --import tsx scripts/verify-managed-openbao.ts | tee managed-openbao.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: secret-custody-${{ github.sha }}
-          path: secret-custody.json
+          path: |
+            secret-custody.json
+            managed-openbao.json
           if-no-files-found: error
           retention-days: 14
   verify:
