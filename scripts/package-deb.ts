@@ -59,13 +59,6 @@ function managerPayload(stage: string) {
 	cpSync(resolve(root, 'credential-initializers'), resolve(stage, 'usr/share/treeseed/credential-initializers'), { recursive: true });
 	directory(resolve(stage, 'usr/lib/treeseed/manager/bin'));
 	install('scripts/bootstrap/initialize-pki.sh', resolve(stage, 'usr/lib/treeseed/manager/bin/initialize-pki'), 0o755);
-	// One-time, explicitly invoked maintenance payload; no supervisor hook or Agent startup migration.
-	if (existsSync(resolve(root, 'deploy/maintenance/provider-custody.yml'))) {
-		const maintenance = resolve(stage, 'usr/share/treeseed/components/provider-custody-maintenance');
-		install('deploy/maintenance/provider-custody.yml', resolve(maintenance, 'compose.yml'));
-		for (const file of ['scripts/maintenance/provider-custody.js', 'scripts/maintenance/host-provider-custody.js', 'src/security/custody/local.js', 'src/security/custody/contracts.js'])
-			install(`dist/${file}`, resolve(maintenance, 'payload', file));
-	}
 }
 function hostRuntime(stage: string) {
 	const manifest = JSON.parse(readFileSync(resolve(root, 'release/host-js-runtime.json'), 'utf8')) as { url: string; sha256: string };

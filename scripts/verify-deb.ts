@@ -56,6 +56,7 @@ for (const component of selected) for (const declared of component.packages) {
 const root = mkdtempSync(resolve(tmpdir(), 'treeseed-deb-proof-'));
 try {
 	for (const name of ['treeseed', 'treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', ...(aptSuite === 'development' ? ['treeseed-release-catalog-development'] : []), ...componentPackages]) execFileSync('dpkg-deb', ['--extract', resolve(output, packageFile(name)), root]);
+	if (existsSync(resolve(root,'usr/share/treeseed/components/provider-custody-maintenance'))) throw new Error('Retired provider maintenance payload must not be packaged.');
 	for (const forbidden of ['var/lib/treeseed/bootstrap/seed/platform.json', 'var/lib/treeseed/bootstrap/seed/credentials.json', 'var/lib/treeseed/bootstrap/seed/operator']) if (existsSync(resolve(root, forbidden))) throw new Error(`Generic bootstrap embeds forbidden host input ${forbidden}.`);
 	const bootstrap = readFileSync(resolve(root, 'usr/lib/treeseed/bootstrap/bootstrap.sh'), 'utf8');
 	if (bootstrap.includes('/etc/treeseed/platform.json') || bootstrap.includes('credentials.json') || bootstrap.includes('treeseed-component-')) throw new Error('Generic bootstrap contains configured host or component activation behavior.');
