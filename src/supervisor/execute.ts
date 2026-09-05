@@ -378,7 +378,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 				restoreSecrets(operation.componentId);
 				throw error;
 			}
-			if (operation.componentId === 'agent') {
+			if (operation.componentId === 'agent' && operation.projectName === 'treeseed-agent' && (!operation.services || operation.services.includes('manager'))) {
 				const input = `${JSON.stringify({ action: 'identities' })}\n`;
 				const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
 				for (const identity of sandboxIdentityReceipts(output)) trustProviderSandboxIdentity(identity);

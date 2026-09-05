@@ -156,6 +156,9 @@ function materializeApplicationKeys(host: HostConfiguration, componentId: string
 		? [{ purpose: 'credentials', version: host.security.applicationEncryption.activeKeyVersion }]
 		: [{ purpose: 'credentials', version: host.security.applicationEncryption.activeKeyVersion }, { purpose: 'diagnostics', version: host.security.applicationEncryption.diagnosticsKeyVersion }];
 	const root = `/run/treeseed/component-credentials/${componentId}`; mkdirSync(root, { recursive: true, mode: 0o700 });
+	// The Agent mounts this directory read-only as UID/GID 65532. Root retains
+	// directory ownership; only the credential consumer may traverse it.
+	if (componentId === 'agent') { chownSync(root, 0, 65_532); chmodSync(root, 0o710); }
 	const materialized: Array<{ purpose: string; version: number; target: string; active: boolean }> = [];
 	for (const { purpose, version } of generations) {
 		const credential = `application-${purpose === 'credentials' ? 'credential' : 'diagnostics'}-kek-v${version}`, source = `/etc/treeseed/credentials/${credential}.cred`, target = resolve(root, purpose);
