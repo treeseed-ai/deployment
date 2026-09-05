@@ -3,6 +3,7 @@ export * from './local.js';
 export * from './openbao.js';
 export * from './session.js';
 export * from './os.js';
+export * from './os-file.js';
 export * from './managed-files.js';
 export * from './bootstrap.js';
 export * from './compose.js';

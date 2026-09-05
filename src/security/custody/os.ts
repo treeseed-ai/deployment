@@ -6,7 +6,7 @@ import { CustodyError } from './contracts.js';
 import { LocalSecretCustody } from './local.js';
 
 export type CredentialCommand = (args: string[], input: Buffer) => Buffer;
-const command: CredentialCommand = (args,input) => execFileSync('/usr/bin/systemd-creds',args,{input,stdio:['pipe','pipe','pipe'],maxBuffer:1024*1024});
+const command: CredentialCommand = (args,input) => execFileSync('/usr/bin/systemd-creds',args,{input,stdio:['pipe','pipe','pipe'],maxBuffer:1024*1024,timeout:15_000});
 
 /** All host and user key sealing goes through the OS credential facility. */
 export class OsSecretCustody {

@@ -1,12 +1,16 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.243",
+  "version": "0.1.0-rc.244",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
+    "./security/services": {
+      "types": "./dist/src/security/services/validate.d.ts",
+      "import": "./dist/src/security/services/validate.js"
+    },
     "./security/custody": {
       "types": "./dist/src/security/custody/index.d.ts",
       "import": "./dist/src/security/custody/index.js"
