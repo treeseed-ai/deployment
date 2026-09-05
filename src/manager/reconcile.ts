@@ -306,6 +306,12 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 	return previous;
 }
 
+export function runtimeRepairTargets<T extends { componentId: string }>(targets: T[], changedIds: ReadonlySet<string>, heldIds: ReadonlySet<string>): T[] {
+	// Candidate Compose files arrive during package installation. Already-planned
+	// changes receive post-install activation checks, not pre-install drift probes.
+	return targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
+}
+
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
 	configurationComponentScope: readonly string[] = [], failurePolicy: 'rollback' | 'halt' = 'rollback') {
 	failurePolicy = reconcileFailurePolicy(failurePolicy);
@@ -378,7 +384,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		recordEvent('sandbox.guest-trust-reconciled', { componentId: 'agent', previousDigests: configuredGuestDigests, selectedGuestDigest });
 	}
 	if (previous) {
-		for (const component of targets.filter((candidate) => !heldDevelopmentComponents.has(candidate.componentId))) {
+		for (const component of runtimeRepairTargets(targets, changedIds, heldDevelopmentComponents)) {
 			const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
 			const status = await requestSupervisor<{ present?: boolean; running?: boolean; ready?: boolean; issues?: Array<{ service: string; reason: string }> }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName, runtime: { componentId: component.componentId, files: composeFiles(component), services } });
 			if (status?.ready === false || typeof status?.present === 'boolean' && (!status.present || !status.running)) {
