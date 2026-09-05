@@ -409,7 +409,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.provider.enrollment': {
 			if (!context.local) throw new Error('Provider enrollment is available only through the protected local manager socket.');
 			const payload = z.discriminatedUnion('action', [
-				z.object({ action: z.literal('begin'), connectionId: z.string().optional(), teamId: z.string().min(1).max(256), enrollmentToken: z.string().min(1).max(16_384) }).passthrough(),
+				z.object({ action: z.literal('begin'), connectionId: z.string().optional(), teamId: z.string().min(1).max(256), registrationCode: z.string().min(1).max(16_384) }).passthrough(),
 				z.object({ action: z.literal('complete'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).passthrough(),
 			]).parse(JSON.parse(String(request.options.payload ?? '')));
 			const releases = loadActiveComponents(), agent = releases.find((component) => component.componentId === 'agent');
@@ -420,7 +420,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const controlPlaneUrl = environment.TREESEED_CONTROL_PLANE_URL;
 			const controlPlaneAudience = environment.TREESEED_CONTROL_PLANE_AUDIENCE;
 			if (!controlPlaneUrl || !controlPlaneAudience) throw new Error('The managed Agent control-plane connection is incomplete.');
-			return requestSupervisor({ operation: 'provider.enrollment-handoff', payload: { action: 'begin', connectionId, teamId: payload.teamId, controlPlaneUrl, controlPlaneAudience, enrollmentToken: payload.enrollmentToken }, files: composeFiles(agent), projectName: 'treeseed-agent' });
+			return requestSupervisor({ operation: 'provider.enrollment-handoff', payload: { action: 'begin', connectionId, teamId: payload.teamId, controlPlaneUrl, controlPlaneAudience, registrationCode: payload.registrationCode }, files: composeFiles(agent), projectName: 'treeseed-agent' });
 		}
 		case 'local.host.fleet.status': return { hostId: host.host.id, rolloutGroup: host.fleet.rolloutGroup, reporting: host.fleet.receiptReporting, receipt: receipt() };
 		case 'local.host.update.status': return { policy: host.updates, state: loadUpdateState(), receipt: receipt() };

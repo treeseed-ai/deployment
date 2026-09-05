@@ -340,9 +340,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 				return result;
 			}
 			const secretPath = `/etc/treeseed/credentials/${operation.registrationSecretId}`;
-			const enrollmentToken = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
-			if (!enrollmentToken) throw new Error('Provider registration credential is empty.');
-			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, registrationCode: enrollmentToken })}\n`;
+			const registrationCode = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
+			if (!registrationCode) throw new Error('Provider registration credential is empty.');
+			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, registrationCode: registrationCode })}\n`;
 			const enrollment = enrollmentReceipt(command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input), operation.connectionId);
 			trustProviderSandboxIdentity(enrollment);
 			unlinkSync(secretPath);
