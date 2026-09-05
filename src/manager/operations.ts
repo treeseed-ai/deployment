@@ -336,7 +336,8 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.connections': return { connections: Object.entries(host.components).filter(([, component]) => component.enabled).flatMap(([componentId, component]) => Object.entries(component.connections).map(([dependencyId, connection]) => ({ componentId, dependencyId, connection }))) };
 		case 'local.host.provider.status': {
 			const agent = host.components.agent;
-			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null };
+			const runtime = context.local && agent?.enabled ? await requestSupervisor({ operation: 'provider.runtime.status' }) : undefined;
+			return { configured: agent?.enabled === true, hostId: host.host.id, role: host.host.role, state: agent?.enabled ? (receipt()?.packages.some((item) => item.name === 'treeseed-component-agent') ? 'installed' : 'pending-installation') : 'not-configured', controlPlane: agent?.connections['control-plane'] ?? null, ...(runtime ? { runtime } : {}) };
 		}
 		case 'local.host.provider.credentials.list': return { initializers: loadCredentialInitializers() };
 		case 'local.host.provider.credentials.status': {
