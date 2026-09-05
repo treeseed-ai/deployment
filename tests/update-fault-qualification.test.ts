@@ -55,7 +55,12 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 	if (operation.operation === 'compose.activate' && state.activationFailure) {
 		const failure = state.activationFailure; state.activationFailure = null; throw failure;
 	}
-	if (operation.operation === 'compose.status') return state.composeStatus ?? undefined;
+	if (operation.operation === 'compose.status') {
+		const installed = state.active.find(item => item.componentId === operation.runtime?.componentId);
+		const candidate = [...state.stable.components, ...state.development.components].find(item => item.componentId === operation.runtime?.componentId);
+		if (installed && candidate && installed.release !== candidate.release) throw new Error('Candidate Compose file is not installed');
+		return state.composeStatus ?? undefined;
+	}
 	return undefined;
 } }));
 
@@ -119,7 +124,7 @@ describe('isolated update fault qualification', () => {
 		state.activationFailure = new Error('isolated registry or health-gate failure');
 		await expect(reconcile('development')).rejects.toThrow('health-gate failure');
 		const operations = state.operations.map((item) => item.operation);
-		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'compose.status', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'recovery.restore', 'apt.install', 'compose.activate', 'compose.activate', 'edge.apply']);
+		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'recovery.restore', 'apt.install', 'compose.activate', 'compose.activate', 'edge.apply']);
 		expect(state.events.map((item) => item.type)).toContain('reconcile.rollback-complete');
 		state.operations = []; state.events = [];
 		const recovered = await reconcile('development');
