@@ -8,6 +8,7 @@ import { parse, stringify } from 'yaml';
 import { EncryptedEnvelopeCodec, StaticEnvelopeKeyProvider } from '@treeseed/sdk/security';
 
 if(process.env.GITHUB_ACTIONS!=='true')throw new Error('Disposable Actions runner required.');
+for(const sourceMode of ['os','retired-development-v1']) {
 const root=mkdtempSync(join(tmpdir(),'treeseed-provider-proof-'));
 chmodSync(root,0o755); // Compose configuration is public; fixture keys/data remain private.
 const docker=(args:string[])=>execFileSync('docker',args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:300000});
@@ -15,7 +16,7 @@ const compose=parse(readFileSync('deploy/maintenance/provider-custody.yml','utf8
 const image=compose.services.inventory.image as string;
 const file=join(root,'compose.yml'),data=join(root,'data');mkdirSync(data,{mode:0o700});
 const key=randomBytes(32), codec=new EncryptedEnvelopeCodec(new StaticEnvelopeKeyProvider('systemd-credential',
-  {id:'provider-credentials',version:1,key:createHash('sha256').update(key).digest()}));
+  {id:'provider-credentials',version:1,key:createHash('sha256').update(sourceMode==='os'?key:Buffer.from('treeseed-development-provider-credential-kek')).digest()}));
 const identity=JSON.stringify(generateKeyPairSync('ed25519').privateKey.export({format:'jwk'}));
 const refs=['data://identity.json','data://membership.json'];
 for(const [i,ref] of refs.entries())writeFileSync(join(data,ref.slice(7)),JSON.stringify(codec.encrypt(i===0?identity:'synthetic-membership',
@@ -33,7 +34,7 @@ try {
   run(['up','-d','--wait','--wait-timeout','45','inventory']);
   const before=await (await fetch('http://127.0.0.1:19843/status')).json() as {records:number;identityPreserved:boolean;inventoryDigest:string};
   if(before.records!==2||before.identityPreserved)throw new Error('Inventory proof failed.');
-  run(['up','-d','--wait','--wait-timeout','45','accept']);
+  run(['up','-d','--wait','--wait-timeout','45',sourceMode==='os'?'accept':'accept-recovery']);
   const after=await (await fetch('http://127.0.0.1:19843/status')).json() as typeof before;
   if(!after.identityPreserved||after.inventoryDigest!==before.inventoryDigest)throw new Error('Conversion proof failed.');
   // Actual immutable Agent reader, not a test reimplementation of the custody contract.
@@ -41,8 +42,8 @@ try {
     const identity=JSON.parse(readProviderSecret('data://identity.json','/data'));
     if(identity.crv!=='Ed25519'||readProviderSecret('data://membership.json','/data')!=='synthetic-membership')process.exit(1);`;
   run(['run','--rm','--no-deps','--entrypoint','node','-e','TREESEED_PROVIDER_CREDENTIAL_KEK_FILE=/run/provider-key','convert','--input-type=module','-e',check]);
-  run(['run','--rm','--no-deps','convert']); // frozen inventory + encrypted recovery => idempotent replay
-  console.log(JSON.stringify({ok:true,records:2,identityPreserved:true,agentReader:true,replay:true,networklessConversion:true}));
+  run(['run','--rm','--no-deps',sourceMode==='os'?'convert':'recover']); // frozen inventory + encrypted recovery => idempotent replay
+  console.log(JSON.stringify({ok:true,sourceMode,records:2,identityPreserved:true,agentReader:true,replay:true,networklessConversion:true}));
 }catch(error){
   // Fixture secrets are synthetic, but retain the same bounded diagnostic policy as live acceptance.
   process.stderr.write('Disposable provider custody container acceptance failed.\n');throw error;
@@ -51,4 +52,5 @@ try {
     docker(['run','--rm','--user','0','--network','none','--entrypoint','chown','--mount',`type=bind,src=${root},dst=/fixture`,image,'-R',`${process.getuid!()}:${process.getgid!()}`,'/fixture']);
     rmSync(root,{recursive:true,force:true});
   }
+}
 }

@@ -20,7 +20,7 @@ services:
       interval: 2s
       timeout: 3s
       retries: 10
-  convert:
+  convert: &conversion
     image: treeseed/agent-manager@sha256:a64e0a60e2edc6abb2a3a4052e7ae8ccc792a3c5307444bf208e586283b4b4bf
     user: "65532:65532"
     entrypoint: [node, /app/maintenance/scripts/maintenance/host-provider-custody.js]
@@ -40,5 +40,13 @@ services:
     ports: []
     depends_on:
       convert: {condition: service_completed_successfully}
+  recover:
+    <<: *conversion
+    command: [convert-retired-development-v1]
+  accept-recovery:
+    <<: *observer
+    ports: []
+    depends_on:
+      recover: {condition: service_completed_successfully}
 networks:
   private: {internal: true}
