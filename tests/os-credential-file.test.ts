@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { mkdtempSync,writeFileSync,symlinkSync,chmodSync,rmSync } from 'node:fs';
+import { mkdtempSync,writeFileSync,symlinkSync,chmodSync,rmSync,readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readOsCredentialFile } from '../src/security/custody/os-file.js';
+test('Agent credential directory is root-owned and traversable only by its consumer group',()=>{
+  const source=readFileSync('src/supervisor/component.ts','utf8');
+  assert.ok(source.includes("if (componentId === 'agent') { chownSync(root, 0, 65_532); chmodSync(root, 0o710); }"));
+});
 test('OS credential input rejects missing, short, world-readable and symlinked keys',()=>{
   const root=mkdtempSync(join(tmpdir(),'treeseed-os-file-')),file=join(root,'key');
   try {
