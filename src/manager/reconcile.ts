@@ -15,6 +15,7 @@ import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
+import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -306,7 +307,8 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 }
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
-	configurationComponentScope: readonly string[] = []) {
+	configurationComponentScope: readonly string[] = [], failurePolicy: 'rollback' | 'halt' = 'rollback') {
+	failurePolicy = reconcileFailurePolicy(failurePolicy);
 	let host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
 	const configurationScope = new Set(configurationComponentScope);
@@ -432,11 +434,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
-		recordEvent('reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
+		recordEvent(failurePolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of componentStopOrder(host, effective).filter((component) => configurationImpacts(component.componentId)
 			|| changedTargetIds.has(component.componentId))) {
 			try { await stopComponent(component); } catch { /* continue restoring the last known-good generation */ }
 		}
+		requireAutomaticRollback(failurePolicy);
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
