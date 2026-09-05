@@ -1,11 +1,5 @@
-/** Both custody backends use the same non-secret, exact-scope addressing. */
-export interface SecretScope {
-	team: string;
-	project: string;
-	environment: string;
-	purpose: string;
-	name: string;
-}
+import { canonicalSecretPath, type SecretScope } from '@treeseed/sdk/secrets-capability';
+export type { SecretScope } from '@treeseed/sdk/secrets-capability';
 
 export interface SecretRecord {
 	version: number;
@@ -20,10 +14,7 @@ export class CustodyError extends Error {
 }
 
 export function secretPath(scope: SecretScope): string {
-	const parts = [scope.team, scope.project, scope.environment, scope.purpose, scope.name];
-	if (parts.some((part) => typeof part !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/u.test(part)))
-		throw new CustodyError('invalid_scope');
-	return `teams/${parts[0]}/projects/${parts[1]}/environments/${parts[2]}/purposes/${parts[3]}/secrets/${parts[4]}`;
+	try { return canonicalSecretPath(scope); } catch { throw new CustodyError('invalid_scope'); }
 }
 
 export function validateSecretValues(values: unknown): asserts values is Record<string, string> {

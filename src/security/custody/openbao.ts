@@ -70,6 +70,14 @@ export class OpenBaoCustody {
 		return { values, version };
 	}
 
+	async version(scope: SecretScope): Promise<number> {
+		const result = await this.#request(`${this.#mount}/metadata/${this.#path(scope)}`, 'GET', undefined, true);
+		if (result === null) return 0;
+		const version = result?.data?.current_version;
+		if (!Number.isSafeInteger(version) || version < 1) throw new CustodyError('invalid_record');
+		return version;
+	}
+
 	async write(scope: SecretScope, values: Record<string, string>, expectedVersion: number): Promise<number> {
 		const path = this.#path(scope);
 		validateSecretValues(values);
