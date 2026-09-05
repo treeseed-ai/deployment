@@ -77,7 +77,7 @@ try {
     const sourceKey=phase==='convert-retired-development-v1'?Buffer.from('treeseed-development-provider-credential-kek'):undefined;
     try {
       const receipt=convertProviderCustody({root,refs:current.records.map(r=>r.ref),identityRef:current.identityRef,
-        osKey,sourceKey,keyVersion:current.records[0]!.keyVersion,quiesced:true});
+        osKey,...(sourceKey?{sourceKey}:{}),keyVersion:current.records[0]!.keyVersion,quiesced:true});
       if(existsSync(receiptPath)) {
         const prior=JSON.parse(read(receiptPath));
         if(prior.fingerprint!==receipt.fingerprint||prior.records!==receipt.records||!prior.identityPreserved)throw new Error();
