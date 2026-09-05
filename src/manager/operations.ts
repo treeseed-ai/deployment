@@ -10,7 +10,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs, rollbackRoutes } from './reconcile.js';
-import { serializedReconcile } from './serialized-reconcile.js';
+import { reconcileFailurePolicy, serializedReconcile } from './serialized-reconcile.js';
 import { serializedSecurityInitialize, serializedSecurityOperation } from './serialized-security.js';
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
@@ -309,7 +309,10 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.plan': return plan();
 		case 'local.host.apply':
-		case 'local.host.reconcile': return request.options.plan === true ? plan() : serializedReconcile();
+		case 'local.host.reconcile': {
+			const failurePolicy = reconcileFailurePolicy(request.options.failurePolicy);
+			return request.options.plan === true ? {...plan(), failurePolicy} : serializedReconcile(undefined, false, [], failurePolicy);
+		}
 		case 'local.host.events': return { events: recentEvents(100) };
 		case 'local.host.config.show': return host;
 		case 'local.host.config.plan': return configurationPlan(requiredConfiguration(request));

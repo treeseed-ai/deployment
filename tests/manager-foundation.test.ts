@@ -460,7 +460,8 @@ describe('unified host manager foundation', () => {
 		expect(arguments_.at(-1)).toBe('--track=development');
 		const operations = readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8');
 		expect(operations).not.toMatch(/\breconcile\(\)/u);
-		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(5);
+		expect(operations.match(/serializedReconcile\(\)/gu)?.length).toBe(4);
+		expect(operations).toContain('serializedReconcile(undefined, false, [], failurePolicy)');
 		expect(operations.match(/serializedReconcile\(undefined, true\)/gu)?.length).toBe(1);
 	});
 

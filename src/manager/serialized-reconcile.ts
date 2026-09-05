@@ -7,7 +7,17 @@ const execFileAsync = promisify(execFile);
 const lockPath = '/run/treeseed/manager/reconcile.lock';
 const reconcileExecutable = fileURLToPath(new URL('../bin/reconcile.js', import.meta.url));
 
-export function serializedReconcileArguments(track?: 'stable' | 'development', forceMetadata = false, componentIds: readonly string[] = []) {
+export type ReconcileFailurePolicy = 'rollback' | 'halt';
+export function reconcileFailurePolicy(value: unknown): ReconcileFailurePolicy {
+	if (value === undefined || value === 'rollback') return 'rollback';
+	if (value === 'halt') return 'halt';
+	throw new Error('Reconciliation failure policy must be rollback or halt.');
+}
+export function requireAutomaticRollback(policy: ReconcileFailurePolicy) {
+	if (reconcileFailurePolicy(policy) === 'halt') throw Object.assign(new Error('Reconciliation halted with affected components stopped; explicit recovery is required. Previous packages and data were not restored.'), {code:'reconcile_halted'});
+}
+
+export function serializedReconcileArguments(track?: 'stable' | 'development', forceMetadata = false, componentIds: readonly string[] = [], failurePolicy: ReconcileFailurePolicy = 'rollback') {
 	return [
 		'--exclusive',
 		'--close',
@@ -19,6 +29,7 @@ export function serializedReconcileArguments(track?: 'stable' | 'development', f
 		...(track ? [`--track=${track}`] : []),
 		...(forceMetadata ? ['--force-metadata'] : []),
 		...(componentIds.length ? [`--components=${[...new Set(componentIds)].sort().join(',')}`] : []),
+		...(reconcileFailurePolicy(failurePolicy) === 'halt' ? ['--failure-policy=halt'] : []),
 	];
 }
 
@@ -33,10 +44,10 @@ export function reconcileExecutionError(error: unknown) {
 }
 
 export async function serializedReconcile(track?: 'stable' | 'development', forceMetadata = false,
-	componentIds: readonly string[] = []): Promise<HostReceipt | undefined> {
+	componentIds: readonly string[] = [], failurePolicy: ReconcileFailurePolicy = 'rollback'): Promise<HostReceipt | undefined> {
 	let stdout: string;
 	try {
-		({ stdout } = await execFileAsync('/usr/bin/flock', serializedReconcileArguments(track, forceMetadata, componentIds), { maxBuffer: 1024 * 1024 }));
+		({ stdout } = await execFileAsync('/usr/bin/flock', serializedReconcileArguments(track, forceMetadata, componentIds, failurePolicy), { maxBuffer: 1024 * 1024 }));
 	} catch (error) {
 		throw reconcileExecutionError(error);
 	}
