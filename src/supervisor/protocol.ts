@@ -1,8 +1,10 @@
 import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { hostDevelopmentActivationSchema } from './host-development.js';
+import { developmentContainerSchema } from './development-container-contract.js';
 
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
+	developmentContainerSchema,
 	z.object({ operation: z.literal('supervisor.ping') }).strict(),
 	z.object({ operation: z.literal('security.plan') }).strict(),
 	z.object({ operation: z.literal('security.status') }).strict(),
