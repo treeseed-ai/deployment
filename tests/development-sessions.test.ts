@@ -34,6 +34,17 @@ function store(now: Date) {
 }
 
 describe('development session manager', () => {
+	it('cannot report a restarted web target ready without reattaching its route', async () => {
+		const sessions = store(new Date('2026-08-26T12:00:00.000Z'));
+		sessions.start(session(new Date('2026-08-26T12:00:00.000Z')), [runtime()]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		sessions.setMode('session-1', 'admin', 'web', 'released');
+		sessions.setMode('session-1', 'admin', 'web', 'live');
+		expect(() => sessions.markReady('session-1', 'admin', 'web')).toThrow('attached canonical route');
+		expect(sessions.load('session-1').session.targets[0]!.health).toBe('pending');
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(sessions.markReady('session-1', 'admin', 'web').session.targets[0]!.health).toBe('ready');
+	});
 	it('retries canonical readiness through bounded edge convergence', async () => {
 		let attempts = 0;
 		expect(await boundedRoutedHealth(async () => ++attempts === 3, 100, 1)).toBe(true);
