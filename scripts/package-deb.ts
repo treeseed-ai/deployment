@@ -66,8 +66,8 @@ function hostRuntime(stage: string) {
 	if (!existsSync(archive)) execFileSync('curl', ['--fail', '--location', '--silent', '--show-error', '--output', archive, manifest.url], { stdio: 'inherit' });
 	if (createHash('sha256').update(readFileSync(archive)).digest('hex') !== manifest.sha256) throw new Error('Pinned host Node runtime checksum mismatch.');
 	directory(resolve(stage, 'usr/lib/treeseed/runtime'));
-	execFileSync('tar', ['-xJf', archive, '--strip-components=1', '-C', resolve(stage, 'usr/lib/treeseed/runtime')]);
-	for (const name of ['npm', 'npx', 'corepack']) rmSync(resolve(stage, `usr/lib/treeseed/runtime/bin/${name}`), { force: true });
+	const archiveRoot = basename(manifest.url, '.tar.xz');
+	execFileSync('tar', ['-xJf', archive, '--strip-components=1', '-C', resolve(stage, 'usr/lib/treeseed/runtime'), `${archiveRoot}/bin/node`, `${archiveRoot}/LICENSE`]);
 }
 function kataRuntime(stage: string) {
 	const manifest = JSON.parse(readFileSync(resolve(root, 'release/kata-runtime.json'), 'utf8')) as { version: string; architecture: string; url: string; size: number; sha256: string };

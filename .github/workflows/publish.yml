@@ -172,6 +172,7 @@ jobs:
           name: deployment-release-${{ github.sha }}
           path: release/out/**
           if-no-files-found: error
+          retention-days: 7
       - name: Publish immutable GitHub release assets
         if: ${{ !inputs.resume_apt_only }}
         env:
