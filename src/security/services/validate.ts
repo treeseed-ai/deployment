@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { resolveCloudflareZone } from './cloudflare-zone.js';
 
 type Connection = {providerId:string;nonSecretConfig:Record<string,unknown>};
 const failure=()=>new Error('Managed service credential validation failed.');
@@ -21,8 +22,10 @@ function r2Request(connection:Connection,values:Record<string,string>) {
   return {url:`https://${host}${path}`,init:{method:'HEAD',headers}};
 }
 /** Read-only validation. No provider body, token or credential is returned or logged. */
-export async function validateManagedServiceCredentials(connection:Connection,profileId:string,values:Record<string,string>,fetchImpl:typeof fetch=fetch):Promise<void> {
+export async function validateManagedServiceCredentials(connection:Connection,profileId:string,values:Record<string,string>,fetchImpl:typeof fetch=fetch):Promise<void | {domain:string;zoneId:string}> {
   try {
+    if (connection.providerId === 'cloudflare' && profileId === 'cloudflare-dns')
+      return await resolveCloudflareZone(String(connection.nonSecretConfig.accountId ?? ''), String(connection.nonSecretConfig.domain ?? ''), values.apiToken ?? '', fetchImpl);
     if(profileId==='opentofu-state-encryption') {
       if(connection.providerId!=='cloudflare'||!/^[a-f0-9]{64}$/u.test(values.stateEncryptionKey??''))throw failure();
       return; // local encryption-key format, not an upstream connection claim

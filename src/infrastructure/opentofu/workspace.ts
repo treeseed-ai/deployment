@@ -97,7 +97,7 @@ function renderVariables(plan: HostedTopologyPlan | AuthorizedHostedTopologyPlan
 		const connection = plan.providerConnections[action.provider];
 		if (!connection) throw new Error(`Hosted infrastructure plan is missing its ${action.provider} connection.`);
 		const context = { config: connection.nonSecretConfig, artifacts: plan.artifacts };
-		if (context.config.deploymentEnvironment !== plan.environment) throw new Error(`${action.provider} connection ${connection.connectionRef} is not bound to the ${plan.environment} deployment environment.`);
+		if (!(action.provider === 'cloudflare' && ['dns-record', 'tls-policy'].includes(action.kind)) && context.config.deploymentEnvironment !== plan.environment) throw new Error(`${action.provider} connection ${connection.connectionRef} is not bound to the ${plan.environment} deployment environment.`);
 		const selected = authorityProfile(action.provider, action.kind), requestId = `${connection.connectionRef}:${selected.credentialProfileId}`;
 		const existing = authorityMap.get(requestId);
 		if (existing) existing.capabilities = [...new Set([...existing.capabilities, selected.capability])].sort();
