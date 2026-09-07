@@ -1,6 +1,7 @@
 import { resolve, sep } from 'node:path';
 import { paths } from '../core/paths.js';
 import type { SupervisorOperation } from './protocol.js';
+import { ephemeralComposeArguments } from './component-ephemeral.js';
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 
@@ -13,7 +14,10 @@ function bundledComposeFiles(files: readonly string[]) {
 }
 
 export function componentComposeArguments(componentId: string, files: readonly string[]) {
-	return ['--env-file', `/etc/treeseed/components/${componentId}/environment`, ...bundledComposeFiles(files)];
+	const bundled = bundledComposeFiles(files);
+	const ephemeral = ephemeralComposeArguments(componentId, bundled.filter((_, index) => index % 2 === 1));
+	return ['--env-file', ephemeral?.environment ?? `/etc/treeseed/components/${componentId}/environment`, ...bundled,
+		...(ephemeral ? ['--file', ephemeral.overlay] : [])];
 }
 
 export function composeProjectContainerIds(projectName: string, command: CommandRunner, runningOnly = false) {
