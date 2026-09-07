@@ -1,9 +1,14 @@
 import { isIP } from 'node:net';
-import { networkInterfaces } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { writeFileSync, renameSync } from 'node:fs';
 
 /** Bind container-to-host TLS only on Docker's locally assigned default bridge. */
-export function edgeBridgeAddress(network: unknown, interfaces = networkInterfaces()) {
+function assignedInterfaces() {
+	// Node omits no-carrier bridges even though Linux keeps their routable address.
+	const links = JSON.parse(execFileSync('/usr/sbin/ip',['-json','address','show'],{encoding:'utf8',timeout:10_000,maxBuffer:262144}));
+	return Object.fromEntries(links.map((link: {ifname:string;flags:string[];addr_info:Array<{local:string}>}) => [link.ifname,link.addr_info.map(item=>({address:item.local,internal:link.flags.includes('LOOPBACK')}))]));
+}
+export function edgeBridgeAddress(network: unknown, interfaces: Record<string,Array<{address:string;internal:boolean}>> = assignedInterfaces()) {
 	const value = network as { Driver?: string; Options?: Record<string,string>; IPAM?: {Config?: Array<{Gateway?:string}>} };
 	if (value.Driver !== 'bridge' || value.Options?.['com.docker.network.bridge.default_bridge'] !== 'true') throw new Error('The managed edge requires the Docker default bridge.');
 	const device = value.Options?.['com.docker.network.bridge.name'];
