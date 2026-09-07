@@ -44,13 +44,14 @@ export function developmentContainerSource(record:ManagedDevelopmentSession) {
 }
 
 /** No repository commands, Compose files, mounts, image or Docker options cross this boundary. */
-export function renderDevelopmentContainer(input:{sessionId:string;targetId:'service'|'operations-runner';worktree:string;workspace:string;uid:number;gid:number;environment:Record<string,string>;image:string;leaseSeconds:number;stateRoot:string}) {
+export function renderDevelopmentContainer(input:{sessionId:string;targetId:'service'|'operations-runner';worktree:string;workspace:string;uid:number;gid:number;sourceGid?:number;environment:Record<string,string>;image:string;leaseSeconds:number;stateRoot:string}) {
   if(!/^sha256:[a-f0-9]{64}$/.test(input.image))throw new Error('Development runtime image must resolve to an immutable local ID.');
   const api=input.targetId==='service', name=`treeseed-${input.sessionId}-api-${input.targetId}`,directory=resolve(root,input.sessionId,input.targetId);
   const args=api?['--watch','--import','tsx','src/api/support/server.ts']:['dist/operations-runner/entrypoint.js','run'];
   // Fixed watchdog bounds the container lifetime even if the CLI or manager disappears.
   const watchdog=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));setTimeout(()=>{c.kill('SIGTERM');setTimeout(()=>process.exit(1),30000)},${input.leaseSeconds*1000});`;
   return {services:{runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
+    group_add:input.sourceGid===undefined||input.sourceGid===input.gid?[]:[String(input.sourceGid)],
     entrypoint:['node','-e',watchdog],working_dir:input.worktree,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
     labels:{'org.treeseed.development.session':input.sessionId,'org.treeseed.development.target':`api.${input.targetId}`},
@@ -100,7 +101,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
   command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']);
   const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
-  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
+  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
   // Delegate only the API's fixed credential files to the runtime's UID;
   // the root-owned parent prevents host users from browsing these copies.

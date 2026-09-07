@@ -39,3 +39,9 @@ it('does not publish a runner port and confines its writable state',()=>{
   expect(runtime.volumes.filter(v=>!v.read_only).map(v=>v.source)).toEqual([
     '/var/lib/treeseed/components/api/operations-runner','/var/lib/treeseed/components/api/published-knowledge']);
 });
+it('allows group-readable source without changing state identity or enabling writes',()=>{
+  const runtime=renderDevelopmentContainer({...input,targetId:'operations-runner',uid:0,gid:0,sourceGid:1000}).services.runtime;
+  expect(runtime.user).toBe('0:0');expect(runtime.group_add).toEqual(['1000']);
+  expect(runtime.volumes[0]?.read_only).toBe(true);expect(runtime.cap_drop).toEqual(['ALL']);
+  expect(renderDevelopmentContainer({...input,sourceGid:1000}).services.runtime.group_add).toEqual([]);
+});
