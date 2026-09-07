@@ -23,3 +23,17 @@ export function drainReleasedRunner(command: CommandRunner): boolean {
 export function restoreReleasedRunner(command: CommandRunner) {
   command('/usr/bin/docker', ['start', name]);
 }
+
+export function drainCandidateRunner(command: CommandRunner, sessionId: string) {
+  if (!/^dev-[a-z0-9-]{1,64}$/.test(sessionId)) throw new Error('Invalid runner session.');
+  const candidate = `treeseed-${sessionId}-api-operations-runner`;
+  const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${candidate}$`, '--format', '{{.Names}}'])).trim();
+  if (!found) return;
+  const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', candidate, '--format', '{{json .}}'])));
+  if (state.Config?.Labels?.['org.treeseed.development.session'] !== sessionId || state.Config?.Labels?.['org.treeseed.development.target'] !== 'api.operations-runner')
+    throw new Error('Candidate runner ownership does not match the session.');
+  if (!state.State?.Running) return;
+  command('/usr/bin/docker', ['kill', '--signal', 'SIGTERM', candidate]);
+  if (String(command('/usr/bin/docker', ['wait', candidate])).trim() !== '0')
+    throw new Error('Candidate runner did not drain cleanly; retain its state for recovery.');
+}

@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { drainReleasedRunner, restoreReleasedRunner } from '../src/supervisor/development-runner.js';
+import { drainCandidateRunner, drainReleasedRunner, restoreReleasedRunner } from '../src/supervisor/development-runner.js';
 
 function runner(owned = true, exit = '0') {
   return vi.fn((_exe: string, args: readonly string[]) => {
@@ -20,4 +20,12 @@ it('rejects unowned containers and unsuccessful drain', () => {
   const unowned = runner(false); expect(() => drainReleasedRunner(unowned)).toThrow('ownership');
   expect(unowned.mock.calls).toHaveLength(2);
   expect(() => drainReleasedRunner(runner(true, '137'))).toThrow('drain is incomplete');
+});
+it('drains candidate work before removal and rejects another session identity', () => {
+  const command = vi.fn((_exe: string, args: readonly string[]) => args[0] === 'ps' ? 'present' : args[0] === 'inspect'
+    ? JSON.stringify({ Config: { Labels: { 'org.treeseed.development.session': 'dev-test', 'org.treeseed.development.target': 'api.operations-runner' } }, State: { Running: true } }) : args[0] === 'wait' ? '0' : '');
+  drainCandidateRunner(command, 'dev-test');
+  expect(command.mock.calls.map(call => call[1][0])).toEqual(['ps', 'inspect', 'kill', 'wait']);
+  expect(() => drainCandidateRunner(command, 'dev-other')).toThrow('ownership');
+  expect(() => drainCandidateRunner(command, '../escape')).toThrow('Invalid');
 });

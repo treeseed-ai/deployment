@@ -10,7 +10,7 @@ import { loadActiveComponents } from '../manager/current-state.js';
 import { managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
 import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './component.js';
 import type { CommandRunner } from './compose-runtime.js';
-import { drainReleasedRunner, restoreReleasedRunner } from './development-runner.js';
+import { drainCandidateRunner, drainReleasedRunner, restoreReleasedRunner } from './development-runner.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -79,6 +79,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const compose=['compose','--project-name',`treeseed-${input.sessionId}-api-${input.targetId}`,'--file',file];
   if(input.action==='stop') {
     if(!existsSync(file)){if(existsSync(directory))rmSync(directory,{recursive:true});return {stopped:true};}
+    if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
     command('/usr/bin/docker',[...compose,'down','--timeout','30']);
     if(input.targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
     rmSync(directory,{recursive:true});return {stopped:true};
@@ -117,6 +118,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
       code=developmentStartupCode(log);
     } catch {/* Diagnostics never prevent cleanup. */}
     try{
+      if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
       command('/usr/bin/docker',[...compose,'down','--timeout','30']);
       if(drained||existsSync(handoff))restoreReleasedRunner(command);
       rmSync(directory,{recursive:true});
