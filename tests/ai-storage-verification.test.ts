@@ -22,9 +22,10 @@ describe('fixed managed AI storage acceptance', () => {
 			commands.push(args);
 			if (args[0] === 'ps') { selected = releases.find(value => args.includes(`label=com.docker.compose.project=${value.runtime.compose.projectName}`))!;return 'abcdef123456'; }
 			if (args[0] === 'inspect') return `${selected.images[0]!.repository}@${selected.images[0]!.digest}`;
-			return JSON.stringify({ok:true,cleanup:true,phase:'complete',key,secret:'must-not-escape'});
+			return JSON.stringify({ok:true,cleanup:true,phase:'complete',key,secret:'must-not-escape',diagnostics:{brokerStatus:200,brokerCode:'must-not-escape',transportCode:'must-not-escape',providerStatus:'must-not-escape',secret:'must-not-escape'}});
 		} });
 		expect(result.ok).toBe(true); expect(commands.filter(args => args[0] === 'exec')).toHaveLength(3);
+		expect(result.results[0]!.diagnostics).toEqual({brokerStatus:200});
 		expect(JSON.stringify(result)).not.toContain('must-not-escape');
 		expect(commands.filter(args => args[0] === 'exec').every(args => [nodeStorageProbe,pythonStorageProbe].includes(args.at(-1)!))).toBe(true);
 		expect(result.trainingExecuted).toBe(false);
