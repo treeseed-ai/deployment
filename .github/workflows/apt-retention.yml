@@ -1,0 +1,46 @@
+name: Maintain bounded development APT pool
+on:
+  workflow_dispatch:
+    inputs:
+      current_tag:
+        description: Published current development release
+        required: true
+      rollback_tag:
+        description: Published accepted rollback release
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: development-apt-publication
+  cancel-in-progress: false
+jobs:
+  retain:
+    if: github.ref == 'refs/heads/staging'
+    environment: staging
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 24 }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Retain verified generation closures and sign index
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          TREESEED_APT_RELEASE_TAG: ${{ inputs.current_tag }}
+          TREESEED_APT_ROLLBACK_TAG: ${{ inputs.rollback_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TREESEED_APT_RELEASE_TAG" =~ ^0\.1\.0-rc\.[0-9]+$ ]]
+          [[ "$TREESEED_APT_ROLLBACK_TAG" =~ ^0\.1\.0-rc\.[0-9]+$ ]]
+          mkdir -p release/out
+          gh release download "$TREESEED_APT_RELEASE_TAG" --pattern '*.deb' --dir release/out
+          git fetch --depth=1 origin gh-pages
+          git worktree add --detach .treeseed/pages FETCH_HEAD
+          node --import tsx scripts/publish-apt.ts development
+          git -C .treeseed/pages add apt
+          git -C .treeseed/pages -c user.name='TreeSeed Release Automation' -c user.email='releases@treeseed.ai' commit -m 'Bound development APT pool to verified current and rollback closures'
+          git -C .treeseed/pages push origin HEAD:gh-pages
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: { name: apt-retention-plan, path: apt-retention-plan.json, if-no-files-found: ignore }
