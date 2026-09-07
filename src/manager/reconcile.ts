@@ -447,7 +447,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active).filter(impacted), {
 		stop: stopComponent, start: component => activateComponent(loadHostConfiguration(), component, active),
 		rollbackConfiguration: async () => previous ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
-		capture: async () => snapshotRequired ? requestSupervisor({ operation: 'backup.create', generation }) : undefined,
+		capture: async () => {
+			if (!snapshotRequired) return;
+			const backup = await requestSupervisor({ operation: 'backup.create', generation });
+			recordEvent('backup.created', { generation });
+			return backup;
+		},
 	});
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
