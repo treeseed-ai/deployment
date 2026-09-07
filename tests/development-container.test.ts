@@ -25,6 +25,9 @@ it('uses immutable image, read-only source, fixed networks and no privileged/soc
 it('does not publish a runner port and confines its writable state',()=>{
   const runtime=renderDevelopmentContainer({...input,targetId:'operations-runner'}).services.runtime;
   expect(runtime.ports).toBeUndefined();
+  expect(runtime.environment.TREESEED_DEVELOPMENT_MODE).toBe('candidate');
+  expect(runtime.healthcheck.test.join(' ')).toContain('/readyz');
+  expect(runtime.entrypoint.join(' ')).toContain('process.on(s,()=>c.kill(s))');
   expect(runtime.volumes.filter(v=>!v.read_only).map(v=>v.source)).toEqual([
     '/var/lib/treeseed/components/api/operations-runner','/var/lib/treeseed/components/api/published-knowledge']);
 });
