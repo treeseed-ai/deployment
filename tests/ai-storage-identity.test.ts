@@ -20,6 +20,6 @@ describe('AI workload identity custody', () => {
 	});
 	it('rejects partial custody before writing host state', () => {
 		const host = { secrets: { 'ai-inference-storage-identity': { provider: 'systemd-credential', reference: '/etc/treeseed/credentials/ai-inference-storage-identity.cred' } } };
-		expect(() => prepareAiStorageIdentities(host as HostConfiguration, 'api')).toThrow('incomplete');
+		expect(() => prepareAiStorageIdentities(host as unknown as HostConfiguration, 'api')).toThrow('incomplete');
 	});
 });
