@@ -1,5 +1,15 @@
 import { expect, it, vi } from 'vitest';
-import { drainCandidateRunner, drainReleasedRunner, restoreReleasedRunner } from '../src/supervisor/development-runner.js';
+import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from '../src/supervisor/development-runner.js';
+
+it('inherits only the owned released runner numeric identity', () => {
+  const inspect = (User: string) => () => JSON.stringify({Config: {User, Labels: {
+    'com.docker.compose.project':'treeseed-api', 'com.docker.compose.service':'operations-runner',
+  }}});
+  expect(releasedRunnerIdentity(inspect(''))).toEqual({uid:0,gid:0});
+  expect(releasedRunnerIdentity(inspect('65532:65532'))).toEqual({uid:65532,gid:65532});
+  for (const user of ['node','1000','-1:0','4294967295:0']) expect(()=>releasedRunnerIdentity(inspect(user))).toThrow();
+  expect(()=>releasedRunnerIdentity(()=>JSON.stringify({Config:{User:'0:0',Labels:{}}}))).toThrow('ownership');
+});
 
 function runner(owned = true, exit = '0') {
   return vi.fn((_exe: string, args: readonly string[]) => {

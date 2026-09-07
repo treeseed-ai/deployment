@@ -2,6 +2,19 @@ import type { CommandRunner } from './compose-runtime.js';
 
 const name = 'treeseed-api-operations-runner-1';
 
+/** Preserve the installed runner's state identity without changing host permissions. */
+export function releasedRunnerIdentity(command: CommandRunner): { uid: number; gid: number } {
+  const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{{json .}}'])));
+  if (state.Config?.Labels?.['com.docker.compose.project'] !== 'treeseed-api' || state.Config?.Labels?.['com.docker.compose.service'] !== 'operations-runner')
+    throw new Error('Released runner ownership does not match the managed API.');
+  const user = state.Config.User || '0:0';
+  if (!/^\d+:\d+$/.test(user)) throw new Error('Released runner must declare an exact numeric UID:GID for candidate state custody.');
+  const [uid, gid] = user.split(':').map(Number);
+  if (![uid, gid].every(value => Number.isSafeInteger(value) && value >= 0 && value < 4_294_967_295))
+    throw new Error('Released runner identity is out of range.');
+  return { uid, gid };
+}
+
 /** Fixed managed runner only; never force-kill work to enter development. */
 export function drainReleasedRunner(command: CommandRunner): boolean {
   const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'])).trim();

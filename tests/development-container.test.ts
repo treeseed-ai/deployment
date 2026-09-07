@@ -1,6 +1,14 @@
 import {expect,it} from 'vitest';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentStartupCode} from '../src/supervisor/development-container.js';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
+it('classifies fixed permission boundaries without exposing paths or values',()=>{
+  for(const [path,code] of [['/data/operations-runner/file','RUNNER_STATE_PERMISSION'],
+    ['/data/published-knowledge/file','KNOWLEDGE_STATE_PERMISSION'],
+    ['/run/openbao-client/identity.json','CUSTODY_PERMISSION'],
+    ['/run/treeseed-keys/credentials','KEY_PERMISSION']] as const)
+    expect(developmentStartupCode(`EACCES: permission denied, open '${path}' secret-value`)).toBe(code);
+  expect(developmentStartupCode('EACCES: unknown private path')).toBe('EACCES');
+});
 it('projects startup failures to fixed codes without reflecting sensitive log content',()=>{
   for(const [log,code] of [['does not provide an export named secret-value','EXPORT_MISSING'],['SyntaxError: secret-value','SYNTAX_ERROR'],['relation secret-value does not exist','DATABASE_RELATION_MISSING'],['permission denied secret-value','DATABASE_PERMISSION'],['duplicate key secret-value','DATABASE_CONFLICT'],['ERR_MODULE_NOT_FOUND secret-value','ERR_MODULE_NOT_FOUND'],['secret-value','']] as const)expect(developmentStartupCode(log)).toBe(code);
 });
@@ -30,4 +38,10 @@ it('does not publish a runner port and confines its writable state',()=>{
   expect(runtime.entrypoint.join(' ')).toContain('process.on(s,()=>c.kill(s))');
   expect(runtime.volumes.filter(v=>!v.read_only).map(v=>v.source)).toEqual([
     '/var/lib/treeseed/components/api/operations-runner','/var/lib/treeseed/components/api/published-knowledge']);
+});
+it('allows group-readable source without changing state identity or enabling writes',()=>{
+  const runtime=renderDevelopmentContainer({...input,targetId:'operations-runner',uid:0,gid:0,sourceGid:1000}).services.runtime;
+  expect(runtime.user).toBe('0:0');expect(runtime.group_add).toEqual(['1000']);
+  expect(runtime.volumes[0]?.read_only).toBe(true);expect(runtime.cap_drop).toEqual(['ALL']);
+  expect(renderDevelopmentContainer({...input,sourceGid:1000}).services.runtime.group_add).toEqual([]);
 });
