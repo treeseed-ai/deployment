@@ -2,6 +2,7 @@ import { createConnection, createServer } from 'node:net';
 import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { supervisorConnectionHandler } from '../src/supervisor/server.js';
+import { recoverAiWithoutBlockingManagement } from '../src/manager/api.js';
 
 async function exchange(execute: (input: unknown) => unknown) {
 	const events: string[] = [];
@@ -19,6 +20,11 @@ async function exchange(execute: (input: unknown) => unknown) {
 }
 
 describe('supervisor asynchronous completion', () => {
+	it('keeps management available when AI startup recovery fails', async () => {
+		const events: unknown[] = [];
+		await expect(recoverAiWithoutBlockingManagement(async () => { throw new Error('private runtime detail'); }, (name, details) => { events.push({ name, details }); })).resolves.toBeUndefined();
+		expect(events).toEqual([{ name: 'manager.ai-recovery-failed', details: { code: 'ai_runtime_reconciliation_required' } }]);
+	});
 	it('keeps a half-closed request open until the backup result resolves', async () => {
 		const result = await exchange(async () => {
 			await new Promise(resolve => setTimeout(resolve, 20));

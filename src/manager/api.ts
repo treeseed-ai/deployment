@@ -3,7 +3,7 @@ import { createServer as createHttpServer, type RequestListener } from 'node:htt
 import { createServer, type Server } from 'node:https';
 import type { TLSSocket } from 'node:tls';
 import { loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
-import { recentEvents } from '../core/events.js';
+import { recentEvents, recordEvent } from '../core/events.js';
 import { paths } from '../core/paths.js';
 import { executeHostCommand } from './operations.js';
 import { aiModeStatus, recoverAiMode, requestAiMode } from './ai-mode.js';
@@ -79,8 +79,14 @@ export function createManagerApi(): Server {
 	}, managerHandler(true, false));
 }
 
+export async function recoverAiWithoutBlockingManagement(recover = recoverAiMode, event = recordEvent) {
+	try { await recover(); }
+	catch { event('manager.ai-recovery-failed', { code: 'ai_runtime_reconciliation_required' }); }
+}
+
 export async function startManagerApi() {
-	await recoverAiMode();
+	// A component failure must not remove the management surface needed to repair it.
+	await recoverAiWithoutBlockingManagement();
 	const socket = '/run/treeseed/manager/api.sock';
 	try { unlinkSync(socket); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 	const local = createHttpServer(managerHandler(false, true)).listen(socket, () => chmodSync(socket, 0o660));
