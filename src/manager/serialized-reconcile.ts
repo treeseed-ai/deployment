@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { hostReceiptSchema, type HostReceipt } from '@treeseed/sdk/deployment';
 
 const execFileAsync = promisify(execFile);
-const lockPath = '/run/treeseed/manager/reconcile.lock';
+export const reconcileLockPath = '/run/treeseed/manager/reconcile.lock';
 const reconcileExecutable = fileURLToPath(new URL('../bin/reconcile.js', import.meta.url));
 
 export type ReconcileFailurePolicy = 'rollback' | 'halt';
@@ -23,7 +23,7 @@ export function serializedReconcileArguments(track?: 'stable' | 'development', f
 		'--close',
 		'--wait',
 		'3500',
-		lockPath,
+		reconcileLockPath,
 		process.execPath,
 		reconcileExecutable,
 		...(track ? [`--track=${track}`] : []),
