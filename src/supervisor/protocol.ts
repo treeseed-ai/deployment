@@ -6,6 +6,7 @@ import { developmentContainerSchema } from './development-container-contract.js'
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	developmentContainerSchema,
 	z.object({ operation: z.literal('supervisor.ping') }).strict(),
+	z.object({ operation: z.literal('ai.storage.verify') }).strict(),
 	z.object({ operation: z.literal('security.plan') }).strict(),
 	z.object({ operation: z.literal('security.status') }).strict(),
 	z.object({ operation: z.literal('security.verify') }).strict(),

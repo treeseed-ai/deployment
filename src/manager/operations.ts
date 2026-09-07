@@ -296,6 +296,10 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.verify': throw new Error('Candidate freeze and verification execute unprivileged through trsd.');
 		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
 		case 'local.host.ai.mode.show': return aiModeStatus();
+		case 'local.host.ai.storage.verify': {
+			if (request.options.plan === true) return { operation: 'ai.storage.verify', mutation: false, effects: ['Create/read/delete bounded R2 probe objects; no training or artifact migration.'] };
+			return requestSupervisor({ operation: 'ai.storage.verify' });
+		}
 		case 'local.host.ai.mode.set': {
 			const target = request.arguments[0];
 			if (target !== 'awake' && target !== 'sleep') throw new Error('AI mode must be awake or sleep.');
