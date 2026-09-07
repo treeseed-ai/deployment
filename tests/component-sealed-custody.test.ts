@@ -65,4 +65,12 @@ describe('shared OS component credential contract', () => {
 		expect(overlay).not.toContain('worker:');
 		expect(() => ephemeralComposeOverlay('ai-inference', [source], { signing: { file: '/run/treeseed/component-runtime/ai-training/secret-signing' } })).toThrow(/binding/);
 	});
+	it('resolves inherited environment blocks in the published AI Compose layout', () => {
+		const source = `x-environment: &environment\n  env_file: /etc/treeseed/components/ai-inference/environment\nx-security: &security\n  security_opt: [no-new-privileges:true]\nservices:\n  api:\n    <<: [*environment, *security]\n    image: immutable-api\n  worker:\n    <<: *environment\n    image: immutable-worker\n`;
+		const overlay = ephemeralComposeOverlay('ai-inference', [source], {});
+		expect(overlay.match(/env_file: !override/gu)).toHaveLength(2);
+		expect(overlay.match(/\/run\/treeseed\/component-runtime\/ai-inference\/environment/gu)).toHaveLength(2);
+		expect(overlay).not.toContain('image:');
+		expect(overlay).not.toContain('/etc/treeseed/components/');
+	});
 });

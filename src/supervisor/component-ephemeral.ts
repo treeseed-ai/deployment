@@ -71,7 +71,7 @@ export function ephemeralComposeOverlay(componentId: string, sources: string[], 
 	const root = componentRuntimeRoot(componentId), oldEnvironment = `/etc/treeseed/components/${componentId}/environment`;
 	const services: Record<string, unknown> = {};
 	for (const source of sources) {
-		const parsed = YAML.parse(source) as { services?: Record<string, { env_file?: unknown }> };
+		const parsed = YAML.parse(source, { merge: true }) as { services?: Record<string, { env_file?: unknown }> };
 		for (const [name, service] of Object.entries(parsed.services ?? {})) {
 			if (service.env_file === undefined) continue;
 			const files = Array.isArray(service.env_file) ? service.env_file : [service.env_file];
