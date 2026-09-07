@@ -10,7 +10,7 @@ const capture: Capture = args => execFileSync('/usr/bin/docker', args, { encodin
 const probes = [
 	{ component: 'ai-inference', service: 'inference-api', interpreter: 'node', program: nodeStorageProbe },
 	{ component: 'ai-training', service: 'training-api', interpreter: 'node', program: nodeStorageProbe },
-	{ component: 'ai-training', service: 'artifact', interpreter: 'python', program: pythonStorageProbe },
+	{ component: 'ai-training', service: 'training-artifact', interpreter: 'python', program: pythonStorageProbe },
 ];
 
 /** Fixed targets, exact accepted images, bounded execution, public results only. */

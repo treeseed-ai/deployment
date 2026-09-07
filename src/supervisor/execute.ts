@@ -12,7 +12,7 @@ import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnviron
 import { providerRuntimeStatus } from './provider-runtime.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
-import { preserveAcceptedConfiguration } from './backup-configuration.js';
+import { backupConfiguration, preserveAcceptedConfiguration } from './backup-configuration.js';
 import { resetPlatformState } from './reset.js';
 import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
 import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
@@ -453,6 +453,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
 		case 'configuration.initialize': return initializeHostConfiguration(operation, command);
+		case 'configuration.restore-accepted': {
+			const accepted = backupConfiguration(loadHostConfiguration());
+			atomicJson(paths.configuration, accepted, 0o640);
+			return { restored: true, generation: accepted.generation };
+		}
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);

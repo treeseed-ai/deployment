@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { paths } from '../core/paths.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { assertBackupEntries, assertBackupStatePaths, requiredBackupState } from './backup-coverage.js';
@@ -60,7 +60,7 @@ export async function createGenerationBackup(generation: number) {
 	mkdirSync(paths.backups, { recursive: true, mode: 0o700 });
 	const archive = archivePath(generation), temporary = `${archive}.new`, key = loadKey();
 	if (existsSync(archive) || existsSync(temporary)) { key.fill(0); throw new Error('Recovery generation already exists or has an unfinished staging file.'); }
-	writeFileSync(`/${configurationMember}`, JSON.stringify(host), { mode: 0o600, flag: 'wx' });
+	writeFileSync(`/${configurationMember}`, JSON.stringify(host), { mode: 0o640, flag: 'wx' });
 	const child = spawn('/usr/bin/tar', backupArchiveArguments(configurationMember, members), { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
 	child.stderr.resume();
 	try {
@@ -92,6 +92,8 @@ export async function restoreVerifiedBackup(generation: number, options: { backu
 	try {
 		const [exit] = await Promise.all([once(child, 'exit'), decryptBackupStream(path, generation, key, child.stdin)]);
 		if (exit[0] !== 0) throw new Error('Managed recovery extraction failed.');
+		// The unprivileged manager must retain its established group-read access.
+		chmodSync(`${options.destinationRoot}/etc/treeseed/platform.json`, 0o640);
 		return { generation, restored: true, sha256, encrypted: true as const };
 	} finally { child.kill(); key.fill(0); }
 	});

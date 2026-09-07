@@ -24,9 +24,16 @@ describe('configured backup state coverage', () => {
 		const configuration = host();
 		configuration.runtime = { management: 'managed', environment: 'development', dataRoot: '/var/lib/treeseed/development/.treeseed/data' };
 		configuration.components['ai-inference'] = { ...configuration.components.api! };
-		const components = [{ componentId: 'ai-inference' }];
+		const components = [{ componentId: 'ai-inference', runtime: { stateVolumes: [
+			{id:'postgres',volume:'/var/lib/treeseed/components/ai-inference/data/postgres',backup:'required'},
+			{id:'artifacts',volume:'/var/lib/treeseed/components/ai-inference/data/artifacts',backup:'required'},
+			{id:'models',volume:'/var/lib/treeseed/components/ai-inference/data/models',backup:'optional'},
+		] } }];
 		const roots = requiredBackupState(configuration, components);
 		expect(roots).toContain('var/lib/treeseed/development/.treeseed/data/ai-inference/data/postgres');
+		expect(roots).toContain('var/lib/treeseed/development/.treeseed/data/ai-inference/data/artifacts');
+		expect(roots.some(path => path.endsWith('/models'))).toBe(false);
+		expect(() => assertBackupCoverage(configuration, components, roots.filter(path => !path.endsWith('/artifacts')))).toThrow(/incomplete/);
 		expect(() => assertBackupCoverage(configuration, components, ['var/lib/treeseed/components/ai-inference/data/postgres/'])).toThrow(/incomplete/);
 		expect(assertBackupCoverage(configuration, components, roots.map(root => `${root}/`)).verified).toBe(true);
 	});

@@ -14,7 +14,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import {
-	activateRestoredComponent,
+	activateComponent,
 	componentActivationOrder,
 	componentStopOrder,
 	rollbackRoutes,
@@ -60,7 +60,7 @@ async function applyRoutes(host: HostConfiguration, components: ComponentRelease
 }
 
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	for (const component of componentActivationOrder(host, components)) await activateRestoredComponent(component);
+	for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
 	await applyRoutes(host, components);
 }
 

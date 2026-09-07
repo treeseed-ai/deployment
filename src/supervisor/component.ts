@@ -21,7 +21,7 @@ const stateDirectories: Record<string, string[]> = {
 	agent: [],
 	treedx: ['data'],
 	lab: ['data'],
-	'ai-inference': ['data/postgres', 'data/models', 'data/inference'],
+	'ai-inference': ['data/postgres', 'data/models', 'data/inference', 'data/artifacts'],
 	'ai-training': ['data/postgres', 'data/training', 'data/archive', 'data/models'],
 	'ai-lab': ['data/state', 'data/hermes', 'data/workspace', 'data/open-webui'],
 };
