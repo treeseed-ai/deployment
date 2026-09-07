@@ -29,8 +29,15 @@ export function providerRuntimeStatus(root: string, owner = 65_532, now = Date.n
 			if (value.schemaVersion !== 1 || value.role !== role || typeof value.updatedAt !== 'string') throw new Error();
 			const updated = Date.parse(value.updatedAt), fresh = Number.isFinite(updated) && now >= updated && now - updated < 120_000;
 			const result = record(value.result);
-			const errors = [value.error, ...(Array.isArray(result.results) ? result.results.slice(0, 32).map(entry => { const item = record(entry); return item.error ?? (item.ok === false || item.status === 'error' ? 'connection_reconciliation_failed' : undefined); }) : [])].map(diagnostic).filter(Boolean);
-			return { role, observed: true, fresh, ok: value.ok === true && errors.length === 0, updatedAt: new Date(updated).toISOString(), errors };
+			const connections = Array.isArray(result.connections) ? result.connections : [];
+			const results = Array.isArray(result.results) ? result.results : [];
+			const errors = [value.error, ...[...connections, ...results].slice(0, 32).map(entry => {
+				const item = record(entry);
+				return item.error ?? (item.ok === false || item.status === 'error' ? 'connection_reconciliation_failed' : undefined);
+			})].map(diagnostic).filter(Boolean);
+			if (result.ok === false && errors.length === 0) errors.push('runtime_operation_failed');
+			if (role === 'manager' && Array.isArray(result.connections) && connections.length === 0) errors.push('no_provider_connections');
+			return { role, observed: true, fresh, ok: fresh && value.ok === true && errors.length === 0, updatedAt: new Date(updated).toISOString(), errors };
 		} catch (error) {
 			return { ...missing, reason: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'not_observed' : 'unsafe_or_invalid_record' };
 		} finally { if (fd !== undefined) closeSync(fd); }
