@@ -1,5 +1,8 @@
 name: Maintain bounded development APT pool
 on:
+  push:
+    branches: [staging]
+    paths: [.github/workflows/apt-retention.yml]
   workflow_dispatch:
     inputs:
       current_tag:
@@ -15,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   retain:
-    if: github.ref == 'refs/heads/staging'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/staging'
     environment: staging
     runs-on: ubuntu-24.04
     steps:
