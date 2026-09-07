@@ -49,7 +49,7 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
   const api=input.targetId==='service', name=`treeseed-${input.sessionId}-api-${input.targetId}`,directory=resolve(root,input.sessionId,input.targetId);
   const args=api?['--watch','--import','tsx','src/api/support/server.ts']:['dist/operations-runner/entrypoint.js','run'];
   // Fixed watchdog bounds the container lifetime even if the CLI or manager disappears.
-  const watchdog=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});c.on('exit',n=>process.exit(n??1));setTimeout(()=>{c.kill('SIGTERM');setTimeout(()=>process.exit(1),30000)},${input.leaseSeconds*1000});`;
+  const watchdog=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));setTimeout(()=>{c.kill('SIGTERM');setTimeout(()=>process.exit(1),30000)},${input.leaseSeconds*1000});`;
   return {services:{runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
     entrypoint:['node','-e',watchdog],working_dir:input.worktree,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
@@ -64,7 +64,8 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
       ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner'},
         {type:'bind',source:resolve(input.stateRoot,'published-knowledge'),target:'/data/published-knowledge'}])],
     tmpfs:['/tmp'],extra_hosts:['host.docker.internal:host-gateway'],
-    ...(api?{ports:['127.0.0.1:3000:3000'],healthcheck:{test:['CMD','node','-e',"fetch('http://127.0.0.1:3000/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"],interval:'2s',timeout:'2s',retries:60}}:{}),
+    ...(api?{ports:['127.0.0.1:3000:3000']}:{}),
+    healthcheck:{test:['CMD','node','-e',`fetch('http://127.0.0.1:3000${api?'/v1/health/ready':'/readyz'}').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))`],interval:'2s',timeout:'2s',retries:60},
     networks:{private:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:{}}}},
     networks:{private:{external:true,name:'treeseed-api_private'},edge:{external:true,name:'treeseed-edge'},platform:{external:true,name:'treeseed-platform'}}};
 }
