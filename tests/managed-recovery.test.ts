@@ -6,7 +6,7 @@ import { component, hash, host } from './fixtures.js';
 const state = vi.hoisted(() => ({
 	operations: [] as any[], events: [] as any[], writes: [] as any[], lifecycle: [] as string[],
 	currentHost: undefined as any, currentComponents: [] as any[], currentReceipt: undefined as any,
-	target: undefined as any, activationFailure: false,
+	target: undefined as any, activationFailure: false, backupFailure: false,
 }));
 
 vi.mock('../src/core/paths.js', () => ({ paths: { receipts: '/tmp/treeseed-recovery-test/receipts', managerState: '/tmp/treeseed-recovery-test/manager' } }));
@@ -33,6 +33,10 @@ vi.mock('../src/manager/reconcile.js', () => ({
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
 	state.operations.push(operation);
 	if (operation.operation === 'backup.inspect') return state.target;
+	if (operation.operation === 'backup.create') {
+		if (state.lifecycle.length !== state.currentComponents.length || state.lifecycle.some(item => !item.startsWith('stop:'))) throw new Error('Backup attempted before all current writers stopped');
+		if (state.backupFailure) throw new Error('Safety backup failed');
+	}
 	return {};
 } }));
 
@@ -49,6 +53,19 @@ function receipt(configuration: any, components: any[], id: string) {
 }
 
 describe('complete managed generation recovery', () => {
+	it('resumes current services without restore or package changes when safety capture fails', async () => {
+		state.currentHost = host();
+		const current = component('api', 'stable', 'a');
+		state.currentComponents = [current]; state.currentReceipt = receipt(state.currentHost, [current], 'receipt-current');
+		state.target = { generation: 73, sha256: hash('e'), configuration: state.currentHost, receipt: state.currentReceipt, components: [current] };
+		state.operations = []; state.events = []; state.writes = []; state.lifecycle = []; state.activationFailure = false; state.backupFailure = true;
+		try {
+			await expect(restoreManagedGeneration(73)).rejects.toThrow('Safety backup failed');
+			expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect', 'backup.create', 'edge.apply']);
+			expect(state.lifecycle).toEqual(['stop:1.0.0', 'restore-activate:1.0.0']);
+			expect(state.writes).toEqual([]);
+		} finally { state.backupFailure = false; }
+	});
 	it('validates the target before mutation and restores packages, services, routes, and receipt custody', async () => {
 		mkdirSync('/tmp/treeseed-recovery-test/receipts', { recursive: true });
 		state.currentHost = host();
