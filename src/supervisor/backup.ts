@@ -7,6 +7,7 @@ import { assertBackupEntries, assertBackupStatePaths, requiredBackupState } from
 import { backupKeyId, decryptBackupStream, encryptBackupStream, inspectBackupStream } from './backup-stream.js';
 import { assertNoBackupWriters } from './backup-writers.js';
 import { backupConfiguration, selectBackupConfiguration } from './backup-configuration.js';
+import { withReplacedBackupState } from './backup-state-replacement.js';
 
 const credentialPath = `/etc/treeseed/credentials/${backupKeyId}.cred`;
 export const backupArchiveArguments = (configurationMember: string, members: string[], sourceRoot = '/') =>
@@ -83,6 +84,7 @@ export async function restoreVerifiedBackup(generation: number, options: { backu
 	writeFileSync(`${path}.sha256`, source.sha256, { mode: 0o600 });
 	const inspected = await inspectGenerationBackup(generation, { backupRoot: snapshotRoot, key: options.key });
 	options.checkWriters(inspected.coverage.stateDirectories);
+	return await withReplacedBackupState(options.destinationRoot, inspected.coverage.stateDirectories, async () => {
 	const sha256 = inspected.sha256;
 	const key = Buffer.from(options.key);
 	const child = spawn('/usr/bin/tar', ['--extract', '--gzip', '--file', '-', '--directory', options.destinationRoot, '--numeric-owner', '--no-overwrite-dir'], { stdio: ['pipe', 'ignore', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
@@ -92,6 +94,7 @@ export async function restoreVerifiedBackup(generation: number, options: { backu
 		if (exit[0] !== 0) throw new Error('Managed recovery extraction failed.');
 		return { generation, restored: true, sha256, encrypted: true as const };
 	} finally { child.kill(); key.fill(0); }
+	});
 	} finally { rmSync(snapshotRoot, { recursive: true, force: true }); }
 }
 export async function restoreGenerationBackup(generation: number) {
