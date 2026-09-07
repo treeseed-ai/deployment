@@ -1,6 +1,6 @@
 import { createCipheriv, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -44,7 +44,10 @@ describe('recovery backup discovery', () => {
 	it('restores authenticated state to a disposable root and cleans its encrypted snapshot', async () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-disposable-restore-')); backup(root, 43, true, true);
 		const target = resolve(root, 'restored'); mkdirSync(target);
+		const stale = `${target}/var/lib/treeseed/development/.treeseed/data/ai-inference/data/postgres`;
+		mkdirSync(stale, { recursive: true }); writeFileSync(`${stale}/post-snapshot-wal`, 'must-not-survive');
 		await restoreVerifiedBackup(43, { backupRoot: root, destinationRoot: target, key, checkWriters: () => undefined });
+		expect(existsSync(`${stale}/post-snapshot-wal`)).toBe(false);
 		expect(JSON.parse(readFileSync(`${target}/etc/treeseed/platform.json`, 'utf8')).runtime.environment).toBe('development');
 		for (const path of ['postgres','models','inference']) expect(readFileSync(`${target}/var/lib/treeseed/development/.treeseed/data/ai-inference/data/${path}/identity`, 'utf8')).toBe('synthetic-preserved-identity');
 		expect(JSON.parse(readFileSync(`${target}/var/lib/treeseed/manager/current-receipt.json`, 'utf8'))).toMatchObject({receiptId:'receipt-known-good'});
