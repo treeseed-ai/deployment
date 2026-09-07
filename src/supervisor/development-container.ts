@@ -12,6 +12,7 @@ import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './compo
 import type { CommandRunner } from './compose-runtime.js';
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
+import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -94,6 +95,8 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   if(!target)throw new Error('API development target contract is missing.');
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
+  const aiStorageKeys=prepareAiStorageIdentities(host,'api');
+  if(Object.keys(aiStorageKeys).length) environment.TREESEED_AI_STORAGE_PUBLIC_KEYS=JSON.stringify(aiStorageKeys);
   const source=developmentContainerSource(record);
   // Stateful candidates retain the installed runtime identity. The source
   // owner's identity is only appropriate for the stateless live API.
