@@ -10,6 +10,7 @@ import { loadActiveComponents } from '../manager/current-state.js';
 import { managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
 import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './component.js';
 import type { CommandRunner } from './compose-runtime.js';
+import { drainReleasedRunner, restoreReleasedRunner } from './development-runner.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -53,7 +54,7 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
     entrypoint:['node','-e',watchdog],working_dir:input.worktree,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
     labels:{'org.treeseed.development.session':input.sessionId,'org.treeseed.development.target':`api.${input.targetId}`},
-    environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:'live',
+    environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:api?'live':'candidate',
       TREESEED_OPENBAO_ADDRESS:'https://openbao:8200',TREESEED_OPENBAO_IDENTITY_FILE:'/run/openbao-client/identity.json',NODE_EXTRA_CA_CERTS:'/run/openbao-client/ca.pem',
       TREESEED_CAPACITY_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/credentials',TREESEED_DIAGNOSTICS_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/diagnostics',
       ...(api?{}:{TREESEED_PLATFORM_RUNNER_DATA_DIR:'/data/operations-runner',TREESEED_PUBLISHED_KNOWLEDGE_ROOT:'/data/published-knowledge'})},
@@ -73,10 +74,12 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const selected=record.session.targets.find(t=>t.projectId==='api'&&t.targetId===input.targetId);
   if(!selected)throw new Error('Development container is outside the registered session.');
   const directory=resolve(root,input.sessionId,input.targetId),file=resolve(directory,'compose.json');
+  const handoff=resolve(directory,'released-runner.json');
   const compose=['compose','--project-name',`treeseed-${input.sessionId}-api-${input.targetId}`,'--file',file];
   if(input.action==='stop') {
     if(!existsSync(file)){if(existsSync(directory))rmSync(directory,{recursive:true});return {stopped:true};}
     command('/usr/bin/docker',[...compose,'down','--timeout','30']);
+    if(input.targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
     rmSync(directory,{recursive:true});return {stopped:true};
   }
   if(input.action==='status')return {registered:existsSync(file),state:existsSync(file)?command('/usr/bin/docker',[...compose,'ps','--format','json']):null};
@@ -101,13 +104,22 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     for(const name of names){const value=readFileSync(resolve(origin,name));try{const output=resolve(target,name);writeFileSync(output,value,{mode:0o600});chownSync(output,source.uid,source.gid);}finally{value.fill(0);}}
   }
   atomicJson(file,spec,0o600);
+  let drained=false;
+  if(input.targetId==='operations-runner') {
+    drained=drainReleasedRunner(command);
+    if(drained)atomicJson(handoff,{restore:true},0o600);
+  }
   try { command('/usr/bin/docker',[...compose,'up','--detach','--wait','--wait-timeout','120','runtime']); }
   catch(error) {
     let code='';
     try { const log=String(command('/usr/bin/docker',['logs','--tail','50',`treeseed-${input.sessionId}-api-${input.targetId}`]));
       code=developmentStartupCode(log);
     } catch {/* Diagnostics never prevent cleanup. */}
-    try{command('/usr/bin/docker',[...compose,'down','--timeout','30']);rmSync(directory,{recursive:true});}catch{/* Retain the root-owned spec for an idempotent cleanup retry. */}
+    try{
+      command('/usr/bin/docker',[...compose,'down','--timeout','30']);
+      if(drained||existsSync(handoff))restoreReleasedRunner(command);
+      rmSync(directory,{recursive:true});
+    }catch{/* Retain the root-owned spec and handoff marker for an idempotent cleanup retry. */}
     if(code)throw new Error(`Managed development application startup failed (${code}).`);
     throw error;
   }
