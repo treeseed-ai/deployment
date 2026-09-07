@@ -1,13 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { componentCredential } from '../src/core/component-credential.js';
-import { ephemeralComposeOverlay, usesSealedComponentCredentials } from '../src/supervisor/component-ephemeral.js';
+import { assertEmptyPersistentPlaceholder, ephemeralComposeOverlay, usesSealedComponentCredentials } from '../src/supervisor/component-ephemeral.js';
+import { readFileSync, type Stats } from 'node:fs';
 import { managedRuntimeInputEnvironment } from '../src/manager/runtime-inputs.js';
 import { renderComponentEnvironment } from '../src/supervisor/component.js';
 import { decodeComponentCredential } from '../src/supervisor/component-sealed.js';
 import { component, host } from './fixtures.js';
 
 describe('shared OS component credential contract', () => {
+	it('accepts the Debian empty placeholder but never existing plaintext or unsafe files', () => {
+		const packaging = readFileSync(new URL('../scripts/package-deb.ts', import.meta.url), 'utf8');
+		expect(packaging).toContain('install -o root -g treeseed-manager -m 0640 /dev/null');
+		const metadata = { uid: 0, size: 0, mode: 0o100640, isFile: () => true, isSymbolicLink: () => false };
+		const inspect = (value: Partial<Stats>) => () => ({ ...metadata, ...value });
+		expect(() => assertEmptyPersistentPlaceholder('/fixture/environment', inspect({}))).not.toThrow();
+		for (const value of [{ size: 1 }, { uid: 1000 }, { mode: 0o100644 }, { mode: 0o100660 }, { isFile: () => false }, { isSymbolicLink: () => true }])
+			expect(() => assertEmptyPersistentPlaceholder('/fixture/environment', inspect(value))).toThrow(/explicit custody migration/);
+		expect(() => assertEmptyPersistentPlaceholder('/fixture/missing', () => { throw Object.assign(new Error(), { code: 'ENOENT' }); })).not.toThrow();
+		expect(() => assertEmptyPersistentPlaceholder('/fixture/denied', () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); })).toThrow('denied');
+	});
 	it('binds the decrypt name, erases plaintext buffers, and sanitizes failures', () => {
 		const plaintext = Buffer.from('fixture-only');
 		expect(decodeComponentCredential('database', 'database', Buffer.from('sealed'), (name, bytes) => {
