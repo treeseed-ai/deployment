@@ -27,7 +27,8 @@ it('uses immutable image, read-only source, fixed networks and no privileged/soc
   expect(runtime.cap_drop).toEqual(['ALL']);expect(runtime.security_opt).toEqual(['no-new-privileges:true']);
   expect(runtime.volumes[0]).toMatchObject({source:input.workspace,read_only:true});
   expect(JSON.stringify(spec)).not.toContain('docker.sock');expect(runtime.ports).toEqual(['127.0.0.1:3000:3000']);
-  expect(runtime.entrypoint.join(' ')).toContain('60000');
+  expect(runtime.entrypoint.join(' ')).not.toContain('setTimeout');
+  expect(runtime.entrypoint.join(' ')).toContain('process.on(s,()=>c.kill(s))');
   expect(()=>renderDevelopmentContainer({...input,image:'node:latest'})).toThrow('immutable');
 });
 it('does not publish a runner port and confines its writable state',()=>{
