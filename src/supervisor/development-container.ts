@@ -17,7 +17,7 @@ const dockerCommand:CommandRunner=(executable,args)=>{
   const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:180_000,maxBuffer:1_048_576,
     env:{PATH:'/usr/sbin:/usr/bin:/sbin:/bin'}});
   if(result.error||result.status!==0) {
-    const text=result.stderr??'';
+    const text=(result.stderr??'')+'\n'+(result.stdout??'');
     const reason=/port is already allocated|address already in use/i.test(text)?'port_in_use':
       /network .*not.*found|network .*does not exist/i.test(text)?'network_missing':
       /bind source path does not exist/i.test(text)?'mount_missing':
@@ -105,11 +105,17 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   catch(error) {
     let code='';
     try { const log=String(command('/usr/bin/docker',['logs','--tail','50',`treeseed-${input.sessionId}-api-${input.targetId}`]));
-      code=log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??'';
+      code=developmentStartupCode(log);
     } catch {/* Diagnostics never prevent cleanup. */}
     try{command('/usr/bin/docker',[...compose,'down','--timeout','30']);rmSync(directory,{recursive:true});}catch{/* Retain the root-owned spec for an idempotent cleanup retry. */}
     if(code)throw new Error(`Managed development application startup failed (${code}).`);
     throw error;
   }
   return {started:true};
+}
+
+/** Only fixed diagnostic codes cross the operator boundary, never raw logs. */
+export function developmentStartupCode(log:string):string {
+  return log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??
+    (/does not provide an export named/.test(log)?'EXPORT_MISSING':/SyntaxError/.test(log)?'SYNTAX_ERROR':/duplicate key|already exists/.test(log)?'DATABASE_CONFLICT':/permission denied/.test(log)?'DATABASE_PERMISSION':/relation .*does not exist/.test(log)?'DATABASE_RELATION_MISSING':'');
 }

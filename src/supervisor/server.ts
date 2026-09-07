@@ -27,7 +27,8 @@ export function createSupervisorServer() {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				recordEvent('supervisor.operation-failed', { operation, message });
-				const operatorMessage = operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
+				const safeDevelopmentError = operation === 'development.container' && /^Managed development (?:application startup failed \([A-Z_]+\)|[a-z_]+ \(exit (?:[0-9]+|timeout)\))\.$/.test(message);
+				const operatorMessage = safeDevelopmentError || operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
 				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation, ...(operatorMessage ? { message: operatorMessage } : {}) })}\n`);
 			}
 		});

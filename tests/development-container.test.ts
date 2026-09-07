@@ -1,6 +1,9 @@
 import {expect,it} from 'vitest';
-import {developmentContainerSchema,renderDevelopmentContainer} from '../src/supervisor/development-container.js';
+import {developmentContainerSchema,renderDevelopmentContainer,developmentStartupCode} from '../src/supervisor/development-container.js';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
+it('projects startup failures to fixed codes without reflecting sensitive log content',()=>{
+  for(const [log,code] of [['does not provide an export named secret-value','EXPORT_MISSING'],['SyntaxError: secret-value','SYNTAX_ERROR'],['relation secret-value does not exist','DATABASE_RELATION_MISSING'],['permission denied secret-value','DATABASE_PERMISSION'],['duplicate key secret-value','DATABASE_CONFLICT'],['ERR_MODULE_NOT_FOUND secret-value','ERR_MODULE_NOT_FOUND'],['secret-value','']] as const)expect(developmentStartupCode(log)).toBe(code);
+});
 it('rejects privileged options and arbitrary targets at the supervisor boundary',()=>{
   const request={operation:'development.container',sessionId:input.sessionId,targetId:'service',action:'start'};
   expect(developmentContainerSchema.parse(request)).toEqual(request);
