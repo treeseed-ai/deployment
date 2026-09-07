@@ -1,6 +1,7 @@
 import { hostConfigurationSchema, type HostConfiguration } from '@treeseed/sdk/deployment';
 import { isDeepStrictEqual } from 'node:util';
 import { aiCredentialNames } from '../supervisor/ai-credentials.js';
+import { aiStorageIdentityNames } from '../supervisor/ai/storage-identity.js';
 
 export interface ManagedAiBinding {
 	nodeId: string; teamId: string; projectId: string; issuer: string;
@@ -21,11 +22,14 @@ export function planManagedAiConfiguration(current: HostConfiguration, binding: 
 	const apiEnvironment = { ...api.environment as Record<string, string> };
 	if (apiEnvironment.TREESEED_AI_RUNTIME && apiEnvironment.TREESEED_AI_RUNTIME !== runtime) throw new Error('An existing managed AI identity cannot be silently replaced.');
 	api.environment = { ...apiEnvironment, TREESEED_AI_RUNTIME: runtime };
-	for (const [id, name] of Object.entries(aiCredentialNames)) {
+	for (const [id, name] of Object.entries({ ...aiCredentialNames, ...Object.fromEntries(Object.values(aiStorageIdentityNames).map(id => [id, id])) })) {
 		const secret = { provider: 'systemd-credential' as const, reference: `/etc/treeseed/credentials/${name}.cred` };
 		if (host.secrets[id] && JSON.stringify(host.secrets[id]) !== JSON.stringify(secret)) throw new Error(`AI credential ${id} requires an explicit custody migration.`);
 		host.secrets[id] = secret;
 	}
+	const storageCa = { provider: 'file' as const, reference: '/etc/treeseed/cli/localhost-ca.crt' };
+	if (host.secrets['ai-storage-ca'] && !isDeepStrictEqual(host.secrets['ai-storage-ca'], storageCa)) throw new Error('AI storage TLS trust requires explicit custody reconciliation.');
+	host.secrets['ai-storage-ca'] = storageCa;
 	for (const [id, name] of Object.entries({ 'ai-mode-ca': 'ai-mode-ca.crt', 'ai-mode-client-cert': 'ai-mode-client.crt', 'ai-mode-client-key': 'ai-mode-client.key' })) {
 		const secret = { provider: 'file' as const, reference: `/etc/treeseed/credentials/${name}` };
 		if (host.secrets[id] && JSON.stringify(host.secrets[id]) !== JSON.stringify(secret)) throw new Error('AI mode identity requires explicit reconciliation.');
@@ -36,6 +40,9 @@ export function planManagedAiConfiguration(current: HostConfiguration, binding: 
 		const environment = { ...previous?.configuration.environment as Record<string, string>,
 			AI_DELEGATION_ISSUER: binding.issuer, AI_DELEGATION_AUDIENCE: `treeai:${binding.nodeId}:${role}`,
 			AI_TEAM_ID: binding.teamId, AI_NODE_ID: binding.nodeId, AI_DELEGATION_PUBLIC_KEYS: JSON.stringify(binding.publicKeys),
+			AI_PROJECT_ID: binding.projectId, AI_STORAGE_SERVICE: role,
+			AI_STORAGE_URL: new URL('/v1/internal/ai/storage/credentials', binding.issuer).href,
+			AI_STORAGE_HOST: issuer.hostname,
 		};
 		const secretEnvironment = role === 'lab' ? { AI_LAB_API_KEYS: 'ai-lab-api-keys' } : {
 			[`${role.toUpperCase()}_DATABASE_URL`]: `ai-${role}-database-url`,
