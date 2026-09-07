@@ -16,6 +16,7 @@ import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
+import { quiescedBackup } from './quiesced-backup.js';
 import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
@@ -440,32 +441,34 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	if (routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
 	const configurationImpacts = (componentId: string) => configurationChanged
 		&& (configurationScope.size === 0 || configurationScope.has(componentId));
-	const impacted = componentStopOrder(host, active).filter((component) => configurationImpacts(component.componentId)
-		|| changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
+	const snapshotRequired = Boolean(previous && (configurationChanged || removed.length || changed.some(component => component.release !== activeById.get(component.componentId)?.release || component.runtimeDigest !== activeById.get(component.componentId)?.runtimeDigest)));
+	const impacted = (component: ComponentRelease) => snapshotRequired || configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId);
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
 	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
 	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
-	for (const component of impacted) await stopComponent(component);
-	await requestSupervisor({ operation: 'backup.create', generation });
+	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active).filter(impacted), {
+		stop: stopComponent, start: activateRestoredComponent, capture: async () => snapshotRequired ? requestSupervisor({ operation: 'backup.create', generation }) : undefined,
+	});
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
-			|| changedTargetIds.has(component.componentId))) await activateComponent(host, component, effective);
+		for (const component of activationOrder) {
+			if (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)) await activateComponent(host, component, effective);
+			else if (snapshotRequired) await activateRestoredComponent(component);
+		}
 		await reconcileAiModeSelection(host, effective);
 		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 			|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
 		recordEvent(failurePolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
-		for (const component of componentStopOrder(host, effective).filter((component) => configurationImpacts(component.componentId)
-			|| changedTargetIds.has(component.componentId))) {
+		for (const component of componentStopOrder(host, effective).filter(impacted)) {
 			try { await stopComponent(component); } catch { /* continue restoring the last known-good generation */ }
 		}
 		requireAutomaticRollback(failurePolicy);
-		await requestSupervisor({ operation: 'recovery.restore', generation });
+		if (snapshotRequired) await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		try {

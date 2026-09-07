@@ -3,6 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
+import { verifyAiStorage } from './ai/storage-verification.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
@@ -405,6 +406,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
 		case 'ai.gpu.workload': return aiWorkload(operation.role, operation.action, operation.files, operation.waitTimeoutSeconds, command);
 		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
+		case 'ai.storage.verify': return verifyAiStorage();
 		case 'storage.r2.status': return r2StorageStatus(operation.controlPlaneId);
 		case 'storage.r2.install': return installR2Storage(operation, command);
 		case 'host.development.activate': {
@@ -425,10 +427,10 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
-		case 'backup.create': return createGenerationBackup(operation.generation, command);
+		case 'backup.create': return createGenerationBackup(operation.generation);
 		case 'backup.inspect': return inspectGenerationBackup(operation.generation);
 		case 'backup.list': return listGenerationBackups();
-		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
+		case 'recovery.restore': return restoreGenerationBackup(operation.generation);
 		case 'platform.reset': {
 			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });
 			// The supervisor performs deletion as root, but reconciliation and the
