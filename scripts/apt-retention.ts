@@ -5,12 +5,15 @@ import { join } from 'node:path';
 
 export interface Archive { name: string; digest: string | null; size: number; url: string }
 export interface Package { name: string; digest: string; size: number; package: string; version: string; depends: string }
+// GitHub normalizes '~' in uploaded release-asset names to '.'. Content still
+// must match exactly; filenames alone never establish archive custody.
+const archived = (p: Package, a: Archive) => p.name.replaceAll('~', '.') === a.name.replaceAll('~', '.') && p.digest === a.digest && p.size === a.size;
 export function retentionPlan(packages: Package[], current: Archive[], previous: Archive[], archives: Archive[], matches: (version: string, operator: string, required: string) => boolean) {
   if (!current.length || !previous.length) throw new Error('Both complete release package sets are required.');
   const roots = [...current, ...previous];
-  for (const asset of roots) if (!packages.some(p => p.name === asset.name && p.digest === asset.digest && p.size === asset.size))
+  for (const asset of roots) if (!packages.some(p => archived(p, asset)))
     throw new Error(`Release package missing or changed: ${asset.name}`);
-  const keep = packages.filter(p => roots.some(a => a.name === p.name && a.digest === p.digest));
+  const keep = [...new Set(roots.map(a => packages.find(p => p.name === a.name && archived(p, a)) ?? packages.find(p => archived(p, a))!))];
   for (const p of keep) for (const group of p.depends.split(',').filter(Boolean)) {
     const alternatives = group.split('|').map(part => part.trim());
     if (!alternatives.some(part => /^treeseed(?:-|\s|$)/u.test(part))) continue;
@@ -23,7 +26,7 @@ export function retentionPlan(packages: Package[], current: Archive[], previous:
     if (!satisfied) throw new Error(`Retained dependency closure is incomplete: ${p.name}: ${group}`);
   }
   const remove = packages.filter(p => !keep.includes(p)).map(p => {
-    const archive = archives.find(a => a.name === p.name && a.digest === p.digest && a.size === p.size);
+    const archive = archives.find(a => archived(p, a));
     if (!archive) throw new Error(`No verified release archive for ${p.name}; nothing may be removed.`);
     return { ...p, archive: archive.url };
   });
@@ -58,7 +61,7 @@ export function retainDevelopmentPool(apt: string, currentTag: string, explicitR
     return { name, digest, size: stat.size, package: field('Package'), version: field('Version'), depends: [field('Pre-Depends'), field('Depends')].filter(Boolean).join(',') };
   });
   const archives: Archive[] = [...current, ...previous];
-  for (let page = 1; packages.some(p => !archives.some(a => a.name === p.name && a.digest === p.digest && a.size === p.size)); page++) {
+  for (let page = 1; packages.some(p => !archives.some(a => archived(p, a))); page++) {
     const releases = JSON.parse(execFileSync('gh', ['api', `repos/treeseed-ai/deployment/releases?per_page=100&page=${page}`], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
     if (!releases.length) break;
     archives.push(...releases.filter((r: any) => !r.draft).flatMap(assets));
