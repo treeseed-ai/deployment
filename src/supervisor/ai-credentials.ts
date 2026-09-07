@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { createPublicKey, generateKeyPairSync, randomBytes, scryptSync } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, scryptSync } from 'node:crypto';
+import { existsSync, lstatSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { componentCredential } from '../core/component-credential.js';
 import { readComponentCredential } from './component-sealed.js';
@@ -79,12 +79,16 @@ export function prepareManagedAiCredentials(host: HostConfiguration, componentId
 		const secret = records[id]!;
 		if (existsSync(secret.reference)) return readComponentCredential(host, id, `${root}/${aiCredentialNames[id]}`);
 		let plaintext: Buffer | undefined;
+		const temporary = `${secret.reference}.${randomUUID()}.new`;
 		try {
 			plaintext = Buffer.from(create());
 			const sealed = execFileSync('/usr/bin/systemd-creds', ['encrypt', '--with-key=host', `--name=${secret.name}`, '-', '-'], { input: plaintext, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15_000, maxBuffer: 1_048_576 });
-			writeFileSync(secret.reference, sealed, { mode: 0o600, flag: 'wx' });
+			writeFileSync(temporary, sealed, { mode: 0o600, flag: 'wx' });
+			// Serialized supervisor initialization publishes only a complete sealed record.
+			if (existsSync(secret.reference)) throw new Error('Credential appeared during initialization.');
+			renameSync(temporary, secret.reference);
 			return plaintext.toString('utf8');
 		} catch { throw new Error(`Managed AI credential ${id} could not be initialized.`); }
-		finally { plaintext?.fill(0); }
+		finally { plaintext?.fill(0); if (existsSync(temporary)) unlinkSync(temporary); }
 	});
 }
