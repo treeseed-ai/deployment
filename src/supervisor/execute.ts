@@ -6,6 +6,7 @@ import { paths } from '../core/paths.js';
 import { verifyAiStorage } from './ai/storage-verification.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
+import { writeEdgeHostNetwork } from '../edge/host-network.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
@@ -423,8 +424,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			mkdirSync(dirname(target), { recursive: true, mode: 0o750 });
 			writeFileSync(temporary, operation.caddyfile, { mode: 0o640 });
 			generateEdgeCertificate(operation.aliases, command);
+			const bridge = JSON.parse(execFileSync('/usr/bin/docker', ['network','inspect','bridge'], {encoding:'utf8',timeout:10_000,maxBuffer:65536}))[0];
+			writeEdgeHostNetwork(`${paths.edge}/host-network.yml`, bridge);
 			command('/usr/bin/docker', ['compose', '--file', '/usr/share/treeseed/edge/compose.yml', 'run', '--rm', '--no-deps', 'caddy', 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile']);
 			renameSync(temporary, target);
+			command('/usr/bin/docker', ['compose','--file','/usr/share/treeseed/edge/compose.yml','--file',`${paths.edge}/host-network.yml`,'up','--detach','--wait']);
 			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
