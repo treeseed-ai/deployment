@@ -10,6 +10,7 @@ import { componentCredential } from '../core/component-credential.js';
 import { readComponentCredential } from './component-sealed.js';
 import { componentRuntimeRoot, prepareEphemeralComponentInputs, usesSealedComponentCredentials } from './component-ephemeral.js';
 import { prepareManagedAiCredentials } from './ai-credentials.js';
+import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
@@ -256,6 +257,8 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
 	if (componentId === 'api') prepareManagedOpenBao(stateRoot);
 	prepareManagedAiCredentials(host, componentId);
+	const aiStorageKeys = prepareAiStorageIdentities(host, componentId);
+	if (componentId === 'api' && Object.keys(aiStorageKeys).length) connectionEnvironment.TREESEED_AI_STORAGE_PUBLIC_KEYS = JSON.stringify(aiStorageKeys);
 	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
 	let files: Record<string, unknown>;
 	try {
