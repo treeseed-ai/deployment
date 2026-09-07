@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, linkSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyDevelopmentRuntime } from '../src/supervisor/development-runtime-copy.js';
@@ -37,4 +37,11 @@ it('rejects source identity mismatches and directory cycles',()=>{
 });
 it('rejects a destination within the source workspace',()=>{
   const f=fixture();expect(()=>copyDevelopmentRuntime({...f,destination:join(f.worktree,'copy')})).toThrow('outside');
+});
+it('copies npm hardlinks into independent private files',()=>{
+  const f=fixture(),original=join(f.worktree,'dist','entry.js');
+  linkSync(original,join(f.worktree,'node_modules','linked.js'));
+  copyDevelopmentRuntime(f);writeFileSync(original,'changed');
+  const copied=join(f.destination,'node_modules','linked.js');
+  expect(readFileSync(copied,'utf8')).toBe('export {};');expect(statSync(copied).nlink).toBe(1);
 });

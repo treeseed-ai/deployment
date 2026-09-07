@@ -7,7 +7,7 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
   const workspace = realpathSync(input.workspace);
   const destination = resolve(input.destination);
   const digest = createHash('sha256');
-  let files = 0, bytes = 0;
+  let files = 0, bytes = 0, entries = 0;
   const within = (path: string) => path === workspace || path.startsWith(workspace + sep);
   if (within(destination)) throw new Error('Candidate custody must be outside the source workspace.');
   // The containing manager directory remains 0700; code is readable inside
@@ -15,6 +15,7 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
   mkdirSync(destination, { mode: 0o755 });
   chmodSync(destination, 0o755);
   const copy = (source: string, target: string, ancestors: Set<string>) => {
+    if (++entries > 200_000 || ancestors.size > 128) throw new Error('Candidate runtime exceeds custody limits.');
     // Inspect the opened object, not a path checked before a possible symlink swap.
     const fd = openSync(source, constants.O_RDONLY | constants.O_NONBLOCK);
     try {
@@ -29,7 +30,9 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
         for (const name of readdirSync(`/proc/self/fd/${fd}`).sort())
           copy(`/proc/self/fd/${fd}/${name}`, resolve(target, name), next);
       } else {
-        if (!stat.isFile() || stat.nlink !== 1 || stat.size > 256 * 1024 * 1024)
+        // npm uses hardlinks for binaries. Copy their bytes into new private
+        // files; never retain hardlinks to the operator's mutable cache.
+        if (!stat.isFile() || stat.size > 256 * 1024 * 1024)
           throw new Error('Candidate dependency is not a bounded regular file.');
         bytes += stat.size;
         if (++files > 100_000 || bytes > 2 * 1024 ** 3) throw new Error('Candidate runtime exceeds custody limits.');
