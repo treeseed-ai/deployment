@@ -425,10 +425,10 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
-		case 'backup.create': return createGenerationBackup(operation.generation, command);
+		case 'backup.create': return createGenerationBackup(operation.generation);
 		case 'backup.inspect': return inspectGenerationBackup(operation.generation);
 		case 'backup.list': return listGenerationBackups();
-		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
+		case 'recovery.restore': return restoreGenerationBackup(operation.generation);
 		case 'platform.reset': {
 			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });
 			// The supervisor performs deletion as root, but reconciliation and the
