@@ -110,7 +110,10 @@ function developmentApiConfiguration(selectedComponents: Set<string>) {
 		TREESEED_TREEDX_JWT_AUDIENCE: 'treedx',
 	};
 	if (selectedComponents.has('lab')) Object.assign(environment, { TREESEED_MAILPIT_SMTP_HOST: 'mailpit', TREESEED_MAILPIT_SMTP_PORT: '1025' });
-	if (selectedComponents.has('treedx')) environment.TREESEED_TREEDX_URL = 'http://treedx:4000';
+	if (selectedComponents.has('treedx')) {
+		environment.TREESEED_TREEDX_URL = 'http://treedx:4000';
+		environment.TREESEED_TREEDX_NODE_ID = developmentTreedxConfiguration().environment.TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID;
+	}
 	return { environment, secretEnvironment: { ...developmentApiSecrets } };
 }
 

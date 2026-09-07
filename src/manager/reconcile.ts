@@ -150,7 +150,11 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 		if (dependency.id === 'treedx') {
 			const environment = host.components[target.componentId]?.configuration?.environment as Record<string, unknown> | undefined;
 			const nodeId = environment?.TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID;
-			if (typeof nodeId === 'string' && nodeId.trim()) values.TREESEED_TREEDX_NODE_ID = nodeId.trim();
+			if (typeof nodeId === 'string' && nodeId.trim()) {
+				const configured = (selection.configuration?.environment as Record<string, unknown> | undefined)?.TREESEED_TREEDX_NODE_ID;
+				if (configured !== undefined && configured !== nodeId.trim()) throw new Error('API TreeDX broker identity conflicts with its selected connection.');
+				if (configured === undefined) values.TREESEED_TREEDX_NODE_ID = nodeId.trim();
+			}
 		}
 		const endpoint = service.endpoints.find((candidate) => candidate.id === connection.endpointId)!;
 		values[`${prefix}_URL`] = `${endpoint.protocol}://${service.composeService}:${endpoint.port}`;
