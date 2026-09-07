@@ -10,7 +10,7 @@ import { loadActiveComponents } from '../manager/current-state.js';
 import { managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
 import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './component.js';
 import type { CommandRunner } from './compose-runtime.js';
-import { drainCandidateRunner, drainReleasedRunner, restoreReleasedRunner } from './development-runner.js';
+import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -94,16 +94,19 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
   const source=developmentContainerSource(record);
+  // Stateful candidates retain the installed runtime identity. The source
+  // owner's identity is only appropriate for the stateless live API.
+  const identity=input.targetId==='operations-runner'?releasedRunnerIdentity(command):source;
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
   command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']);
   const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
-  const spec=renderDevelopmentContainer({...input,...source,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
+  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
-  // Delegate only the API's fixed credential files to the source owner's UID;
+  // Delegate only the API's fixed credential files to the runtime's UID;
   // the root-owned parent prevents host users from browsing these copies.
   for(const [child,origin,names] of [['openbao','/run/treeseed/openbao/client',['identity.json','ca.pem']],['keys','/run/treeseed/component-credentials/api',['credentials','diagnostics']]] as const) {
-    const target=resolve(directory,child);mkdirSync(target,{recursive:true,mode:0o700});chownSync(target,source.uid,source.gid);
-    for(const name of names){const value=readFileSync(resolve(origin,name));try{const output=resolve(target,name);writeFileSync(output,value,{mode:0o600});chownSync(output,source.uid,source.gid);}finally{value.fill(0);}}
+    const target=resolve(directory,child);mkdirSync(target,{recursive:true,mode:0o700});chownSync(target,identity.uid,identity.gid);
+    for(const name of names){const value=readFileSync(resolve(origin,name));try{const output=resolve(target,name);writeFileSync(output,value,{mode:0o600});chownSync(output,identity.uid,identity.gid);}finally{value.fill(0);}}
   }
   atomicJson(file,spec,0o600);
   let drained=false;
@@ -131,6 +134,13 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
 
 /** Only fixed diagnostic codes cross the operator boundary, never raw logs. */
 export function developmentStartupCode(log:string):string {
+  if (/\bEACCES\b/.test(log)) {
+    for (const [path, code] of [['/data/operations-runner', 'RUNNER_STATE_PERMISSION'],
+      ['/data/published-knowledge', 'KNOWLEDGE_STATE_PERMISSION'],
+      ['/run/openbao-client', 'CUSTODY_PERMISSION'], ['/run/treeseed-keys', 'KEY_PERMISSION']] as const) {
+      if (log.split('\n').some(line => /\bEACCES\b/.test(line) && line.includes(path))) return code;
+    }
+  }
   return log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??
     (/does not provide an export named/.test(log)?'EXPORT_MISSING':/SyntaxError/.test(log)?'SYNTAX_ERROR':/duplicate key|already exists/.test(log)?'DATABASE_CONFLICT':/permission denied/.test(log)?'DATABASE_PERMISSION':/relation .*does not exist/.test(log)?'DATABASE_RELATION_MISSING':'');
 }
