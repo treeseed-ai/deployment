@@ -5,9 +5,9 @@ import { join } from 'node:path';
 
 export interface Archive { name: string; digest: string | null; size: number; url: string }
 export interface Package { name: string; digest: string; size: number; package: string; version: string; depends: string }
-// GitHub normalizes '~' in uploaded release-asset names to '.'. Content still
-// must match exactly; filenames alone never establish archive custody.
-const archived = (p: Package, a: Archive) => p.name.replaceAll('~', '.') === a.name.replaceAll('~', '.') && p.digest === a.digest && p.size === a.size;
+// Pool filenames may be content-addressed to preserve an older build that
+// reused a versioned filename. Only exact content establishes custody.
+const archived = (p: Package, a: Archive) => p.digest === a.digest && p.size === a.size;
 export function retentionPlan(packages: Package[], current: Archive[], previous: Archive[], archives: Archive[], matches: (version: string, operator: string, required: string) => boolean) {
   if (!current.length || !previous.length) throw new Error('Both complete release package sets are required.');
   const roots = [...current, ...previous];
@@ -51,7 +51,7 @@ export function retainDevelopmentPool(apt: string, currentTag: string, explicitR
   const rollbackTag = explicitRollback ?? (prior?.currentTag === currentTag ? prior.rollbackTag : prior?.currentTag);
   if (!rollbackTag || rollbackTag === currentTag) throw new Error('A distinct accepted rollback tag is required on first retention.');
   const current = assets(release(currentTag)), previous = assets(release(rollbackTag));
-  const packages = readdirSync(pool).map(name => {
+  const inspect = (name: string): Package => {
     if (!/^treeseed[a-z0-9._+~-]*\.deb$/u.test(name)) throw new Error(`Unmanaged file in development pool: ${name}`);
     const path = join(pool, name), stat = lstatSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error(`Unsafe package: ${name}`);
@@ -59,7 +59,18 @@ export function retainDevelopmentPool(apt: string, currentTag: string, explicitR
     const fields = execFileSync('dpkg-deb', ['--field', path], { encoding: 'utf8' });
     const field = (key: string) => new RegExp(`^${key}: (.*)$`, 'mu').exec(fields)?.[1] ?? '';
     return { name, digest, size: stat.size, package: field('Package'), version: field('Version'), depends: [field('Pre-Depends'), field('Depends')].filter(Boolean).join(',') };
-  });
+  };
+  const packages = readdirSync(pool).map(inspect);
+  for (const [tag, roots] of [[currentTag, current], [rollbackTag, previous]] as const) for (const asset of roots) {
+    if (packages.some(p => archived(p, asset))) continue;
+    if (!apply) throw new Error(`Restore the missing release artifact before planning: ${asset.name}`);
+    if (!/^sha256:[a-f0-9]{64}$/u.test(asset.digest ?? '') || !/^treeseed[a-z0-9._+~-]*\.deb$/u.test(asset.name)) throw new Error('Invalid release archive metadata.');
+    const name = `treeseed-archive-${asset.digest!.slice(7)}.deb`, target = join(pool, name);
+    execFileSync('gh', ['release', 'download', tag, '--repo', 'treeseed-ai/deployment', '--pattern', asset.name, '--output', target], { stdio: 'inherit' });
+    const restored = inspect(name);
+    if (!archived(restored, asset)) throw new Error(`Restored archive differs: ${asset.name}`);
+    packages.push(restored);
+  }
   const archives: Archive[] = [...current, ...previous];
   for (let page = 1; packages.some(p => !archives.some(a => archived(p, a))); page++) {
     const releases = JSON.parse(execFileSync('gh', ['api', `repos/treeseed-ai/deployment/releases?per_page=100&page=${page}`], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));

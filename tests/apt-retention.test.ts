@@ -5,6 +5,12 @@ const pkg = (name: string, version: string, depends = ''): Package => ({ name: `
 const archive = (p: Package): Archive => ({ name: p.name, size: p.size, digest: p.digest, url: `https://github.com/treeseed-ai/deployment/releases/download/test/${p.name}` });
 const matches = (v: string, op: string, required: string) => op === '=' && v === required;
 describe('APT generation retention', () => {
+  it('retains a content-addressed rollback artifact even when versioned filenames were reused', () => {
+    const current = pkg('treeseed-manager', '3');
+    const prior = { ...current, name: 'treeseed-archive-old.deb', digest: 'sha256:older-build' };
+    const archivedPrior = { ...archive(prior), name: current.name };
+    expect(retentionPlan([current, prior], [archive(current)], [archivedPrior], [], matches).keep).toEqual([current, prior]);
+  });
   it('matches GitHub-normalized filenames only with equal digests and sizes, retaining one pool copy', () => {
     const p = pkg('treeseed-manager', '1~rc3'); const copy = { ...p, name: p.name.replace('~', '.') };
     const previous = pkg('treeseed-manager', '1~rc2');
