@@ -40,7 +40,7 @@
     "npm": ">=11"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-backup-stream.mjs",
     "package:runtime": "node --import tsx scripts/package-runtime.ts",
     "check:source-shape": "node --import tsx scripts/check-source-shape.ts",
     "test": "vitest run",
@@ -63,6 +63,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
