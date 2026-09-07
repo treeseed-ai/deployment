@@ -21,6 +21,7 @@ import { ensureSandboxNetwork } from '../sandbox/network.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
 import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 import { waitForStartingActivation } from './activation-wait.js';
+import { executeDevelopmentContainer } from './development-container.js';
 import { ensureDevelopmentConfiguration } from './development-configuration.js';
 import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
 import { initializeHostConfiguration } from './configuration-initialize.js';
@@ -329,6 +330,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
 		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
+		case 'development.container': return executeDevelopmentContainer(operation);
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {
 			const marker = `${paths.managerState}/provider-enrollments/${operation.connectionId}.json`;

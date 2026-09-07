@@ -20,6 +20,12 @@ export function reconcileDevelopmentConfiguration(current: HostConfiguration) {
 	const candidate = structuredClone(current), selected = candidate.components.treedx!;
 	selected.configuration ??= {};
 	const expected = developmentTreedxConfiguration();
+	const api = candidate.components.api!;
+	api.configuration ??= {};
+	const apiEnvironment = (api.configuration.environment ?? {}) as Record<string, string>;
+	const nodeId = expected.environment.TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID;
+	if (apiEnvironment.TREESEED_TREEDX_NODE_ID !== undefined && apiEnvironment.TREESEED_TREEDX_NODE_ID !== nodeId) throw new Error('Managed API TreeDX node identity conflicts with the development profile.');
+	api.configuration.environment = { ...apiEnvironment, TREESEED_TREEDX_NODE_ID: nodeId };
 	for (const section of ['environment', 'secretEnvironment'] as const) {
 		const configured = selected.configuration[section] as Record<string, unknown> | undefined;
 		if (configured !== undefined && (!configured || typeof configured !== 'object' || Array.isArray(configured))) throw new Error(`Managed TreeDX ${section} configuration is invalid.`);

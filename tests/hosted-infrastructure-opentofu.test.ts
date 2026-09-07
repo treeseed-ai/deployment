@@ -27,7 +27,7 @@ function topology() {
 		schemaVersion: 'treeseed.hosted-topology/v1', id: 'tree-production', teamId: 'team-treeseed', deploymentId: 'treeseed-cloud', stackId: 'control-plane', environment: 'production', mutation: 'agent-authorized',
 		platform: { repository: 'treeseed-ai/platform', commit: 'a'.repeat(40) },
 		stateBackend: { connectionRef: 'cloudflare-state' },
-		providerConnections: { cloudflare: { connectionRef: 'cloudflare-production' }, railway: { connectionRef: 'railway-production' } },
+		providerConnections: { cloudflare: { connectionRef: 'cloudflare-account' }, railway: { connectionRef: 'railway-production' } },
 		artifacts: {
 			admin: { kind: 'archive', format: 'tar+gzip', digest: digest(pagesArchive), source: 'https://artifacts.example.test/admin.tgz' },
 			proxy: { kind: 'file', mediaType: 'application/javascript', digest: digest(workerSource), source: 'https://artifacts.example.test/api-proxy.mjs' },
@@ -47,7 +47,7 @@ function topology() {
 
 function connections() {
 	return {
-		cloudflare: { connectionRef: 'cloudflare-production', nonSecretConfig: { deploymentEnvironment: 'production', accountId: 'cf-account', zoneId: 'cf-zone', 'api-public-url': 'https://api.example.test' } },
+		cloudflare: { connectionRef: 'cloudflare-account', nonSecretConfig: { accountId: 'cf-account', zoneId: 'cf-zone', 'api-public-url': 'https://api.example.test' } },
 		railway: { connectionRef: 'railway-production', nonSecretConfig: { deploymentEnvironment: 'production', workspaceId: 'rw-workspace', projectId: 'rw-project', environmentId: 'rw-environment', environmentName: 'production' } },
 	};
 }

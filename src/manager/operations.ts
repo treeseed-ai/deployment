@@ -241,6 +241,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const record = new DevelopmentSessionStore().load(payload.sessionId);
 			return { sessionId: payload.sessionId, affected: affectedDevelopmentClosure(record.runtimes, payload.selected.length ? payload.selected : record.session.targets.map((target) => `${target.projectId}.${target.targetId}`)) };
 		}
+		case 'local.dev.container': {
+			if (!context.local) throw new Error('Development containers require the protected local manager socket.');
+			const payload = z.object({sessionId:z.string().regex(/^dev-[a-z0-9-]{1,64}$/),projectId:z.literal('api'),targetId:z.enum(['service','operations-runner']),action:z.enum(['start','stop','status'])}).strict().parse(developmentPayload(request));
+			return requestSupervisor({operation:'development.container',sessionId:payload.sessionId,targetId:payload.targetId,action:payload.action});
+		}
 		case 'local.dev.environment': {
 			if (!context.local) throw new Error('Development runtime environment is available only through the protected local manager socket.');
 			const payload = developmentEnvironmentPayloadSchema.parse(developmentPayload(request));

@@ -186,6 +186,10 @@ export class DevelopmentSessionStore {
 		const record = this.load(sessionId);
 		const selected = record.session.targets.find((entry) => entry.projectId === projectId && entry.targetId === targetId);
 		if (!selected || selected.mode === 'released') throw new Error(`Target ${targetKey(projectId, targetId)} is not selected for a completed development generation.`);
+		const contract = record.runtimes.find(runtime => runtime.project.id === projectId)?.targets.find(target => target.id === targetId);
+		if (contract?.endpoints.some(endpoint => endpoint.visibility === 'host' && !record.routes.some(route =>
+			route.projectId === projectId && route.targetId === targetId && route.alias === endpoint.canonicalAlias)))
+			throw new Error('Host-visible development targets require an attached canonical route before readiness.');
 		selected.health = 'ready'; selected.generation += 1;
 		return this.save(record);
 	}
