@@ -6,6 +6,10 @@ import {storageCustodyFromEnvironment,ManagedArtifactStore} from '/app/packages/
 import {createRequire} from 'node:module';
 const require=createRequire('/app/packages/common/package.json');
 const {S3Client,HeadObjectCommand,DeleteObjectCommand}=require('@aws-sdk/client-s3');
+const diagnostics={};const originalFetch=globalThis.fetch;
+function classifyProviderError(error){const message=String(error?.message??'').toLowerCase();diagnostics.providerHints=message.split(/[^a-z]+/).filter(word=>['jwt','token','tokens','session','invalid','unknown','claim','claims','jti','unsupported','supported','not','enabled','disabled','account','user','signature','verification','expired','format','encoding','parse','permission','permissions','action','actions','scope','header','argument','version','access','key','secret','required','missing'].includes(word)).slice(0,24);for(const [reason,pattern] of [['session-token',/token|jwt/],['signature',/signature|credential/],['checksum',/checksum|digest/],['request-header',/header/],['permission',/permission|action|scope/]])if(pattern.test(message)){diagnostics.providerReason=reason;break;}}
+const originalSend=S3Client.prototype.send;S3Client.prototype.send=async function(...args){try{return await originalSend.apply(this,args);}catch(error){classifyProviderError(error);if(['InvalidArgument','InvalidToken','ExpiredToken','AccessDenied','SignatureDoesNotMatch','InvalidAccessKeyId','NotImplemented','InvalidRequest','BadDigest'].includes(error.name))diagnostics.providerCode=error.name;throw error;}};
+globalThis.fetch=async(...args)=>{try{const response=await originalFetch(...args);diagnostics.brokerStatus=response.status;if(!response.ok){const body=await response.clone().json().catch(()=>({}));if(['ai_storage_proof_invalid','ai_storage_node_unavailable','ai_storage_project_unavailable','ai_storage_binding_unavailable','ai_storage_proof_unavailable','ai_storage_access_changed'].includes(body.code))diagnostics.brokerCode=body.code;}return response;}catch(error){const code=error?.cause?.code??error?.code;if(['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ETIMEDOUT','CERT_HAS_EXPIRED','UNABLE_TO_VERIFY_LEAF_SIGNATURE','SELF_SIGNED_CERT_IN_CHAIN','DEPTH_ZERO_SELF_SIGNED_CERT'].includes(code))diagnostics.transportCode=code;throw error;}};
 const custody=storageCustodyFromEnvironment(),storeId='managed-'+process.env.AI_STORAGE_SERVICE;
 const store=new ManagedArtifactStore(storeId,custody),key='.treeseed-acceptance/'+randomUUID()+'/probe';
 const bytes=Buffer.from('treeseed-vault-storage-acceptance/v1');
@@ -21,8 +25,8 @@ try{
  phase='action-isolation';await denied(await custody(storeId,'write',key),read.objectKey);
  phase='workload-isolation';let rejected=false;try{await custody('managed-lab','read',key);}catch{rejected=true;}if(!rejected)throw Error();
  ok=true;phase='complete';
-}catch{}finally{if(created){try{const lease=await custody(storeId,'delete',key),c=client(lease);try{await c.send(new DeleteObjectCommand({Bucket:lease.bucket,Key:lease.objectKey}));}finally{c.destroy();}}catch{cleanup=false;}}}
-console.log(JSON.stringify({ok:ok&&cleanup,phase,cleanup,key}));
+}catch(error){const status=error?.$metadata?.httpStatusCode;if(Number.isInteger(status))diagnostics.providerStatus=status;}finally{if(created){try{const lease=await custody(storeId,'delete',key),c=client(lease);try{await c.send(new DeleteObjectCommand({Bucket:lease.bucket,Key:lease.objectKey}));}finally{c.destroy();}}catch{cleanup=false;}}}
+console.log(JSON.stringify({ok:ok&&cleanup,phase,cleanup,key,diagnostics}));
 `;
 
 export const pythonStorageProbe = String.raw`
