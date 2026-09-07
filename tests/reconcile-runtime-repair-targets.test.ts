@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { runtimeRepairTargets } from '../src/manager/reconcile.js';
 
+it('defers probes until changed credential bindings are configured and activated', () => {
+	expect(runtimeRepairTargets([{ componentId: 'api' }], new Set(), new Set(), true)).toEqual([]);
+});
+
 describe('pre-install runtime repair selection', () => {
 	it('does not probe uninstalled upgrade or new-component Compose paths', () => {
 		const upgrade = { componentId: 'admin', file: 'admin/new/compose.yml' };

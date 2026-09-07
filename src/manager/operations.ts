@@ -9,6 +9,7 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
+import { configurationPlan } from './configuration-preflight.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, reconcileDevelopmentPeers, refreshAvailableCatalogs, rollbackRoutes } from './reconcile.js';
 import { reconcileFailurePolicy, serializedReconcile } from './serialized-reconcile.js';
 import { serializedSecurityInitialize, serializedSecurityOperation } from './serialized-security.js';
@@ -94,11 +95,6 @@ async function applyDevelopmentRoutes(store: DevelopmentSessionStore) {
 	await reconcileDevelopmentPeers(host, releases, store);
 	if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	return routes;
-}
-
-function configurationPlan(configuration: HostConfiguration) {
-	const stable = loadCatalog(`${paths.catalogs}/stable.json`), developmentPath = `${paths.catalogs}/development.json`;
-	return createPlan(configuration, stable, existsSync(developmentPath) ? loadCatalog(developmentPath) : undefined, receipt() ?? undefined);
 }
 
 function requiredConfiguration(request: HostCommandRequest) {
@@ -324,13 +320,17 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.config.plan': return configurationPlan(requiredConfiguration(request));
 		case 'local.host.config.apply': {
 			const candidate = requiredConfiguration(request);
-			if (request.options.plan === true) return configurationPlan(candidate);
+			const proposed = configurationPlan(candidate);
+			if (request.options.plan === true) return proposed;
+			if (proposed.plan.blockers.length) throw new Error('Host configuration plan has unresolved blockers.');
 			await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
 			return serializedReconcile();
 		}
 		case 'local.host.config.adopt': {
 			const candidate = requiredConfiguration(request);
-			if (request.options.plan === true) return configurationPlan(candidate);
+			const proposed = configurationPlan(candidate);
+			if (request.options.plan === true) return proposed;
+			if (proposed.plan.blockers.length) throw new Error('Host configuration plan has unresolved blockers.');
 			if (request.options.confirm !== true) throw new Error('Configuration adoption requires --confirm.');
 			await requestSupervisor({ operation: 'configuration.adopt', configuration: candidate });
 			return serializedReconcile();

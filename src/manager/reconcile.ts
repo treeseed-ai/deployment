@@ -332,10 +332,12 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 	return previous;
 }
 
-export function runtimeRepairTargets<T extends { componentId: string }>(targets: T[], changedIds: ReadonlySet<string>, heldIds: ReadonlySet<string>): T[] {
+export function runtimeRepairTargets<T extends { componentId: string }>(targets: T[], changedIds: ReadonlySet<string>, heldIds: ReadonlySet<string>, configurationChanged = false): T[] {
 	// Candidate Compose files arrive during package installation. Already-planned
 	// changes receive post-install activation checks, not pre-install drift probes.
-	return targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
+	// Desired credential bindings have not been materialized yet. Inspecting them
+	// as if they were the accepted runtime would reject legitimate configuration changes.
+	return configurationChanged ? [] : targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
 }
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
@@ -407,8 +409,9 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		await requestSupervisor({ operation: 'sandbox.guest-trust.bind', digest: selectedGuestDigest });
 		recordEvent('sandbox.guest-trust-reconciled', { componentId: 'agent', previousDigests: configuredGuestDigests, selectedGuestDigest });
 	}
+	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (previous) {
-		for (const component of runtimeRepairTargets(targets, changedIds, heldDevelopmentComponents)) {
+		for (const component of runtimeRepairTargets(targets, changedIds, heldDevelopmentComponents, configurationChanged)) {
 			const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
 			const status = await requestSupervisor<{ present?: boolean; running?: boolean; ready?: boolean; issues?: Array<{ service: string; reason: string }> }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName, runtime: { componentId: component.componentId, files: composeFiles(component), services } });
 			if (status?.ready === false || typeof status?.present === 'boolean' && (!status.present || !status.running)) {
@@ -419,7 +422,6 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	}
 	const changed = targets.filter((component) => changedIds.has(component.componentId) && !heldDevelopmentComponents.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
-	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (configurationChanged && configurationScope.size) {
 		for (const componentId of configurationScope) {
 			if (!effective.some((component) => component.componentId === componentId)) throw new Error(`Scoped component ${componentId} is unavailable.`);
