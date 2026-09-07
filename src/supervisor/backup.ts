@@ -6,8 +6,11 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { assertBackupEntries, assertBackupStatePaths, requiredBackupState } from './backup-coverage.js';
 import { backupKeyId, decryptBackupStream, encryptBackupStream, inspectBackupStream } from './backup-stream.js';
 import { assertNoBackupWriters } from './backup-writers.js';
+import { backupConfiguration, selectBackupConfiguration } from './backup-configuration.js';
 
 const credentialPath = `/etc/treeseed/credentials/${backupKeyId}.cred`;
+export const backupArchiveArguments = (configurationMember: string, members: string[], sourceRoot = '/') =>
+	['--create', '--gzip', '--file', '-', '--directory', sourceRoot, '--numeric-owner', '--exclude=etc/treeseed/platform.json', `--transform=s|^${configurationMember}$|etc/treeseed/platform.json|`, ...members];
 function archivePath(generation: number, root: string = paths.backups) {
 	if (!Number.isSafeInteger(generation) || generation < 1) throw new Error('Backup generation is invalid.');
 	return `${root}/generation-${generation}.tar.gz.enc`;
@@ -32,6 +35,7 @@ export async function inspectGenerationBackup(generation: number, options: { bac
 	const { path, sha256 } = checkedArchive(generation, options.backupRoot), key = loadKey(options.key);
 	try {
 		const { entries, ...state } = await inspectBackupStream(path, generation, key);
+		selectBackupConfiguration(state.configuration, state.receipt as {configurationDigest?: unknown});
 		const coverage = assertBackupEntries(state.configuration, state.components, entries);
 		return { generation, sha256, encrypted: true as const, ...state, coverage };
 	} finally { key.fill(0); }
@@ -47,14 +51,16 @@ export async function listGenerationBackups(options: { backupRoot?: string; key?
 	return results;
 }
 export async function createGenerationBackup(generation: number) {
-	const host = loadHostConfiguration(), components = JSON.parse(readFileSync(`${paths.managerState}/active-components.json`, 'utf8'));
+	const host = backupConfiguration(loadHostConfiguration()), components = JSON.parse(readFileSync(`${paths.managerState}/active-components.json`, 'utf8'));
 	const state = requiredBackupState(host, components); assertBackupStatePaths(state);
 	assertNoBackupWriters(state);
-	const members = ['etc/treeseed', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json', ...state];
+	const configurationMember = `var/lib/treeseed/manager/backup-configuration-${generation}.json`;
+	const members = ['etc/treeseed', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json', configurationMember, ...state];
 	mkdirSync(paths.backups, { recursive: true, mode: 0o700 });
 	const archive = archivePath(generation), temporary = `${archive}.new`, key = loadKey();
 	if (existsSync(archive) || existsSync(temporary)) { key.fill(0); throw new Error('Recovery generation already exists or has an unfinished staging file.'); }
-	const child = spawn('/usr/bin/tar', ['--create', '--gzip', '--file', '-', '--directory', '/', '--numeric-owner', ...members], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
+	writeFileSync(`/${configurationMember}`, JSON.stringify(host), { mode: 0o600, flag: 'wx' });
+	const child = spawn('/usr/bin/tar', backupArchiveArguments(configurationMember, members), { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
 	child.stderr.resume();
 	try {
 		const [exit] = await Promise.all([once(child, 'exit'), encryptBackupStream(child.stdout, temporary, generation, key)]);
@@ -64,7 +70,7 @@ export async function createGenerationBackup(generation: number) {
 		const retained = readdirSync(paths.backups).filter(name => /^generation-[1-9][0-9]*\.tar\.gz\.enc$/u.test(name)).sort((a, b) => Number(b.slice(11, -11)) - Number(a.slice(11, -11)));
 		for (const stale of retained.slice(10)) { rmSync(`${paths.backups}/${stale}`, { force: true }); rmSync(`${paths.backups}/${stale}.sha256`, { force: true }); }
 		return { generation, archive, sha256, encrypted: true as const, stateDirectories: state };
-	} finally { child.kill(); key.fill(0); rmSync(temporary, { force: true }); }
+	} finally { child.kill(); key.fill(0); rmSync(temporary, { force: true }); rmSync(`/${configurationMember}`, { force: true }); }
 }
 export async function restoreVerifiedBackup(generation: number, options: { backupRoot: string; destinationRoot: string; key: Buffer; checkWriters: (members: string[]) => void }) {
 	// Inspect and extract the same private encrypted snapshot. Never stream newly
