@@ -9,7 +9,7 @@ import { paths } from '../core/paths.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
-import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, refreshAvailableCatalogs, rollbackRoutes } from './reconcile.js';
+import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, reconcileDevelopmentPeers, refreshAvailableCatalogs, rollbackRoutes } from './reconcile.js';
 import { reconcileFailurePolicy, serializedReconcile } from './serialized-reconcile.js';
 import { serializedSecurityInitialize, serializedSecurityOperation } from './serialized-security.js';
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
@@ -88,7 +88,9 @@ async function applyDevelopmentRoutes(store: DevelopmentSessionStore) {
 	// Development routing is based on the known-good active generation. It must
 	// remain usable while newer stable/development catalog metadata is arriving
 	// or awaiting a matching overlay publication.
-	const routes = store.activeRoutes(rollbackRoutes(loadHostConfiguration(), loadActiveComponents()));
+	const host = loadHostConfiguration(), releases = loadActiveComponents();
+	const routes = store.activeRoutes(rollbackRoutes(host, releases));
+	await reconcileDevelopmentPeers(host, releases, store);
 	if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	return routes;
 }
