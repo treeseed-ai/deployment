@@ -16,6 +16,7 @@ import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
+import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -247,8 +248,10 @@ export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
-	const connectionEnvironment = managedConnectionEnvironment(host, component, releases);
+export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], developmentRoutes: readonly EdgeRoute[] = []) {
+	const connectionEnvironment = host.runtime.environment === 'development'
+		? managedContainerDevelopmentConnectionEnvironment(host, component, releases, developmentRoutes)
+		: managedConnectionEnvironment(host, component, releases);
 	if (component.runtime.modeControl?.role === 'controller') {
 		const [, port] = host.network.manager.binding.split(':');
 		Object.assign(connectionEnvironment, {
@@ -275,11 +278,24 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 
 export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases);
+	const developmentRoutes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes([]) : [];
+	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases, developmentRoutes);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 	const sandboxGuestImageDigest = component.componentId === 'agent' ? component.images.find((image) => image.role === 'sandbox-guest')?.digest : undefined;
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds, optionalSecretEnvironment, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
+	recordConnectionDigest(component.componentId, connectionEnvironment);
+}
+
+export async function reconcileDevelopmentPeers(host: HostConfiguration, releases: ComponentRelease[], store: DevelopmentSessionStore) {
+	const routes = host.runtime.environment === 'development' ? store.activeRoutes([]) : [];
+	const held = new Set(store.list().flatMap(({ session }) => session.targets.filter(({ mode }) => mode !== 'released').map(({ projectId }) => projectId)));
+	const ordered = componentActivationOrder(host, releases);
+	return reconcilePeerConnections(ordered.map(component => ({
+		componentId: component.componentId,
+		released: componentActivationInputs(host, component, releases).connectionEnvironment,
+		desired: componentActivationInputs(host, component, releases, routes).connectionEnvironment,
+	})), held, { read: readConnectionDigest, activate: id => activateComponent(host, ordered.find(component => component.componentId === id)!, releases) });
 }
 
 /** Reactivates configuration already restored from an encrypted generation backup. */
@@ -416,6 +432,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const cliUrlPath = `${paths.cli}/api-base-url`, cliCaPath = `${paths.cli}/localhost-ca.crt`;
 	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
+	if (previous && changed.length === 0 && !configurationChanged && !catalogChanged && removed.length === 0) await reconcileDevelopmentPeers(host, effective, developmentSessions);
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
 		await reconcileAiModeSelection(host, effective);
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
