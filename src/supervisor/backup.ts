@@ -10,7 +10,7 @@ import { backupConfiguration, selectBackupConfiguration } from './backup-configu
 
 const credentialPath = `/etc/treeseed/credentials/${backupKeyId}.cred`;
 export const backupArchiveArguments = (configurationMember: string, members: string[], sourceRoot = '/') =>
-	['--create', '--gzip', '--file', '-', '--directory', sourceRoot, '--numeric-owner', '--exclude=etc/treeseed/platform.json', `--transform=s|^${configurationMember}$|etc/treeseed/platform.json|`, ...members];
+	['--create', '--use-compress-program=/usr/bin/gzip -1', '--file', '-', '--directory', sourceRoot, '--numeric-owner', '--exclude=etc/treeseed/platform.json', `--transform=s|^${configurationMember}$|etc/treeseed/platform.json|`, ...members];
 function archivePath(generation: number, root: string = paths.backups) {
 	if (!Number.isSafeInteger(generation) || generation < 1) throw new Error('Backup generation is invalid.');
 	return `${root}/generation-${generation}.tar.gz.enc`;

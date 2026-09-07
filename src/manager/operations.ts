@@ -18,7 +18,8 @@ import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
-import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
+import { inspectRecoveryBackup, listRecoveryBackups } from './recovery.js';
+import { serializedRecovery } from './serialized-recovery.js';
 import { aiModeStatus } from './ai-mode.js';
 import { setAiModeCommand } from './ai-command.js';
 import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage, resetCloudflareR2Bucket } from './cloudflare-r2-storage.js';
@@ -477,7 +478,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 				components: target.components.map(({ componentId, release }) => ({ componentId, release })),
 				packages: target.receipt.packages,
 			};
-			return restoreManagedGeneration(generation);
+			return serializedRecovery(generation);
 		}
 		case 'local.host.bootstrap.status': return bootstrapStatus();
 		case 'local.host.bootstrap.enroll': {
