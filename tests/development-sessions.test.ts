@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -103,14 +103,33 @@ describe('development session manager', () => {
 		await expect(sessions.attach('session-1', 'admin', 'web', 4322)).rejects.toThrow(/private container DNS identity/u);
 	});
 
-	it('expires bounded leases and removes their routes', async () => {
+	it('migrates persisted v1 sessions once while preserving an external-to-active-list rollback record', () => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-sessions-')); roots.push(root);
+		const old = { session: { ...session(new Date('2020-01-01T00:00:00.000Z')), status: 'active' }, runtimes: [runtime()], routes: [], candidates: [] };
+		writeFileSync(join(root, 'session-1.json'), JSON.stringify(old));
+		const sessions = new DevelopmentSessionStore(root);
+		const migrated = sessions.load('session-1');
+		expect(migrated.session.status).toBe('active');
+		expect(migrated.session.schemaVersion).toBe('treeseed.development-session/v2');
+		expect(JSON.parse(readFileSync(join(root, 'migrations/persistent-sessions/session-1.json'), 'utf8'))).toEqual(old);
+		expect(sessions.load('session-1')).toEqual(migrated);
+		expect(sessions.list()).toHaveLength(1);
+	});
+
+	it('retains routes and ownership across elapsed time until explicitly stopped', async () => {
 		const started = new Date('2026-08-26T12:00:00.000Z'); let now = started;
 		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-sessions-')); roots.push(root);
 		const sessions = new DevelopmentSessionStore(root, { now: () => now, directHealth: async () => true, routedHealth: async () => true });
 		sessions.start(session(started), [runtime()]); await sessions.attach('session-1', 'admin', 'web', 4322);
-		now = new Date(started.getTime() + 120_000);
+		now = new Date('2040-01-01T00:00:00.000Z');
+		expect(sessions.activeRoutes([])).toHaveLength(1);
+		expect(sessions.load('session-1').session.status).toBe('active');
+		expect(sessions.list()).toHaveLength(1);
+		expect(JSON.stringify(sessions.load('session-1'))).not.toContain('expiresAt');
+		sessions.stop('session-1');
 		expect(sessions.activeRoutes([])).toEqual([]);
-		expect(sessions.load('session-1').session.status).toBe('expired');
+		expect(sessions.list()).toEqual([]);
+		expect(sessions.load('session-1').session.status).toBe('stopped');
 	});
 
 	it('computes only directional declared consumers', () => {

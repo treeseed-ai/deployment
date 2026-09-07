@@ -45,15 +45,15 @@ export function developmentContainerSource(record:ManagedDevelopmentSession) {
 }
 
 /** No repository commands, Compose files, mounts, image or Docker options cross this boundary. */
-export function renderDevelopmentContainer(input:{sessionId:string;targetId:'service'|'operations-runner';worktree:string;workspace:string;uid:number;gid:number;sourceGid?:number;environment:Record<string,string>;image:string;leaseSeconds:number;stateRoot:string}) {
+export function renderDevelopmentContainer(input:{sessionId:string;targetId:'service'|'operations-runner';worktree:string;workspace:string;uid:number;gid:number;sourceGid?:number;environment:Record<string,string>;image:string;stateRoot:string}) {
   if(!/^sha256:[a-f0-9]{64}$/.test(input.image))throw new Error('Development runtime image must resolve to an immutable local ID.');
   const api=input.targetId==='service', name=`treeseed-${input.sessionId}-api-${input.targetId}`,directory=resolve(root,input.sessionId,input.targetId);
   const args=api?['--watch','--import','tsx','src/api/support/server.ts']:['dist/operations-runner/entrypoint.js','run'];
-  // Fixed watchdog bounds the container lifetime even if the CLI or manager disappears.
-  const watchdog=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));setTimeout(()=>{c.kill('SIGTERM');setTimeout(()=>process.exit(1),30000)},${input.leaseSeconds*1000});`;
+  // Forward explicit stop signals; elapsed time never terminates development.
+  const processSupervisor=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));`;
   return {services:{runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
     group_add:input.sourceGid===undefined||input.sourceGid===input.gid?[]:[String(input.sourceGid)],
-    entrypoint:['node','-e',watchdog],working_dir:api?input.worktree:'/app',cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
+    entrypoint:['node','-e',processSupervisor],working_dir:api?input.worktree:'/app',cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
     labels:{'org.treeseed.development.session':input.sessionId,'org.treeseed.development.target':`api.${input.targetId}`},
     environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:api?'live':'candidate',
@@ -87,8 +87,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     rmSync(directory,{recursive:true});return {stopped:true};
   }
   if(input.action==='status')return {registered:existsSync(file),state:existsSync(file)?command('/usr/bin/docker',[...compose,'ps','--format','json']):null};
-  const seconds=Math.floor((Date.parse(record.session.expiresAt)-Date.now())/1000);
-  if(record.session.status!=='active'||seconds<=0)throw new Error('Development session has expired or stopped.');
+  if(record.session.status!=='active')throw new Error('Development session is not active.');
   const host=loadHostConfiguration(),releases=loadActiveComponents(),component=releases.find(r=>r.componentId==='api');
   if(!component)throw new Error('Installed API foundation is required for development.');
   const target=record.runtimes.find(r=>r.project.id==='api')?.targets.find(t=>t.id===input.targetId);
@@ -102,7 +101,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
   command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']);
   const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
-  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
+  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
   if(input.targetId==='operations-runner') {
     // Refuse to overwrite an existing candidate snapshot. Cleanup must finish first.

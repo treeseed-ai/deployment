@@ -111,15 +111,24 @@ export class DevelopmentSessionStore {
 
 	list(includeStopped = false) {
 		if (!existsSync(this.#root)) return [];
-		return readdirSync(this.#root).filter((name) => name.endsWith('.json')).map((name) => validateRecord(JSON.parse(readFileSync(`${this.#root}/${name}`, 'utf8'))))
-			.filter((record) => includeStopped || !['stopped', 'expired'].includes(record.session.status))
+		return readdirSync(this.#root).filter((name) => name.endsWith('.json')).map((name) => this.load(name.slice(0, -5)))
+			.filter((record) => includeStopped || record.session.status !== 'stopped')
 			.sort((left, right) => left.session.createdAt.localeCompare(right.session.createdAt));
 	}
 
 	load(sessionId: string) {
 		const path = recordPath(this.#root, sessionId);
 		if (!existsSync(path)) throw new Error(`Unknown development session ${sessionId}.`);
-		return validateRecord(JSON.parse(readFileSync(path, 'utf8')));
+		const input = JSON.parse(readFileSync(path, 'utf8'));
+		const record = validateRecord(input);
+		if (input.session.schemaVersion !== record.session.schemaVersion || input.runtimes.some((runtime: {schemaVersion:string}, index: number) => runtime.schemaVersion !== record.runtimes[index]?.schemaVersion)) {
+			const backupRoot = `${this.#root}/migrations/persistent-sessions`;
+			mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+			const backup = `${backupRoot}/${sessionId}.json`;
+			if (!existsSync(backup)) atomicJson(backup, input, 0o600);
+			this.save(record);
+		}
+		return record;
 	}
 
 	save(record: ManagedDevelopmentSession) {
@@ -132,7 +141,6 @@ export class DevelopmentSessionStore {
 		const session = developmentSessionSchema.parse(sessionInput);
 		const runtimes = runtimeInputs.map((runtime) => developmentRuntimeSchema.parse(runtime));
 		if (this.list(true).some((record) => record.session.sessionId === session.sessionId)) throw new Error(`Development session ${session.sessionId} already exists.`);
-		if (new Date(session.expiresAt) <= this.#deps.now()) throw new Error('Development session lease must expire in the future.');
 		const runtimeByProject = new Map(runtimes.map((runtime) => [runtime.project.id, runtime]));
 		for (const selected of session.targets) {
 			const target = runtimeByProject.get(selected.projectId)?.targets.find((entry) => entry.id === selected.targetId);
@@ -161,7 +169,7 @@ export class DevelopmentSessionStore {
 			}
 			for (const resource of resources) if (!record.session.leases.some((lease) => `${lease.kind}:${lease.resource}` === resource)) {
 				const [kind, ...parts] = resource.split(':');
-				record.session.leases.push({ kind: kind as 'alias' | 'component', resource: parts.join(':'), acquiredAt: this.#deps.now().toISOString(), expiresAt: record.session.expiresAt });
+				record.session.leases.push({ kind: kind as 'alias' | 'component', resource: parts.join(':'), acquiredAt: this.#deps.now().toISOString() });
 			}
 		}
 		target.mode = mode; target.health = mode === 'released' ? 'ready' : 'pending';
@@ -214,20 +222,14 @@ export class DevelopmentSessionStore {
 		return true;
 	}
 
-	stop(sessionId: string, expired = false) {
+	stop(sessionId: string) {
 		const record = this.load(sessionId);
-		record.routes = []; record.session.leases = []; record.session.status = expired ? 'expired' : 'stopped';
+		record.routes = []; record.session.leases = []; record.session.status = 'stopped';
 		for (const target of record.session.targets) target.health = 'stopped';
 		return this.save(record);
 	}
 
-	expire() {
-		const now = this.#deps.now();
-		return this.list().filter((record) => new Date(record.session.expiresAt) <= now).map((record) => this.stop(record.session.sessionId, true));
-	}
-
 	activeRoutes(base: readonly EdgeRoute[]) {
-		this.expire();
 		const routes = new Map(base.map((route) => [route.alias, route]));
 		for (const record of this.list()) for (const route of record.routes) routes.set(route.alias, { alias: route.alias, upstream: route.upstream, authentication: route.authentication });
 		return [...routes.values()].sort((left, right) => left.alias.localeCompare(right.alias));

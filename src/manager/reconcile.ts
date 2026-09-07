@@ -10,7 +10,7 @@ import { createPlan } from './plan.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
-import { loadUpdateState, metadataChecked, noteDevelopmentPauseOwner, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
+import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
@@ -376,8 +376,6 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		return previous;
 	}
 	const developmentSessions = new DevelopmentSessionStore();
-	const expiredDevelopmentSessions = developmentSessions.expire();
-	for (const expired of expiredDevelopmentSessions) noteDevelopmentPauseOwner(expired.session.sessionId, false);
 	const activeDevelopmentSessions = developmentSessions.list();
 	recoverDevelopmentPauseOwners(activeDevelopmentSessions.map((record) => record.session.sessionId));
 	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
@@ -433,14 +431,9 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
 	if (previous && changed.length === 0 && !configurationChanged && !catalogChanged && removed.length === 0) await reconcileDevelopmentPeers(host, effective, developmentSessions);
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && previous) {
 		await reconcileAiModeSelection(host, effective);
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
-		return previous;
-	}
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length > 0 && previous) {
-		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
-		recordEvent('development.sessions-expired', { sessions: expiredDevelopmentSessions.map((record) => record.session.sessionId) });
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
