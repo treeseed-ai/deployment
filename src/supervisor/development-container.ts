@@ -11,6 +11,7 @@ import { managedContainerDevelopmentConnectionEnvironment } from '../manager/rec
 import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './component.js';
 import type { CommandRunner } from './compose-runtime.js';
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
+import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -52,14 +53,14 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
   const watchdog=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));setTimeout(()=>{c.kill('SIGTERM');setTimeout(()=>process.exit(1),30000)},${input.leaseSeconds*1000});`;
   return {services:{runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
     group_add:input.sourceGid===undefined||input.sourceGid===input.gid?[]:[String(input.sourceGid)],
-    entrypoint:['node','-e',watchdog],working_dir:input.worktree,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
+    entrypoint:['node','-e',watchdog],working_dir:api?input.worktree:'/app',cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
     labels:{'org.treeseed.development.session':input.sessionId,'org.treeseed.development.target':`api.${input.targetId}`},
     environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:api?'live':'candidate',
       TREESEED_OPENBAO_ADDRESS:'https://openbao:8200',TREESEED_OPENBAO_IDENTITY_FILE:'/run/openbao-client/identity.json',NODE_EXTRA_CA_CERTS:'/run/openbao-client/ca.pem',
       TREESEED_CAPACITY_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/credentials',TREESEED_DIAGNOSTICS_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/diagnostics',
       ...(api?{}:{TREESEED_PLATFORM_RUNNER_DATA_DIR:'/data/operations-runner',TREESEED_PUBLISHED_KNOWLEDGE_ROOT:'/data/published-knowledge'})},
-    volumes:[{type:'bind',source:input.workspace,target:input.workspace,read_only:true},
+    volumes:[{type:'bind',source:api?input.workspace:resolve(directory,'runtime'),target:api?input.workspace:'/app',read_only:true},
       {type:'bind',source:resolve(directory,'openbao'),target:'/run/openbao-client',read_only:true},
       {type:'bind',source:resolve(directory,'keys'),target:'/run/treeseed-keys',read_only:true},
       ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner'},
@@ -103,6 +104,12 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
   const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
+  if(input.targetId==='operations-runner') {
+    // Refuse to overwrite an existing candidate snapshot. Cleanup must finish first.
+    const receipt=copyDevelopmentRuntime({worktree:source.worktree,workspace:source.workspace,
+      destination:resolve(directory,'runtime'),sourceUid:source.uid});
+    atomicJson(resolve(directory,'runtime-receipt.json'),receipt,0o600);
+  }
   // Delegate only the API's fixed credential files to the runtime's UID;
   // the root-owned parent prevents host users from browsing these copies.
   for(const [child,origin,names] of [['openbao','/run/treeseed/openbao/client',['identity.json','ca.pem']],['keys','/run/treeseed/component-credentials/api',['credentials','diagnostics']]] as const) {
