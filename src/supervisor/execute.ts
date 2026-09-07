@@ -12,6 +12,7 @@ import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnviron
 import { providerRuntimeStatus } from './provider-runtime.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
+import { preserveAcceptedConfiguration } from './backup-configuration.js';
 import { resetPlatformState } from './reset.js';
 import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
 import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
@@ -455,12 +456,14 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
+			preserveAcceptedConfiguration(current);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}
 		case 'configuration.adopt': {
 			const current = loadHostConfiguration();
 			if (current.configurationId === operation.configuration.configurationId) throw new Error('Configuration adoption requires a different configuration identity.');
+			preserveAcceptedConfiguration(current);
 			atomicJson(`${paths.managerState}/adopted-configurations/${current.configurationId}-${current.generation}.json`, current, 0o600);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
