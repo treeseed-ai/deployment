@@ -25,6 +25,8 @@ it('adds public trust and sealed references, preserving other components/identit
 	expect(configuration.secrets['ai-inference-api-keys']).toMatchObject({ provider: 'systemd-credential' });
 	expect(configuration.secrets['ai-inference-storage-identity']).toMatchObject({ provider: 'systemd-credential' });
 	expect(componentCredential(configuration, 'ai-storage-ca')).toMatchObject({ provider: 'file', reference: '/etc/treeseed/credentials/ai-storage-ca' });
+	expect(configuration.secrets['ai-lab-storage-identity']).toBeUndefined();
+	expect(configuration.components['ai-lab']?.configuration.environment).not.toHaveProperty('AI_STORAGE_URL');
 	expect(configuration.components['ai-training']?.configuration.environment).toMatchObject({ AI_PROJECT_ID: binding.projectId,
 		AI_STORAGE_SERVICE: 'training', AI_STORAGE_URL: 'https://control.example/v1/internal/ai/storage/credentials' });
 	expect(planManagedAiConfiguration(configuration, binding)).toEqual({ configuration, noop: true });

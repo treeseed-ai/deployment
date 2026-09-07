@@ -6,7 +6,7 @@ import { componentCredential } from '../../core/component-credential.js';
 import { readComponentCredential } from '../component-sealed.js';
 
 export const aiStorageIdentityNames = {
-	inference: 'ai-inference-storage-identity', training: 'ai-training-storage-identity', lab: 'ai-lab-storage-identity',
+	inference: 'ai-inference-storage-identity', training: 'ai-training-storage-identity',
 } as const;
 
 export function aiStoragePublicKey(privatePem: string) {
@@ -22,7 +22,7 @@ export function validateAiStorageTrust(content: string) {
 
 /** New workload identities do not replace existing AI, provider, or artifact-signing identities. */
 export function prepareAiStorageIdentities(host: HostConfiguration, componentId: string) {
-	if (!['api', 'ai-inference', 'ai-training', 'ai-lab'].includes(componentId)) return {};
+	if (!['api', 'ai-inference', 'ai-training'].includes(componentId)) return {};
 	const names = Object.values(aiStorageIdentityNames), configured = names.filter(id => host.secrets[id]);
 	if (!configured.length) return {};
 	if (configured.length !== names.length || !host.security) throw new Error('AI storage workload custody is incomplete.');

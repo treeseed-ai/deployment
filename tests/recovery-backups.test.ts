@@ -21,7 +21,7 @@ function backup(root: string, generation: number, valid = true, aiState = false,
 		configuration.runtime = { management: 'managed', environment: 'development', dataRoot: '/var/lib/treeseed/development/.treeseed/data' };
 		configuration.components['ai-inference'] = { ...configuration.components.api! };
 	}
-	const components = aiState ? [{componentId:'ai-inference'}] : [];
+	const components = aiState ? [{componentId:'ai-inference',runtime:{stateVolumes:['postgres','artifacts','inference'].map(id=>({id,volume:`/var/lib/treeseed/components/ai-inference/data/${id}`,backup:'required'}))}}] : [];
 	const state = requiredBackupState(configuration, components);
 	for (const path of state) { mkdirSync(`${source}/${path}`, { recursive: true }); writeFileSync(`${source}/${path}/identity`, 'synthetic-preserved-identity'); }
 	writeFileSync(`${source}/etc/treeseed/platform.json`, JSON.stringify(proposed ? {...configuration,generation:configuration.generation+1} : configuration));
@@ -49,7 +49,7 @@ describe('recovery backup discovery', () => {
 		await restoreVerifiedBackup(43, { backupRoot: root, destinationRoot: target, key, checkWriters: () => undefined });
 		expect(existsSync(`${stale}/post-snapshot-wal`)).toBe(false);
 		expect(JSON.parse(readFileSync(`${target}/etc/treeseed/platform.json`, 'utf8')).runtime.environment).toBe('development');
-		for (const path of ['postgres','models','inference']) expect(readFileSync(`${target}/var/lib/treeseed/development/.treeseed/data/ai-inference/data/${path}/identity`, 'utf8')).toBe('synthetic-preserved-identity');
+		for (const path of ['postgres','artifacts','inference']) expect(readFileSync(`${target}/var/lib/treeseed/development/.treeseed/data/ai-inference/data/${path}/identity`, 'utf8')).toBe('synthetic-preserved-identity');
 		expect(JSON.parse(readFileSync(`${target}/var/lib/treeseed/manager/current-receipt.json`, 'utf8'))).toMatchObject({receiptId:'receipt-known-good'});
 		expect(readdirSync(root).filter(name => name.startsWith('restore-'))).toEqual([]);
 	});

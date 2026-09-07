@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
-import { componentStateDirectories, componentStateRoot } from './component.js';
+import { componentStateRoot } from './component.js';
 
 /** Recover active component state, not a source checkout or an assumed production root. */
 export function requiredBackupState(configuration: unknown, components: unknown): string[] {
@@ -13,8 +13,17 @@ export function requiredBackupState(configuration: unknown, components: unknown)
 		if (typeof id !== 'string' || !host.components[id]) throw new Error('Backup component identity is invalid.');
 		// Provider volume recovery has its own encrypted-volume protocol.
 		if (id === 'agent' && host.security) continue;
-		const root = componentStateRoot(host, id);
-		for (const directory of componentStateDirectories(id)) roots.add(resolve(root, directory).slice(1));
+		const root = componentStateRoot(host, id), declaredRoot = `/var/lib/treeseed/components/${id}/`;
+		const volumes = component.runtime?.stateVolumes;
+		if (!Array.isArray(volumes)) throw new Error('Backup requires published component state contracts.');
+		for (const volume of volumes) {
+			if (!['required', 'optional', 'none'].includes(volume.backup)) throw new Error('Backup state policy is invalid.');
+			if (volume.backup !== 'required') continue;
+			if (typeof volume.volume !== 'string' || !volume.volume.startsWith(declaredRoot)) throw new Error('Required backup state is outside its component custody.');
+			const directory = volume.volume.slice(declaredRoot.length);
+			if (!directory || posix.normalize(directory) !== directory || directory.split('/').includes('..')) throw new Error('Required backup state path is unsafe.');
+			roots.add(resolve(root, directory).slice(1));
+		}
 	}
 	return [...roots].sort();
 }

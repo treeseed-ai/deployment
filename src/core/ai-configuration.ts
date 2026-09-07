@@ -40,9 +40,9 @@ export function planManagedAiConfiguration(current: HostConfiguration, binding: 
 		const environment = { ...previous?.configuration.environment as Record<string, string>,
 			AI_DELEGATION_ISSUER: binding.issuer, AI_DELEGATION_AUDIENCE: `treeai:${binding.nodeId}:${role}`,
 			AI_TEAM_ID: binding.teamId, AI_NODE_ID: binding.nodeId, AI_DELEGATION_PUBLIC_KEYS: JSON.stringify(binding.publicKeys),
-			AI_PROJECT_ID: binding.projectId, AI_STORAGE_SERVICE: role,
-			AI_STORAGE_URL: new URL('/v1/internal/ai/storage/credentials', binding.issuer).href,
-			AI_STORAGE_HOST: issuer.hostname,
+			...(role === 'lab' ? {} : { AI_PROJECT_ID: binding.projectId, AI_STORAGE_SERVICE: role,
+				AI_STORAGE_URL: new URL('/v1/internal/ai/storage/credentials', binding.issuer).href,
+				AI_STORAGE_HOST: issuer.hostname }),
 		};
 		const secretEnvironment = role === 'lab' ? { AI_LAB_API_KEYS: 'ai-lab-api-keys' } : {
 			[`${role.toUpperCase()}_DATABASE_URL`]: `ai-${role}-database-url`,

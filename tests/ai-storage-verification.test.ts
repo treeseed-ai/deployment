@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 
 const releases = ['ai-inference','ai-training'].map(id => {
 	const value = component(id, 'development', 'a');
-	value.runtime.services = (id === 'ai-inference' ? ['inference-api'] : ['training-api','artifact']).map(name => ({...value.runtime.services[0]!, id:name,composeService:name}));
+	value.runtime.services = (id === 'ai-inference' ? ['inference-api'] : ['training-api','training-artifact']).map(name => ({...value.runtime.services[0]!, id:name,composeService:name}));
 	return value;
 });
 const key = '.treeseed-acceptance/00000000-0000-4000-8000-000000000000/probe';
