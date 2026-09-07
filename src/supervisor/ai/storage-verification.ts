@@ -30,7 +30,8 @@ export function verifyAiStorage(options: { capture?: Capture; components?: Compo
 			const result = JSON.parse(run(['exec','--workdir','/app',ids[0]!,...args]));
 			if (typeof result.ok !== 'boolean' || typeof result.cleanup !== 'boolean' || !['write','read','list','object-isolation','team-isolation','action-isolation','workload-isolation','complete'].includes(result.phase)
 				|| !/^\.treeseed-acceptance\/[a-f0-9-]{36}\/probe$/u.test(result.key)) throw Error();
-			const diagnostics: Record<string, string | number> = {};
+			const diagnostics: Record<string, string | number | string[]> = {};
+			if (Array.isArray(result.diagnostics?.providerHints)) diagnostics.providerHints=result.diagnostics.providerHints.filter((word:unknown)=>typeof word==='string'&&['jwt','token','tokens','session','invalid','unknown','claim','claims','jti','unsupported','supported','not','enabled','disabled','account','user','signature','verification','expired','format','encoding','parse','permission','permissions','action','actions','scope','header','argument','version','access','key','secret','required','missing'].includes(word)).slice(0,24);
 			if (['session-token','signature','checksum','request-header','permission'].includes(result.diagnostics?.providerReason)) diagnostics.providerReason = result.diagnostics.providerReason;
 			if (['InvalidArgument','InvalidToken','ExpiredToken','AccessDenied','SignatureDoesNotMatch','InvalidAccessKeyId','NotImplemented','InvalidRequest','BadDigest'].includes(result.diagnostics?.providerCode)) diagnostics.providerCode = result.diagnostics.providerCode;
 			for (const name of ['brokerStatus','providerStatus']) if (Number.isInteger(result.diagnostics?.[name]) && result.diagnostics[name] >= 100 && result.diagnostics[name] <= 599) diagnostics[name] = result.diagnostics[name];
