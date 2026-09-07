@@ -9,6 +9,7 @@ import { prepareManagedOpenBao } from '../security/custody/managed-files.js';
 import { componentCredential } from '../core/component-credential.js';
 import { readComponentCredential } from './component-sealed.js';
 import { componentRuntimeRoot, prepareEphemeralComponentInputs, usesSealedComponentCredentials } from './component-ephemeral.js';
+import { prepareManagedAiCredentials } from './ai-credentials.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
@@ -233,7 +234,7 @@ export function configuredSandboxGuestImageDigests(manifestPath = '/etc/treeseed
 	return [...readFileSync(manifestPath, 'utf8').matchAll(/^[ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*(sha256:[a-f0-9]{64})[ \t]*$/gmu)].map((match) => match[1]!);
 }
 
-	export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
+export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	Object.assign(connectionEnvironment, managedHostRuntimeEnvironment(componentId));
@@ -254,6 +255,7 @@ export function configuredSandboxGuestImageDigests(manifestPath = '/etc/treeseed
 	if (componentId === 'agent') { const historical = applicationKeys.filter((entry) => !entry.active).map((entry) => `${entry.version}:/run/credentials/credentials-v${entry.version}`).join(','); if (historical) connectionEnvironment.TREESEED_PROVIDER_CREDENTIAL_HISTORICAL_KEY_FILES = historical; }
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
 	if (componentId === 'api') prepareManagedOpenBao(stateRoot);
+	prepareManagedAiCredentials(host, componentId);
 	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
 	let files: Record<string, unknown>;
 	try {
