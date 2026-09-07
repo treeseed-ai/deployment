@@ -30,7 +30,7 @@ export function verifyAiStorage(options: { capture?: Capture; components?: Compo
 			const result = JSON.parse(run(['exec','--workdir','/app',ids[0]!,...args]));
 			if (typeof result.ok !== 'boolean' || typeof result.cleanup !== 'boolean' || !['write','read','list','object-isolation','team-isolation','action-isolation','workload-isolation','complete'].includes(result.phase)
 				|| !/^\.treeseed-acceptance\/[a-f0-9-]{36}\/probe$/u.test(result.key)) throw Error();
-			return { service: probe.service, ok: result.ok && result.cleanup, cleanup: result.cleanup, phase: result.phase, object: result.key };
+			return { service: probe.service, ok: result.ok && result.cleanup && result.phase === 'complete', cleanup: result.cleanup, phase: result.phase, object: result.key };
 		} catch { return { service: probe.service, ok: false, cleanup: false, phase: 'runtime-probe-unavailable' }; }
 	});
 	return { schemaVersion: 'treeseed.ai-storage-verification/v1', ok: results.every(result => result.ok), results, trainingExecuted: false, artifactsMoved: false };

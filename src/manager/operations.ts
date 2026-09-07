@@ -18,7 +18,8 @@ import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
 import { inspectRecoveryBackup, listRecoveryBackups, restoreManagedGeneration } from './recovery.js';
-import { aiModeStatus, requestAiMode } from './ai-mode.js';
+import { aiModeStatus } from './ai-mode.js';
+import { setAiModeCommand } from './ai-command.js';
 import { cloudflareR2SecretIds, cloudflareR2StorageStatus, provisionCloudflareR2Storage, resetCloudflareR2Bucket } from './cloudflare-r2-storage.js';
 import { credentialInitializerStatus, loadCredentialInitializers } from '../security/credential-initializers.js';
 import { hostDevelopmentActivationSchema } from '../supervisor/host-development.js';
@@ -297,16 +298,10 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
 		case 'local.host.ai.mode.show': return aiModeStatus();
 		case 'local.host.ai.storage.verify': {
-			if (request.options.plan === true) return { operation: 'ai.storage.verify', mutation: false, effects: ['Create/read/delete bounded R2 probe objects; no training or artifact migration.'] };
+			if (request.options.plan === true) return { operation: 'ai.storage.verify', mutation: false, proposedEffects: ['Create/read/delete bounded R2 probe objects; no training or artifact migration.'] };
 			return requestSupervisor({ operation: 'ai.storage.verify' });
 		}
-		case 'local.host.ai.mode.set': {
-			const target = request.arguments[0];
-			if (target !== 'awake' && target !== 'sleep') throw new Error('AI mode must be awake or sleep.');
-			const requestValue = { schemaVersion: 'treeseed.ai-mode-request/v1', target, idempotencyKey: typeof request.options.idempotencyKey === 'string' ? request.options.idempotencyKey : randomUUID(), drainTimeoutSeconds: typeof request.options.drainTimeout === 'number' ? request.options.drainTimeout : typeof request.options.drainTimeout === 'string' ? Number(request.options.drainTimeout) : 900 };
-			if (request.options.plan === true) return { ...aiModeStatus(), proposedMode: target, mutation: false };
-			return requestAiMode(requestValue, 'operator');
-		}
+		case 'local.host.ai.mode.set': return setAiModeCommand(request);
 		case 'local.host.doctor': {
 			const checks = [
 				{ id: 'configuration', ok: existsSync(paths.configuration) },

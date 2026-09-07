@@ -1,6 +1,7 @@
 /** Fixed acceptance programs run inside managed AI images, never caller-supplied code. */
 export const nodeStorageProbe = String.raw`
 import {randomUUID} from 'node:crypto';
+setTimeout(()=>process.exit(124),75000).unref();
 import {storageCustodyFromEnvironment,ManagedArtifactStore} from '/app/packages/common/dist/index.js';
 import {createRequire} from 'node:module';
 const require=createRequire('/app/packages/common/package.json');
@@ -12,7 +13,7 @@ let created=false,phase='write',ok=false,cleanup=true;
 const client=lease=>new S3Client({endpoint:lease.endpoint,credentials:lease.credentials,region:'auto',forcePathStyle:true,maxAttempts:1,requestChecksumCalculation:'WHEN_REQUIRED',responseChecksumValidation:'WHEN_REQUIRED'});
 async function denied(lease,objectKey){const c=client(lease);try{await c.send(new HeadObjectCommand({Bucket:lease.bucket,Key:objectKey}));throw Error('Isolation failed');}catch(e){if(e?.$metadata?.httpStatusCode!==403)throw Error('Expected provider denial');}finally{c.destroy();}}
 try{
- await store.put(key,bytes);created=true;phase='read';
+ created=true;await store.put(key,bytes);phase='read';
  if(Buffer.compare(Buffer.from(await store.bytes(key)),bytes)!==0)throw Error();
  phase='list';if(!(await store.keys(key)).includes(key))throw Error();
  phase='object-isolation';const read=await custody(storeId,'read',key);await denied(read,read.objectKey+'-sibling');
@@ -25,7 +26,8 @@ console.log(JSON.stringify({ok:ok&&cleanup,phase,cleanup,key}));
 `;
 
 export const pythonStorageProbe = String.raw`
-import json,uuid
+import json,uuid,os,signal
+signal.signal(signal.SIGALRM,lambda *_:os._exit(124));signal.alarm(75)
 from common.storage_custody import storage_client,storage_lease
 key='.treeseed-acceptance/'+str(uuid.uuid4())+'/probe'
 store='managed-training';body=b'treeseed-vault-storage-acceptance/v1'
@@ -35,7 +37,7 @@ def call(action,fn):
     try:return fn(client,lease)
     finally:client.close()
 try:
-    call('write',lambda c,l:c.put_object(Bucket=l['bucket'],Key=l['objectKey'],Body=body,IfNoneMatch='*'));created=True;phase='read'
+    created=True;call('write',lambda c,l:c.put_object(Bucket=l['bucket'],Key=l['objectKey'],Body=body,IfNoneMatch='*'));phase='read'
     def read(c,l):
         stream=c.get_object(Bucket=l['bucket'],Key=l['objectKey'])['Body']
         try:return stream.read(1024)
@@ -44,12 +46,19 @@ try:
     phase='list'
     if not call('list',lambda c,l:any(x['Key']==l['objectKey'] for x in c.list_objects_v2(Bucket=l['bucket'],Prefix=l['objectKey']).get('Contents',[]))):raise ValueError()
     phase='object-isolation'
-    def denied(c,l):
-        try:c.head_object(Bucket=l['bucket'],Key=l['objectKey']+'-sibling')
+    def denied(c,l,target):
+        try:c.head_object(Bucket=l['bucket'],Key=target)
         except Exception as e:
             if getattr(e,'response',{}).get('ResponseMetadata',{}).get('HTTPStatusCode')==403:return
         raise ValueError()
-    call('read',denied);ok=True;phase='complete'
+    call('read',lambda c,l:denied(c,l,l['objectKey']+'-sibling'))
+    phase='team-isolation';call('read',lambda c,l:denied(c,l,l['objectKey'].replace(os.environ['AI_TEAM_ID'],str(uuid.uuid4()))))
+    phase='action-isolation';call('write',lambda c,l:denied(c,l,l['objectKey']))
+    phase='workload-isolation';rejected=False
+    try:storage_lease('managed-lab','read',key)
+    except Exception:rejected=True
+    if not rejected:raise ValueError()
+    ok=True;phase='complete'
 except Exception:pass
 finally:
     if created:

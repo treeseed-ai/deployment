@@ -3,6 +3,7 @@ import { appendFileSync, closeSync, createReadStream, createWriteStream, fstatSy
 import { pipeline } from 'node:stream/promises';
 import { type Readable, type Writable } from 'node:stream';
 import { Parser } from 'tar';
+import type { BackupEntry } from './backup-coverage.js';
 
 export const backupKeyId = 'application-backup-kek-v1';
 const schemaVersion = 'treeseed.encrypted-backup/v1';
@@ -37,12 +38,12 @@ export async function decryptBackupStream(path: string, generation: number, key:
 }
 
 export async function inspectBackupStream(path: string, generation: number, key: Buffer) {
-	const documents: Record<string, unknown> = {}, entries: string[] = [];
+	const documents: Record<string, unknown> = {}, entries: BackupEntry[] = [];
 	const selected = new Set(['etc/treeseed/platform.json', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json']);
 	let failure: Error | undefined;
 	const parser = new Parser({ strict: true, onReadEntry(entry) {
-		entries.push(entry.path);
-		if (entries.length > 1_000_000) { failure = new Error('Backup inventory exceeds its bounded size.'); entry.resume(); return; }
+		if (entries.length >= 1_000_000) { failure = new Error('Backup inventory exceeds its bounded size.'); entry.resume(); return; }
+		entries.push({ path: entry.path, type: entry.type, linkpath: entry.linkpath });
 		if (!selected.has(entry.path)) { entry.resume(); return; }
 		if (entry.type !== 'File' || entry.size > 16 * 1024 * 1024 || entry.path in documents) { failure = new Error('Backup metadata is invalid.'); entry.resume(); return; }
 		const chunks: Buffer[] = []; let size = 0;
