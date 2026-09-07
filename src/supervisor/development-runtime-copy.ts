@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, constants, closeSync, fstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, closeSync, fstatSync, linkSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 
 /** Copy code only. No source-owned command executes in the supervisor. */
@@ -51,7 +51,9 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
         digest.update(JSON.stringify([name, data.length, stat.mode & 0o111])).update(data);
         const key=`file:${stat.mode & 0o111}:${createHash('sha256').update(data).digest('hex')}`;
         const prior=copied.get(key);
-        if(prior) {symlinkSync(relative(dirname(target),prior),target);return;}
+        // Private hardlinks preserve module-relative import paths. File
+        // symlinks would incorrectly resolve imports from the first copy.
+        if(prior) {linkSync(prior,target);return;}
         bytes+=data.length;
         if(bytes>2*1024**3)throw new Error('Candidate runtime exceeds custody limits.');
         writeFileSync(target, data, { flag: 'wx', mode: stat.mode & 0o111 ? 0o755 : 0o644 });

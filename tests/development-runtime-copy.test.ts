@@ -43,5 +43,5 @@ it('copies npm hardlinks into independent private files',()=>{
   linkSync(original,join(f.worktree,'node_modules','linked.js'));
   copyDevelopmentRuntime(f);writeFileSync(original,'changed');
   const copied=join(f.destination,'node_modules','linked.js');
-  expect(readFileSync(copied,'utf8')).toBe('export {};');expect(statSync(copied).nlink).toBe(1);
+  expect(readFileSync(copied,'utf8')).toBe('export {};');expect(statSync(copied).ino).not.toBe(statSync(original).ino);
 });
