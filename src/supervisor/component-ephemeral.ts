@@ -1,4 +1,4 @@
-import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, type Stats } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import YAML from 'yaml';
@@ -31,10 +31,19 @@ export function usesSealedComponentCredentials(host: HostConfiguration, componen
 	return [...Object.values(environment), ...secretIds].some(id => typeof id === 'string' && host.secrets[id]?.provider === 'systemd-credential');
 }
 
+/** Debian creates an empty input placeholder; it has no credential content to migrate. */
+export function assertEmptyPersistentPlaceholder(path: string, inspect: (path: string) => Pick<Stats, 'isFile' | 'isSymbolicLink' | 'uid' | 'size' | 'mode'> = lstatSync) {
+	let metadata;
+	try { metadata = inspect(path); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+	if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== 0 || metadata.size !== 0 || (metadata.mode & 0o027))
+		throw new Error('Existing persistent component inputs require an explicit custody migration before sealed activation.');
+}
+
 /** Only the supervisor writes this directory; the descriptor contains paths, never values. */
 export function prepareEphemeralComponentInputs(host: HostConfiguration, componentId: string, environment: string, secretIds: readonly string[], gid: number) {
 	const root = componentRuntimeRoot(componentId);
-	if (existsSync(`/etc/treeseed/components/${componentId}/environment`)) throw new Error('Existing persistent component inputs require an explicit custody migration before sealed activation.');
+	assertEmptyPersistentPlaceholder(`/etc/treeseed/components/${componentId}/environment`);
 	mkdirSync(root, { recursive: true, mode: 0o700 });
 	const metadata = lstatSync(root);
 	if (!metadata.isDirectory() || metadata.isSymbolicLink() || metadata.uid !== 0) throw new Error('Unsafe component runtime custody.');
