@@ -71,6 +71,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('configuration.initialize'), configuration: hostConfigurationSchema,
 		oneTimeCredentials: z.record(z.string().regex(/^[a-z][a-z0-9.-]{1,127}$/u), z.string().min(1).max(16_384)).optional() }).strict(),
 	z.object({ operation: z.literal('configuration.replace'), configuration: hostConfigurationSchema }).strict(),
+	z.object({ operation: z.literal('configuration.restore-accepted') }).strict(),
 	z.object({ operation: z.literal('configuration.adopt'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('configuration.recover'), configuration: hostConfigurationSchema }).strict(),
 	z.object({ operation: z.literal('updates.activate') }).strict(),

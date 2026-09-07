@@ -23,10 +23,6 @@ vi.mock('../src/manager/reconcile.js', () => ({
 		state.lifecycle.push(`activate:${item.release}`);
 		if (state.activationFailure) { state.activationFailure = false; throw new Error('target health failed'); }
 	},
-	activateRestoredComponent: async (item: any) => {
-		state.lifecycle.push(`restore-activate:${item.release}`);
-		if (state.activationFailure) { state.activationFailure = false; throw new Error('target health failed'); }
-	},
 	enrollProvider: async (_host: unknown, item: any) => state.lifecycle.push(`enroll:${item.release}`),
 	rollbackRoutes: () => [{ alias: 'api.treeseed.localhost', upstream: 'http://api:8787', authentication: 'none' }],
 }));
@@ -62,7 +58,7 @@ describe('complete managed generation recovery', () => {
 		try {
 			await expect(restoreManagedGeneration(73)).rejects.toThrow('Safety backup failed');
 			expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect', 'backup.create', 'edge.apply']);
-			expect(state.lifecycle).toEqual(['stop:1.0.0', 'restore-activate:1.0.0']);
+			expect(state.lifecycle).toEqual(['stop:1.0.0', 'activate:1.0.0']);
 			expect(state.writes).toEqual([]);
 		} finally { state.backupFailure = false; }
 	});
@@ -83,7 +79,7 @@ describe('complete managed generation recovery', () => {
 			'backup.inspect', 'backup.create', 'apt.install', 'recovery.restore', 'edge.apply',
 		]);
 		expect(state.operations.find(({ operation }) => operation === 'apt.install').packages).toEqual(['treeseed-component-api=1.0.0-1']);
-		expect(state.lifecycle).toEqual(['stop:2.0.0-1', 'restore-activate:1.0.0-1']);
+		expect(state.lifecycle).toEqual(['stop:2.0.0-1', 'activate:1.0.0-1']);
 		expect(state.writes.map(({ path }) => path)).toEqual([
 			expect.stringMatching(/receipts\/receipt-/u),
 			'/tmp/treeseed-recovery-test/manager/current-receipt.json',
@@ -109,7 +105,7 @@ describe('complete managed generation recovery', () => {
 		const rollbackInstall = state.operations.map(({ operation }) => operation).lastIndexOf('apt.install');
 		expect(safetyRestore).toBeLessThan(rollbackInstall);
 		expect(state.lifecycle).toEqual([
-			'stop:1.0.0', 'restore-activate:1.0.0', 'stop:1.0.0', 'restore-activate:1.0.0',
+			'stop:1.0.0', 'activate:1.0.0', 'stop:1.0.0', 'activate:1.0.0',
 		]);
 		expect(state.events.map(({ type }) => type).at(-1)).toBe('recovery.restore-rollback-complete');
 	});

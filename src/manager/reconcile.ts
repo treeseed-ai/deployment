@@ -299,12 +299,6 @@ export async function reconcileDevelopmentPeers(host: HostConfiguration, release
 	})), held, { read: readConnectionDigest, activate: id => activateComponent(host, ordered.find(component => component.componentId === id)!, releases) });
 }
 
-/** Reactivates configuration already restored from an encrypted generation backup. */
-export async function activateRestoredComponent(component: ComponentRelease) {
-	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
-}
-
 export function rollbackRoutes(host: HostConfiguration, components: ComponentRelease[]) {
 	const activeIds = new Set(components.map((component) => component.componentId));
 	const overrides = Object.fromEntries(Object.entries(host.components).filter(([componentId]) => activeIds.has(componentId)).flatMap(([, component]) => Object.entries(component.aliases)));
@@ -451,14 +445,16 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
 	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active).filter(impacted), {
-		stop: stopComponent, start: activateRestoredComponent, capture: async () => snapshotRequired ? requestSupervisor({ operation: 'backup.create', generation }) : undefined,
+		stop: stopComponent, start: component => activateComponent(loadHostConfiguration(), component, active),
+		rollbackConfiguration: async () => previous ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
+		capture: async () => snapshotRequired ? requestSupervisor({ operation: 'backup.create', generation }) : undefined,
 	});
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		for (const component of activationOrder) {
 			if (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)) await activateComponent(host, component, effective);
-			else if (snapshotRequired) await activateRestoredComponent(component);
+			else if (snapshotRequired) await activateComponent(host, component, effective);
 		}
 		await reconcileAiModeSelection(host, effective);
 		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
@@ -474,7 +470,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		try {
-			for (const component of componentActivationOrder(host, active)) await activateRestoredComponent(component);
+			const restoredHost = loadHostConfiguration();
+			for (const component of componentActivationOrder(restoredHost, active)) await activateComponent(restoredHost, component, active);
 			const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 			if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 			recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
