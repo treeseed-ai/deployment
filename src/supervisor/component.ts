@@ -6,6 +6,9 @@ import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { managedHostRuntimeEnvironment } from './host-runtime.js';
 import { prepareManagedOpenBao } from '../security/custody/managed-files.js';
+import { componentCredential } from '../core/component-credential.js';
+import { readComponentCredential } from './component-sealed.js';
+import { componentRuntimeRoot, prepareEphemeralComponentInputs, usesSealedComponentCredentials } from './component-ephemeral.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
@@ -41,7 +44,7 @@ function record(value: unknown, label: string): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, componentId: string, requested: Record<string, string>, connectionEnvironment: Record<string, string> = {}, readSecret: SecretReader = (path) => readFileSync(path, 'utf8')) {
+export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, componentId: string, requested: Record<string, string>, connectionEnvironment: Record<string, string> = {}, readSecret?: SecretReader) {
 	const selection = host.components[componentId];
 	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
 	const configuration = record(selection.configuration, 'Component configuration');
@@ -58,9 +61,8 @@ export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, com
 		if (!environmentKey.test(key) || !fileName.test(secretId)) throw new Error(`Invalid development secret entry ${key}.`);
 		if (configured[key] !== secretId) throw new Error(`Development secret ${key} is not configured for component ${componentId}.`);
 		if (values[key] !== undefined) throw new Error(`Development secret ${key} conflicts with a managed or configured environment entry.`);
-		const secret = host.secrets[secretId];
-		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
-		const value = readSecret(secret.reference).replace(/\r?\n$/u, '');
+		const secret = componentCredential(host, secretId);
+		const value = (readSecret ? readSecret(secret.reference) : readComponentCredential(host, secretId)).replace(/\r?\n$/u, '');
 		if (value.length > 16_384) throw new Error(`Development secret ${key} exceeds the environment limit.`);
 		values[key] = value;
 	}
@@ -73,7 +75,7 @@ export function resolveDevelopmentSecretEnvironment(host: HostConfiguration, com
 	return values;
 }
 
-export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}, readSecret: SecretReader = (path) => readFileSync(path, 'utf8'), optionalSecretEnvironment: readonly string[] = []) {
+export function renderComponentEnvironment(host: HostConfiguration, componentId: string, connectionEnvironment: Record<string, string> = {}, readSecret?: SecretReader, optionalSecretEnvironment: readonly string[] = []) {
 	const selection = host.components[componentId];
 	if (!selection) throw new Error(`Unknown configured component ${componentId}.`);
 	const configuration = record(selection.configuration, 'Component configuration');
@@ -88,9 +90,8 @@ export function renderComponentEnvironment(host: HostConfiguration, componentId:
 	}
 	for (const [key, secretId] of Object.entries(secretEnvironment)) {
 		if (!environmentKey.test(key) || typeof secretId !== 'string') throw new Error(`Invalid secret environment entry ${key}.`);
-		const secret = host.secrets[secretId];
-		if (!secret || secret.provider !== 'file' || secret.reference !== `/etc/treeseed/credentials/${secretId}`) throw new Error(`Secret ${secretId} is not available through v1 file custody.`);
-		try { values.set(key, readSecret(secret.reference).replace(/\r?\n$/u, '')); }
+		const secret = componentCredential(host, secretId);
+		try { values.set(key, (readSecret ? readSecret(secret.reference) : readComponentCredential(host, secretId)).replace(/\r?\n$/u, '')); }
 		catch (error) {
 			if (optional.has(key) && error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
 			throw error;
@@ -137,7 +138,10 @@ const secretFileOperations: SecretFileOperations = {
 	},
 	save: (receipt) => { mkdirSync(secretCustodyRoot, { recursive: true, mode: 0o700 }); atomicText(resolve(secretCustodyRoot, `${receipt.componentId}.json`), `${JSON.stringify(receipt)}\n`); },
 	remove: (componentId) => { const path = resolve(secretCustodyRoot, `${componentId}.json`); if (existsSync(path)) unlinkSync(path); },
-	removeRuntime: (componentId) => { rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true }); },
+	removeRuntime: (componentId) => {
+		rmSync(`/run/treeseed/component-credentials/${componentId}`, { recursive: true, force: true });
+		rmSync(componentRuntimeRoot(componentId), { recursive: true, force: true });
+	},
 };
 
 export function restoreComponentSecretFiles(componentId: string, operations: SecretFileOperations = secretFileOperations) {
@@ -194,7 +198,7 @@ export function replaceRuntimeCredential(target: string, plaintext: Buffer, owne
 export function prepareComponentSecretFiles(host: HostConfiguration, componentId: string, secretFileIds: readonly string[], operations: SecretFileOperations = secretFileOperations) {
 	if (!/^[a-z][a-z0-9.-]+$/u.test(componentId)) throw new Error('Invalid component secret-custody identity.');
 	const gid = operations.runtimeGid();
-	const files = [...secretFileIds].sort().map((secretId) => {
+	const files = [...secretFileIds].filter(id => host.secrets[id]?.provider !== 'systemd-credential').sort().map((secretId) => {
 		if (!fileName.test(secretId)) throw new Error(`Invalid component secret ${secretId}.`);
 		const secret = host.secrets[secretId];
 		if (!secret || secret.provider !== 'file' || !credentialPath.test(secret.reference)) throw new Error(`Component secret ${secretId} is outside fixed file custody.`);
@@ -229,7 +233,7 @@ export function configuredSandboxGuestImageDigests(manifestPath = '/etc/treeseed
 	return [...readFileSync(manifestPath, 'utf8').matchAll(/^[ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*(sha256:[a-f0-9]{64})[ \t]*$/gmu)].map((match) => match[1]!);
 }
 
-export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
+	export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	Object.assign(connectionEnvironment, managedHostRuntimeEnvironment(componentId));
@@ -253,7 +257,13 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 	const secretFiles = prepareComponentSecretFiles(host, componentId, secretFileIds);
 	let files: Record<string, unknown>;
 	try {
-		atomicText(resolve(configurationRoot, 'environment'), renderComponentEnvironment(host, componentId, connectionEnvironment, undefined, optionalSecretEnvironment));
+		const environment = renderComponentEnvironment(host, componentId, connectionEnvironment, undefined, optionalSecretEnvironment);
+		if (usesSealedComponentCredentials(host, componentId, secretFileIds)) {
+			prepareEphemeralComponentInputs(host, componentId, environment, secretFileIds, statSync('/var/lib/treeseed/component-secrets').gid);
+		} else {
+			if (existsSync(resolve(componentRuntimeRoot(componentId), 'inputs.json'))) throw new Error('Sealed component custody cannot silently downgrade to persistent inputs.');
+			atomicText(resolve(configurationRoot, 'environment'), environment);
+		}
 		files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
 		for (const [name, value] of Object.entries(files)) {
 			if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
