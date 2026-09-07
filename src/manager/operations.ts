@@ -469,8 +469,9 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');
+			if (request.options.plan !== true) return serializedRecovery(generation);
 			const target = await inspectRecoveryBackup(generation);
-			if (request.options.plan === true) return {
+			return {
 				generation,
 				mutation: false,
 				targetReceiptId: target.receipt.receiptId,
@@ -478,7 +479,6 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 				components: target.components.map(({ componentId, release }) => ({ componentId, release })),
 				packages: target.receipt.packages,
 			};
-			return serializedRecovery(generation);
 		}
 		case 'local.host.bootstrap.status': return bootstrapStatus();
 		case 'local.host.bootstrap.enroll': {

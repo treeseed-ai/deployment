@@ -27,7 +27,7 @@ export function planManagedAiConfiguration(current: HostConfiguration, binding: 
 		if (host.secrets[id] && JSON.stringify(host.secrets[id]) !== JSON.stringify(secret)) throw new Error(`AI credential ${id} requires an explicit custody migration.`);
 		host.secrets[id] = secret;
 	}
-	const storageCa = { provider: 'file' as const, reference: '/etc/treeseed/cli/localhost-ca.crt' };
+	const storageCa = { provider: 'file' as const, reference: '/etc/treeseed/credentials/ai-storage-ca' };
 	if (host.secrets['ai-storage-ca'] && !isDeepStrictEqual(host.secrets['ai-storage-ca'], storageCa)) throw new Error('AI storage TLS trust requires explicit custody reconciliation.');
 	host.secrets['ai-storage-ca'] = storageCa;
 	for (const [id, name] of Object.entries({ 'ai-mode-ca': 'ai-mode-ca.crt', 'ai-mode-client-cert': 'ai-mode-client.crt', 'ai-mode-client-key': 'ai-mode-client.key' })) {

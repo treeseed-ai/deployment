@@ -1,9 +1,12 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
-import { aiStoragePublicKey, prepareAiStorageIdentities } from '../src/supervisor/ai/storage-identity.js';
+import { aiStoragePublicKey, prepareAiStorageIdentities, validateAiStorageTrust } from '../src/supervisor/ai/storage-identity.js';
 
 describe('AI workload identity custody', () => {
+	it('rejects private keys and oversized or malformed CA material', () => {
+		for (const value of ['-----BEGIN PRIVATE KEY-----', 'invalid certificate', 'x'.repeat(65_537)]) expect(() => validateAiStorageTrust(value)).toThrow();
+	});
 	it('exports only the public half of an Ed25519 identity', () => {
 		const keys = generateKeyPairSync('ed25519');
 		const pem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
