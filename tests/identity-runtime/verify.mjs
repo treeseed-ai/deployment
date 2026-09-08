@@ -79,9 +79,9 @@ async function start(label) {
   assert.equal(discovery.issuer, issuer);
   assert.equal(discovery.token_endpoint, `${issuer}/protocol/openid-connect/token`);
   assert.equal(discovery.jwks_uri, `${issuer}/protocol/openid-connect/certs`);
-  const token = async () => {
+  const token = async (signingKey = clientKey) => {
     const assertion = await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer('workload-test').setSubject('workload-test')
-      .setAudience(issuer).setIssuedAt().setExpirationTime('60s').setJti(randomBytes(16).toString('hex')).sign(clientKey);
+      .setAudience(issuer).setIssuedAt().setExpirationTime('60s').setJti(randomBytes(16).toString('hex')).sign(signingKey);
     syntheticSecrets.push(assertion);
     const response = await fetch(discovery.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'workload-test',
       client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer', client_assertion: assertion }), signal: AbortSignal.timeout(10_000) });
@@ -91,7 +91,7 @@ async function start(label) {
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
-  return { server, issuer, token, verifier, discovery };
+  return { server, issuer, token, verifier, discovery, clientKey };
 }
 try {
   docker('info', '--format', '{{.ServerVersion}}');
@@ -109,6 +109,7 @@ try {
   stage = 'token-validation';
   const before = await first.verifier()(await first.token());
   assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'private-key-jwt-client-authentication', 'verified-tls', 'separate-databases');
+  await assert.rejects(first.token(second.clientKey)); checks.push('unregistered-workload-key-denied');
   await assert.rejects(first.verifier()(await second.token())); checks.push('untrusted-issuer-denied');
   await assert.rejects(first.verifier('https://wrong.example.test')(await first.token())); checks.push('wrong-audience-denied');
   stage = 'sovereign-outage';
