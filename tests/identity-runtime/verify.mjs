@@ -9,7 +9,7 @@ import { createServer } from 'node:net';
 import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
 import { createAccessTokenVerifier } from '@treeseed/identity';
-import { createLocalJWKSet } from 'jose';
+import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
 
 const images = {
   keycloak: 'quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54',
@@ -46,8 +46,11 @@ async function start(label) {
   stage = `start-${label}`;
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
   const password = randomBytes(32).toString('hex');
-  const secret = randomBytes(32).toString('hex');
-  syntheticSecrets.push(password, secret);
+  syntheticSecrets.push(password);
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${label}-workload`,
+    '-keyout', join(directory, 'client.key'), '-out', join(directory, 'client.crt')], { stdio: 'ignore' });
+  const clientKey = await importPKCS8(readFileSync(join(directory, 'client.key'), 'utf8'), 'RS256');
+  const certificate = readFileSync(join(directory, 'client.crt'), 'utf8').replace(/-----[^-]+-----|\s/g, '');
   const db = `${prefix}-${label}-db`, server = `${prefix}-${label}`;
   const listenPort = await port();
   const base = `https://127.0.0.1:${listenPort}`;
@@ -55,7 +58,8 @@ async function start(label) {
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     clients: [{ clientId: 'workload-test', enabled: true, protocol: 'openid-connect', publicClient: false,
-      secret, serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
+      clientAuthenticatorType: 'client-jwt', attributes: { 'jwt.credential.certificate': certificate, 'token.endpoint.auth.signing.alg': 'RS256' },
+      serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
       protocolMappers: [{ name: 'audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
         config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }],
   }), { mode: 0o644 });
@@ -76,7 +80,11 @@ async function start(label) {
   assert.equal(discovery.token_endpoint, `${issuer}/protocol/openid-connect/token`);
   assert.equal(discovery.jwks_uri, `${issuer}/protocol/openid-connect/certs`);
   const token = async () => {
-    const response = await fetch(discovery.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'workload-test', client_secret: secret }), signal: AbortSignal.timeout(10_000) });
+    const assertion = await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer('workload-test').setSubject('workload-test')
+      .setAudience(issuer).setIssuedAt().setExpirationTime('60s').setJti(randomBytes(16).toString('hex')).sign(clientKey);
+    syntheticSecrets.push(assertion);
+    const response = await fetch(discovery.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'workload-test',
+      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer', client_assertion: assertion }), signal: AbortSignal.timeout(10_000) });
     assert.equal(response.status, 200);
     return (await response.json()).access_token;
   };
@@ -100,7 +108,7 @@ try {
   const second = await start('central');
   stage = 'token-validation';
   const before = await first.verifier()(await first.token());
-  assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'verified-tls', 'separate-databases');
+  assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'private-key-jwt-client-authentication', 'verified-tls', 'separate-databases');
   await assert.rejects(first.verifier()(await second.token())); checks.push('untrusted-issuer-denied');
   await assert.rejects(first.verifier('https://wrong.example.test')(await first.token())); checks.push('wrong-audience-denied');
   stage = 'sovereign-outage';
