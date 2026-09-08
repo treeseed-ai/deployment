@@ -26,6 +26,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('sandbox.doctor') }).strict(),
 	z.object({ operation: z.literal('sandbox.trust-anchor.repair') }).strict(),
 	z.object({ operation: z.literal('sandbox.guest-trust.digests') }).strict(),
+	z.object({ operation: z.literal('sandbox.model-policy.reconcile') }).strict(),
 	z.object({ operation: z.literal('sandbox.guest-trust.bind'), digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u) }).strict(),
 	z.object({ operation: z.literal('sandbox.guest-image.import'), archivePath: z.string().startsWith('/').max(4_096), image: z.string().regex(/^(?:docker\.io\/)?treeseed\/sandbox-[a-z0-9._-]+:local$/u) }).strict(),
 	z.object({ operation: z.literal('apt.refresh'), track: z.enum(['stable', 'development']), updateCore: z.boolean() }).strict(),
