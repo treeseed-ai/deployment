@@ -1,0 +1,7 @@
+{
+  "name": "treeseed-identity-runtime-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node verify.mjs" },
+  "dependencies": { "@treeseed/identity": "0.1.0-rc.2", "jose": "6.2.12" }
+}
