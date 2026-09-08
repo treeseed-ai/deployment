@@ -1,0 +1,24 @@
+name: Identity compatibility
+on:
+  pull_request:
+    paths: ['tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
+  push:
+    branches: [staging, main]
+    paths: ['tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
+permissions: { contents: read }
+jobs:
+  identity-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 24 }
+      - run: npm ci --prefix tests/identity-runtime --ignore-scripts --no-audit --no-fund
+      - run: node tests/identity-runtime/verify.mjs > identity-acceptance.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: identity-acceptance-${{ github.sha }}
+          path: identity-acceptance.json
+          retention-days: 14
+          if-no-files-found: error
