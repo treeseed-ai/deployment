@@ -25,6 +25,10 @@ let networkCreated = false;
 let browsers;
 const humanPassword = randomBytes(32).toString('hex');
 syntheticSecrets.push(humanPassword);
+const brokerSecret = randomBytes(32).toString('hex');
+syntheticSecrets.push(brokerSecret);
+const ports = {};
+const issuerFor = label => `https://${label}.localhost:${ports[label]}/realms/acceptance`;
 let stage = 'preflight';
 const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 240_000 }).trim();
 const checks = [];
@@ -56,18 +60,28 @@ async function start(label) {
   const clientKey = await importPKCS8(readFileSync(join(directory, 'client.key'), 'utf8'), 'RS256');
   const certificate = readFileSync(join(directory, 'client.crt'), 'utf8').replace(/-----[^-]+-----|\s/g, '');
   const db = `${prefix}-${label}-db`, server = `${prefix}-${label}`;
-  const listenPort = await port();
-  const base = `https://127.0.0.1:${listenPort}`;
+  const listenPort = ports[label];
+  const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
-    users: [{ username: 'acceptance-user', enabled: true, emailVerified: true, email: 'acceptance@example.test', firstName: 'Acceptance', lastName: 'User',
+    users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
       credentials: [{ type: 'password', value: humanPassword, temporary: false }] }],
+    identityProviders: label === 'sovereign' ? [{ alias: 'central', displayName: 'Explicit central trust', providerId: 'oidc', enabled: true,
+      trustEmail: false, storeToken: false, firstBrokerLoginFlowAlias: 'first broker login',
+      config: { clientId: 'sovereign-broker', clientSecret: brokerSecret, clientAuthMethod: 'client_secret_post',
+        issuer: issuerFor('central'), authorizationUrl: `${issuerFor('central')}/protocol/openid-connect/auth`,
+        tokenUrl: `${issuerFor('central')}/protocol/openid-connect/token`, userInfoUrl: `${issuerFor('central')}/protocol/openid-connect/userinfo`,
+        jwksUrl: `${issuerFor('central')}/protocol/openid-connect/certs`, useJwksUrl: 'true', validateSignature: 'true',
+        defaultScope: 'openid profile email', syncMode: 'IMPORT' } }] : [],
     clients: [{ clientId: 'workload-test', enabled: true, protocol: 'openid-connect', publicClient: false,
       clientAuthenticatorType: 'client-jwt', attributes: { 'jwt.credential.certificate': certificate, 'token.endpoint.auth.signing.alg': 'RS256' },
       serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
       protocolMappers: [{ name: 'audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
-        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }, ...browsers.clients],
+        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }, ...browsers.clients,
+      ...(label === 'central' ? [{ clientId: 'sovereign-broker', enabled: true, protocol: 'openid-connect', publicClient: false,
+        secret: brokerSecret, standardFlowEnabled: true, directAccessGrantsEnabled: false,
+        redirectUris: [`${issuerFor('sovereign')}/broker/central/endpoint`] }] : [])],
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.
   writeFileSync(join(directory, 'db.env'), `POSTGRES_DB=identity\nPOSTGRES_USER=identity\nPOSTGRES_PASSWORD=${password}\n`, { mode: 0o600 });
@@ -75,11 +89,11 @@ async function start(label) {
   names.push(db);
   docker('run', '-d', '--name', db, '--network', prefix, '--tmpfs', '/var/lib/postgresql/data', '--env-file', join(directory, 'db.env'), images.postgres);
   names.push(server);
-  docker('run', '-d', '--name', server, '--network', prefix, '-p', `127.0.0.1:${listenPort}:8443`,
+  docker('run', '-d', '--name', server, '--network', prefix, '--network-alias', `${label}.localhost`, '-p', `127.0.0.1:${listenPort}:${listenPort}`,
     '--env-file', join(directory, 'kc.env'),
     '-v', `${join(root, 'tls')}:/run/identity-test:ro`,
     '-v', `${join(directory, 'realm.json')}:/opt/keycloak/data/import/acceptance-realm.json:ro`,
-    images.keycloak, 'start', '--import-realm', `--hostname=${base}`, '--http-enabled=false',
+    images.keycloak, 'start', '--import-realm', `--hostname=${base}`, `--https-port=${listenPort}`, '--http-enabled=false', '--truststore-paths=/run/identity-test/cert.pem',
     '--https-certificate-file=/run/identity-test/cert.pem', '--https-certificate-key-file=/run/identity-test/key.pem');
   const discovery = await ready(`${issuer}/.well-known/openid-configuration`);
   assert.equal(discovery.issuer, issuer);
@@ -105,9 +119,10 @@ try {
   // A regular isolated bridge permits the runner's loopback-published TLS ports.
   // Docker internal networks suppress this host-port route on current runners.
   docker('network', 'create', prefix); networkCreated = true;
+  ports.sovereign = await port(); ports.central = await port();
   mkdirSync(join(root, 'tls'), { mode: 0o755 });
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=disposable-identity',
-    '-addext', 'subjectAltName=IP:127.0.0.1,DNS:admin.localhost,DNS:market.localhost', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
+    '-addext', 'subjectAltName=IP:127.0.0.1,DNS:admin.localhost,DNS:market.localhost,DNS:sovereign.localhost,DNS:central.localhost', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
   chmodSync(join(root, 'tls/key.pem'), 0o644);
   setDefaultCACertificates([...originalTrust, readFileSync(join(root, 'tls/cert.pem'), 'utf8')]);
   browsers = await browserFixture(root);
@@ -118,7 +133,10 @@ try {
   assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'private-key-jwt-client-authentication', 'verified-tls', 'separate-databases');
   await assert.rejects(first.token(second.clientKey)); checks.push('unregistered-workload-key-denied');
   await assert.rejects(first.verifier()(await second.token())); checks.push('untrusted-issuer-denied');
+  await assert.rejects(second.verifier()(await first.token())); checks.push('reverse-issuer-token-denied');
   await assert.rejects(first.verifier('https://wrong.example.test')(await first.token())); checks.push('wrong-audience-denied');
+  stage = 'federated-browser';
+  checks.push(...await browsers.verifyFederation(first.issuer, second.issuer, humanPassword));
   stage = 'sovereign-outage';
   docker('stop', second.server);
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
@@ -130,7 +148,7 @@ try {
   await ready(`${first.issuer}/.well-known/openid-configuration`);
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
   checks.push('restart-preserves-subject');
-  console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'directional-brokering', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
+  console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
 } catch {
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
