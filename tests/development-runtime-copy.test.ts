@@ -30,6 +30,18 @@ it('rejects external symlinks before copying their contents',()=>{
   symlinkSync(join(f.root,'private'),join(f.worktree,'node_modules','escape'));
   expect(()=>copyDevelopmentRuntime(f)).toThrow('escaped');
 });
+it('excludes VCS and hidden custody from linked workspace dependencies',()=>{
+  const f=fixture(),dependency=join(f.workspace,'dependency');mkdirSync(dependency);
+  writeFileSync(join(dependency,'index.js'),'export {};');
+  for(const name of ['.git','.treeseed','.cache']) {
+    mkdirSync(join(dependency,name));writeFileSync(join(dependency,name,'private'),'never-copy');
+  }
+  writeFileSync(join(dependency,'.env'),'never-copy');
+  symlinkSync(dependency,join(f.worktree,'node_modules','dependency'));
+  copyDevelopmentRuntime(f);
+  expect(readFileSync(join(f.destination,'node_modules','dependency','index.js'),'utf8')).toBe('export {};');
+  for(const name of ['.git','.treeseed','.cache','.env'])expect(()=>statSync(join(f.destination,'node_modules','dependency',name))).toThrow();
+});
 it('rejects source identity mismatches and directory cycles',()=>{
   const f=fixture();expect(()=>copyDevelopmentRuntime({...f,sourceUid:f.sourceUid+1})).toThrow('escaped');
   symlinkSync(f.worktree,join(f.worktree,'node_modules','cycle'));
