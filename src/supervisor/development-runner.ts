@@ -28,6 +28,11 @@ export function drainReleasedRunner(command: CommandRunner): boolean {
     const exitCode = String(command('/usr/bin/docker', ['wait', name])).trim();
     if (exitCode !== '0') throw new Error('Released runner did not drain cleanly.');
   } catch {
+    // A rejected handoff must not leave the released service stopped. Docker
+    // start is idempotent for a still-running container; it never interrupts it.
+    // The exact identity was validated before signalling and no candidate exists.
+    try { restoreReleasedRunner(command); }
+    catch { throw new Error('Released runner drain failed and restoration failed; candidate was not started. Restore managed runner health before retrying.'); }
     throw new Error('Released runner drain is incomplete; candidate was not started. Inspect runner health before retrying.');
   }
   return true;
