@@ -3,6 +3,13 @@ import { managedConnectionEnvironment, sandboxGuestTrustDigest } from '../src/ma
 import { component, host } from './fixtures.js';
 
 describe('development sandbox guest trust', () => {
+	it('binds API credential deliveries to the connected TreeDX broker identity', () => {
+		const configuration=host(),api=component('api','development','a'),treedx=component('treedx','development','b');
+		api.runtime.dependencies=[{id:'treedx',capability:'knowledge',locality:'either',optional:false}];
+		configuration.components.api!.connections.treedx={kind:'local',componentId:'treedx',serviceId:'service',endpointId:'http'};
+		configuration.components.treedx={enabled:true,track:'development',aliases:{},connections:{},configuration:{environment:{TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID:'selected-node'}}} as any;
+		expect(managedConnectionEnvironment(configuration,api,[api,treedx])).toMatchObject({TREESEED_TREEDX_NODE_ID:'selected-node'});
+	});
 	it('does not overwrite pending development trust with an unavailable released digest', () => {
 		const released = `sha256:${'a'.repeat(64)}`;
 		expect(sandboxGuestTrustDigest(released, false)).toBe(released);

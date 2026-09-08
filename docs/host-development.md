@@ -14,6 +14,14 @@ Pass another Deployment worktree explicitly when needed. `--guest-image sha256:<
 
 The bridge is available only through the protected local manager socket and only on development rollout groups. `--plan` performs no build or mutation.
 
+## Container-to-control-plane access
+
+Managed AI containers reach the local HTTPS edge through Docker's default bridge gateway. Deployment observes that gateway and publishes HTTPS only on its assigned private bridge address, in addition to loopback; it never adds a wildcard or LAN listener. The generated host-network overlay is runtime state, not portable Platform configuration. An absent or unassigned private bridge address fails closed.
+
+Live API containers receive the same generated AI storage public-verification keys as released API containers. Private workload keys remain in restricted runtime mounts; switching between released and live API modes must not change the storage authorization boundary.
+
+Quiesced recovery captures emit a `backup.created` manager event containing the completed generation identifier. Use that exact generation for restore planning instead of repeatedly scanning all historical archives.
+
 ## Candidate boundary
 
 Use local generations for ordinary edit/build/test cycles. A release candidate is created only after:

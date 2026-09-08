@@ -1,5 +1,6 @@
 export * from './catalog/load.js';
 export * from './core/configuration.js';
+export * from './core/ai-configuration.js';
 export * from './core/files.js';
 export * from './core/events.js';
 export * from './core/paths.js';

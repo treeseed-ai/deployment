@@ -63,8 +63,8 @@ describe('host security contracts', () => {
 		const manifest = `sandbox:\n  profiles:\n    - guestImageDigest: ${current}\n    - guestImageDigest: ${current}\n`;
 		expect(bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', manifest, selected).match(new RegExp(selected, 'gu'))).toHaveLength(2);
 		expect(() => bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', 'sandbox: {}\n', selected)).toThrow(/does not declare/u);
-		expect(supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: selected })).toMatchObject({ sandboxGuestImageDigest: selected });
-		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: 'latest' })).toThrow();
+		expect(supervisorOperationSchema.parse({ operation: 'component.configure', release: '1.0.0', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: selected })).toMatchObject({ sandboxGuestImageDigest: selected });
+		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', release: '1.0.0', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: 'latest' })).toThrow();
 		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-agent-manifest-')), path = resolve(directory, 'manifest.yaml');
 		try { writeFileSync(path, manifest); expect(configuredSandboxGuestImageDigests(path)).toEqual([current, current]); }
 		finally { rmSync(directory, { recursive: true, force: true }); }

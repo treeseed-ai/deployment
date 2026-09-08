@@ -14,7 +14,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import {
-	activateRestoredComponent,
+	activateComponent,
 	componentActivationOrder,
 	componentStopOrder,
 	rollbackRoutes,
@@ -60,7 +60,7 @@ async function applyRoutes(host: HostConfiguration, components: ComponentRelease
 }
 
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	for (const component of componentActivationOrder(host, components)) await activateRestoredComponent(component);
+	for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
 	await applyRoutes(host, components);
 }
 
@@ -112,10 +112,17 @@ export async function restoreManagedGeneration(generation: number) {
 	const currentHost = loadHostConfiguration(), currentComponents = loadActiveComponents(), currentReceipt = loadCurrentReceipt();
 	if (!currentReceipt) throw new Error('A current known-good receipt is required before manual recovery.');
 	const safetyGeneration = Date.now();
-	await requestSupervisor({ operation: 'backup.create', generation: safetyGeneration });
-	recordEvent('recovery.restore-started', { generation, targetReceiptId: target.receipt.receiptId, safetyGeneration });
+	// A raw database archive is recoverable only after its writers are stopped.
+	// If capture fails, resume the current generation; no usable safety image exists yet.
 	try {
 		await stopGeneration(currentHost, currentComponents);
+		await requestSupervisor({ operation: 'backup.create', generation: safetyGeneration });
+	} catch (error) {
+		await activateRestoredGeneration(currentHost, currentComponents);
+		throw error;
+	}
+	recordEvent('recovery.restore-started', { generation, targetReceiptId: target.receipt.receiptId, safetyGeneration });
+	try {
 		const packages = packageSelections(target.receipt);
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		await requestSupervisor({ operation: 'recovery.restore', generation });

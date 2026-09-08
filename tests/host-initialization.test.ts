@@ -69,7 +69,7 @@ describe('host initialization planning', () => {
 			secretEnvironment: { TREEDX_REMOTE_CREDENTIAL_BROKER_ASSERTION: 'treedx-credential-broker-assertion', TREEDX_SECRET_KEY_BASE: 'treedx-secret-key-base' },
 		});
 		expect(rendered.secrets['treedx-secret-key-base']).toEqual({ provider: 'file', reference: '/etc/treeseed/credentials/treedx-secret-key-base' });
-		expect(rendered.components.agent?.configuration).toEqual({ files: { 'treeseed.capacity-provider.yaml': 'schemaVersion: 5\nconnections: []\n' } });
+		expect(rendered.components.agent?.configuration).toEqual({});
 		expect(rendered.security?.sandbox.profiles.every(({ guestImage }) => guestImage === 'treeseed/sandbox-codex')).toBe(true);
 		expect(JSON.stringify(rendered)).not.toMatch(/adrian|\/home\//u);
 	});

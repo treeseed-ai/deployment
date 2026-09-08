@@ -10,6 +10,9 @@ import { loadActiveComponents } from '../manager/current-state.js';
 import { managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
 import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './component.js';
 import type { CommandRunner } from './compose-runtime.js';
+import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
+import { copyDevelopmentRuntime } from './development-runtime-copy.js';
+import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -17,7 +20,7 @@ const dockerCommand:CommandRunner=(executable,args)=>{
   const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:180_000,maxBuffer:1_048_576,
     env:{PATH:'/usr/sbin:/usr/bin:/sbin:/bin'}});
   if(result.error||result.status!==0) {
-    const text=result.stderr??'';
+    const text=(result.stderr??'')+'\n'+(result.stdout??'');
     const reason=/port is already allocated|address already in use/i.test(text)?'port_in_use':
       /network .*not.*found|network .*does not exist/i.test(text)?'network_missing':
       /bind source path does not exist/i.test(text)?'mount_missing':
@@ -43,27 +46,29 @@ export function developmentContainerSource(record:ManagedDevelopmentSession) {
 }
 
 /** No repository commands, Compose files, mounts, image or Docker options cross this boundary. */
-export function renderDevelopmentContainer(input:{sessionId:string;targetId:'service'|'operations-runner';worktree:string;workspace:string;uid:number;gid:number;environment:Record<string,string>;image:string;leaseSeconds:number;stateRoot:string}) {
+export function renderDevelopmentContainer(input:{sessionId:string;targetId:'service'|'operations-runner';worktree:string;workspace:string;uid:number;gid:number;sourceGid?:number;environment:Record<string,string>;image:string;stateRoot:string}) {
   if(!/^sha256:[a-f0-9]{64}$/.test(input.image))throw new Error('Development runtime image must resolve to an immutable local ID.');
   const api=input.targetId==='service', name=`treeseed-${input.sessionId}-api-${input.targetId}`,directory=resolve(root,input.sessionId,input.targetId);
   const args=api?['--watch','--import','tsx','src/api/support/server.ts']:['dist/operations-runner/entrypoint.js','run'];
-  // Fixed watchdog bounds the container lifetime even if the CLI or manager disappears.
-  const watchdog=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});c.on('exit',n=>process.exit(n??1));setTimeout(()=>{c.kill('SIGTERM');setTimeout(()=>process.exit(1),30000)},${input.leaseSeconds*1000});`;
+  // Forward explicit stop signals; elapsed time never terminates development.
+  const processSupervisor=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));`;
   return {services:{runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
-    entrypoint:['node','-e',watchdog],working_dir:input.worktree,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
+    group_add:input.sourceGid===undefined||input.sourceGid===input.gid?[]:[String(input.sourceGid)],
+    entrypoint:['node','-e',processSupervisor],working_dir:api?input.worktree:'/app',cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
     labels:{'org.treeseed.development.session':input.sessionId,'org.treeseed.development.target':`api.${input.targetId}`},
-    environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:'live',
+    environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:api?'live':'candidate',
       TREESEED_OPENBAO_ADDRESS:'https://openbao:8200',TREESEED_OPENBAO_IDENTITY_FILE:'/run/openbao-client/identity.json',NODE_EXTRA_CA_CERTS:'/run/openbao-client/ca.pem',
       TREESEED_CAPACITY_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/credentials',TREESEED_DIAGNOSTICS_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/diagnostics',
       ...(api?{}:{TREESEED_PLATFORM_RUNNER_DATA_DIR:'/data/operations-runner',TREESEED_PUBLISHED_KNOWLEDGE_ROOT:'/data/published-knowledge'})},
-    volumes:[{type:'bind',source:input.workspace,target:input.workspace,read_only:true},
+    volumes:[{type:'bind',source:api?input.workspace:resolve(directory,'runtime'),target:api?input.workspace:'/app',read_only:true},
       {type:'bind',source:resolve(directory,'openbao'),target:'/run/openbao-client',read_only:true},
       {type:'bind',source:resolve(directory,'keys'),target:'/run/treeseed-keys',read_only:true},
       ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner'},
         {type:'bind',source:resolve(input.stateRoot,'published-knowledge'),target:'/data/published-knowledge'}])],
     tmpfs:['/tmp'],extra_hosts:['host.docker.internal:host-gateway'],
-    ...(api?{ports:['127.0.0.1:3000:3000'],healthcheck:{test:['CMD','node','-e',"fetch('http://127.0.0.1:3000/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"],interval:'2s',timeout:'2s',retries:60}}:{}),
+    ...(api?{ports:['127.0.0.1:3000:3000']}:{}),
+    healthcheck:{test:['CMD','node','-e',`fetch('http://127.0.0.1:3000${api?'/v1/health/ready':'/readyz'}').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))`],interval:'2s',timeout:'2s',retries:60},
     networks:{private:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:{}}}},
     networks:{private:{external:true,name:'treeseed-api_private'},edge:{external:true,name:'treeseed-edge'},platform:{external:true,name:'treeseed-platform'}}};
 }
@@ -73,43 +78,79 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const selected=record.session.targets.find(t=>t.projectId==='api'&&t.targetId===input.targetId);
   if(!selected)throw new Error('Development container is outside the registered session.');
   const directory=resolve(root,input.sessionId,input.targetId),file=resolve(directory,'compose.json');
+  const handoff=resolve(directory,'released-runner.json');
   const compose=['compose','--project-name',`treeseed-${input.sessionId}-api-${input.targetId}`,'--file',file];
   if(input.action==='stop') {
     if(!existsSync(file)){if(existsSync(directory))rmSync(directory,{recursive:true});return {stopped:true};}
+    if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
     command('/usr/bin/docker',[...compose,'down','--timeout','30']);
+    if(input.targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
     rmSync(directory,{recursive:true});return {stopped:true};
   }
   if(input.action==='status')return {registered:existsSync(file),state:existsSync(file)?command('/usr/bin/docker',[...compose,'ps','--format','json']):null};
-  const seconds=Math.floor((Date.parse(record.session.expiresAt)-Date.now())/1000);
-  if(record.session.status!=='active'||seconds<=0)throw new Error('Development session has expired or stopped.');
+  if(record.session.status!=='active')throw new Error('Development session is not active.');
   const host=loadHostConfiguration(),releases=loadActiveComponents(),component=releases.find(r=>r.componentId==='api');
   if(!component)throw new Error('Installed API foundation is required for development.');
   const target=record.runtimes.find(r=>r.project.id==='api')?.targets.find(t=>t.id===input.targetId);
   if(!target)throw new Error('API development target contract is missing.');
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
+  const aiStorageKeys=prepareAiStorageIdentities(host,'api');
+  if(Object.keys(aiStorageKeys).length) environment.TREESEED_AI_STORAGE_PUBLIC_KEYS=JSON.stringify(aiStorageKeys);
   const source=developmentContainerSource(record);
+  // Stateful candidates retain the installed runtime identity. The source
+  // owner's identity is only appropriate for the stateless live API.
+  const identity=input.targetId==='operations-runner'?releasedRunnerIdentity(command):source;
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
   command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']);
   const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
-  const spec=renderDevelopmentContainer({...input,...source,environment,image,leaseSeconds:seconds,stateRoot:componentStateRoot(host,'api')});
+  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
-  // Delegate only the API's fixed credential files to the source owner's UID;
+  if(input.targetId==='operations-runner') {
+    // Refuse to overwrite an existing candidate snapshot. Cleanup must finish first.
+    const receipt=copyDevelopmentRuntime({worktree:source.worktree,workspace:source.workspace,
+      destination:resolve(directory,'runtime'),sourceUid:source.uid});
+    atomicJson(resolve(directory,'runtime-receipt.json'),receipt,0o600);
+  }
+  // Delegate only the API's fixed credential files to the runtime's UID;
   // the root-owned parent prevents host users from browsing these copies.
   for(const [child,origin,names] of [['openbao','/run/treeseed/openbao/client',['identity.json','ca.pem']],['keys','/run/treeseed/component-credentials/api',['credentials','diagnostics']]] as const) {
-    const target=resolve(directory,child);mkdirSync(target,{recursive:true,mode:0o700});chownSync(target,source.uid,source.gid);
-    for(const name of names){const value=readFileSync(resolve(origin,name));try{const output=resolve(target,name);writeFileSync(output,value,{mode:0o600});chownSync(output,source.uid,source.gid);}finally{value.fill(0);}}
+    const target=resolve(directory,child);mkdirSync(target,{recursive:true,mode:0o700});chownSync(target,identity.uid,identity.gid);
+    for(const name of names){const value=readFileSync(resolve(origin,name));try{const output=resolve(target,name);writeFileSync(output,value,{mode:0o600});chownSync(output,identity.uid,identity.gid);}finally{value.fill(0);}}
   }
   atomicJson(file,spec,0o600);
+  let drained=false;
+  if(input.targetId==='operations-runner') {
+    drained=drainReleasedRunner(command);
+    if(drained)atomicJson(handoff,{restore:true},0o600);
+  }
   try { command('/usr/bin/docker',[...compose,'up','--detach','--wait','--wait-timeout','120','runtime']); }
   catch(error) {
     let code='';
     try { const log=String(command('/usr/bin/docker',['logs','--tail','50',`treeseed-${input.sessionId}-api-${input.targetId}`]));
-      code=log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??'';
+      code=developmentStartupCode(log);
     } catch {/* Diagnostics never prevent cleanup. */}
-    try{command('/usr/bin/docker',[...compose,'down','--timeout','30']);rmSync(directory,{recursive:true});}catch{/* Retain the root-owned spec for an idempotent cleanup retry. */}
+    try{
+      if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
+      command('/usr/bin/docker',[...compose,'down','--timeout','30']);
+      if(drained||existsSync(handoff))restoreReleasedRunner(command);
+      rmSync(directory,{recursive:true});
+    }catch{/* Retain the root-owned spec and handoff marker for an idempotent cleanup retry. */}
     if(code)throw new Error(`Managed development application startup failed (${code}).`);
     throw error;
   }
   return {started:true};
+}
+
+/** Only fixed diagnostic codes cross the operator boundary, never raw logs. */
+export function developmentStartupCode(log:string):string {
+  if (/\bEACCES\b/.test(log)) {
+    for (const [path, code] of [['/data/operations-runner', 'RUNNER_STATE_PERMISSION'],
+      ['/data/published-knowledge', 'KNOWLEDGE_STATE_PERMISSION'],
+      ['/run/openbao-client', 'CUSTODY_PERMISSION'], ['/run/treeseed-keys', 'KEY_PERMISSION']] as const) {
+      if (log.split('\n').some(line => /\bEACCES\b/.test(line) && line.includes(path))) return code;
+    }
+  }
+  return log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??
+    (/does not provide an export named/.test(log)?'EXPORT_MISSING':/SyntaxError/.test(log)?'SYNTAX_ERROR':/duplicate key|already exists/.test(log)?'DATABASE_CONFLICT':/permission denied/.test(log)?'DATABASE_PERMISSION':/relation .*does not exist/.test(log)?'DATABASE_RELATION_MISSING':'');
 }

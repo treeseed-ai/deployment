@@ -3,14 +3,17 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
+import { verifyAiStorage } from './ai/storage-verification.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
+import { writeEdgeHostNetwork } from '../edge/host-network.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { providerRuntimeStatus } from './provider-runtime.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
+import { backupConfiguration, preserveAcceptedConfiguration } from './backup-configuration.js';
 import { resetPlatformState } from './reset.js';
 import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
 import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
@@ -18,6 +21,7 @@ import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
+import { reconcileSandboxModelPolicy } from './sandbox-model-policy.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
 import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 import { waitForStartingActivation } from './activation-wait.js';
@@ -312,6 +316,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);
+		case 'sandbox.model-policy.reconcile': return reconcileSandboxModelPolicy(loadHostConfiguration(), command);
 		case 'sandbox.guest-trust.bind': return bindSandboxGuestTrust(operation.digest, command);
 		case 'sandbox.guest-image.import': {
 			const imported = importDevelopmentSandboxGuest(operation.archivePath, operation.image, command);
@@ -326,7 +331,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		case 'component.configure':
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
-			configureComponent(operation.componentId, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
+			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
 		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
@@ -405,6 +410,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
 		case 'ai.gpu.workload': return aiWorkload(operation.role, operation.action, operation.files, operation.waitTimeoutSeconds, command);
 		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
+		case 'ai.storage.verify': return verifyAiStorage();
 		case 'storage.r2.status': return r2StorageStatus(operation.controlPlaneId);
 		case 'storage.r2.install': return installR2Storage(operation, command);
 		case 'host.development.activate': {
@@ -420,15 +426,18 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			mkdirSync(dirname(target), { recursive: true, mode: 0o750 });
 			writeFileSync(temporary, operation.caddyfile, { mode: 0o640 });
 			generateEdgeCertificate(operation.aliases, command);
+			const bridge = JSON.parse(execFileSync('/usr/bin/docker', ['network','inspect','bridge'], {encoding:'utf8',timeout:10_000,maxBuffer:65536}))[0];
+			writeEdgeHostNetwork(`${paths.edge}/host-network.yml`, bridge);
 			command('/usr/bin/docker', ['compose', '--file', '/usr/share/treeseed/edge/compose.yml', 'run', '--rm', '--no-deps', 'caddy', 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile']);
 			renameSync(temporary, target);
+			command('/usr/bin/docker', ['compose','--file','/usr/share/treeseed/edge/compose.yml','--file',`${paths.edge}/host-network.yml`,'up','--detach','--wait']);
 			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
-		case 'backup.create': return createGenerationBackup(operation.generation, command);
+		case 'backup.create': return createGenerationBackup(operation.generation);
 		case 'backup.inspect': return inspectGenerationBackup(operation.generation);
 		case 'backup.list': return listGenerationBackups();
-		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
+		case 'recovery.restore': return restoreGenerationBackup(operation.generation);
 		case 'platform.reset': {
 			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });
 			// The supervisor performs deletion as root, but reconciliation and the
@@ -450,15 +459,22 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
 		case 'configuration.initialize': return initializeHostConfiguration(operation, command);
+		case 'configuration.restore-accepted': {
+			const accepted = backupConfiguration(loadHostConfiguration());
+			atomicJson(paths.configuration, accepted, 0o640);
+			return { restored: true, generation: accepted.generation };
+		}
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
+			preserveAcceptedConfiguration(current);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}
 		case 'configuration.adopt': {
 			const current = loadHostConfiguration();
 			if (current.configurationId === operation.configuration.configurationId) throw new Error('Configuration adoption requires a different configuration identity.');
+			preserveAcceptedConfiguration(current);
 			atomicJson(`${paths.managerState}/adopted-configurations/${current.configurationId}-${current.generation}.json`, current, 0o600);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;

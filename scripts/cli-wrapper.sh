@@ -19,21 +19,13 @@ fi
 if [ -n "$TREESEED_CLI_SELECTION" ] && [ -r "$TREESEED_CLI_SELECTION" ]; then
 	{
 		IFS= read -r TREESEED_CLI_SELECTION_VERSION
-		IFS= read -r TREESEED_CLI_SELECTION_EXPIRES
 		IFS= read -r TREESEED_DEVELOPMENT_CLI
 	} < "$TREESEED_CLI_SELECTION"
-	if [ "$TREESEED_CLI_SELECTION_VERSION" = treeseed.development-cli-selection/v1 ]; then
-		case "$TREESEED_CLI_SELECTION_EXPIRES" in
-			''|*[!0-9]*) ;;
-			*)
-				if [ "$(date +%s)" -lt "$TREESEED_CLI_SELECTION_EXPIRES" ]; then
-					case "$TREESEED_DEVELOPMENT_CLI" in
-						/*)
-							if [ -f "$TREESEED_DEVELOPMENT_CLI" ] && [ -r "$TREESEED_DEVELOPMENT_CLI" ]; then
-								exec /usr/lib/treeseed/runtime/bin/node "$TREESEED_DEVELOPMENT_CLI" "$@"
-							fi
-							;;
-					esac
+	if [ "$TREESEED_CLI_SELECTION_VERSION" = treeseed.development-cli-selection/v2 ]; then
+		case "$TREESEED_DEVELOPMENT_CLI" in
+			/*)
+				if [ -f "$TREESEED_DEVELOPMENT_CLI" ] && [ -r "$TREESEED_DEVELOPMENT_CLI" ]; then
+					exec /usr/lib/treeseed/runtime/bin/node "$TREESEED_DEVELOPMENT_CLI" "$@"
 				fi
 				;;
 		esac

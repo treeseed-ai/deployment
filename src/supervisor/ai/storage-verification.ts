@@ -1,0 +1,43 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { componentReleaseSchema, type ComponentRelease } from '@treeseed/sdk/deployment';
+import { paths } from '../../core/paths.js';
+import { nodeStorageProbe, pythonStorageProbe } from './storage-probes.js';
+
+type Capture = (args: string[]) => string;
+const capture: Capture = args => execFileSync('/usr/bin/docker', args, { encoding: 'utf8', timeout: 90_000, maxBuffer: 8192,
+	stdio: ['ignore','pipe','pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
+const probes = [
+	{ component: 'ai-inference', service: 'inference-api', interpreter: 'node', program: nodeStorageProbe },
+	{ component: 'ai-training', service: 'training-api', interpreter: 'node', program: nodeStorageProbe },
+	{ component: 'ai-training', service: 'training-artifact', interpreter: 'python', program: pythonStorageProbe },
+];
+
+/** Fixed targets, exact accepted images, bounded execution, public results only. */
+export function verifyAiStorage(options: { capture?: Capture; components?: ComponentRelease[] } = {}) {
+	const run = options.capture ?? capture;
+	const components = options.components ?? JSON.parse(readFileSync(`${paths.managerState}/active-components.json`, 'utf8')).map((value: unknown) => componentReleaseSchema.parse(value));
+	const results = probes.map(probe => {
+		try {
+			const component = components.find((item: ComponentRelease) => item.componentId === probe.component);
+			if (!component || !component.runtime.services.some((item: {composeService:string}) => item.composeService === probe.service)) throw Error();
+			const ids = run(['ps','--quiet','--filter',`label=com.docker.compose.project=${component.runtime.compose.projectName}`,
+				'--filter',`label=com.docker.compose.service=${probe.service}`]).trim().split(/\s+/u);
+			if (ids.length !== 1 || !/^[a-f0-9]{12,64}$/u.test(ids[0]!)) throw Error();
+			const image = run(['inspect','--format','{{.Config.Image}}',ids[0]!]).trim();
+			if (!component.images.some((item: {repository:string;digest:string}) => `${item.repository}@${item.digest}` === image)) throw Error();
+			const args = probe.interpreter === 'node' ? ['node','--input-type=module','-e',probe.program] : ['python','-c',probe.program];
+			const result = JSON.parse(run(['exec','--workdir','/app',ids[0]!,...args]));
+			if (typeof result.ok !== 'boolean' || typeof result.cleanup !== 'boolean' || !['write','read','list','object-isolation','team-isolation','action-isolation','workload-isolation','complete'].includes(result.phase)
+				|| !/^\.treeseed-acceptance\/[a-f0-9-]{36}\/probe$/u.test(result.key)) throw Error();
+			const diagnostics: Record<string, string | number | string[]> = {};
+			if (Array.isArray(result.diagnostics?.providerHints)) diagnostics.providerHints=result.diagnostics.providerHints.filter((word:unknown)=>typeof word==='string'&&['jwt','token','tokens','session','invalid','unknown','claim','claims','jti','unsupported','supported','not','enabled','disabled','account','user','signature','verification','expired','format','encoding','parse','permission','permissions','action','actions','scope','header','argument','version','access','key','secret','required','missing'].includes(word)).slice(0,24);
+			if (['session-token','signature','checksum','request-header','permission'].includes(result.diagnostics?.providerReason)) diagnostics.providerReason = result.diagnostics.providerReason;
+			if (['InvalidArgument','InvalidToken','ExpiredToken','AccessDenied','SignatureDoesNotMatch','InvalidAccessKeyId','NotImplemented','InvalidRequest','BadDigest'].includes(result.diagnostics?.providerCode)) diagnostics.providerCode = result.diagnostics.providerCode;
+			for (const name of ['brokerStatus','providerStatus']) if (Number.isInteger(result.diagnostics?.[name]) && result.diagnostics[name] >= 100 && result.diagnostics[name] <= 599) diagnostics[name] = result.diagnostics[name];
+			for (const [name, allowed] of Object.entries({brokerCode:['ai_storage_proof_invalid','ai_storage_node_unavailable','ai_storage_project_unavailable','ai_storage_binding_unavailable','ai_storage_proof_unavailable','ai_storage_access_changed'],transportCode:['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ETIMEDOUT','CERT_HAS_EXPIRED','UNABLE_TO_VERIFY_LEAF_SIGNATURE','SELF_SIGNED_CERT_IN_CHAIN','DEPTH_ZERO_SELF_SIGNED_CERT']})) if (allowed.includes(result.diagnostics?.[name])) diagnostics[name] = result.diagnostics[name];
+			return { service: probe.service, ok: result.ok && result.cleanup && result.phase === 'complete', cleanup: result.cleanup, phase: result.phase, object: result.key, diagnostics };
+		} catch { return { service: probe.service, ok: false, cleanup: false, phase: 'runtime-probe-unavailable' }; }
+	});
+	return { schemaVersion: 'treeseed.ai-storage-verification/v1', ok: results.every(result => result.ok), results, trainingExecuted: false, artifactsMoved: false };
+}

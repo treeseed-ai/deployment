@@ -110,24 +110,25 @@ function developmentApiConfiguration(selectedComponents: Set<string>) {
 		TREESEED_TREEDX_JWT_AUDIENCE: 'treedx',
 	};
 	if (selectedComponents.has('lab')) Object.assign(environment, { TREESEED_MAILPIT_SMTP_HOST: 'mailpit', TREESEED_MAILPIT_SMTP_PORT: '1025' });
-	if (selectedComponents.has('treedx')) environment.TREESEED_TREEDX_URL = 'http://treedx:4000';
+	if (selectedComponents.has('treedx')) {
+		environment.TREESEED_TREEDX_URL = 'http://treedx:4000';
+		environment.TREESEED_TREEDX_NODE_ID = developmentTreedxConfiguration().environment.TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID;
+	}
 	return { environment, secretEnvironment: { ...developmentApiSecrets } };
 }
 
 function componentInitializationConfiguration(selected: SelectedInitializationProfile, componentId: string, environment: HostConfiguration['runtime']['environment'], selectedComponents: Set<string>, inputs: InitializationInputValues) {
 	const release = selected.catalog.components.find((candidate) => candidate.componentId === componentId);
 	if (!release) throw new Error(`Host initialization component ${componentId} is absent from the selected catalog.`);
-	const files = Object.fromEntries(release.runtime.configuration.files.flatMap((declaration) => {
-		if (declaration.default !== undefined) return [[declaration.id, declaration.default]];
-		if (declaration.required) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
-		return [];
-	}));
+	for (const declaration of release.runtime.configuration.files) {
+		if (declaration.required && declaration.default === undefined) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
+	}
 	const configuration = componentId === 'agent' && inputs.teamRegistrationCode ? {
 		providerEnrollment: { connectionId: 'primary', registrationSecretId: 'provider-registration', offer: { maxConcurrentRunners: 1, capabilities: [] } },
 	} : environment !== 'development' ? {}
 		: componentId === 'api' ? developmentApiConfiguration(selectedComponents)
 			: componentId === 'treedx' ? developmentTreedxConfiguration() : {};
-	return Object.keys(files).length ? { ...configuration, files } : configuration;
+	return configuration;
 }
 
 function requiredSecurity(selected: SelectedInitializationProfile) {

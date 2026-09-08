@@ -247,7 +247,8 @@ describe('Debian and systemd contracts', () => {
 		expect(backup).not.toContain("'usr/share/treeseed/components'");
 		expect(reconciliation).toContain('reconcile.rollback-complete');
 		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
-		expect(backup).toContain("'var/lib/treeseed/components'");
+		expect(backup).toContain('requiredBackupState(host, components)');
+		expect(backup).toContain('assertNoBackupWriters(state)');
 		expect(backup).not.toContain("'usr/share/treeseed/components'");
 		expect(publisher).not.toContain('rmSync(pool');
 	});

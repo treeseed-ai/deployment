@@ -1,5 +1,7 @@
 import { statSync } from 'node:fs';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
+import { componentCredential } from '../core/component-credential.js';
+import { componentManagedFiles } from '../core/component-files.js';
 
 const componentConfigurationRoot = '/etc/treeseed/components';
 
@@ -29,11 +31,7 @@ function rejectUnknown(configured: Record<string, string>, accepted: Set<string>
 }
 
 function secretPath(host: HostConfiguration, secretId: string, expectedPath?: string) {
-	const secret = host.secrets[secretId];
-	if (!secret || secret.provider !== 'file') throw new Error(`Required secret ${secretId} is not available through file custody.`);
-	const path = expectedPath ?? `/etc/treeseed/credentials/${secretId}`;
-	if (secret.reference !== path) throw new Error(`Secret ${secretId} must use the declared custody path ${path}.`);
-	return path;
+	return componentCredential(host, secretId, expectedPath).reference;
 }
 
 function managerValue(name: string, secretFiles: string[], probe: RuntimeInputProbe, managedValues: Record<string, string>) {
@@ -85,8 +83,8 @@ export function managedRuntimeInputEnvironment(host: HostConfiguration, componen
 	for (const declaration of contract.files) {
 		const expectedPath = `${componentConfigurationRoot}/${component.componentId}/${declaration.id}`;
 		if (declaration.path !== expectedPath) throw new Error(`Managed file ${declaration.id} must use ${expectedPath}.`);
-		if (configuredFiles[declaration.id] === undefined && declaration.required) throw new Error(`Required managed file ${declaration.id} is not configured for ${component.componentId}.`);
 	}
+	componentManagedFiles(component, configuredFiles);
 
 	const values: Record<string, string> = {};
 	for (const declaration of contract.environment) {

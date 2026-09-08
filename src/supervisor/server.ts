@@ -5,33 +5,40 @@ import { paths } from '../core/paths.js';
 import { recordEvent } from '../core/events.js';
 import { executeSupervisorOperation } from './execute.js';
 
-export function createSupervisorServer() {
-	if (process.getuid?.() !== 0) throw new Error('TreeSeed supervisor must run as root.');
-	mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o750 });
-	rmSync(paths.socket, { force: true });
-	return createServer((connection) => {
+export function supervisorConnectionHandler(execute: (input: unknown) => unknown = executeSupervisorOperation, event = recordEvent) {
+	return (connection: import('node:net').Socket) => {
 		let input = '';
 		connection.setEncoding('utf8');
+		connection.on('error', () => undefined);
 		connection.on('data', (chunk) => {
 			input += chunk;
 			if (input.length > 1_200_000) connection.destroy(new Error('Supervisor request exceeds its bounded request limit.'));
 		});
-		connection.on('end', () => {
+		connection.on('end', async () => {
+			if (connection.destroyed) return;
 			let operation = 'unknown';
 			try {
 				const request = JSON.parse(input) as unknown;
 				operation = typeof (request as { operation?: unknown }).operation === 'string' ? (request as { operation: string }).operation : 'unknown';
-				const result = executeSupervisorOperation(request);
-				recordEvent('supervisor.operation-complete', { operation });
+				const result = await execute(request);
+				event('supervisor.operation-complete', { operation });
 				connection.end(`${JSON.stringify({ ok: true, result: result ?? null })}\n`);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				recordEvent('supervisor.operation-failed', { operation, message });
-				const operatorMessage = operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
+				event('supervisor.operation-failed', { operation, message });
+				const safeDevelopmentError = operation === 'development.container' && /^Managed development (?:application startup failed \([A-Z_]+\)|[a-z_]+ \(exit (?:[0-9]+|timeout)\))\.$/.test(message);
+				const operatorMessage = safeDevelopmentError || operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
 				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation, ...(operatorMessage ? { message: operatorMessage } : {}) })}\n`);
 			}
 		});
-	});
+	};
+}
+
+export function createSupervisorServer() {
+	if (process.getuid?.() !== 0) throw new Error('TreeSeed supervisor must run as root.');
+	mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o750 });
+	rmSync(paths.socket, { force: true });
+	return createServer({ allowHalfOpen: true }, supervisorConnectionHandler());
 }
 
 export function startSupervisor() {

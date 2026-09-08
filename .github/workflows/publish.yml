@@ -29,6 +29,10 @@ permissions:
   attestations: write
   packages: write
 
+concurrency:
+  group: ${{ inputs.suite }}-apt-publication
+  cancel-in-progress: false
+
 jobs:
   publish:
     environment: ${{ inputs.suite == 'stable' && 'production' || 'staging' }}
@@ -202,11 +206,13 @@ jobs:
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
           TREESEED_PAGES_ROOT: .treeseed/pages
+          TREESEED_APT_RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes apt-utils dpkg-dev
-          if git fetch origin gh-pages; then
+          if git fetch --depth=1 origin gh-pages; then
             git worktree add --detach .treeseed/pages origin/gh-pages
           else
             git worktree add --detach .treeseed/pages HEAD

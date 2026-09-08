@@ -15,6 +15,7 @@ describe('managed development TreeDX configuration', () => {
 		const first = reconcileDevelopmentConfiguration(integratedHost());
 		expect(first.changed).toBe(true);
 		expect(first.configuration.generation).toBe(2);
+		expect(first.configuration.components.api?.configuration?.environment).toMatchObject({ TREESEED_TREEDX_NODE_ID: 'treedx' });
 		expect(first.configuration.components.treedx?.configuration).toMatchObject({
 			environment: { TREEDX_JWT_ALLOWED_ALGS: 'RS256', TREEDX_JWT_AUDIENCE: 'treedx' },
 			secretEnvironment: { TREEDX_SECRET_KEY_BASE: 'treedx-secret-key-base' },

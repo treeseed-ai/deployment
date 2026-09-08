@@ -34,4 +34,20 @@ describe('bounded provider runtime observation', () => {
 		symlinkSync(join(root, 'runtime/manager.json'), join(root, 'runtime/runner.json'));
 		expect(providerRuntimeStatus(root, process.getuid!(), now).roles[1]).toMatchObject({ observed: false });
 	});
+	it('projects actual multi-team connection failures without exposing connection payloads', () => {
+		const root = fixture({ result: { ok: false, connections: [{ ok: false, status: 'error', accessToken: 'never-output', error: 'token=private-token' }] } });
+		const status = providerRuntimeStatus(root, process.getuid!(), now).roles[0];
+		expect(status).toMatchObject({ observed: true, fresh: true, ok: false });
+		expect(JSON.stringify(status)).not.toMatch(/never-output|private-token/u);
+	});
+	it('does not equate a healthy loop with a connected provider', () => {
+		const root = fixture({ result: { ok: true, connections: [] } });
+		expect(providerRuntimeStatus(root, process.getuid!(), now).roles[0]).toMatchObject({ ok: false, errors: ['no_provider_connections'] });
+	});
+	it('respects aggregate failure and stale successful records', () => {
+		const failed = fixture({ result: { ok: false } });
+		expect(providerRuntimeStatus(failed, process.getuid!(), now).roles[0]).toMatchObject({ ok: false, errors: ['runtime_operation_failed'] });
+		const stale = fixture({ result: { ok: true } });
+		expect(providerRuntimeStatus(stale, process.getuid!(), now + 130_000).roles[0]).toMatchObject({ fresh: false, ok: false });
+	});
 });

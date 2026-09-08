@@ -40,6 +40,11 @@ export async function validateManagedServiceCredentials(connection:Connection,pr
       if(!values.apiToken)throw failure();
       url='https://backboard.railway.app/graphql/v2';init={method:'POST',headers:{authorization:`Bearer ${values.apiToken}`,'content-type':'application/json'},body:JSON.stringify({query:'query ServiceConnectionValidation { me { id } }'})};
       inspect=body=>!body.errors?.length&&typeof body.data?.me?.id==='string';
+    } else if(connection.providerId==='hyperstack' && profileId==='hyperstack-runtime') {
+      if(!values.apiToken)throw failure();
+      url='https://infrahub-api.nexgencloud.com/v1/core/environments';
+      init.headers={api_key:values.apiToken,accept:'application/json'};
+      inspect=body=>body.status===true&&Array.isArray(body.environments);
     } else if(connection.providerId==='github') {
       if(!values.accessToken)throw failure();
       url='https://api.github.com/user';init.headers={authorization:`Bearer ${values.accessToken}`,accept:'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'treeseed-service-validation'};

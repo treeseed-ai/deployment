@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.258",
+  "version": "0.1.0-rc.274",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
@@ -10,6 +10,10 @@
     "./infrastructure/capacity/ssh": {
       "types": "./dist/src/infrastructure/capacity/ssh-preflight.d.ts",
       "import": "./dist/src/infrastructure/capacity/ssh-preflight.js"
+    },
+    "./security/ai-storage": {
+      "types": "./dist/src/security/services/ai-storage.d.ts",
+      "import": "./dist/src/security/services/ai-storage.js"
     },
     "./security/services": {
       "types": "./dist/src/security/services/validate.d.ts",
@@ -40,7 +44,7 @@
     "npm": ">=11"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-backup-stream.mjs",
     "package:runtime": "node --import tsx scripts/package-runtime.ts",
     "check:source-shape": "node --import tsx scripts/check-source-shape.ts",
     "test": "vitest run",
@@ -55,7 +59,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.87",
+    "@treeseed/sdk": "0.13.0-rc.99",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
     "yaml": "^2.8.1",
@@ -63,6 +67,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

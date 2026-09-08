@@ -10,12 +10,14 @@ import { createPlan } from './plan.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
-import { loadUpdateState, metadataChecked, noteDevelopmentPauseOwner, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
+import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
+import { quiescedBackup } from './quiesced-backup.js';
+import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 
@@ -147,6 +149,15 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 			continue;
 		}
 		const target = selected.get(connection.componentId)!, service = target.runtime.services.find((candidate) => candidate.id === connection.serviceId)!;
+		if (dependency.id === 'treedx') {
+			const environment = host.components[target.componentId]?.configuration?.environment as Record<string, unknown> | undefined;
+			const nodeId = environment?.TREEDX_REMOTE_CREDENTIAL_BROKER_SERVICE_ID;
+			if (typeof nodeId === 'string' && nodeId.trim()) {
+				const configured = (selection.configuration?.environment as Record<string, unknown> | undefined)?.TREESEED_TREEDX_NODE_ID;
+				if (configured !== undefined && configured !== nodeId.trim()) throw new Error('API TreeDX broker identity conflicts with its selected connection.');
+				if (configured === undefined) values.TREESEED_TREEDX_NODE_ID = nodeId.trim();
+			}
+		}
 		const endpoint = service.endpoints.find((candidate) => candidate.id === connection.endpointId)!;
 		values[`${prefix}_URL`] = `${endpoint.protocol}://${service.composeService}:${endpoint.port}`;
 		if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = values[`${prefix}_URL`]!;
@@ -238,8 +249,10 @@ export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
-	const connectionEnvironment = managedConnectionEnvironment(host, component, releases);
+export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], developmentRoutes: readonly EdgeRoute[] = []) {
+	const connectionEnvironment = host.runtime.environment === 'development'
+		? managedContainerDevelopmentConnectionEnvironment(host, component, releases, developmentRoutes)
+		: managedConnectionEnvironment(host, component, releases);
 	if (component.runtime.modeControl?.role === 'controller') {
 		const [, port] = host.network.manager.binding.split(':');
 		Object.assign(connectionEnvironment, {
@@ -266,17 +279,24 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 
 export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases);
+	const developmentRoutes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes([]) : [];
+	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases, developmentRoutes);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 	const sandboxGuestImageDigest = component.componentId === 'agent' ? component.images.find((image) => image.role === 'sandbox-guest')?.digest : undefined;
-	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, connectionEnvironment, secretFileIds, optionalSecretEnvironment, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
+	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, release: component.release, connectionEnvironment, secretFileIds, optionalSecretEnvironment, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
 	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
+	recordConnectionDigest(component.componentId, connectionEnvironment);
 }
 
-/** Reactivates configuration already restored from an encrypted generation backup. */
-export async function activateRestoredComponent(component: ComponentRelease) {
-	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
-	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
+export async function reconcileDevelopmentPeers(host: HostConfiguration, releases: ComponentRelease[], store: DevelopmentSessionStore) {
+	const routes = host.runtime.environment === 'development' ? store.activeRoutes([]) : [];
+	const held = new Set(store.list().flatMap(({ session }) => session.targets.filter(({ mode }) => mode !== 'released').map(({ projectId }) => projectId)));
+	const ordered = componentActivationOrder(host, releases);
+	return reconcilePeerConnections(ordered.map(component => ({
+		componentId: component.componentId,
+		released: componentActivationInputs(host, component, releases).connectionEnvironment,
+		desired: componentActivationInputs(host, component, releases, routes).connectionEnvironment,
+	})), held, { read: readConnectionDigest, activate: id => activateComponent(host, ordered.find(component => component.componentId === id)!, releases) });
 }
 
 export function rollbackRoutes(host: HostConfiguration, components: ComponentRelease[]) {
@@ -306,10 +326,12 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 	return previous;
 }
 
-export function runtimeRepairTargets<T extends { componentId: string }>(targets: T[], changedIds: ReadonlySet<string>, heldIds: ReadonlySet<string>): T[] {
+export function runtimeRepairTargets<T extends { componentId: string }>(targets: T[], changedIds: ReadonlySet<string>, heldIds: ReadonlySet<string>, configurationChanged = false): T[] {
 	// Candidate Compose files arrive during package installation. Already-planned
 	// changes receive post-install activation checks, not pre-install drift probes.
-	return targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
+	// Desired credential bindings have not been materialized yet. Inspecting them
+	// as if they were the accepted runtime would reject legitimate configuration changes.
+	return configurationChanged ? [] : targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
 }
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
@@ -351,8 +373,6 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		return previous;
 	}
 	const developmentSessions = new DevelopmentSessionStore();
-	const expiredDevelopmentSessions = developmentSessions.expire();
-	for (const expired of expiredDevelopmentSessions) noteDevelopmentPauseOwner(expired.session.sessionId, false);
 	const activeDevelopmentSessions = developmentSessions.list();
 	recoverDevelopmentPauseOwners(activeDevelopmentSessions.map((record) => record.session.sessionId));
 	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
@@ -371,6 +391,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const changedIds = configurationScope.size ? new Set<string>()
 		: new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
 	const agent = effective.find((component) => component.componentId === 'agent');
+	if (agent) await requestSupervisor({ operation: 'sandbox.model-policy.reconcile' });
 	const hostDevelopment = agent && heldDevelopmentComponents.has('agent')
 		? await requestSupervisor<{ status: string; guestImageDigest: string | null } | undefined>({ operation: 'host.development.status' })
 		: undefined;
@@ -383,8 +404,9 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		await requestSupervisor({ operation: 'sandbox.guest-trust.bind', digest: selectedGuestDigest });
 		recordEvent('sandbox.guest-trust-reconciled', { componentId: 'agent', previousDigests: configuredGuestDigests, selectedGuestDigest });
 	}
+	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (previous) {
-		for (const component of runtimeRepairTargets(targets, changedIds, heldDevelopmentComponents)) {
+		for (const component of runtimeRepairTargets(targets, changedIds, heldDevelopmentComponents, configurationChanged)) {
 			const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
 			const status = await requestSupervisor<{ present?: boolean; running?: boolean; ready?: boolean; issues?: Array<{ service: string; reason: string }> }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName, runtime: { componentId: component.componentId, files: composeFiles(component), services } });
 			if (status?.ready === false || typeof status?.present === 'boolean' && (!status.present || !status.running)) {
@@ -395,7 +417,6 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	}
 	const changed = targets.filter((component) => changedIds.has(component.componentId) && !heldDevelopmentComponents.has(component.componentId));
 	const changedTargetIds = new Set(changed.map((component) => component.componentId));
-	const configurationChanged = previous?.configurationDigest !== accepted.plan.configurationDigest;
 	if (configurationChanged && configurationScope.size) {
 		for (const componentId of configurationScope) {
 			if (!effective.some((component) => component.componentId === componentId)) throw new Error(`Scoped component ${componentId} is unavailable.`);
@@ -407,50 +428,56 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const cliUrlPath = `${paths.cli}/api-base-url`, cliCaPath = `${paths.cli}/localhost-ca.crt`;
 	const cliConfigurationChanged = cliControlPlaneUrl !== undefined && (!existsSync(cliUrlPath) || readFileSync(cliUrlPath, 'utf8').trim() !== cliControlPlaneUrl || !existsSync(cliCaPath));
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length === 0 && previous) {
+	if (previous && changed.length === 0 && !configurationChanged && !catalogChanged && removed.length === 0) await reconcileDevelopmentPeers(host, effective, developmentSessions);
+	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && previous) {
 		await reconcileAiModeSelection(host, effective);
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
-		return previous;
-	}
-	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && expiredDevelopmentSessions.length > 0 && previous) {
-		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
-		recordEvent('development.sessions-expired', { sessions: expiredDevelopmentSessions.map((record) => record.session.sessionId) });
 		return previous;
 	}
 	const packages = changed.flatMap((component) => component.packages).sort((left, right) => left.order - right.order).map((item) => `${item.name}=${item.version}`);
 	if (routes.length) packages.unshift(`treeseed-edge/${host.updates.defaultTrack}`);
 	const configurationImpacts = (componentId: string) => configurationChanged
 		&& (configurationScope.size === 0 || configurationScope.has(componentId));
-	const impacted = componentStopOrder(host, active).filter((component) => configurationImpacts(component.componentId)
-		|| changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId));
+	const snapshotRequired = Boolean(previous && (configurationChanged || removed.length || changed.some(component => component.release !== activeById.get(component.componentId)?.release || component.runtimeDigest !== activeById.get(component.componentId)?.runtimeDigest)));
+	const impacted = (component: ComponentRelease) => snapshotRequired || configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId);
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
 	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
 	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
-	for (const component of impacted) await stopComponent(component);
-	await requestSupervisor({ operation: 'backup.create', generation });
+	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active).filter(impacted), {
+		stop: stopComponent, start: component => activateComponent(loadHostConfiguration(), component, active),
+		rollbackConfiguration: async () => previous ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
+		capture: async () => {
+			if (!snapshotRequired) return;
+			const backup = await requestSupervisor({ operation: 'backup.create', generation });
+			recordEvent('backup.created', { generation });
+			return backup;
+		},
+	});
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
-			|| changedTargetIds.has(component.componentId))) await activateComponent(host, component, effective);
+		for (const component of activationOrder) {
+			if (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)) await activateComponent(host, component, effective);
+			else if (snapshotRequired) await activateComponent(host, component, effective);
+		}
 		await reconcileAiModeSelection(host, effective);
 		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 			|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
 	} catch (error) {
 		recordEvent(failurePolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
-		for (const component of componentStopOrder(host, effective).filter((component) => configurationImpacts(component.componentId)
-			|| changedTargetIds.has(component.componentId))) {
+		for (const component of componentStopOrder(host, effective).filter(impacted)) {
 			try { await stopComponent(component); } catch { /* continue restoring the last known-good generation */ }
 		}
 		requireAutomaticRollback(failurePolicy);
-		await requestSupervisor({ operation: 'recovery.restore', generation });
+		if (snapshotRequired) await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		try {
-			for (const component of componentActivationOrder(host, active)) await activateRestoredComponent(component);
+			const restoredHost = loadHostConfiguration();
+			for (const component of componentActivationOrder(restoredHost, active)) await activateComponent(restoredHost, component, active);
 			const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 			if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
 			recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
