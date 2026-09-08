@@ -163,7 +163,7 @@ describe('isolated update fault qualification', () => {
 		const firstActivationCount = state.operations.filter((item) => item.operation === 'compose.activate').length;
 		state.previous = accepted; state.active = [newApi, oldAgent]; state.operations = [];
 		expect(await reconcile('stable')).toBe(accepted);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'compose.status']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
 		state.evidence.push({ case: 'stable-window-single-activation', result: 'passed', firstActivationCount, developmentReleasePreserved: oldAgent.release, secondActivationCount: 0 });
 	});
 
@@ -177,7 +177,7 @@ describe('isolated update fault qualification', () => {
 		const activationCount = state.operations.filter((item) => item.operation === 'compose.activate').length;
 		state.previous = accepted; state.active = [state.active[0], state.development.components[0]]; state.operations = [];
 		expect(await reconcile('development')).toBe(accepted);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'compose.status']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
 		state.evidence.push({ case: 'pause-resume-noop', result: 'passed', activationCount, unchangedRestartCount: 0 });
 	});
 
@@ -188,7 +188,7 @@ describe('isolated update fault qualification', () => {
 		unlinkSync(`${state.root}/cli/api-base-url`); unlinkSync(`${state.root}/cli/localhost-ca.crt`);
 		const unchanged = await reconcile('development');
 		expect(unchanged).toBe(state.previous);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'compose.status', 'cli.configure']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status', 'cli.configure']);
 		state.evidence.push({ case: 'post-self-update-cli-custody', result: 'passed', componentRestartCount: 0, endpointAndCaRepaired: true });
 	});
 
@@ -202,7 +202,7 @@ describe('isolated update fault qualification', () => {
 		expect(state.operations.filter(({ operation }) => operation === 'compose.stop' || operation === 'compose.activate')).toEqual([]);
 		state.previous = accepted; state.operations = [];
 		expect(await reconcile('development')).toBe(accepted);
-		expect(state.operations.map(({ operation }) => operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'compose.status']);
+		expect(state.operations.map(({ operation }) => operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
 	});
 
 	it('repairs an absent enabled component even when its release identity is unchanged', async () => {
