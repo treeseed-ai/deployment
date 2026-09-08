@@ -54,6 +54,34 @@ export async function browserFixture(root) {
   }
   return {
     clients: apps.map(app => app.descriptor),
+    async verifyFederation(localIssuer, remoteIssuer, password) {
+      for (const app of apps) await app.initialize(localIssuer);
+      const browser = await chromium.launch({ args: [`--ignore-certificate-errors-spki-list=${pin}`, '--host-resolver-rules=MAP *.localhost 127.0.0.1'] });
+      let phase = 'provider-selection';
+      try {
+        const context = await browser.newContext(); const page = await context.newPage(); page.setDefaultTimeout(20_000);
+        await page.goto(`${apps[0].base}/login`);
+        await page.getByRole('link', { name: 'Explicit central trust' }).click();
+        phase = 'remote-login';
+        await page.locator('input[name="username"]').fill('central-user');
+        await page.locator('input[name="password"]').fill(password);
+        await page.locator('input[name="login"],button[name="login"]').click();
+        phase = 'broker-callback';
+        await page.waitForURL(`${apps[0].base}/me`);
+        assert.ok(JSON.parse(await page.locator('body').innerText()).subject);
+        phase = 'reverse-trust-denial';
+        const reverse = new URL(`${remoteIssuer}/protocol/openid-connect/auth`);
+        reverse.search = new URLSearchParams({ client_id: 'admin', redirect_uri: `${apps[0].base}/callback`, response_type: 'code', scope: 'openid',
+          state: randomBytes(32).toString('hex'), nonce: randomBytes(32).toString('hex'), code_challenge: randomBytes(32).toString('base64url'), code_challenge_method: 'S256', kc_idp_hint: 'sovereign' }).toString();
+        // Use an empty browser session: a central SSO cookie must not bypass this negative.
+        const isolated = await browser.newContext(); const negative = await isolated.newPage();
+        const response = await negative.goto(reverse.href);
+        assert.ok(response.status() >= 400 && response.status() < 500);
+        assert.equal(new URL(negative.url()).origin, new URL(remoteIssuer).origin);
+        return ['explicit-directional-broker-login', 'reverse-trust-not-inferred'];
+      } catch { console.error(JSON.stringify({ federationPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Federation acceptance failed'); }
+      finally { await browser.close(); }
+    },
     async verify(issuer, password) {
       let phase = 'initialize';
       for (const app of apps) await app.initialize(issuer);
