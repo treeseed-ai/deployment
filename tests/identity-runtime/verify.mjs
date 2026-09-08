@@ -133,6 +133,7 @@ try {
   assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'private-key-jwt-client-authentication', 'verified-tls', 'separate-databases');
   await assert.rejects(first.token(second.clientKey)); checks.push('unregistered-workload-key-denied');
   await assert.rejects(first.verifier()(await second.token())); checks.push('untrusted-issuer-denied');
+  await assert.rejects(second.verifier()(await first.token())); checks.push('reverse-issuer-token-denied');
   await assert.rejects(first.verifier('https://wrong.example.test')(await first.token())); checks.push('wrong-audience-denied');
   stage = 'federated-browser';
   checks.push(...await browsers.verifyFederation(first.issuer, second.issuer, humanPassword));

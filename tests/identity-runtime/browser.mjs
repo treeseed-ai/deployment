@@ -76,8 +76,14 @@ export async function browserFixture(root) {
         // Use an empty browser session: a central SSO cookie must not bypass this negative.
         const isolated = await browser.newContext(); const negative = await isolated.newPage();
         const response = await negative.goto(reverse.href);
-        assert.ok(response.status() >= 400 && response.status() < 500);
+        // An unknown optional hint falls back to local login, not a reverse trust grant.
+        assert.equal(response.status(), 200);
         assert.equal(new URL(negative.url()).origin, new URL(remoteIssuer).origin);
+        assert.equal(new URL(negative.url()).searchParams.has('code'), false);
+        assert.equal(await negative.locator('input[name="username"]').isVisible(), true);
+        assert.equal(await negative.locator('a[href*="/broker/sovereign/"]').count(), 0);
+        const absentBroker = await negative.goto(`${remoteIssuer}/broker/sovereign/endpoint`);
+        assert.ok(absentBroker.status() >= 400 && absentBroker.status() < 500);
         return ['explicit-directional-broker-login', 'reverse-trust-not-inferred'];
       } catch { console.error(JSON.stringify({ federationPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Federation acceptance failed'); }
       finally { await browser.close(); }
