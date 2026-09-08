@@ -34,8 +34,13 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
         const next = new Set(ancestors).add(actual);
         mkdirSync(target, { mode: 0o755 });
         chmodSync(target, 0o755);
-        for (const name of readdirSync(`/proc/self/fd/${fd}`).sort())
+        for (const name of readdirSync(`/proc/self/fd/${fd}`).sort()) {
+          // Linked workspace packages are not installed tarballs. Never carry
+          // VCS history, local custody, env files or tool caches into a runtime.
+          // npm's .bin is the only supported hidden runtime directory.
+          if (name.startsWith('.') && name !== '.bin') continue;
           copy(`/proc/self/fd/${fd}/${name}`, resolve(target, name), next);
+        }
       } else {
         // npm uses hardlinks for binaries. Copy their bytes into new private
         // files; never retain hardlinks to the operator's mutable cache.
