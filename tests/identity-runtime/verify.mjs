@@ -10,6 +10,7 @@ import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
 import { createAccessTokenVerifier } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
+import { browserFixture } from './browser.mjs';
 
 const images = {
   keycloak: 'quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54',
@@ -21,6 +22,9 @@ const names = [];
 const syntheticSecrets = [];
 const originalTrust = getCACertificates('default');
 let networkCreated = false;
+let browsers;
+const humanPassword = randomBytes(32).toString('hex');
+syntheticSecrets.push(humanPassword);
 let stage = 'preflight';
 const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 240_000 }).trim();
 const checks = [];
@@ -57,11 +61,13 @@ async function start(label) {
   const issuer = `${base}/realms/acceptance`;
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
+    users: [{ username: 'acceptance-user', enabled: true, emailVerified: true, email: 'acceptance@example.test', firstName: 'Acceptance', lastName: 'User',
+      credentials: [{ type: 'password', value: humanPassword, temporary: false }] }],
     clients: [{ clientId: 'workload-test', enabled: true, protocol: 'openid-connect', publicClient: false,
       clientAuthenticatorType: 'client-jwt', attributes: { 'jwt.credential.certificate': certificate, 'token.endpoint.auth.signing.alg': 'RS256' },
       serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
       protocolMappers: [{ name: 'audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
-        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }],
+        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }, ...browsers.clients],
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.
   writeFileSync(join(directory, 'db.env'), `POSTGRES_DB=identity\nPOSTGRES_USER=identity\nPOSTGRES_PASSWORD=${password}\n`, { mode: 0o600 });
@@ -101,9 +107,10 @@ try {
   docker('network', 'create', prefix); networkCreated = true;
   mkdirSync(join(root, 'tls'), { mode: 0o755 });
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=disposable-identity',
-    '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
+    '-addext', 'subjectAltName=IP:127.0.0.1,DNS:admin.localhost,DNS:market.localhost', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
   chmodSync(join(root, 'tls/key.pem'), 0o644);
   setDefaultCACertificates([...originalTrust, readFileSync(join(root, 'tls/cert.pem'), 'utf8')]);
+  browsers = await browserFixture(root);
   const first = await start('sovereign');
   const second = await start('central');
   stage = 'token-validation';
@@ -116,12 +123,14 @@ try {
   docker('stop', second.server);
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
   checks.push('local-auth-with-central-offline');
+  stage = 'browser-sso';
+  checks.push(...await browsers.verify(first.issuer, humanPassword));
   stage = 'restart';
   docker('restart', first.server);
   await ready(`${first.issuer}/.well-known/openid-configuration`);
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
   checks.push('restart-preserves-subject');
-  console.log(JSON.stringify({ ok: true, images, checks, deferred: ['human-sso', 'directional-brokering', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
+  console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'directional-brokering', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
 } catch {
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
@@ -135,6 +144,7 @@ try {
   }
   process.exitCode = 1;
 } finally {
+  if (browsers) await browsers.close();
   for (const name of names.reverse()) { try { docker('rm', '-f', '-v', name); } catch {} }
   if (networkCreated) { try { docker('network', 'rm', prefix); } catch {} }
   setDefaultCACertificates(originalTrust);
