@@ -32,10 +32,14 @@ async function port() {
   return value;
 }
 async function ready(url) {
+  let failure = 'unknown';
   for (let attempt = 0; attempt < 120; attempt++) {
-    try { const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); if (response.ok) return response.json(); } catch {}
+    try { const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); if (response.ok) return response.json(); failure = `http-${response.status}`; }
+    catch (error) { failure = String(error.cause?.code ?? error.name); }
     await pause(1000);
   }
+  console.error(JSON.stringify({ readinessFailure: failure }));
+  try { console.error(JSON.stringify({ curlStatus: execFileSync('curl', ['--silent', '--show-error', '--max-time', '5', '--cacert', join(root, 'tls/cert.pem'), '-o', '/dev/null', '-w', '%{http_code}', url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) })); } catch (error) { console.error(JSON.stringify({ curlExit: error.status })); }
   throw new Error('Readiness timeout');
 }
 async function start(label) {
