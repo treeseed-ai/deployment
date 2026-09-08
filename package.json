@@ -7,6 +7,10 @@
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
+    "./infrastructure/capacity/ssh": {
+      "types": "./dist/src/infrastructure/capacity/ssh-preflight.d.ts",
+      "import": "./dist/src/infrastructure/capacity/ssh-preflight.js"
+    },
     "./security/ai-storage": {
       "types": "./dist/src/security/services/ai-storage.d.ts",
       "import": "./dist/src/security/services/ai-storage.js"
