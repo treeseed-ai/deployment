@@ -391,6 +391,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const changedIds = configurationScope.size ? new Set<string>()
 		: new Set(accepted.plan.changes.filter((change) => change.action !== 'noop').map((change) => change.componentId));
 	const agent = effective.find((component) => component.componentId === 'agent');
+	if (agent) await requestSupervisor({ operation: 'sandbox.model-policy.reconcile' });
 	const hostDevelopment = agent && heldDevelopmentComponents.has('agent')
 		? await requestSupervisor<{ status: string; guestImageDigest: string | null } | undefined>({ operation: 'host.development.status' })
 		: undefined;

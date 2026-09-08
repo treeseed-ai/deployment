@@ -21,6 +21,7 @@ import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
+import { reconcileSandboxModelPolicy } from './sandbox-model-policy.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
 import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 import { waitForStartingActivation } from './activation-wait.js';
@@ -315,6 +316,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);
+		case 'sandbox.model-policy.reconcile': return reconcileSandboxModelPolicy(loadHostConfiguration(), command);
 		case 'sandbox.guest-trust.bind': return bindSandboxGuestTrust(operation.digest, command);
 		case 'sandbox.guest-image.import': {
 			const imported = importDevelopmentSandboxGuest(operation.archivePath, operation.image, command);
