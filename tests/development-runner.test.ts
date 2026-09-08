@@ -39,3 +39,20 @@ it('drains candidate work before removal and rejects another session identity', 
   expect(() => drainCandidateRunner(command, 'dev-other')).toThrow('ownership');
   expect(() => drainCandidateRunner(command, '../escape')).toThrow('Invalid');
 });
+
+it('restores released execution after rejected handoff without admitting a candidate', () => {
+  for (const exit of ['137', '143']) {
+    const command = runner(true, exit);
+    expect(() => drainReleasedRunner(command)).toThrow('drain is incomplete');
+    expect(command.mock.calls.at(-1)?.[1]).toEqual(['start', 'treeseed-api-operations-runner-1']);
+  }
+});
+
+it('reports restoration failure instead of claiming recovery', () => {
+  const base = runner(true, '143');
+  const command = vi.fn((exe: string, args: readonly string[]) => {
+    if (args[0] === 'start') throw new Error('docker unavailable');
+    return base(exe, args);
+  });
+  expect(() => drainReleasedRunner(command)).toThrow('restoration failed');
+});
