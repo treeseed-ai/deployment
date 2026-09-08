@@ -120,17 +120,15 @@ function developmentApiConfiguration(selectedComponents: Set<string>) {
 function componentInitializationConfiguration(selected: SelectedInitializationProfile, componentId: string, environment: HostConfiguration['runtime']['environment'], selectedComponents: Set<string>, inputs: InitializationInputValues) {
 	const release = selected.catalog.components.find((candidate) => candidate.componentId === componentId);
 	if (!release) throw new Error(`Host initialization component ${componentId} is absent from the selected catalog.`);
-	const files = Object.fromEntries(release.runtime.configuration.files.flatMap((declaration) => {
-		if (declaration.default !== undefined) return [[declaration.id, declaration.default]];
-		if (declaration.required) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
-		return [];
-	}));
+	for (const declaration of release.runtime.configuration.files) {
+		if (declaration.required && declaration.default === undefined) throw new Error(`Zero-input host initialization requires package-owned default content for ${componentId} managed file ${declaration.id}.`);
+	}
 	const configuration = componentId === 'agent' && inputs.teamRegistrationCode ? {
 		providerEnrollment: { connectionId: 'primary', registrationSecretId: 'provider-registration', offer: { maxConcurrentRunners: 1, capabilities: [] } },
 	} : environment !== 'development' ? {}
 		: componentId === 'api' ? developmentApiConfiguration(selectedComponents)
 			: componentId === 'treedx' ? developmentTreedxConfiguration() : {};
-	return Object.keys(files).length ? { ...configuration, files } : configuration;
+	return configuration;
 }
 
 function requiredSecurity(selected: SelectedInitializationProfile) {

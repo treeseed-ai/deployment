@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 import { componentCredential } from '../core/component-credential.js';
+import { componentManagedFiles } from '../core/component-files.js';
 
 const componentConfigurationRoot = '/etc/treeseed/components';
 
@@ -82,8 +83,8 @@ export function managedRuntimeInputEnvironment(host: HostConfiguration, componen
 	for (const declaration of contract.files) {
 		const expectedPath = `${componentConfigurationRoot}/${component.componentId}/${declaration.id}`;
 		if (declaration.path !== expectedPath) throw new Error(`Managed file ${declaration.id} must use ${expectedPath}.`);
-		if (configuredFiles[declaration.id] === undefined && declaration.required) throw new Error(`Required managed file ${declaration.id} is not configured for ${component.componentId}.`);
 	}
+	componentManagedFiles(component, configuredFiles);
 
 	const values: Record<string, string> = {};
 	for (const declaration of contract.environment) {
