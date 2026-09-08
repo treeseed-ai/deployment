@@ -88,7 +88,9 @@ async function start(label) {
 try {
   docker('info', '--format', '{{.ServerVersion}}');
   for (const image of Object.values(images)) docker('pull', image);
-  docker('network', 'create', '--internal', prefix); networkCreated = true;
+  // A regular isolated bridge permits the runner's loopback-published TLS ports.
+  // Docker internal networks suppress this host-port route on current runners.
+  docker('network', 'create', prefix); networkCreated = true;
   mkdirSync(join(root, 'tls'), { mode: 0o755 });
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=disposable-identity',
     '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
