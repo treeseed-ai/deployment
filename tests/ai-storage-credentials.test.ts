@@ -36,12 +36,18 @@ describe('AI operation-scoped R2 credentials', () => {
 	it('binds one object and read actions, with a 60-second expiry and no parent secret', async () => {
 		const result = await createAiStorageCredentials(input, { fetchImpl: vi.fn(async () => verified()), now: 100 });
 		const { jwt, body } = claims(result);
-		expect(body).toMatchObject({ iat: 100, exp: 160, actions: ['GetObject', 'HeadObject'], scope: 'object-read-only',
+		expect(body).toMatchObject({ iat: 100, exp: 160, actions: ['GetObject', 'HeadObject'],
 			paths: { objectPaths: [aiStorageAllocation(operation).objectKey], prefixPaths: [] } });
 		const unsigned = jwt.split('.').slice(0, 2).join('.');
 		expect(jwt.split('.')[2]).toBe(createHmac('sha256', createHash('sha256').update(input.apiToken).digest('hex')).update(unsigned).digest('base64url'));
 		expect(JSON.stringify(result)).not.toContain(input.apiToken);
 		expect(result.credentials.secretAccessKey).toBe(createHash('sha256').update(jwt).digest('hex'));
+	});
+	it.each(['read', 'write', 'list', 'delete'] as const)('uses only explicit actions for %s; never combines them with a preset scope', async action => {
+		const result = await createAiStorageCredentials({ ...input, operation: { ...operation, action } }, { fetchImpl: vi.fn(async () => verified()) });
+		const body = claims(result).body;
+		expect(body).not.toHaveProperty('scope');
+		expect(body.actions).toEqual({ read: ['GetObject', 'HeadObject'], write: ['PutObject', 'CreateMultipartUpload', 'UploadPart', 'CompleteMultipartUpload', 'AbortMultipartUpload'], list: ['ListObjectsV2'], delete: ['DeleteObject'] }[action]);
 	});
 	it('bounds list to this node allocation and separates every tenant and store', async () => {
 		const result = await createAiStorageCredentials({ ...input, operation: { ...operation, action: 'list', key: '' } }, { fetchImpl: vi.fn(async () => verified()) });

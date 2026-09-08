@@ -98,7 +98,8 @@ export async function createAiStorageCredentials(input: {
 		if (!Number.isSafeInteger(now) || now < 1) throw denied();
 		const endpoint = `https://${accountId}.r2.cloudflarestorage.com`, expires = now + 60;
 		const claims = { iss: parentId, sub: accountId, aud: new URL(endpoint).host, iat: now, exp: expires, jti: randomUUID(),
-			bucket, scope: ['read', 'list'].includes(operation.action) ? 'object-read-only' : 'object-read-write',
+			// R2 rejects tokens combining preset scope and explicit actions. Keep the narrower action grant.
+			bucket,
 			actions: actions[operation.action], paths: operation.action === 'list'
 				? { prefixPaths: [allocation.objectKey], objectPaths: [] } : { prefixPaths: [], objectPaths: [allocation.objectKey] } };
 		const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
