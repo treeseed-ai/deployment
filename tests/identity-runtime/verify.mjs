@@ -18,6 +18,7 @@ const images = {
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
 const prefix = `treeseed-identity-test-${randomBytes(6).toString('hex')}`;
 const names = [];
+const syntheticSecrets = [];
 const originalTrust = getCACertificates('default');
 let networkCreated = false;
 let stage = 'preflight';
@@ -42,6 +43,7 @@ async function start(label) {
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
   const password = randomBytes(32).toString('hex');
   const secret = randomBytes(32).toString('hex');
+  syntheticSecrets.push(password, secret);
   const db = `${prefix}-${label}-db`, server = `${prefix}-${label}`;
   const listenPort = await port();
   const base = `https://127.0.0.1:${listenPort}`;
@@ -107,6 +109,15 @@ try {
   console.log(JSON.stringify({ ok: true, images, checks, deferred: ['human-sso', 'directional-brokering', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
 } catch {
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
+  for (const name of names) {
+    try {
+      const state = docker('inspect', '--format', '{{.State.Status}} exit={{.State.ExitCode}}', name);
+      const output = execFileSync('docker', ['logs', '--tail', '60', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      const redacted = syntheticSecrets.reduce((text, secret) => text.replaceAll(secret, '[REDACTED]'), output);
+      const diagnostics = redacted.split('\n').filter(line => /ERROR|WARN|error|failed|Listening|started/i.test(line)).map(line => line.slice(0, 500));
+      console.error(JSON.stringify({ container: name, state, diagnostics }));
+    } catch {}
+  }
   process.exitCode = 1;
 } finally {
   for (const name of names.reverse()) { try { docker('rm', '-f', '-v', name); } catch {} }
