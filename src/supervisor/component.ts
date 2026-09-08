@@ -11,6 +11,8 @@ import { readComponentCredential } from './component-sealed.js';
 import { componentRuntimeRoot, prepareEphemeralComponentInputs, usesSealedComponentCredentials } from './component-ephemeral.js';
 import { prepareManagedAiCredentials } from './ai-credentials.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
+import { componentManagedFiles } from '../core/component-files.js';
+import { installedComponentRelease } from './component-release.js';
 
 const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
@@ -235,7 +237,8 @@ export function configuredSandboxGuestImageDigests(manifestPath = '/etc/treeseed
 	return [...readFileSync(manifestPath, 'utf8').matchAll(/^[ \t]*(?:-[ \t]+)?guestImageDigest:[ \t]*(sha256:[a-f0-9]{64})[ \t]*$/gmu)].map((match) => match[1]!);
 }
 
-export function configureComponent(componentId: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
+export function configureComponent(componentId: string, release: string, connectionEnvironment: Record<string, string> = {}, secretFileIds: readonly string[] = [], optionalSecretEnvironment: readonly string[] = [], sandboxGuestImageDigest?: string) {
+	const installedRelease = installedComponentRelease(componentId, release);
 	const host = loadHostConfiguration(), selection = host.components[componentId];
 	if (!selection) throw new Error(`Unsupported configured component ${componentId}.`);
 	Object.assign(connectionEnvironment, managedHostRuntimeEnvironment(componentId));
@@ -269,7 +272,7 @@ export function configureComponent(componentId: string, connectionEnvironment: R
 			if (existsSync(resolve(componentRuntimeRoot(componentId), 'inputs.json'))) throw new Error('Sealed component custody cannot silently downgrade to persistent inputs.');
 			atomicText(resolve(configurationRoot, 'environment'), environment);
 		}
-		files = record(record(selection.configuration, 'Component configuration').files, 'Component files');
+		files = componentManagedFiles(installedRelease, record(record(selection.configuration, 'Component configuration').files, 'Component files'));
 		for (const [name, value] of Object.entries(files)) {
 			if (!fileName.test(name) || typeof value !== 'string' || value.length > 1_048_576) throw new Error(`Invalid managed component file ${name}.`);
 			const target = resolve(configurationRoot, name);
