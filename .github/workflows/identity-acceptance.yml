@@ -22,7 +22,8 @@ jobs:
       - run: node tests/identity-runtime/node_modules/playwright/cli.js install --with-deps chromium
       - name: Resolve disposable TLS names only on this ephemeral runner
         run: echo '127.0.0.1 sovereign.localhost central.localhost' | sudo tee -a /etc/hosts
-      - run: node tests/identity-runtime/verify.mjs > identity-acceptance.json
+      - run: npx tsc -p tests/identity-runtime/tsconfig.json
+      - run: node --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: identity-acceptance-${{ github.sha }}

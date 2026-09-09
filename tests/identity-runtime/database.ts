@@ -10,7 +10,7 @@ import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js
 import { readFileSync } from 'node:fs';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
-export function startSharedDatabase({ root, prefix, password, docker }) {
+export function startSharedDatabase({ root, prefix, password, docker }: { root: string; prefix: string; password: string; docker: (...args: string[]) => string }) {
   const name = `${prefix}-postgres`;
   writeFileSync(join(root, 'bootstrap-password'), password, { mode: 0o444 });
   const service = managedPostgresService({ configurationRoot: root, stateRoot: join(root, 'state') });
@@ -19,7 +19,7 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
   writeFileSync(path, JSON.stringify({ services: { postgres: { ...service, container_name: name, ports: ['127.0.0.1::5432'], tmpfs: ['/var/lib/postgresql/data'] } },
     networks: { private: { external: true, name: prefix } } }));
   docker('compose', '-p', `${prefix}-database`, '-f', path, 'up', '-d', '--wait');
-  const sql = (query, database = 'postgres') => execFileSync('docker', ['exec', '-i', name, 'psql', '-U', 'postgres', '-d', database, '-At', '-v', 'ON_ERROR_STOP=1'], {
+  const sql = (query: string, database = 'postgres') => execFileSync('docker', ['exec', '-i', name, 'psql', '-U', 'postgres', '-d', database, '-At', '-v', 'ON_ERROR_STOP=1'], {
     input: query, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000,
   });
   return {
@@ -37,7 +37,7 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
       await assert.rejects(withManagedPostgresSession({ ...options, certificateAuthority: '-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----' }, async () => null), /Managed PostgreSQL operation failed/);
       return ['postgres-tls-session', 'postgres-wrong-password-denied', 'postgres-untrusted-ca-denied', 'postgres-catalog-snapshot'];
     },
-    allocate(label, secret, migrationSecret) {
+    allocate(label: string, secret: string, migrationSecret: string) {
       assert.ok(['sovereign', 'central'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/); assert.match(migrationSecret, /^[a-f0-9]{64}$/);
       const database = `identity_${label}`;
       sql(`CREATE ROLE ${database}_owner NOLOGIN;
@@ -48,7 +48,7 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
         CREATE DATABASE ${database} OWNER ${database}_owner; REVOKE ALL ON DATABASE ${database} FROM PUBLIC; GRANT CONNECT ON DATABASE ${database} TO ${database}, ${database}_migrator;`);
       return { hostname: 'postgres', port: 5432, database, username: database };
     },
-    async activateRuntime(label) {
+    async activateRuntime(label: string) {
       assert.ok(['sovereign', 'central'].includes(label));
       const database = `identity_${label}`;
       const allocation = { requirementId: label, serverId: 'shared', database,
@@ -59,8 +59,8 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
       const access = await verifyPostgresRuntimeAccess(allocation, { query: async query => ({ rows: [JSON.parse(sql(`SELECT row_to_json(result) FROM (${query}) result`, database))] }) });
       assert.deepEqual(access, { verified: true, blockers: [] });
     },
-    verifyIsolation(secret) {
-      const client = query => execFileSync('docker', ['exec', '-i', '-e', `PGPASSWORD=${secret}`, name, 'psql', '-h', '127.0.0.1', '-U', 'identity_sovereign', '-d', 'identity_sovereign', '-At', '-v', 'ON_ERROR_STOP=1'], {
+    verifyIsolation(secret: string) {
+      const client = (query: string) => execFileSync('docker', ['exec', '-i', '-e', `PGPASSWORD=${secret}`, name, 'psql', '-h', '127.0.0.1', '-U', 'identity_sovereign', '-d', 'identity_sovereign', '-At', '-v', 'ON_ERROR_STOP=1'], {
         input: query, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000,
       });
       assert.equal(client("SELECT has_database_privilege(current_user, 'identity_central', 'CONNECT');").trim(), 'f');

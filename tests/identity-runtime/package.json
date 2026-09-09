@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node verify.mjs"
+    "test": "tsc -p tsconfig.json && node --import tsx verify.ts"
   },
   "dependencies": {
     "@treeseed/identity": "0.1.0-rc.3",

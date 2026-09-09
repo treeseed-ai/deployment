@@ -10,51 +10,54 @@ import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
 import { createAccessTokenVerifier } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
-import { browserFixture } from './browser.mjs';
-import { recoverIdentityDatabase } from './recovery.mjs';
+import { browserFixture } from './browser.js';
+import { recoverIdentityDatabase } from './recovery.js';
 import { managedIdentityServices, IDENTITY_IMAGES } from '../../dist/src/identity/compose.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
-import { startSharedDatabase } from './database.mjs';
+import { startSharedDatabase } from './database.js';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
 const prefix = `treeseed-identity-test-${randomBytes(6).toString('hex')}`;
 const names = [];
-const privateNetworks = [];
+const privateNetworks: string[] = [];
 const syntheticSecrets = [];
 const originalTrust = getCACertificates('default');
 let networkCreated = false;
-let browsers;
-let sharedDatabase;
-let firstDatabasePassword;
+let browsers: Awaited<ReturnType<typeof browserFixture>> | undefined;
+let sharedDatabase: ReturnType<typeof startSharedDatabase>;
+let firstDatabasePassword = '';
 const humanPassword = randomBytes(32).toString('hex');
 syntheticSecrets.push(humanPassword);
 const brokerSecret = randomBytes(32).toString('hex');
 syntheticSecrets.push(brokerSecret);
-const ports = {};
-const issuerFor = label => `https://${label}.localhost:${ports[label]}/realms/acceptance`;
+type Label = 'sovereign' | 'central';
+const ports = { sovereign: 0, central: 0 };
+const issuerFor = (label: Label) => `https://${label}.localhost:${ports[label]}/realms/acceptance`;
 let stage = 'preflight';
-const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 240_000 }).trim();
+const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 240_000 }).trim();
 const checks = [];
 async function port() {
   const server = createServer();
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const value = server.address().port;
-  await new Promise(resolve => server.close(resolve));
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); assert.ok(address && typeof address !== 'string');
+  const value = address.port;
+  await new Promise<void>(resolve => server.close(() => resolve()));
   return value;
 }
-async function ready(url) {
+async function ready(url: string) {
   let failure = 'unknown';
   for (let attempt = 0; attempt < 120; attempt++) {
     try { const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); if (response.ok) return response.json(); failure = `http-${response.status}`; }
-    catch (error) { failure = String(error.cause?.code ?? error.name); }
+    catch (error) { failure = error instanceof Error ? error.name : 'unknown'; }
     await pause(1000);
   }
   console.error(JSON.stringify({ readinessFailure: failure }));
-  try { console.error(JSON.stringify({ curlStatus: execFileSync('curl', ['--silent', '--show-error', '--max-time', '5', '--cacert', join(root, 'tls/cert.pem'), '-o', '/dev/null', '-w', '%{http_code}', url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) })); } catch (error) { console.error(JSON.stringify({ curlExit: error.status })); }
+  try { console.error(JSON.stringify({ curlStatus: execFileSync('curl', ['--silent', '--show-error', '--max-time', '5', '--cacert', join(root, 'tls/cert.pem'), '-o', '/dev/null', '-w', '%{http_code}', url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) })); } catch (error) { console.error(JSON.stringify({ curlExit: error && typeof error === 'object' && 'status' in error ? error.status : null })); }
   throw new Error('Readiness timeout');
 }
-async function start(label) {
+async function start(label: Label) {
+  assert.ok(browsers);
   stage = `start-${label}`;
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
   mkdirSync(join(directory, 'tls'), { mode: 0o755 });
@@ -96,7 +99,7 @@ async function start(label) {
   const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: { ...db, username: `${db.username}_migrator` }, databasePhase: 'migration' });
   const services = {
     identity: { ...managed.identity, container_name: server,
-      networks: { private: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
+      networks: { private: { aliases: [`${label}.localhost`] }, broker: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
       volumes: [...managed.identity.volumes, { type: 'bind', source: join(root, 'tls'), target: '/run/identity/tls', read_only: true },
         { type: 'bind', source: join(directory, 'realm.json'), target: '/opt/keycloak/data/import/acceptance-realm.json', read_only: true }],
       command: [...managed.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value), '--import-realm'] },
@@ -187,7 +190,7 @@ try {
   checks.push(...(await browsers.verify(first.issuer, humanPassword)).map(check => `restored-${check}`));
   console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
 } catch (error) {
-  if (/^Managed PostgreSQL operation failed \([A-Za-z0-9_]+\)$/u.test(error?.message ?? '')) console.error(error.message);
+  if (error instanceof Error && /^Managed PostgreSQL operation failed \([A-Za-z0-9_]+\)$/u.test(error.message)) console.error(error.message);
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
     try {
