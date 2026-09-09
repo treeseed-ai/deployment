@@ -18,6 +18,7 @@ import { disablePostgresAllocation } from '../../dist/src/postgres/disable.js';
 import { verifyManagedPostgres } from './managed-postgres.js';
 import { verifyAllocationRecovery } from './allocation-recovery.js';
 import { verifyIdentityBootstrap } from './identity-bootstrap.js';
+import { verifyApiIdentityFiles } from './api-files.js';
 
 // Runs as root only on the disposable Actions runner, never on a user's host.
 if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable privileged Actions acceptance required');
@@ -80,13 +81,15 @@ try {
   await verifyManagedPostgres(root, topology);
   stage = 'identity-bootstrap';
   verifyIdentityBootstrap(root);
+  stage = 'api-identity-custody';
+  const apiIdentityChecks = verifyApiIdentityFiles();
   stage = 'custody-replay';
   prepareManagedPostgresBootstrap(options); // Preserve custody with the running socket owned by PostgreSQL.
   stage = 'permission-denial';
   chmodSync(directory, 0o755);
   await assert.rejects(withLocalPostgresBootstrap(directory, 'postgres', async () => true), /Unsafe PostgreSQL bootstrap socket/);
   chmodSync(directory, 0o700);
-  console.log(JSON.stringify({ ok: true, checks: ['real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved', 'interrupted-allocation-recovery', 'managed-component-activation', 'managed-component-noop'] }));
+  console.log(JSON.stringify({ ok: true, checks: [...apiIdentityChecks, 'real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved', 'interrupted-allocation-recovery', 'managed-component-activation', 'managed-component-noop'] }));
 } catch (error) {
   const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[a-zA-Z0-9_]{1,64}$/u.test(error.code) ? error.code : 'unavailable';
   console.error(JSON.stringify({ stage, code, type: error instanceof Error ? error.name : 'unknown',
