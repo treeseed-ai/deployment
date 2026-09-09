@@ -59,13 +59,14 @@ async function start(label) {
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
   mkdirSync(join(directory, 'tls'), { mode: 0o755 });
   const password = randomBytes(32).toString('hex');
-  syntheticSecrets.push(password);
+  const migrationPassword = randomBytes(32).toString('hex');
+  syntheticSecrets.push(password, migrationPassword);
   if (label === 'sovereign') firstDatabasePassword = password;
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${label}-workload`,
     '-keyout', join(directory, 'client.key'), '-out', join(directory, 'client.crt')], { stdio: 'ignore' });
   const clientKey = await importPKCS8(readFileSync(join(directory, 'client.key'), 'utf8'), 'RS256');
   const certificate = readFileSync(join(directory, 'client.crt'), 'utf8').replace(/-----[^-]+-----|\s/g, '');
-  const db = sharedDatabase.allocate(label, password), server = `${prefix}-${label}`;
+  const db = sharedDatabase.allocate(label, password, migrationPassword), server = `${prefix}-${label}`;
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
@@ -90,9 +91,9 @@ async function start(label) {
         redirectUris: [`${issuerFor('sovereign')}/broker/central/endpoint`] }] : [])],
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.
-  writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
+  writeFileSync(join(directory, 'database-password'), migrationPassword, { mode: 0o444 });
   writeFileSync(join(directory, 'database-ca.pem'), readFileSync(join(root, 'tls/cert.pem')), { mode: 0o444 });
-  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: db });
+  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: { ...db, username: `${db.username}_migrator` }, databasePhase: 'migration' });
   const services = {
     identity: { ...managed.identity, container_name: server,
       networks: { private: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
@@ -107,6 +108,17 @@ async function start(label) {
   writeFileSync(composePath, JSON.stringify({ services, networks: { private: {}, broker: { external: true, name: prefix } } }));
   names.push(server);
   privateNetworks.push(`${prefix}-${label}_private`);
+  docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
+  await ready(`${issuer}/.well-known/openid-configuration`);
+  docker('stop', server);
+  sharedDatabase.activateRuntime(label);
+  chmodSync(join(directory, 'database-password'), 0o600);
+  writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
+  chmodSync(join(directory, 'database-password'), 0o444);
+  const runtime = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: db });
+  services.identity.environment = runtime.identity.environment;
+  services.identity.command = runtime.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value);
+  writeFileSync(composePath, JSON.stringify({ services, networks: { private: {}, broker: { external: true, name: prefix } } }));
   docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
   const discovery = await ready(`${issuer}/.well-known/openid-configuration`);
   assert.equal(discovery.issuer, issuer);

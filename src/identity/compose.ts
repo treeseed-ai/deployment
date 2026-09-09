@@ -6,6 +6,7 @@ export const IDENTITY_IMAGES = {
 export function managedIdentityServices(options: {
   publicUrl: string; configurationRoot: string;
   database: { hostname: string; port: number; database: string; username: string };
+  databasePhase?: 'migration' | 'runtime';
 }) {
   const url = new URL(options.publicUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
@@ -30,6 +31,8 @@ export function managedIdentityServices(options: {
       // input without tracing, then replace the shell; never serialize its value.
       entrypoint: ['/bin/bash', '-ec', 'KC_DB_PASSWORD="$(cat /run/identity/database-password)"; export KC_DB_PASSWORD; exec /opt/keycloak/bin/kc.sh "$@"', '--'],
       command: ['start', '--http-enabled=false', '--https-port=8443',
+        `--spi-connections-jpa--quarkus--migration-strategy=${options.databasePhase === 'migration' ? 'update' : 'validate'}`,
+        `--spi-connections-jpa--quarkus--initialize-empty=${options.databasePhase === 'migration' ? 'true' : 'false'}`,
         '--https-certificate-file=/run/identity/tls/cert.pem', '--https-certificate-key-file=/run/identity/tls/key.pem',
         '--truststore-paths=/run/identity/tls/cert.pem'],
       environment: { KC_DB: 'postgres', KC_DB_URL: `jdbc:postgresql://${database.hostname}:${database.port}/${database.database}?sslmode=verify-full&sslrootcert=/run/identity/database-ca.pem`, KC_DB_USERNAME: database.username, KC_HOSTNAME: url.origin },

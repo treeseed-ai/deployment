@@ -10,7 +10,12 @@ describe('managed identity services', () => {
     expect(services.identity.environment.KC_DB_URL).toContain('sslmode=verify-full');
     expect(services.identity.environment).not.toHaveProperty('KC_DB_PASSWORD');
     expect(services.identity.command).toContain('--http-enabled=false');
+    expect(services.identity.command).toContain('--spi-connections-jpa--quarkus--migration-strategy=validate');
+    expect(services.identity.command).toContain('--spi-connections-jpa--quarkus--initialize-empty=false');
     expect(services.identity).not.toHaveProperty('ports');
+  });
+  it('permits schema changes only in the explicit migration phase', () => {
+    expect(managedIdentityServices({ ...input, databasePhase: 'migration' }).identity.command).toContain('--spi-connections-jpa--quarkus--migration-strategy=update');
   });
   it.each(['http://identity.test', 'https://user:pass@identity.test', 'https://identity.test/realm', 'https://identity.test/?query=1'])('rejects unsafe origin %s', publicUrl => {
     expect(() => managedIdentityServices({ ...input, publicUrl })).toThrow();
