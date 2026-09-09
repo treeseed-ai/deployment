@@ -155,6 +155,7 @@ try {
   names.push(`${prefix}-postgres`);
   stage = 'shared-database';
   sharedDatabase = startSharedDatabase({ root, prefix, password: bootstrapPassword, docker });
+  checks.push(...await sharedDatabase.verifySession());
   const first = await start('sovereign');
   const second = await start('central');
   checks.push(...sharedDatabase.verifyIsolation(firstDatabasePassword));
