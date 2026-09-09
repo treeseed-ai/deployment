@@ -129,6 +129,13 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 
 export function managedDevelopmentConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const values = managedConnectionEnvironment(host, component, releases), selection = host.components[component.componentId], selected = new Map(releases.map((release) => [release.componentId, release]));
+	if (component.componentId === 'admin') {
+		const routes = edgeRoutes([component], selection?.aliases ?? {});
+		if (routes.length !== 1) throw new Error('Admin development requires one unambiguous managed site alias.');
+		// The live server receives HTTP behind the TLS edge. Its OAuth callback
+		// must use the public origin, never the transport URL or shell defaults.
+		values.TREESEED_SITE_URL = `https://${routes[0]!.alias}`;
+	}
 	for (const dependency of component.runtime.dependencies) {
 		const connection = selection?.connections[dependency.id]; if (!connection || connection.kind !== 'local') continue;
 		const target = selected.get(connection.componentId), service = target?.runtime.services.find((candidate) => candidate.id === connection.serviceId), endpoint = service?.endpoints.find((candidate) => candidate.id === connection.endpointId);

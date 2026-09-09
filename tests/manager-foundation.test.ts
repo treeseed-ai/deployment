@@ -42,7 +42,13 @@ describe('unified host manager foundation', () => {
 		});
 		expect(managedDevelopmentConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({
 			TREESEED_API_BASE_URL: 'https://api.treeseed.localhost', NODE_EXTRA_CA_CERTS: '/etc/treeseed/cli/localhost-ca.crt',
+			TREESEED_SITE_URL: 'https://admin.treeseed.localhost',
 		});
+		configuration.components.admin!.aliases['admin.service.http'] = 'console.treeseed.localhost';
+		expect(managedDevelopmentConnectionEnvironment(configuration, admin, [admin, api]).TREESEED_SITE_URL).toBe('https://console.treeseed.localhost');
+		const ambiguous = structuredClone(admin);
+		ambiguous.runtime.services.push({ ...structuredClone(admin.runtime.services[0]!), id: 'second', endpoints: [{ ...admin.runtime.services[0]!.endpoints[0]!, defaultAlias: 'second.treeseed.localhost' }] });
+		expect(() => managedDevelopmentConnectionEnvironment(configuration, ambiguous, [ambiguous, api])).toThrow('unambiguous');
 		configuration.components.admin!.connections.api = { kind: 'remote', url: 'https://api.example.test/', audience: 'https://api.example.test', tls: { trust: 'system' }, authentication: { mode: 'none' }, healthGate: { protocol: 'http', path: '/v1/health/ready', timeoutSeconds: 30 } };
 		expect(managedContainerDevelopmentConnectionEnvironment(configuration, admin, [admin, api], [{ alias: 'api.treeseed.localhost', upstream: 'http://api-live:3000', authentication: 'application' }])).toMatchObject({
 			TREESEED_API_BASE_URL: 'https://api.example.test', TREESEED_API_AUDIENCE: 'https://api.example.test',
