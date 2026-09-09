@@ -12,10 +12,11 @@ export function managedPostgresService(options: { configurationRoot: string; sta
   return {
     image: POSTGRES_IMAGE, restart: 'unless-stopped', networks: ['private'],
     entrypoint: ['/bin/sh', '-ec', 'mkdir -p /run/treeseed-postgres /run/postgres/socket; chown postgres:postgres /run/postgres/socket; chmod 700 /run/postgres/socket; cp /run/postgres/tls/key.pem /run/treeseed-postgres/key.pem; chown postgres:postgres /run/treeseed-postgres/key.pem; chmod 600 /run/treeseed-postgres/key.pem; exec docker-entrypoint.sh "$@"', '--'],
-    command: ['postgres', '-c', 'ssl=on', '-c', 'ssl_cert_file=/run/postgres/tls/cert.pem', '-c', 'ssl_key_file=/run/treeseed-postgres/key.pem', '-c', 'unix_socket_directories=/var/run/postgresql,/run/postgres/socket'],
+    command: ['postgres', '-c', 'ssl=on', '-c', 'ssl_cert_file=/run/postgres/tls/cert.pem', '-c', 'ssl_key_file=/run/treeseed-postgres/key.pem', '-c', 'unix_socket_directories=/var/run/postgresql,/run/postgres/socket', '-c', 'hba_file=/run/postgres/hba.conf'],
     environment: { POSTGRES_DB: 'postgres', POSTGRES_USER: 'postgres', POSTGRES_PASSWORD_FILE: '/run/postgres/bootstrap-password' },
     volumes: [bind(`${options.stateRoot}/postgres`, '/var/lib/postgresql/data', false),
       bind(`${options.configurationRoot}/bootstrap-password`, '/run/postgres/bootstrap-password'),
+      bind(`${options.configurationRoot}/hba.conf`, '/run/postgres/hba.conf'),
       bind(`${options.configurationRoot}/socket`, '/run/postgres/socket', false),
       bind(`${options.configurationRoot}/tls`, '/run/postgres/tls')],
     healthcheck: { test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d postgres'], interval: '5s', timeout: '5s', retries: 30 },

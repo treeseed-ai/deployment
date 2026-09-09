@@ -3,6 +3,7 @@ import { deploymentDigest } from '@treeseed/sdk/deployment';
 import { localPostgresTopology } from '../src/supervisor/postgres.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 import { host, component } from './fixtures.js';
+import { componentActivationOrder } from '../src/manager/component-order.js';
 
 function fixture() {
   const configuration = host();
@@ -18,6 +19,13 @@ it('keeps database environment independent of source mode', () => {
   const { configuration, releases } = fixture();
   expect(configuration.runtime.environment).toBe('production');
   expect(localPostgresTopology(configuration, releases).environment).toBe('staging');
+});
+it('starts the shared database before its declared consumers', () => {
+  const { configuration, releases } = fixture();
+  const consumer = component('api', 'stable', 'b');
+  consumer.runtime.postgresRequirements = [{ id: 'api', supportedMajors: [17], extensions: [], runtimeConnectionLimit: 10 }];
+  expect(componentActivationOrder(configuration, [consumer, ...releases]).map(item => item.componentId)).toEqual(['postgres', 'api']);
+  expect(() => componentActivationOrder(configuration, [consumer])).toThrow('unavailable local component postgres');
 });
 it.each(['hostname', 'mode', 'port'])('does not route a different %s to the local privileged socket', field => {
   const { configuration, releases } = fixture();

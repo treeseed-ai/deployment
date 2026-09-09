@@ -16,7 +16,7 @@ export function postgresComponentBundle(applicationVersion: string, commit: stri
     compose: { projectName: 'treeseed-postgres', files: [{ path: 'compose.yml', digest: `sha256:${createHash('sha256').update(compose).digest('hex')}` }] },
     services: [{ id: 'postgres', composeService: 'postgres', endpoints: [{ id: 'database', protocol: 'tcp', port: 5432,
       visibility: 'private', aliasOverride: false, tls: 'passthrough', authentication: 'application' }] }],
-    stateVolumes: ['postgres', 'postgres-os'].map(id => ({ id, volume: `/var/lib/treeseed/components/postgres/${id}`, backup: 'required' })),
+    stateVolumes: ['postgres', 'postgres-os', 'lifecycle'].map(id => ({ id, volume: `/var/lib/treeseed/components/postgres/${id}`, backup: 'required' })),
     migrations: [], requiredCapabilities: ['docker-compose'], dependencies: [] });
   const component = componentReleaseSchema.parse({ schemaVersion: 'treeseed.component-release/v1', componentId: 'postgres', release,
     applicationVersion, revision: 1, track: applicationVersion.includes('-rc.') ? 'development' : 'stable',

@@ -9,11 +9,14 @@ import { withManagedPostgresSession } from '../../dist/src/postgres/connection.j
 import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js';
 import { planPostgresAllocations, applyPostgresAllocations, activatePostgresAllocation } from '../../dist/src/postgres/plan.js';
 import { readFileSync } from 'node:fs';
+import pg from 'pg';
+import { POSTGRES_HBA } from '../../dist/src/postgres/policy.js';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
 export function startSharedDatabase({ root, prefix, password, docker }: { root: string; prefix: string; password: string; docker: (...args: string[]) => string }) {
   const name = `${prefix}-postgres`;
   writeFileSync(join(root, 'bootstrap-password'), password, { mode: 0o444 });
+  writeFileSync(join(root, 'hba.conf'), POSTGRES_HBA, { mode: 0o444 });
   const service = managedPostgresService({ configurationRoot: root, stateRoot: join(root, 'state') });
   // Privileged host socket custody is tested separately; this browser test runs unprivileged.
   service.volumes = service.volumes.filter(volume => !['/var/lib/postgresql/data', '/run/postgres/socket'].includes(volume.target));
@@ -40,9 +43,11 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       const inventory = await withManagedPostgresSession(options, session => inspectPostgresAllocations('shared', session));
       assert.equal(inventory.major, 17);
       assert.ok(inventory.extensions.includes('pgcrypto'));
+      const insecure = new pg.Client({ host: '127.0.0.1', port, user: 'postgres', password, database: 'postgres', ssl: false, connectionTimeoutMillis: 5000 });
+      try { await assert.rejects(insecure.connect(), { code: '28000' }); } finally { await insecure.end().catch(() => undefined); }
       await assert.rejects(withManagedPostgresSession({ ...options, password: 'incorrect' }, async () => null), /Managed PostgreSQL operation failed/);
       await assert.rejects(withManagedPostgresSession({ ...options, certificateAuthority: '-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----' }, async () => null), /Managed PostgreSQL operation failed/);
-      return ['postgres-tls-session', 'postgres-wrong-password-denied', 'postgres-untrusted-ca-denied', 'postgres-catalog-snapshot'];
+      return ['postgres-tls-session', 'postgres-plaintext-network-denied', 'postgres-wrong-password-denied', 'postgres-untrusted-ca-denied', 'postgres-catalog-snapshot'];
     },
     async allocate(label: string, secret: string, migrationSecret: string) {
       assert.ok(['sovereign', 'central'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/); assert.match(migrationSecret, /^[a-f0-9]{64}$/);

@@ -17,6 +17,7 @@ import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
 import { quiescedBackup } from './quiesced-backup.js';
+import { componentActivationOrder, componentStopOrder } from './component-order.js';
 import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
@@ -85,49 +86,6 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 
 export function composeFiles(component: ComponentRelease) {
 	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
-}
-
-/**
- * Orders a composition so every locally connected dependency is healthy before
- * its consumers are activated. The input order remains the tie-breaker for
- * unrelated components, keeping reconciliation deterministic.
- */
-export function componentActivationOrder(host: HostConfiguration, releases: ComponentRelease[]) {
-	const selected = new Map(releases.map((release) => [release.componentId, release]));
-	const indegree = new Map(releases.map((release) => [release.componentId, 0]));
-	const consumers = new Map(releases.map((release) => [release.componentId, new Set<string>()]));
-	for (const consumer of releases) {
-		const selection = host.components[consumer.componentId];
-		for (const dependency of consumer.runtime.dependencies) {
-			const connection = selection?.connections[dependency.id];
-			if (!connection || connection.kind !== 'local') continue;
-			if (!selected.has(connection.componentId)) throw new Error(`Component ${consumer.componentId} requires unavailable local component ${connection.componentId}.`);
-			const dependentIds = consumers.get(connection.componentId)!;
-			if (dependentIds.has(consumer.componentId)) continue;
-			dependentIds.add(consumer.componentId);
-			indegree.set(consumer.componentId, indegree.get(consumer.componentId)! + 1);
-		}
-	}
-	const pending = releases.filter((release) => indegree.get(release.componentId) === 0);
-	const ordered: ComponentRelease[] = [];
-	while (pending.length) {
-		const dependency = pending.shift()!;
-		ordered.push(dependency);
-		for (const consumerId of consumers.get(dependency.componentId)!) {
-			const remaining = indegree.get(consumerId)! - 1;
-			indegree.set(consumerId, remaining);
-			if (remaining === 0) pending.push(selected.get(consumerId)!);
-		}
-	}
-	if (ordered.length !== releases.length) {
-		const cycle = releases.filter((release) => !ordered.includes(release)).map((release) => release.componentId).join(', ');
-		throw new Error(`Local component dependency cycle: ${cycle}.`);
-	}
-	return ordered;
-}
-
-export function componentStopOrder(host: HostConfiguration, releases: ComponentRelease[]) {
-	return componentActivationOrder(host, releases).reverse();
 }
 
 export function managedConnectionEnvironment(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
@@ -277,14 +235,17 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 	return { connectionEnvironment, secretFileIds, optionalSecretEnvironment };
 }
 
-export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], backupGeneration?: number) {
 	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
 	const developmentRoutes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes([]) : [];
 	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases, developmentRoutes);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 	const sandboxGuestImageDigest = component.componentId === 'agent' ? component.images.find((image) => image.role === 'sandbox-guest')?.digest : undefined;
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, release: component.release, connectionEnvironment, secretFileIds, optionalSecretEnvironment, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
-	await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
+	if (component.runtime.postgresLifecycle?.length) {
+		await requestSupervisor({ operation: 'postgres.component.activate', componentId: component.componentId,
+			selections: releases.map(({ componentId, release }) => ({ componentId, release })), ...(backupGeneration ? { backupGeneration } : {}) });
+	} else await requestSupervisor({ operation: 'compose.activate', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component), services: aiModeActivationServices(component), waitTimeoutSeconds });
 	recordConnectionDigest(component.componentId, connectionEnvironment);
 }
 
@@ -459,8 +420,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		for (const component of activationOrder) {
-			if (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)) await activateComponent(host, component, effective);
-			else if (snapshotRequired) await activateComponent(host, component, effective);
+			if (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)) await activateComponent(host, component, effective, snapshotRequired ? generation : undefined);
+			else if (snapshotRequired) await activateComponent(host, component, effective, generation);
 		}
 		await reconcileAiModeSelection(host, effective);
 		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
