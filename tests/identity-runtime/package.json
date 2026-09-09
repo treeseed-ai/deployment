@@ -8,7 +8,7 @@
   "dependencies": {
     "@treeseed/cli": "0.13.0-rc.69",
     "@treeseed/identity": "0.1.0-rc.15",
-    "@treeseed/sdk": "0.13.0-rc.107",
+    "@treeseed/sdk": "0.13.0-rc.108",
     "hono": "4.13.3",
     "jose": "6.2.12",
     "playwright": "1.63.0"

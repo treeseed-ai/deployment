@@ -45,6 +45,10 @@ export async function browserFixture(root: string) {
           result = await client.logout(input);
         } else if (url.pathname === '/me') {
           const session = await client.session(input);
+          if (session) {
+            const status = await fetch(`${api.resource}/v1/status`, { headers: { authorization: `Bearer ${session.accessToken}` } });
+            assert.equal(status.status, 200, 'BFF session must authorize a real API resource operation');
+          }
           result = Response.json(session ? { app: name, subject: session.principal.identity.subject } : { authenticated: false },
             { status: session ? 200 : 401, headers: { 'cache-control': 'no-store' } });
         } else { result = new Response(null, { status: 404 }); }

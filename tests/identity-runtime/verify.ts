@@ -8,14 +8,15 @@ import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
-import { createAccessTokenVerifier, createWorkloadCredentials, createKeycloakApplicationRegistry } from '@treeseed/identity';
+import { createAccessTokenVerifier, createWorkloadCredentials } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8 } from 'jose';
 import { browserFixture } from './browser.js';
 import { recoverIdentityDatabase } from './recovery.js';
 import { managedIdentityServices, IDENTITY_IMAGES } from '../../dist/src/identity/compose.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { startSharedDatabase } from './database.js';
-import { identityBootstrapRealm } from '../../dist/src/identity/bootstrap.js';
+import { prepareIdentityBootstrap } from '../../dist/src/identity/bootstrap.js';
+import { createManagedIdentityApplications } from '../../dist/src/identity/managed-applications.js';
 import { deviceClient, verifyDevice } from './device.js';
 import { cliScopeDefinitions, standardScopeDefinitions } from './cli.js';
 import { BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
@@ -88,7 +89,9 @@ async function start(label: Label) {
   assert.equal('value' in importedPassword, false);
   assert.equal(JSON.stringify(importedPassword).includes(humanPassword), false);
   syntheticSecrets.push(oldVerifier, importedPassword.secretData);
-  writeFileSync(join(directory, 'bootstrap-realm.json'), JSON.stringify(identityBootstrapRealm(readFileSync(join(directory, 'client.crt'), 'utf8'), base)), { mode: 0o644 });
+  const managedBootstrap = { stateRoot: join(directory, 'bootstrap-state'), runtimeRoot: join(directory, 'bootstrap-runtime'),
+    publicUrl: base, environment: 'staging' as const, certificateAuthority: join(root, 'tls/cert.pem'), certificateAuthorityKey: join(root, 'tls/key.pem') };
+  prepareIdentityBootstrap(managedBootstrap);
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions, { name: BROWSER_SESSION_SCOPE, protocol: 'openid-connect',
@@ -128,7 +131,7 @@ async function start(label: Label) {
       networks: { private: { aliases: [`${label}.localhost`] }, broker: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
       volumes: [...managed.identity.volumes,
         { type: 'bind', source: databaseDirectory, target: allocationRoot, read_only: true },
-        { type: 'bind', source: join(directory, 'bootstrap-realm.json'), target: '/opt/keycloak/data/import/treeseed-realm.json', read_only: true },
+        { type: 'bind', source: join(managedBootstrap.runtimeRoot, 'import/treeseed-realm.json'), target: '/opt/keycloak/data/import/treeseed-realm.json', read_only: true },
         { type: 'bind', source: join(directory, 'realm.json'), target: '/opt/keycloak/data/import/acceptance-realm.json', read_only: true }],
       command: [...managed.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value), '--import-realm'] },
   };
@@ -163,18 +166,11 @@ async function start(label: Label) {
   };
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
   await browsers.migrateAccount({ issuer, subject: importedSubject, userId: `${label}-existing-human` });
-  const bootstrapIssuer = `${base}/realms/treeseed`, bootstrapResource = `${base}/admin/realms/treeseed`;
+  const bootstrapIssuer = `${base}/realms/treeseed`;
   const bootstrapDiscovery = await ready(`${bootstrapIssuer}/.well-known/openid-configuration`);
   const bootstrapKeys = createLocalJWKSet(await (await fetch(bootstrapDiscovery.jwks_uri)).json());
-  const bootstrapCredentials = await createWorkloadCredentials({ issuer: bootstrapIssuer, clientId: 'treeseed-identity-reconciler', privateKey: clientKey,
-    resources: [bootstrapResource], verificationKey: bootstrapKeys, profile: 'keycloak', transport: fetch,
-    resolvePrincipal: async identity => ({ principalId: identity.subject, kind: 'service' }) });
-  const bootstrapToken = await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] });
-  syntheticSecrets.push(bootstrapToken.accessToken);
-  assert.equal((await fetch(bootstrapResource, { headers: { Authorization: `Bearer ${bootstrapToken.accessToken}` } })).status, 200);
   stage = `provision-${label}-clients`;
-  const registry = createKeycloakApplicationRegistry({ issuer: bootstrapIssuer, transport: fetch,
-    credentials: { token: async input => (await bootstrapCredentials.credentials(input)).accessToken } });
+  const registry = createManagedIdentityApplications({ ...managedBootstrap, transport: fetch });
   for (const kind of ['browser', 'workload'] as const) {
     const application = { clientId: `managed-${kind}`, kind, resource: 'https://api.example.test', scopes: [], certificate,
       redirectUris: kind === 'browser' ? ['https://admin.example.test/auth/callback'] : [] };
@@ -182,26 +178,22 @@ async function start(label: Label) {
     const created = await registry.ensure(application); assert.equal(created.action, 'create');
     stage = `provision-${label}-${kind}-noop`;
     const unchanged = await registry.ensure(application); assert.equal(unchanged.action, 'noop'); assert.equal(unchanged.id, created.id);
-    await assert.rejects(registry.ensure({ ...application, resource: 'https://foreign.example.test' }), /drift/);
+    await assert.rejects(registry.ensure({ ...application, resource: 'https://foreign.example.test' }), /reconciliation failed/);
+    await assert.rejects(createManagedIdentityApplications({ ...managedBootstrap, environment: 'production', transport: fetch }).ensure(application), /reconciliation failed/);
     assert.equal((await registry.ensure(application)).action, 'noop');
     checks.push(`${label}-${kind}-client-create-readback-noop`, `${label}-${kind}-client-drift-denied`);
     if (kind === 'workload') {
       stage = `provision-${label}-workload-exchange`;
-      const registrationResponse = await fetch(`${bootstrapResource}/clients/${encodeURIComponent(created.id)}/service-account-user`, {
-        headers: { authorization: `Bearer ${(await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] })).accessToken}` },
-        redirect: 'error', signal: AbortSignal.timeout(15_000),
-      });
-      assert.equal(registrationResponse.status, 200);
-      const registration = await registrationResponse.json();
-      assert.equal(typeof registration.id, 'string');
+      assert.equal(typeof created.subject, 'string');
       const managed = await createWorkloadCredentials({ issuer: bootstrapIssuer, clientId: application.clientId, privateKey: clientKey,
         resources: [application.resource], verificationKey: bootstrapKeys, profile: 'keycloak', transport: fetch,
-        resolvePrincipal: async identity => identity.subject === registration.id ? { principalId: registration.id, kind: 'service' } : null });
+        resolvePrincipal: async identity => identity.subject === created.subject ? { principalId: created.subject!, kind: 'service' } : null });
       const accepted = await managed.credentials({ resource: application.resource, scopes: [] });
       syntheticSecrets.push(accepted.accessToken);
-      assert.equal(accepted.principal.principalId, registration.id);
+      assert.equal(accepted.principal.principalId, created.subject);
       await assert.rejects(managed.credentials({ resource: 'https://foreign.example.test', scopes: [] }));
-      checks.push(`${label}-provisioned-workload-token-exchange`, `${label}-provisioned-workload-foreign-resource-denied`);
+      checks.push(`${label}-provisioned-workload-token-exchange`, `${label}-provisioned-workload-foreign-resource-denied`,
+        `${label}-managed-reconciler-os-custody`, `${label}-managed-reconciler-environment-isolation`);
     }
   }
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
