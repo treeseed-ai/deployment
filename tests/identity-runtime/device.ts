@@ -29,13 +29,14 @@ export async function verifyDevice(root: string, issuer: string, password: strin
     const page = await browser.newPage(); page.setDefaultTimeout(20_000);
     await page.goto(pending.verificationUri);
     await page.locator('input[name="device_user_code"]').fill(pending.userCode);
-    await page.locator('#kc-user-verify-device-user-code-form input[type="submit"]').click();
+    stage = 'verification-submit';
+    await page.locator('#kc-user-verify-device-user-code-form').getByRole('button').click();
     stage = 'human-login';
     await page.locator('input[name="username"]').fill('acceptance-user');
     await page.locator('input[name="password"]').fill(password);
     await page.locator('input[name="login"],button[name="login"]').click();
     stage = 'consent';
-    await page.locator('input[name="accept"]').click();
+    await page.locator('[name="accept"]').click();
     stage = 'token';
     for (let attempt = 0; attempt < 15; attempt++) {
       const result = await pending.poll();
