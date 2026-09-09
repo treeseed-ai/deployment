@@ -1,7 +1,7 @@
 // Disposable compatibility test only. Not a production bootstrap or identity issuer.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { pbkdf2Sync, randomBytes } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +19,7 @@ import { identityBootstrapRealm } from '../../dist/src/identity/bootstrap.js';
 import { deviceClient, verifyDevice } from './device.js';
 import { cliScopeDefinitions, standardScopeDefinitions } from './cli.js';
 import { BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
+import { prepareIdentityPasswordImport } from '../../.fixtures/api/dist/api/auth/identity-password-import.js';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
@@ -31,7 +32,7 @@ let networkCreated = false;
 let browsers: Awaited<ReturnType<typeof browserFixture>> | undefined;
 let sharedDatabase: ReturnType<typeof startSharedDatabase>;
 let firstDatabasePassword = '';
-const humanPassword = randomBytes(32).toString('hex');
+const humanPassword = `Synthetïc-密-${randomBytes(32).toString('hex')}`;
 syntheticSecrets.push(humanPassword);
 const brokerSecret = randomBytes(32).toString('hex');
 syntheticSecrets.push(brokerSecret);
@@ -78,13 +79,21 @@ async function start(label: Label) {
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
+  // Reproduce the existing API's verifier format, then exercise the actual
+  // maintenance converter. Keycloak receives a hash, never a plaintext password.
+  const salt = randomBytes(16).toString('base64url');
+  const oldVerifier = `pbkdf2-sha256$210000$${salt}$${pbkdf2Sync(humanPassword, salt, 210000, 32, 'sha256').toString('base64url')}`;
+  const importedPassword = prepareIdentityPasswordImport(oldVerifier);
+  assert.equal('value' in importedPassword, false);
+  assert.equal(JSON.stringify(importedPassword).includes(humanPassword), false);
+  syntheticSecrets.push(oldVerifier, importedPassword.secretData);
   writeFileSync(join(directory, 'bootstrap-realm.json'), JSON.stringify(identityBootstrapRealm(readFileSync(join(directory, 'client.crt'), 'utf8'), base)), { mode: 0o644 });
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions, { name: BROWSER_SESSION_SCOPE, protocol: 'openid-connect',
       attributes: { 'include.in.token.scope': 'true' } }], defaultDefaultClientScopes: ['basic', 'profile', 'email'],
     users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
-      credentials: [{ type: 'password', value: humanPassword, temporary: false }] }],
+      credentials: [importedPassword] }],
     identityProviders: label === 'sovereign' ? [{ alias: 'central', displayName: 'Explicit central trust', providerId: 'oidc', enabled: true,
       trustEmail: false, storeToken: false, firstBrokerLoginFlowAlias: 'first broker login',
       config: { clientId: 'sovereign-broker', clientSecret: brokerSecret, clientAuthMethod: 'client_secret_post',
@@ -238,6 +247,7 @@ try {
   checks.push('local-auth-with-central-offline');
   stage = 'browser-sso';
   checks.push(...await browsers.verify(first.issuer, humanPassword));
+  checks.push('existing-password-verifier-import-login', 'no-plaintext-password-in-realm-import');
   stage = 'restart';
   docker('restart', first.server);
   await ready(`${first.issuer}/.well-known/openid-configuration`);
