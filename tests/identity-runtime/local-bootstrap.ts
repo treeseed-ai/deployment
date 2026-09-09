@@ -12,6 +12,9 @@ import { ensureComponentCredential } from '../../dist/src/supervisor/component-s
 import { readComponentCredential } from '../../dist/src/supervisor/component-sealed.js';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { existsSync } from 'node:fs';
+import pg from 'pg';
+import { activatePostgresAllocation } from '../../dist/src/postgres/activation.js';
+import { disablePostgresAllocation } from '../../dist/src/postgres/disable.js';
 
 // Runs as root only on the disposable Actions runner, never on a user's host.
 if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable privileged Actions acceptance required');
@@ -55,6 +58,16 @@ try {
     await ensurePostgresAllocationCredentials(topology, 'acceptance', session, custody);
     assert.deepEqual(credentialIds.map(id => readComponentCredential(host, id)), retained);
     assert.notEqual(retained[0], retained[1]);
+    stage = 'scoped-login-disable';
+    await withLocalPostgresBootstrap(directory, 'acceptance', allocated => activatePostgresAllocation(topology, 'acceptance', 'runtime', retained[1]!, allocated));
+    const runtime = new pg.Client({ host: directory, user: 'acceptance_runtime', database: 'acceptance', password: retained[1], ssl: false, connectionTimeoutMillis: 5000 });
+    runtime.on('error', () => undefined);
+    try {
+      await runtime.connect(); await runtime.query('SELECT 1');
+      assert.equal((await disablePostgresAllocation(topology, 'acceptance', session)).disabled, true);
+      await assert.rejects(runtime.query('SELECT 1'));
+      assert.equal((await session.query('SELECT current_user AS username')).rows[0]?.username, 'postgres');
+    } finally { await runtime.end().catch(() => undefined); }
   });
   stage = 'custody-replay';
   prepareManagedPostgresBootstrap(options); // Preserve custody with the running socket owned by PostgreSQL.
@@ -62,7 +75,7 @@ try {
   chmodSync(directory, 0o755);
   await assert.rejects(withLocalPostgresBootstrap(directory, 'postgres', async () => true), /Unsafe PostgreSQL bootstrap socket/);
   chmodSync(directory, 0o700);
-  console.log(JSON.stringify({ ok: true, checks: ['real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay'] }));
+  console.log(JSON.stringify({ ok: true, checks: ['real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved'] }));
 } catch (error) {
   const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[a-zA-Z0-9_]{1,64}$/u.test(error.code) ? error.code : 'unavailable';
   console.error(JSON.stringify({ stage, code, type: error instanceof Error ? error.name : 'unknown',

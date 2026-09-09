@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { OsSecretCustody, type CredentialCommand } from '../security/custody/os.js';
 import { LocalSecretCustody } from '../security/custody/local.js';
+import { POSTGRES_HBA } from './policy.js';
 
 /** Privileged Deployment bootstrap only. Independent of API/vault availability. */
 export function prepareManagedPostgresBootstrap(options: {
@@ -42,6 +43,8 @@ export function prepareManagedPostgresBootstrap(options: {
     throw new Error('Managed PostgreSQL bootstrap binding changed or is incomplete; explicit recovery is required');
   }
   const tls = join(options.runtimeRoot, 'tls');
+  const hba = join(options.runtimeRoot, 'hba.conf');
+  if (existsSync(hba) && lstatSync(hba).isSymbolicLink()) throw new Error('Unsafe PostgreSQL network policy path');
   const socket = join(options.runtimeRoot, 'socket');
   mkdirSync(socket, { mode: 0o700, recursive: true });
   if (!lstatSync(socket).isDirectory() || lstatSync(socket).isSymbolicLink() || (lstatSync(socket).mode & 0o077)) throw new Error('Unsafe PostgreSQL socket directory');
@@ -53,6 +56,7 @@ export function prepareManagedPostgresBootstrap(options: {
     writeFileSync(temporary, value, { mode, flag: 'wx' });
     renameSync(temporary, path);
   };
+  materialize(hba, POSTGRES_HBA, 0o444);
   materialize(join(options.runtimeRoot, 'bootstrap-password'), identity.password, 0o600);
   materialize(join(tls, 'key.pem'), identity.privateKey, 0o600);
   materialize(join(tls, 'cert.pem'), identity.certificate, 0o644);
