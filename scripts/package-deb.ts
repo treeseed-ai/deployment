@@ -4,6 +4,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, read
 import { basename, resolve } from 'node:path';
 import { componentReleaseSchema, integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
 import { stableCatalogDebianVersion } from './catalog-package-version.js';
+import { postgresRuntimePaths } from './postgres-runtime-dependencies.js';
 
 interface Definition { architecture: 'all' | 'amd64'; depends: string; description: string; packageName?: string; version?: string; replaces?: string; breaks?: string; payload?: (stage: string) => void; postinst?: string }
 const root = process.cwd(), output = resolve(root, 'release/out'), cache = resolve(root, '.treeseed/cache'), artifacts = resolve(root, '.treeseed/artifacts');
@@ -50,7 +51,7 @@ function managerPayload(stage: string) {
 	cpSync(resolve(root, 'dist/src'), resolve(stage, 'usr/lib/treeseed/manager/dist/src'), { recursive: true });
 	cpSync(resolve(root, 'infrastructure'), resolve(stage, 'usr/lib/treeseed/manager/infrastructure'), { recursive: true });
 	writeFileSync(resolve(stage, 'usr/lib/treeseed/manager/package.json'), '{"type":"module"}\n');
-	for (const dependency of sdkRuntimePaths) {
+	for (const dependency of [...sdkRuntimePaths, ...postgresRuntimePaths]) {
 		const source = resolve(root, 'node_modules', dependency);
 		if (!existsSync(source)) throw new Error(`Runtime dependency ${dependency} is not installed.`);
 		cpSync(source, resolve(stage, 'usr/lib/treeseed/manager/node_modules', dependency), { recursive: true });
