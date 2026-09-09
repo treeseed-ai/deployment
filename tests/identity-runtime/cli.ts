@@ -54,7 +54,7 @@ export async function cliFixture(root:string) {
   resource=`https://127.0.0.1:${address.port}`;
   return {
     resource,
-    async verify(selectedIssuer:string,context:BrowserContext,expectedSubject:string) {
+    async verify(selectedIssuer:string,context:BrowserContext,expectedSubject:string,password:string) {
       issuer=selectedIssuer;subject=expectedSubject;
       verify=createAccessTokenVerifier({issuer,audience:resource,profile:'keycloak',verificationKey:await discoverSigningKeys({issuer,transport:fetch}),
         resolvePrincipal:async identity=>identity.subject===subject ? {principalId:'preserved-local-user',kind:'human'} : null});
@@ -63,8 +63,27 @@ export async function cliFixture(root:string) {
       const output:string[]=[];
       const env={TREESEED_CONFIG_HOME:join(root,'cli-custody'),TREESEED_API_BASE_URL:resource};
       const page=await context.newPage();page.setDefaultTimeout(20000);
+      let phase='browser-login';
       try {
-        const exit=await runCommandLine(['auth','login','--timeout','20','--json'],{env,interactiveUi:false,write:value=>output.push(value),openExternal:async url=>{await page.goto(url);return true;}});
+        for (const device of [false,true]) {
+        phase=device?'device-login':'browser-login';
+        const exit=await runCommandLine(['auth','login','--timeout','30','--json',...(device?['--device']:[])],{env,interactiveUi:false,write:value=>output.push(value),openExternal:async url=>{
+          await page.goto(url);
+          if(device && await page.locator('#kc-user-verify-device-user-code-form').isVisible()) {
+            phase='device-code-confirm';
+            await page.locator('#kc-user-verify-device-user-code-form').getByRole('button').click();
+          }
+          if(device && await page.locator('input[name="username"]').isVisible()) {
+            phase='device-human-login';
+            await page.locator('input[name="username"]').fill('acceptance-user');
+            await page.locator('input[name="password"]').fill(password);
+            await page.locator('input[name="login"],button[name="login"]').click();
+          }
+          if(await page.locator('[name="accept"]').isVisible()) {
+            phase=device?'device-consent':'browser-consent'; await page.locator('[name="accept"]').click();
+          }
+          return true;
+        }});
         assert.equal(exit,0,'Published CLI sign-in failed');
         assert.equal(await runCommandLine(['auth','status','--json'],{env,interactiveUi:false,write:value=>output.push(value)}),0);
         const directory=join(env.TREESEED_CONFIG_HOME,'custody');
@@ -75,8 +94,10 @@ export async function cliFixture(root:string) {
         assert.equal(await runCommandLine(['auth','logout','--json'],{env,interactiveUi:false,write:value=>output.push(value)}),0);
         assert.ok(output.some(value=>{try{return JSON.parse(value).result?.upstreamRevoked===true;}catch{return false;}}));
         assert.notEqual(await runCommandLine(['auth','status','--json'],{env,interactiveUi:false,write:value=>output.push(value)}),0);
-        return ['published-cli-pkce-sso','cli-api-principal-mapping','cli-real-os-custody','cli-upstream-and-local-logout'];
-      } finally {await page.close();seenTokens.clear();}
+        }
+        return ['published-cli-pkce-sso','published-cli-device-pkce','cli-api-principal-mapping','cli-real-os-custody','cli-upstream-and-local-logout'];
+      } catch { console.error(JSON.stringify({cliPhase:phase})); throw new Error('Published CLI acceptance failed'); }
+      finally {await page.close();seenTokens.clear();}
     },
     async close(){await new Promise<void>(resolve=>server.close(()=>resolve()));},
   };

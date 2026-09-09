@@ -18,6 +18,8 @@ import { controlPlaneOperations } from '../../.fixtures/api/dist/api/control-pla
 import { OperationRegistry } from '../../.fixtures/api/dist/api/control-plane/catalog/operation-registry.js';
 import { planIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-plan.js';
 import { applyIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-transaction.js';
+import { planIdentityWorkloads } from '../../.fixtures/api/dist/api/auth/identity/workload-plan.js';
+import { applyIdentityWorkloads } from '../../.fixtures/api/dist/api/auth/identity/workload-transaction.js';
 import type { startSharedDatabase } from './database.js';
 import type { importPKCS8 } from 'jose';
 
@@ -132,12 +134,21 @@ export async function apiSessions(root: string) {
       }
       const workload = await createWorkloadCredentials({ issuer, clientId: workloadId, privateKey: input.workloadKey,
         resources: [resource], profile: 'keycloak', verificationKey: keys, transport: fetch,
-        resolvePrincipal: async identity => {
-          await pool!.query(`INSERT INTO identity_workloads(id,issuer,subject,client_id,display_name,status,permissions,scopes)
-            VALUES($1,$2,$3,$1,$1,'active',$4::jsonb,$5::jsonb) ON CONFLICT(id) DO UPDATE SET issuer=$2,subject=$3`,
-          [workloadId,issuer,identity.subject,JSON.stringify([BROWSER_SESSION_PERMISSION]),JSON.stringify([BROWSER_SESSION_SCOPE])]);
-          return { principalId: workloadId, kind: 'service', clientId: workloadId };
-        } });
+        resolvePrincipal: async () => ({ principalId: workloadId, kind: 'service', clientId: workloadId }) });
+      // Explicit disposable enrollment before application requests. Subsequent
+      // credential reads cannot overwrite API identity or authorization.
+      const verified = await workload.credentials({ resource, scopes: [BROWSER_SESSION_SCOPE] });
+      const requested = [{ id: workloadId, issuer, subject: verified.principal.identity.subject, clientId: workloadId,
+        displayName: workloadId, permissions: [BROWSER_SESSION_PERMISSION], scopes: [BROWSER_SESSION_SCOPE] }];
+      const plan = async () => planIdentityWorkloads({
+        workloads: (await pool!.query(`SELECT id,issuer,subject,client_id AS "clientId",display_name AS "displayName",status,permissions,scopes FROM identity_workloads`)).rows,
+        humans: (await pool!.query(`SELECT users.id AS "userId",COALESCE(provider,'') AS issuer,COALESCE(provider_subject,'') AS subject FROM users LEFT JOIN user_identities ON users.id=user_identities.user_id`)).rows,
+      }, requested);
+      const initial = await plan();
+      // Federation, outage and recovery checks initialize these same apps
+      // again. Their exact existing registration must remain a noop.
+      assert.equal((await applyIdentityWorkloads(database, { ...initial, requested })).operations[0]?.action, initial.operations[0]?.action);
+      assert.equal((await applyIdentityWorkloads(database, { ...await plan(), requested })).operations[0]?.action, 'noop');
       return createApplicationSession({ issuer, resource, callbackUrl: input.callback, afterLogin: '/me', cookieName: '__Host-session',
         credentials: { token: async request => (await workload.credentials(request)).accessToken }, transport: fetch });
     },

@@ -21,6 +21,7 @@ import { deviceClient, verifyDevice } from './device.js';
 import { cliScopeDefinitions, standardScopeDefinitions } from './cli.js';
 import { BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
 import { prepareIdentityPasswordImport } from '../../.fixtures/api/dist/api/auth/identity-password-import.js';
+import { verifyManagedNative } from './managed-native.js';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
@@ -92,6 +93,14 @@ async function start(label: Label) {
   const managedBootstrap = { stateRoot: join(directory, 'bootstrap-state'), runtimeRoot: join(directory, 'bootstrap-runtime'),
     publicUrl: base, environment: 'staging' as const, certificateAuthority: join(root, 'tls/cert.pem'), certificateAuthorityKey: join(root, 'tls/key.pem') };
   prepareIdentityBootstrap(managedBootstrap);
+  // A synthetic imported human for native-client acceptance only. Production
+  // bootstrap remains credential-free and never creates this account.
+  const bootstrapImport = join(managedBootstrap.runtimeRoot, 'import/treeseed-realm.json');
+  const bootstrapRealm = JSON.parse(readFileSync(bootstrapImport, 'utf8'));
+  const nativeSubject = randomUUID();
+  bootstrapRealm.users.push({ id: nativeSubject, username: 'acceptance-user', enabled: true, emailVerified: true,
+    email: 'acceptance@example.test', firstName: 'Acceptance', lastName: 'Native', credentials: [importedPassword] });
+  writeFileSync(bootstrapImport, JSON.stringify(bootstrapRealm));
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions, { name: BROWSER_SESSION_SCOPE, protocol: 'openid-connect',
@@ -196,6 +205,9 @@ async function start(label: Label) {
         `${label}-managed-reconciler-os-custody`, `${label}-managed-reconciler-environment-isolation`);
     }
   }
+  stage = `provision-${label}-native`;
+  checks.push(...await verifyManagedNative(root, bootstrapIssuer, humanPassword, nativeSubject, registry,
+    value => { stage = `provision-${label}-native-${value}`; }));
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
   return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };
