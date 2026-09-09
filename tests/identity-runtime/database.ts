@@ -14,12 +14,13 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
   const name = `${prefix}-postgres`;
   writeFileSync(join(root, 'bootstrap-password'), password, { mode: 0o444 });
   const service = managedPostgresService({ configurationRoot: root, stateRoot: join(root, 'state') });
-  service.volumes = service.volumes.filter(volume => volume.target !== '/var/lib/postgresql/data');
+  // Privileged host socket custody is tested separately; this browser test runs unprivileged.
+  service.volumes = service.volumes.filter(volume => !['/var/lib/postgresql/data', '/run/postgres/socket'].includes(volume.target));
   const path = join(root, 'postgres-compose.json');
   writeFileSync(path, JSON.stringify({ services: { postgres: { ...service, container_name: name, ports: ['127.0.0.1::5432'], tmpfs: ['/var/lib/postgresql/data'] } },
     networks: { private: { external: true, name: prefix } } }));
   docker('compose', '-p', `${prefix}-database`, '-f', path, 'up', '-d', '--wait');
-  const sql = (query: string, database = 'postgres') => execFileSync('docker', ['exec', '-i', name, 'psql', '-U', 'postgres', '-d', database, '-At', '-v', 'ON_ERROR_STOP=1'], {
+  const sql = (query: string, database = 'postgres') => execFileSync('docker', ['exec', '-i', name, 'psql', '-h', '/run/postgres/socket', '-U', 'postgres', '-d', database, '-At', '-v', 'ON_ERROR_STOP=1'], {
     input: query, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000,
   });
   const ports = JSON.parse(docker('inspect', '--format', '{{json .NetworkSettings.Ports}}', name));

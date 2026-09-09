@@ -3,7 +3,7 @@ import { postgresTopologySchema, type PostgresTopology } from '@treeseed/sdk/dep
 export { inspectPostgresAllocations, postgresAllocationMarker, type PostgresInspectionSession } from './inventory.js';
 export { postgresRuntimeAccessSql } from './access.js';
 export { verifyPostgresRuntimeAccess } from './verify.js';
-export { withManagedPostgresSession } from './connection.js';
+export { withManagedPostgresSession, withLocalPostgresBootstrap } from './connection.js';
 export { applyPostgresAllocations } from './apply.js';
 export { activatePostgresAllocation } from './activation.js';
 

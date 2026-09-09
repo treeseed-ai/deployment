@@ -42,6 +42,9 @@ export function prepareManagedPostgresBootstrap(options: {
     throw new Error('Managed PostgreSQL bootstrap binding changed or is incomplete; explicit recovery is required');
   }
   const tls = join(options.runtimeRoot, 'tls');
+  const socket = join(options.runtimeRoot, 'socket');
+  mkdirSync(socket, { mode: 0o700, recursive: true });
+  if (!lstatSync(socket).isDirectory() || lstatSync(socket).isSymbolicLink() || (lstatSync(socket).mode & 0o077)) throw new Error('Unsafe PostgreSQL socket directory');
   mkdirSync(tls, { mode: 0o755, recursive: true });
   const stat = lstatSync(tls);
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o022)) throw new Error('Unsafe PostgreSQL TLS directory');

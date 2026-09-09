@@ -1,5 +1,7 @@
 import pg from 'pg';
 import { checkServerIdentity } from 'node:tls';
+import { lstatSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { postgresServerSchema } from '@treeseed/sdk/deployment';
 import type { PostgresInspectionSession } from './inventory.js';
 
@@ -20,6 +22,33 @@ export async function withManagedPostgresSession<T>(options: {
     lock_timeout: 5_000, idle_in_transaction_session_timeout: 30_000,
     application_name: 'treeseed-postgres-reconciliation', options: '-c search_path=public', client_encoding: 'UTF8',
     sslnegotiation: 'postgres', enableChannelBinding: true });
+  return runPostgresSession(client, run);
+}
+
+/** Privileged local bootstrap uses the filesystem-protected Unix socket, never
+ * an exposed TCP port or an application credential. Remote sessions require TLS.
+ */
+export async function withLocalPostgresBootstrap<T>(socketDirectory: string, database: string,
+  run: (session: PostgresInspectionSession) => Promise<T>): Promise<T> {
+  if (process.getuid?.() !== 0 || !isAbsolute(socketDirectory) || resolve(socketDirectory) !== socketDirectory ||
+    !/^[a-z][a-z0-9_]{0,62}$/u.test(database) || process.env.PGREPLICATION) throw new Error('Protected local PostgreSQL bootstrap required');
+  const directory = lstatSync(socketDirectory), parent = lstatSync(dirname(socketDirectory));
+  const socket = lstatSync(join(socketDirectory, '.s.PGSQL.5432'));
+  for (let ancestor = dirname(socketDirectory); ; ancestor = dirname(ancestor)) {
+    const stat = lstatSync(ancestor);
+    if (!stat.isDirectory() || stat.uid !== 0 || (stat.mode & 0o022)) throw new Error('Unsafe PostgreSQL bootstrap ancestor');
+    if (ancestor === '/') break;
+  }
+  if (realpathSync(socketDirectory) !== socketDirectory || !directory.isDirectory() || (directory.mode & 0o077) ||
+    !parent.isDirectory() || parent.uid !== 0 || (parent.mode & 0o077) || !socket.isSocket() || socket.uid !== directory.uid) throw new Error('Unsafe PostgreSQL bootstrap socket');
+  return runPostgresSession(new pg.Client({ host: socketDirectory, port: 5432, database, user: 'postgres',
+    password: 'local-bootstrap-does-not-use-passwords', ssl: false,
+    connectionTimeoutMillis: 10_000, statement_timeout: 60_000, query_timeout: 65_000,
+    lock_timeout: 5_000, idle_in_transaction_session_timeout: 30_000,
+    application_name: 'treeseed-postgres-bootstrap', options: '-c search_path=public', client_encoding: 'UTF8' }), run);
+}
+
+async function runPostgresSession<T>(client: pg.Client, run: (session: PostgresInspectionSession) => Promise<T>): Promise<T> {
   let failed = false;
   client.on('error', () => { failed = true; });
   try {

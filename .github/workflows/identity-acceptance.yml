@@ -24,9 +24,13 @@ jobs:
         run: echo '127.0.0.1 sovereign.localhost central.localhost' | sudo tee -a /etc/hosts
       - run: npx tsc -p tests/identity-runtime/tsconfig.json
       - run: node --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
+      - name: Verify protected local bootstrap without a host TCP port
+        run: sudo --preserve-env=GITHUB_ACTIONS "$(command -v node)" --import tsx tests/identity-runtime/local-bootstrap.ts > postgres-bootstrap-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: identity-acceptance-${{ github.sha }}
-          path: identity-acceptance.json
+          path: |
+            identity-acceptance.json
+            postgres-bootstrap-acceptance.json
           retention-days: 14
           if-no-files-found: error
