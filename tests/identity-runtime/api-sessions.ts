@@ -78,11 +78,12 @@ export async function apiSessions(root: string) {
       const planned = async () => planIdentityMappings({
         users: (await pool!.query('SELECT id,status FROM users')).rows,
         mappings: (await pool!.query('SELECT user_id AS "userId",provider AS issuer,provider_subject AS subject FROM user_identities')).rows,
+        workloads: (await pool!.query('SELECT id,issuer,subject FROM identity_workloads')).rows,
       }, [input]);
       const plan = await planned(); assert.equal(plan.operations[0]?.action, 'bind');
-      await applyIdentityMappings(database, { requested: [input], inventoryDigest: plan.inventoryDigest });
+      await applyIdentityMappings(database, { requested: [input], inventoryDigest: plan.inventoryDigest, requestDigest: plan.requestDigest });
       const repeated = await planned(); assert.equal(repeated.operations[0]?.action, 'noop');
-      await applyIdentityMappings(database, { requested: [input], inventoryDigest: repeated.inventoryDigest });
+      await applyIdentityMappings(database, { requested: [input], inventoryDigest: repeated.inventoryDigest, requestDigest: repeated.requestDigest });
       const user = (await pool.query('SELECT id,created_at FROM users WHERE id=$1', [input.userId])).rows[0];
       assert.deepEqual(user, { id: input.userId, created_at: 'before-migration' });
     },
