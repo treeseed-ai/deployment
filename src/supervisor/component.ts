@@ -19,7 +19,7 @@ const environmentKey = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
 const credentialPath = /^\/etc\/treeseed\/credentials\/[a-z0-9][a-z0-9._-]{0,127}$/u;
 const stateDirectories: Record<string, string[]> = {
-	postgres: ['postgres', 'postgres-os'],
+	postgres: ['postgres', 'postgres-os', 'lifecycle'],
 	api: ['postgres', 'operations-runner', 'openbao', 'openbao-custody', 'openbao-os'],
 	admin: [],
 	agent: [],

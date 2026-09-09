@@ -15,11 +15,10 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import {
 	activateComponent,
-	componentActivationOrder,
-	componentStopOrder,
 	rollbackRoutes,
 	stopComponent,
 } from './reconcile.js';
+import { componentActivationOrder, componentStopOrder } from './component-order.js';
 
 export interface RecoveryBackupInspection {
 	generation: number;
