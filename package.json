@@ -66,7 +66,7 @@
     "artifacts:prepare": "npm run artifacts:fetch && node --import tsx scripts/prepare-artifacts.ts",
     "verify:treeai-activation": "node --import tsx scripts/verify-treeai-activation.ts",
     "build:deb": "npm run artifacts:prepare && npm run build && node --import tsx scripts/package-deb.ts all",
-    "verify:deb": "npm run build:deb && npm run package:runtime && node --import tsx scripts/verify-deb.ts",
+    "verify:deb": "npm run build:deb && npm run package:runtime && node --import tsx scripts/verify-deb.ts && node --import tsx scripts/create-postgres-release.ts",
     "catalog:compile": "node --import tsx scripts/compile-catalog.ts",
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
