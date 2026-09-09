@@ -433,6 +433,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 			|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+		if (routes.length && !await edgeReadiness(subjectAlternativeNames(routes))) throw new Error('Managed edge TLS readiness failed after activation.');
 	} catch (error) {
 		recordEvent(failurePolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of componentStopOrder(host, effective).filter(impacted)) {
