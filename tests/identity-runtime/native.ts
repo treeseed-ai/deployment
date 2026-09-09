@@ -22,12 +22,12 @@ export async function nativeFixture(resource: string) {
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   redirectUri = `http://127.0.0.1:${address.port}/callback`;
   return {
-    descriptor: { clientId: 'trsd', enabled: true, protocol: 'openid-connect', publicClient: true,
+    descriptor: { clientId: 'trsd', enabled: true, protocol: 'openid-connect', publicClient: true, consentRequired: true,
       standardFlowEnabled: true, directAccessGrantsEnabled: false, serviceAccountsEnabled: false,
       defaultClientScopes: ['basic'],
       // Keycloak's native loopback registration ignores the ephemeral port,
       // while preserving the exact path. No host/path wildcard.
-      redirectUris: ['http://127.0.0.1/callback'], webOrigins: [], optionalClientScopes: ['treeseed:read','treeseed:knowledge:write','treeseed:governance:write','treeseed:projects:write','treeseed:execution'], attributes: { 'pkce.code.challenge.method': 'S256' },
+      redirectUris: ['http://127.0.0.1/callback'], webOrigins: [], optionalClientScopes: ['treeseed:read','treeseed:knowledge:write','treeseed:governance:write','treeseed:projects:write','treeseed:execution'], attributes: { 'pkce.code.challenge.method': 'S256', 'oauth2.device.authorization.grant.enabled': 'true' },
       protocolMappers: [{ name: 'api-audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
         config: { 'included.custom.audience': resource, 'access.token.claim': 'true' } }] },
     async verify(issuer: string, context: BrowserContext, expectedSubject: string, login?: { username: string; password: string }, progress: (stage: string) => void = () => {}) {

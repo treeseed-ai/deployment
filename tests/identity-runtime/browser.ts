@@ -158,7 +158,7 @@ export async function browserFixture(root: string) {
         phase = 'native-cli-sso';
         const nativeChecks = await native.verify(issuer, context, first.subject);
         phase = 'published-cli-sso';
-        const cliChecks = await cli.verify(issuer, context, first.subject);
+        const cliChecks = await cli.verify(issuer, context, first.subject, password);
         const storageChecks = await api.verifyStorage(cookies.map(cookie => cookie.value));
         return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks, ...cliChecks, ...storageChecks];
       } catch { console.error(JSON.stringify({ browserPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Browser acceptance failed'); }
