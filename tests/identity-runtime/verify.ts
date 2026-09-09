@@ -2,19 +2,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
-import { createAccessTokenVerifier } from '@treeseed/identity';
-import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
+import { createAccessTokenVerifier, createWorkloadCredentials } from '@treeseed/identity';
+import { createLocalJWKSet, importPKCS8 } from 'jose';
 import { browserFixture } from './browser.js';
 import { recoverIdentityDatabase } from './recovery.js';
 import { managedIdentityServices, IDENTITY_IMAGES } from '../../dist/src/identity/compose.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { startSharedDatabase } from './database.js';
+import { identityBootstrapRealm } from '../../dist/src/identity/bootstrap.js';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
@@ -61,6 +62,7 @@ async function start(label: Label) {
   stage = `start-${label}`;
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
   mkdirSync(join(directory, 'tls'), { mode: 0o755 });
+  for (const file of ['cert.pem', 'key.pem']) writeFileSync(join(directory, 'tls', file), readFileSync(join(root, 'tls', file)), { mode: 0o644 });
   const password = randomBytes(32).toString('hex');
   const migrationPassword = randomBytes(32).toString('hex');
   syntheticSecrets.push(password, migrationPassword);
@@ -73,6 +75,7 @@ async function start(label: Label) {
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
+  writeFileSync(join(directory, 'bootstrap-realm.json'), JSON.stringify(identityBootstrapRealm(readFileSync(join(directory, 'client.crt'), 'utf8'), base)), { mode: 0o644 });
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
@@ -94,13 +97,23 @@ async function start(label: Label) {
         redirectUris: [`${issuerFor('sovereign')}/broker/central/endpoint`] }] : [])],
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.
-  writeFileSync(join(directory, 'database-password'), migrationPassword, { mode: 0o444 });
-  writeFileSync(join(directory, 'database-ca.pem'), readFileSync(join(root, 'tls/cert.pem')), { mode: 0o444 });
-  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: { ...db, username: `${db.username}_migrator` }, databasePhase: 'migration' });
+  const databaseDirectory = join(directory, 'database'); mkdirSync(databaseDirectory, { mode: 0o755 });
+  const materialize = (phase: 'migration' | 'runtime', secret: string) => {
+    const material = sharedDatabase.clientFiles(label, phase, secret);
+    for (const [name, value] of Object.entries(material.files)) {
+      writeFileSync(join(databaseDirectory, `${name}.new`), value, { mode: 0o444 });
+      renameSync(join(databaseDirectory, `${name}.new`), join(databaseDirectory, name));
+    }
+    return material.mount;
+  };
+  const allocationRoot = materialize('migration', migrationPassword);
+  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: { allocationRoot }, databasePhase: 'migration' });
   const services = {
     identity: { ...managed.identity, container_name: server,
       networks: { private: { aliases: [`${label}.localhost`] }, broker: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
-      volumes: [...managed.identity.volumes, { type: 'bind', source: join(root, 'tls'), target: '/run/identity/tls', read_only: true },
+      volumes: [...managed.identity.volumes,
+        { type: 'bind', source: databaseDirectory, target: allocationRoot, read_only: true },
+        { type: 'bind', source: join(directory, 'bootstrap-realm.json'), target: '/opt/keycloak/data/import/treeseed-realm.json', read_only: true },
         { type: 'bind', source: join(directory, 'realm.json'), target: '/opt/keycloak/data/import/acceptance-realm.json', read_only: true }],
       command: [...managed.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value), '--import-realm'] },
   };
@@ -111,32 +124,38 @@ async function start(label: Label) {
   writeFileSync(composePath, JSON.stringify({ services, networks: { private: {}, broker: { external: true, name: prefix } } }));
   names.push(server);
   privateNetworks.push(`${prefix}-${label}_private`);
-  docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
+  docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d', '--wait', '--wait-timeout', '180');
   await ready(`${issuer}/.well-known/openid-configuration`);
   docker('stop', server);
   await sharedDatabase.activateRuntime(label);
-  chmodSync(join(directory, 'database-password'), 0o600);
-  writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
-  chmodSync(join(directory, 'database-password'), 0o444);
-  const runtime = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: db });
+  materialize('runtime', password);
+  const runtime = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: { allocationRoot } });
   services.identity.environment = runtime.identity.environment;
   services.identity.command = runtime.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value);
   writeFileSync(composePath, JSON.stringify({ services, networks: { private: {}, broker: { external: true, name: prefix } } }));
-  docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
+  docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d', '--wait', '--wait-timeout', '180');
   const discovery = await ready(`${issuer}/.well-known/openid-configuration`);
   assert.equal(discovery.issuer, issuer);
   assert.equal(discovery.token_endpoint, `${issuer}/protocol/openid-connect/token`);
   assert.equal(discovery.jwks_uri, `${issuer}/protocol/openid-connect/certs`);
   const token = async (signingKey = clientKey) => {
-    const assertion = await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setIssuer('workload-test').setSubject('workload-test')
-      .setAudience(issuer).setIssuedAt().setExpirationTime('60s').setJti(randomBytes(16).toString('hex')).sign(signingKey);
-    syntheticSecrets.push(assertion);
-    const response = await fetch(discovery.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'workload-test',
-      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer', client_assertion: assertion }), signal: AbortSignal.timeout(10_000) });
-    assert.equal(response.status, 200);
-    return (await response.json()).access_token;
+    const credentials = await createWorkloadCredentials({ issuer, clientId: 'workload-test', privateKey: signingKey,
+      resources: ['https://api.example.test'], verificationKey: keys, profile: 'keycloak', transport: fetch,
+      resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
+    const result = await credentials.credentials({ resource: 'https://api.example.test', scopes: [] });
+    syntheticSecrets.push(result.accessToken);
+    return result.accessToken;
   };
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
+  const bootstrapIssuer = `${base}/realms/treeseed`, bootstrapResource = `${base}/admin/realms/treeseed`;
+  const bootstrapDiscovery = await ready(`${bootstrapIssuer}/.well-known/openid-configuration`);
+  const bootstrapKeys = createLocalJWKSet(await (await fetch(bootstrapDiscovery.jwks_uri)).json());
+  const bootstrapCredentials = await createWorkloadCredentials({ issuer: bootstrapIssuer, clientId: 'treeseed-identity-reconciler', privateKey: clientKey,
+    resources: [bootstrapResource], verificationKey: bootstrapKeys, profile: 'keycloak', transport: fetch,
+    resolvePrincipal: async identity => ({ principalId: identity.subject, kind: 'service' }) });
+  const bootstrapToken = await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] });
+  syntheticSecrets.push(bootstrapToken.accessToken);
+  assert.equal((await fetch(bootstrapResource, { headers: { Authorization: `Bearer ${bootstrapToken.accessToken}` } })).status, 200);
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
   return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };

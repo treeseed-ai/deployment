@@ -17,6 +17,16 @@ describe('managed identity services', () => {
   it('permits schema changes only in the explicit migration phase', () => {
     expect(managedIdentityServices({ ...input, databasePhase: 'migration' }).identity.command).toContain('--spi-connections-jpa--quarkus--migration-strategy=update');
   });
+  it('uses protected shared allocation files without a database URL in Compose', () => {
+    const service = managedIdentityServices({ ...input, database: { allocationRoot: '/run/treeseed/postgres/identity' } }).identity;
+    expect(service.environment).not.toHaveProperty('KC_DB_URL');
+    expect(service.environment).not.toHaveProperty('KC_DB_USERNAME');
+    expect(service.entrypoint[2]).toContain('/run/treeseed/postgres/identity/jdbc-url');
+    expect(service.entrypoint[2]).toContain('/run/treeseed/postgres/identity/password');
+    expect(service.environment.KC_HTTP_MANAGEMENT_HOST).toBe('127.0.0.1');
+    expect(service.healthcheck.test.join(' ')).toContain('/health/ready');
+    expect(() => managedIdentityServices({ ...input, database: { allocationRoot: '/tmp/other' } })).toThrow();
+  });
   it.each(['http://identity.test', 'https://user:pass@identity.test', 'https://identity.test/realm', 'https://identity.test/?query=1'])('rejects unsafe origin %s', publicUrl => {
     expect(() => managedIdentityServices({ ...input, publicUrl })).toThrow();
   });

@@ -11,6 +11,8 @@ import { planPostgresAllocations, applyPostgresAllocations, activatePostgresAllo
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
 import { POSTGRES_HBA } from '../../dist/src/postgres/policy.js';
+import { postgresClientMaterial } from '../../dist/src/postgres/client-files.js';
+import { postgresTopologySchema } from '@treeseed/sdk/deployment';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
 export function startSharedDatabase({ root, prefix, password, docker }: { root: string; prefix: string; password: string; docker: (...args: string[]) => string }) {
@@ -34,6 +36,12 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
   const allocations = new Map<string, { topology: unknown; password: string }>();
   return {
     name,
+    clientFiles(label: string, phase: 'migration' | 'runtime', secret: string) {
+      const stored = allocations.get(label); assert.ok(stored);
+      const topology = postgresTopologySchema.parse(stored.topology);
+      topology.servers[0]!.hostname = 'postgres'; topology.servers[0]!.port = 5432;
+      return postgresClientMaterial(topology, label, phase, secret, readFileSync(join(root, 'tls/cert.pem'), 'utf8'));
+    },
     async verifySession() {
       const ports = JSON.parse(docker('inspect', '--format', '{{json .NetworkSettings.Ports}}', name));
       const port = Number(ports['5432/tcp'][0].HostPort);
