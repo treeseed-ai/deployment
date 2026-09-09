@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.276",
+  "version": "0.1.0-rc.277",
   "private": true,
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
@@ -71,7 +71,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.104",
+    "@treeseed/sdk": "0.13.0-rc.105",
     "pg": "8.22.0",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
@@ -84,6 +84,9 @@
     "esbuild": "0.28.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "4.1.11"
+  },
+  "overrides": {
+    "sharp": "0.35.4"
   }
 }

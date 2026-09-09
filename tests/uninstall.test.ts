@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -78,6 +78,18 @@ describe('host uninstall', () => {
 		expect(plan.items.some((item) => item.id.includes('unrelated-kata'))).toBe(false);
 		executeHostUninstall(true, { root: base, command });
 		expect(() => lstatSync(resolve(opt, 'kata'))).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+	});
+
+	it('preserves a formerly owned link replaced with unrelated data before removal', () => {
+		const base = root(), opt = materialize(base, '/opt'), units = materialize(base, '/etc/systemd/system');
+		const link = resolve(opt, 'kata'); symlinkSync('/opt/treeseed/kata/test', link);
+		writeFileSync(resolve(units, 'treeseed-test.service'), 'fixture');
+		const command: UninstallCommand = (executable, args) => {
+			if (executable.endsWith('systemctl') && args[0] === 'disable') { unlinkSync(link); writeFileSync(link, 'unrelated replacement'); }
+			return '';
+		};
+		expect(() => executeHostUninstall(true, { root: base, command })).toThrow(/link ownership changed/);
+		expect(readFileSync(link, 'utf8')).toBe('unrelated replacement');
 	});
 
 	it('writes redacted uninstall receipts that remain readable after operator-group removal', () => {
