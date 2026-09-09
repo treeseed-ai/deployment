@@ -7,8 +7,8 @@ function session(marker: unknown = postgresAllocationMarker('test:staging:api'))
     statements.push(sql);
     if (sql.includes('server_version_num')) return { rows: [{ version: 170006 }] };
     if (sql.includes('pg_available_extensions')) return { rows: [{ name: 'pgcrypto' }] };
-    if (sql.includes('FROM pg_database')) return { rows: [{ name: 'api', owner: 'api_owner', marker }] };
-    if (sql.includes('FROM pg_roles')) return { rows: [{ name: 'api_owner', marker, superuser: false, createDatabase: false, createRole: false, replication: false, bypassRls: false }] };
+    if (sql.includes('FROM pg_database')) return { rows: [{ name: 'api', owner: 'api_owner', marker, allowConnections: true }] };
+    if (sql.includes('FROM pg_roles')) return { rows: [{ name: 'api_owner', marker, superuser: false, createDatabase: false, createRole: false, replication: false, bypassRls: false, login: false, memberships: false }] };
     return { rows: [] };
   } };
 }
