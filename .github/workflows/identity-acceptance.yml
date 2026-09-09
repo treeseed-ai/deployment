@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: treeseed-ai/identity
-          ref: 58348a2ed6ac96f64e74e48542b7c7c23c629ec4
+          ref: a8e9828ed106a932853f904b9d152bac78c23080
           path: .fixtures/identity
           persist-credentials: false
       - name: Build candidate independently and select only in the disposable test installation
@@ -41,6 +41,7 @@ jobs:
           npm ci --prefix .fixtures/identity --ignore-scripts --no-audit --no-fund
           npm run build --prefix .fixtures/identity
           npm install --no-save --package-lock=false --ignore-scripts --install-links --no-audit --no-fund @treeseed/identity@file:.fixtures/identity
+          npm install --prefix tests/identity-runtime --no-save --package-lock=false --ignore-scripts --install-links --no-audit --no-fund @treeseed/identity@file:../../.fixtures/identity
       - name: Build the Deployment implementation exercised by acceptance
         run: npm run build
       - run: node tests/identity-runtime/node_modules/playwright/cli.js install --with-deps chromium
