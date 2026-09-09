@@ -195,6 +195,19 @@ describe('isolated update fault qualification', () => {
 		state.evidence.push({ case: 'post-self-update-cli-custody', result: 'passed', componentRestartCount: 0, endpointAndCaRepaired: true });
 	});
 
+	it('repairs a failed TLS listener on an unchanged generation without reinstalling packages', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.edgeReady = false;
+		expect(await reconcile('development')).toBe(state.previous);
+		expect(state.operations.filter(item => item.operation === 'edge.apply')).toHaveLength(1);
+		expect(state.operations.some(item => item.operation === 'apt.install')).toBe(false);
+		state.operations = [];
+		await reconcile('development');
+		expect(state.operations.some(item => item.operation === 'edge.apply')).toBe(false);
+	});
+
 	it('records a catalog-only generation once without restarting components', async () => {
 		const current = state.development.components[0];
 		state.active = [state.active[0], current]; state.previous = receipt(state.active);

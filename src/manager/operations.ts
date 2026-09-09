@@ -18,7 +18,7 @@ import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
 import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
-import { edgeReadiness } from '../edge/readiness.js';
+import { hostDoctor } from './doctor.js';
 import { inspectRecoveryBackup, listRecoveryBackups } from './recovery.js';
 import { serializedRecovery } from './serialized-recovery.js';
 import { aiModeStatus } from './ai-mode.js';
@@ -301,16 +301,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.ai.mode.set': return setAiModeCommand(request);
 		case 'local.host.doctor': {
-			const checks = [
-				{ id: 'configuration', ok: existsSync(paths.configuration) },
-				{ id: 'stable-catalog', ok: existsSync(`${paths.catalogs}/stable.json`) },
-				{ id: 'supervisor', ok: existsSync(paths.socket) },
-				{ id: 'manager-ca', ok: existsSync(`${paths.tls}/ca.crt`) },
-			];
-			try { plan(); } catch { checks.push({ id: 'accepted-plan', ok: false }); }
-			if (!checks.some((check) => check.id === 'accepted-plan')) checks.push({ id: 'accepted-plan', ok: true });
-			checks.push({ id: 'edge-tls', ok: await edgeReadiness(subjectAlternativeNames(rollbackRoutes(host, loadActiveComponents()))) });
-			return { healthy: checks.every((check) => check.ok), checks };
+			return hostDoctor(plan, subjectAlternativeNames(rollbackRoutes(host, loadActiveComponents())));
 		}
 		case 'local.host.plan': return plan();
 		case 'local.host.apply':
