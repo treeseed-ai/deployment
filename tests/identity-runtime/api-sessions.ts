@@ -145,7 +145,9 @@ export async function apiSessions(root: string) {
         humans: (await pool!.query(`SELECT users.id AS "userId",COALESCE(provider,'') AS issuer,COALESCE(provider_subject,'') AS subject FROM users LEFT JOIN user_identities ON users.id=user_identities.user_id`)).rows,
       }, requested);
       const initial = await plan();
-      assert.equal((await applyIdentityWorkloads(database, { ...initial, requested })).operations[0]?.action, 'register');
+      // Federation, outage and recovery checks initialize these same apps
+      // again. Their exact existing registration must remain a noop.
+      assert.equal((await applyIdentityWorkloads(database, { ...initial, requested })).operations[0]?.action, initial.operations[0]?.action);
       assert.equal((await applyIdentityWorkloads(database, { ...await plan(), requested })).operations[0]?.action, 'noop');
       return createApplicationSession({ issuer, resource, callbackUrl: input.callback, afterLogin: '/me', cookieName: '__Host-session',
         credentials: { token: async request => (await workload.credentials(request)).accessToken }, transport: fetch });
