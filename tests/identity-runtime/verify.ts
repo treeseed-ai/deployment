@@ -162,7 +162,7 @@ try {
   const first = await start('sovereign');
   const second = await start('central');
   checks.push('allocation-custody-apply', 'allocation-stale-plan-denied', 'allocation-custody-replay', 'allocation-roles-start-disabled');
-  checks.push(...sharedDatabase.verifyIsolation(firstDatabasePassword));
+  checks.push(...await sharedDatabase.verifyIsolation(firstDatabasePassword));
   stage = 'token-validation';
   const before = await first.verifier()(await first.token());
   assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'private-key-jwt-client-authentication', 'verified-tls', 'separate-databases');
