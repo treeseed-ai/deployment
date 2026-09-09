@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
-import { createAccessTokenVerifier, createWorkloadCredentials } from '@treeseed/identity';
+import { createAccessTokenVerifier, createWorkloadCredentials, createKeycloakApplicationRegistry } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8 } from 'jose';
 import { browserFixture } from './browser.js';
 import { recoverIdentityDatabase } from './recovery.js';
@@ -161,6 +161,17 @@ async function start(label: Label) {
   const bootstrapToken = await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] });
   syntheticSecrets.push(bootstrapToken.accessToken);
   assert.equal((await fetch(bootstrapResource, { headers: { Authorization: `Bearer ${bootstrapToken.accessToken}` } })).status, 200);
+  stage = `provision-${label}-clients`;
+  const registry = createKeycloakApplicationRegistry({ issuer: bootstrapIssuer, transport: fetch,
+    credentials: { token: async input => (await bootstrapCredentials.credentials(input)).accessToken } });
+  for (const kind of ['browser', 'workload'] as const) {
+    const application = { clientId: `managed-${kind}`, kind, resource: 'https://api.example.test', scopes: [], certificate,
+      redirectUris: kind === 'browser' ? ['https://admin.example.test/auth/callback'] : [] };
+    const created = await registry.ensure(application); assert.equal(created.action, 'create');
+    const unchanged = await registry.ensure(application); assert.equal(unchanged.action, 'noop'); assert.equal(unchanged.id, created.id);
+    await assert.rejects(registry.ensure({ ...application, resource: 'https://foreign.example.test' }), /drift/);
+    assert.equal((await registry.ensure(application)).action, 'noop');
+  }
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
   return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };

@@ -10,7 +10,7 @@ import { BROWSER_SESSION_PERMISSION, BROWSER_SESSION_SCOPE } from '@treeseed/sdk
 import { EncryptedEnvelopeCodec, StaticEnvelopeKeyProvider } from '@treeseed/sdk/security';
 import { AUTH_SCHEMA_SQL } from '../../.fixtures/api/dist/api/auth/postgres-store.js';
 import { createIdentityAuthenticator } from '../../.fixtures/api/dist/api/auth/identity-authenticator.js';
-import { BrowserLoginStore } from '../../.fixtures/api/dist/api/auth/browser/login-store.js';
+import { createApiIdentityRuntime } from '../../.fixtures/api/dist/api/auth/browser/runtime.js';
 import { BrowserSessionStore } from '../../.fixtures/api/dist/api/auth/browser/session-store.js';
 import { createBrowserIdentityService } from '../../.fixtures/api/dist/api/auth/browser/service.js';
 import { installIdentityBrowserRoutes } from '../../.fixtures/api/dist/api/auth/browser/routes.js';
@@ -51,6 +51,18 @@ export async function apiSessions(root: string) {
   }));
   const first = async <T>(sql: string, params: unknown[] = []): Promise<T | null> => {
     assert.ok(pool); let index = 0;
+    // Test-only account enrollment after the real verifier supplies issuer/sub.
+    // Production runtime is read-only over these mappings; never copy this
+    // fixture enrollment adapter into a live API. No email-based adoption.
+    if (sql.includes('FROM user_identities identities')) {
+      const [issuer, subject] = params;
+      const workload = await pool.query('SELECT id FROM identity_workloads WHERE issuer=$1 AND subject=$2', [issuer, subject]);
+      if (!workload.rowCount) {
+        const id = createHash('sha256').update(JSON.stringify([issuer, subject])).digest('hex');
+        await pool.query("INSERT INTO users(id,status,created_at,updated_at) VALUES($1,'active','now','now') ON CONFLICT DO NOTHING", [id]);
+        await pool.query("INSERT INTO user_identities(id,user_id,provider,provider_subject,created_at,updated_at) VALUES($1,$1,$2,$3,'now','now') ON CONFLICT DO NOTHING", [id,issuer,subject]);
+      }
+    }
     return (await pool.query(sql.replace(/\?/gu, () => `$${++index}`), params)).rows[0] ?? null;
   };
   return {
@@ -82,25 +94,16 @@ export async function apiSessions(root: string) {
       assert.ok(pool);
       const { issuer, name } = input, workloadId = `${name}-bff`;
       const keys = await discoverSigningKeys({ issuer, transport: fetch });
-      authenticate = createIdentityAuthenticator({ issuer, audience: resource, verificationKey: keys, store: {
+      const runtime = await createApiIdentityRuntime({ issuer, resource, scopes: ['treeseed:read'],
+        applications: [{ clientId: name, workloadPrincipalId: workloadId, redirectUri: input.callback, privateKey: input.browserKey, scopes: ['treeseed:read'] }],
+        database, codec, transport: fetch, store: {
         first,
         async principalForUser(userId: string) {
           return { userId, principal: { id: userId, roles: [], permissions: [], scopes: ['treeseed:read'] } };
         },
       } });
-      const service = await createBrowserIdentityService({ workloadPrincipalId: workloadId,
-        sessions: new BrowserSessionStore(database, codec, name), oidc: {
-          issuer, clientId: name, redirectUri: input.callback, privateKey: input.browserKey, resource, scopes: ['treeseed:read'],
-          profile: 'keycloak', verificationKey: keys, transport: fetch, store: new BrowserLoginStore(database, codec, name),
-          // Disposable, explicit subject mapping only; never email-based linking.
-          resolvePrincipal: async identity => {
-            const id = createHash('sha256').update(JSON.stringify([identity.issuer, identity.subject])).digest('hex');
-            await pool!.query("INSERT INTO users(id,status,created_at,updated_at) VALUES($1,'active','now','now') ON CONFLICT DO NOTHING", [id]);
-            await pool!.query("INSERT INTO user_identities(id,user_id,provider,provider_subject,created_at,updated_at) VALUES($1,$1,$2,$3,'now','now') ON CONFLICT DO NOTHING", [id,identity.issuer,identity.subject]);
-            return { principalId: id, kind: 'human' };
-          },
-        } });
-      services.set(workloadId, service);
+      authenticate = runtime.authenticate;
+      for (const [id, service] of runtime.services) services.set(id, service);
       const workload = await createWorkloadCredentials({ issuer, clientId: workloadId, privateKey: input.workloadKey,
         resources: [resource], profile: 'keycloak', verificationKey: keys, transport: fetch,
         resolvePrincipal: async identity => {

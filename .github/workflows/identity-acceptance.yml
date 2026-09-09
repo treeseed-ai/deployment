@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: treeseed-ai/api
-          ref: 37992d02f86ca2f629f7124037ce01f61f1b6122
+          ref: 36ea29394aedcdaa8ff9327f8197a1f86f56098a
           path: .fixtures/api
           persist-credentials: false
       - name: Build API independently for encrypted session acceptance
