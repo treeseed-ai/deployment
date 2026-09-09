@@ -69,7 +69,7 @@ async function start(label: Label) {
     '-keyout', join(directory, 'client.key'), '-out', join(directory, 'client.crt')], { stdio: 'ignore' });
   const clientKey = await importPKCS8(readFileSync(join(directory, 'client.key'), 'utf8'), 'RS256');
   const certificate = readFileSync(join(directory, 'client.crt'), 'utf8').replace(/-----[^-]+-----|\s/g, '');
-  const db = sharedDatabase.allocate(label, password, migrationPassword), server = `${prefix}-${label}`;
+  const db = await sharedDatabase.allocate(label, password, migrationPassword), server = `${prefix}-${label}`;
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
@@ -161,6 +161,7 @@ try {
   checks.push(...await sharedDatabase.verifySession());
   const first = await start('sovereign');
   const second = await start('central');
+  checks.push('allocation-custody-apply', 'allocation-stale-plan-denied', 'allocation-custody-replay', 'allocation-roles-start-disabled');
   checks.push(...sharedDatabase.verifyIsolation(firstDatabasePassword));
   stage = 'token-validation';
   const before = await first.verifier()(await first.token());

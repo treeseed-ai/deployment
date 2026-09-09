@@ -4,6 +4,7 @@ export { inspectPostgresAllocations, postgresAllocationMarker, type PostgresInsp
 export { postgresRuntimeAccessSql } from './access.js';
 export { verifyPostgresRuntimeAccess } from './verify.js';
 export { withManagedPostgresSession } from './connection.js';
+export { applyPostgresAllocations } from './apply.js';
 
 export interface PostgresInventory {
   serverId: string;
@@ -48,7 +49,14 @@ export function planPostgresAllocations(input: unknown, observed: PostgresInvent
     } else actions.push({ requirementId: requirement.id, serverId: allocation.serverId, database: allocation.database, action: 'create' });
   }
   return { schemaVersion: 'treeseed.postgres-plan/v1' as const, ready: blockers.length === 0, blockers, actions,
-    inventoryDigest: createHash('sha256').update(JSON.stringify(observed)).digest('hex') };
+    topologyDigest: postgresDigest(topology), inventoryDigest: postgresDigest(observed) };
+}
+
+/** Object key order does not change the exact plan binding. Array order remains explicit. */
+export function postgresDigest(value: unknown): string {
+  const canonical = (item: unknown): unknown => Array.isArray(item) ? item.map(canonical)
+    : item !== null && typeof item === 'object' ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, canonical(entry)])) : item;
+  return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
 
 export function postgresAllocationId(topology: PostgresTopology, requirementId: string) {
