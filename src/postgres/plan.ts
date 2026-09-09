@@ -3,6 +3,7 @@ import { postgresTopologySchema, type PostgresTopology } from '@treeseed/sdk/dep
 export { inspectPostgresAllocations, postgresAllocationMarker, type PostgresInspectionSession } from './inventory.js';
 export { postgresRuntimeAccessSql } from './access.js';
 export { verifyPostgresRuntimeAccess } from './verify.js';
+export { withManagedPostgresSession } from './connection.js';
 
 export interface PostgresInventory {
   serverId: string;

@@ -2,7 +2,7 @@ import type { PostgresInventory } from './plan.js';
 
 /** A single authenticated, TLS-verified bootstrap connection supplied by Deployment. */
 export interface PostgresInspectionSession {
-  query(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
+  query(sql: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
 /** No passwords or credential catalog columns are selected. */
