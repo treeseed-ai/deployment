@@ -1,0 +1,29 @@
+name: PostgreSQL logical transfer
+on:
+  pull_request:
+    paths: ['src/postgres/**', 'src/supervisor/backup-stream.ts', 'tests/identity-runtime/logical-transfer.ts', '.github/workflows/postgres-transfer.yml']
+  push:
+    branches: [staging, main]
+    paths: ['src/postgres/**', 'src/supervisor/backup-stream.ts', 'tests/identity-runtime/logical-transfer.ts', '.github/workflows/postgres-transfer.yml']
+permissions: { contents: read }
+jobs:
+  logical-transfer:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 24 }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      - name: Typecheck the disposable transfer fixture
+        run: npx tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext tests/identity-runtime/logical-transfer.ts
+      - name: Transfer only disposable PostgreSQL databases
+        run: node --import tsx tests/identity-runtime/logical-transfer.ts > postgres-transfer-acceptance.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: postgres-transfer-${{ github.sha }}
+          path: postgres-transfer-acceptance.json
+          retention-days: 14
+          if-no-files-found: error
