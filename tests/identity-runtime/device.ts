@@ -14,13 +14,13 @@ export const deviceClient = { clientId: 'cli', enabled: true, protocol: 'openid-
   protocolMappers: [{ name: 'api-audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
     config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] };
 
-export async function verifyDevice(root: string, issuer: string, password: string) {
+export async function verifyDevice(root: string, issuer: string, password: string, scopes: string[] = []) {
   const discovery = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
   const resource = 'https://api.example.test';
   const client = await createDeviceAuthorizationClient({ issuer, clientId: 'cli', resources: [resource], profile: 'keycloak', transport: fetch,
     verificationKey: keys, resolvePrincipal: async identity => ({ principalId: identity.subject, kind: 'human' }) });
-  const pending = await client.begin({ resource, scopes: [] });
+  const pending = await client.begin({ resource, scopes });
   assert.equal((await pending.poll()).status, 'pending');
   const certificate = new X509Certificate(readFileSync(join(root, 'tls/cert.pem')));
   const pin = createHash('sha256').update(certificate.publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
