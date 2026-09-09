@@ -4,7 +4,7 @@ const name = 'treeseed-api-operations-runner-1';
 
 /** Preserve the installed runner's state identity without changing host permissions. */
 export function releasedRunnerIdentity(command: CommandRunner): { uid: number; gid: number } {
-  const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{{json .}}'])));
+  const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{"Config":{"User":{{json .Config.User}},"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}}}}'])));
   if (state.Config?.Labels?.['com.docker.compose.project'] !== 'treeseed-api' || state.Config?.Labels?.['com.docker.compose.service'] !== 'operations-runner')
     throw new Error('Released runner ownership does not match the managed API.');
   const user = state.Config.User || '0:0';
@@ -19,7 +19,7 @@ export function releasedRunnerIdentity(command: CommandRunner): { uid: number; g
 export function drainReleasedRunner(command: CommandRunner): boolean {
   const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'])).trim();
   if (!found) return false;
-  const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{{json .}}'])));
+  const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{"Config":{"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}}}}'])));
   if (state.Config?.Labels?.['com.docker.compose.project'] !== 'treeseed-api' || state.Config?.Labels?.['com.docker.compose.service'] !== 'operations-runner')
     throw new Error('Released runner ownership does not match the managed API.');
   if (!state.State?.Running) return false;
