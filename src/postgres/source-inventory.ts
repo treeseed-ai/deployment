@@ -27,7 +27,8 @@ export async function inspectPostgresSource(component: ComponentRelease, service
   configured: unknown, docker: SourceDocker) {
   try {
     if (deploymentDigest(component.runtime) !== component.runtimeDigest ||
-      !/^[a-z][a-z0-9.-]{0,127}$/u.test(serviceId)) throw new Error();
+      !/^[a-z][a-z0-9.-]{0,127}$/u.test(serviceId) ||
+      !component.runtime.services.some(service => service.composeService === serviceId)) throw new Error();
     const configuration = z.object({ services: z.record(z.string(), z.unknown()) }).passthrough().parse(configured);
     const service = z.object({ image: z.string().min(1).max(512),
       environment: z.object({ POSTGRES_DB: identifier, POSTGRES_USER: identifier }).passthrough() }).passthrough()
@@ -52,7 +53,7 @@ export async function inspectPostgresSource(component: ComponentRelease, service
     };
     const before = await inspect();
     const inventory = descriptor.parse(JSON.parse(await docker(['exec', container, 'psql', '-X', '-qAt',
-      '-h', '/var/run/postgresql', '-U', service.environment.POSTGRES_USER, '-d', service.environment.POSTGRES_DB,
+      '-h', '/var/run/postgresql', '-p', '5432', '-U', service.environment.POSTGRES_USER, '-d', service.environment.POSTGRES_DB,
       '-v', 'ON_ERROR_STOP=1', '-c', postgresSourceInventorySql], 15, true)));
     if (inventory.database !== service.environment.POSTGRES_DB || deploymentDigest(before) !== deploymentDigest(await inspect())) throw new Error();
     const { cluster, ...metadata } = inventory;

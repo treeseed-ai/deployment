@@ -94,6 +94,7 @@ try {
   stage = 'source-attestation';
   const release = component('api', 'development', 'a');
   release.runtime.compose.projectName = prefix;
+  release.runtime.services[0]!.composeService = 'source';
   release.runtimeDigest = deploymentDigest(release.runtime);
   release.images = [{ role: 'postgres', repository: 'postgres', digest: pg16.split('@')[1]!, platforms: ['linux/amd64'], consumers: ['api'] }];
   const configuredSource = { services: { source: { image: pg16, environment: { POSTGRES_DB: 'application', POSTGRES_USER: 'postgres' } } } };

@@ -6,6 +6,7 @@ import { component } from './fixtures.js';
 
 function fixture() {
   const release = component('api', 'development', 'a');
+  release.runtime.services[0]!.composeService = 'database';
   release.runtimeDigest = deploymentDigest(release.runtime);
   const selected = { services: { database: { image: `treeseed/api@${release.images[0]!.digest}`,
     environment: { POSTGRES_DB: 'application', POSTGRES_USER: 'owner', POSTGRES_PASSWORD: 'never-return-this' } } } };
