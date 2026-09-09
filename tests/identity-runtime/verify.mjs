@@ -53,6 +53,7 @@ async function ready(url) {
 async function start(label) {
   stage = `start-${label}`;
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
+  mkdirSync(join(directory, 'tls'), { mode: 0o755 });
   const password = randomBytes(32).toString('hex');
   syntheticSecrets.push(password);
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${label}-workload`,
@@ -167,7 +168,7 @@ try {
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
     try {
-      const state = docker('inspect', '--format', '{{.State.Status}} exit={{.State.ExitCode}}', name);
+      const state = docker('inspect', '--format', '{{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}', name);
       const output = execFileSync('docker', ['logs', '--tail', '60', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       const redacted = syntheticSecrets.reduce((text, secret) => text.replaceAll(secret, '[REDACTED]'), output);
       const diagnostics = redacted.split('\n').filter(line => /ERROR|WARN|error|failed|Listening|started/i.test(line)).map(line => line.slice(0, 500));
