@@ -15,6 +15,7 @@ import { recoverIdentityDatabase } from './recovery.js';
 import { managedIdentityServices, IDENTITY_IMAGES } from '../../dist/src/identity/compose.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { startSharedDatabase } from './database.js';
+import { identityBootstrapRealm } from '../../dist/src/identity/bootstrap.js';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
@@ -61,6 +62,7 @@ async function start(label: Label) {
   stage = `start-${label}`;
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
   mkdirSync(join(directory, 'tls'), { mode: 0o755 });
+  for (const file of ['cert.pem', 'key.pem']) writeFileSync(join(directory, 'tls', file), readFileSync(join(root, 'tls', file)), { mode: 0o644 });
   const password = randomBytes(32).toString('hex');
   const migrationPassword = randomBytes(32).toString('hex');
   syntheticSecrets.push(password, migrationPassword);
@@ -73,6 +75,7 @@ async function start(label: Label) {
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
+  writeFileSync(join(directory, 'bootstrap-realm.json'), JSON.stringify(identityBootstrapRealm(readFileSync(join(directory, 'client.crt'), 'utf8'), base)), { mode: 0o644 });
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
@@ -108,8 +111,9 @@ async function start(label: Label) {
   const services = {
     identity: { ...managed.identity, container_name: server,
       networks: { private: { aliases: [`${label}.localhost`] }, broker: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
-      volumes: [...managed.identity.volumes, { type: 'bind', source: join(root, 'tls'), target: '/run/identity/tls', read_only: true },
+      volumes: [...managed.identity.volumes,
         { type: 'bind', source: databaseDirectory, target: allocationRoot, read_only: true },
+        { type: 'bind', source: join(directory, 'bootstrap-realm.json'), target: '/opt/keycloak/data/import/treeseed-realm.json', read_only: true },
         { type: 'bind', source: join(directory, 'realm.json'), target: '/opt/keycloak/data/import/acceptance-realm.json', read_only: true }],
       command: [...managed.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value), '--import-realm'] },
   };
@@ -143,6 +147,15 @@ async function start(label: Label) {
     return result.accessToken;
   };
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
+  const bootstrapIssuer = `${base}/realms/treeseed`, bootstrapResource = `${base}/admin/realms/treeseed`;
+  const bootstrapDiscovery = await ready(`${bootstrapIssuer}/.well-known/openid-configuration`);
+  const bootstrapKeys = createLocalJWKSet(await (await fetch(bootstrapDiscovery.jwks_uri)).json());
+  const bootstrapCredentials = await createWorkloadCredentials({ issuer: bootstrapIssuer, clientId: 'treeseed-identity-reconciler', privateKey: clientKey,
+    resources: [bootstrapResource], verificationKey: bootstrapKeys, profile: 'keycloak', transport: fetch,
+    resolvePrincipal: async identity => ({ principalId: identity.subject, kind: 'service' }) });
+  const bootstrapToken = await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] });
+  syntheticSecrets.push(bootstrapToken.accessToken);
+  assert.equal((await fetch(bootstrapResource, { headers: { Authorization: `Bearer ${bootstrapToken.accessToken}` } })).status, 200);
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
   return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };

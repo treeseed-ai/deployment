@@ -7,6 +7,7 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { managedHostRuntimeEnvironment } from './host-runtime.js';
 import { prepareManagedOpenBao } from '../security/custody/managed-files.js';
 import { prepareManagedPostgresBootstrap } from '../postgres/bootstrap.js';
+import { prepareIdentityBootstrap } from '../identity/bootstrap.js';
 import { componentCredential } from '../core/component-credential.js';
 import { readComponentCredential } from './component-sealed.js';
 import { componentRuntimeRoot, prepareEphemeralComponentInputs, usesSealedComponentCredentials } from './component-ephemeral.js';
@@ -20,6 +21,7 @@ const fileName = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
 const credentialPath = /^\/etc\/treeseed\/credentials\/[a-z0-9][a-z0-9._-]{0,127}$/u;
 const stateDirectories: Record<string, string[]> = {
 	postgres: ['postgres', 'postgres-os', 'lifecycle'],
+	identity: ['identity-os'],
 	api: ['postgres', 'operations-runner', 'openbao', 'openbao-custody', 'openbao-os'],
 	admin: [],
 	agent: [],
@@ -265,6 +267,16 @@ export function configureComponent(componentId: string, release: string, connect
 		if (!host.postgres) throw new Error('An explicit PostgreSQL topology is required before bootstrap.');
 		prepareManagedPostgresBootstrap({ stateRoot, runtimeRoot: '/run/treeseed/postgres', hostname: 'postgres',
 			environment: host.postgres.environment });
+	}
+	if (componentId === 'identity') {
+		if (!host.postgres) throw new Error('Identity requires an explicit shared PostgreSQL allocation.');
+		const alias = selection.aliases['identity.identity.https'] ?? 'identity.treeseed.localhost';
+		const publicUrl = `https://${alias}`;
+		const configuredUrl = record(selection.configuration.environment, 'Identity environment').TREESEED_IDENTITY_PUBLIC_URL;
+		if (configuredUrl !== undefined && configuredUrl !== publicUrl) throw new Error('Identity public URL must match its managed endpoint alias.');
+		prepareIdentityBootstrap({ stateRoot, runtimeRoot: '/run/treeseed/identity', publicUrl, environment: host.postgres.environment,
+			certificateAuthority: '/etc/treeseed/manager/tls/ca.crt', certificateAuthorityKey: '/etc/treeseed/manager/tls/ca.key' });
+		connectionEnvironment.TREESEED_IDENTITY_PUBLIC_URL = publicUrl;
 	}
 	prepareManagedAiCredentials(host, componentId);
 	const aiStorageKeys = prepareAiStorageIdentities(host, componentId);

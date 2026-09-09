@@ -17,6 +17,7 @@ import { activatePostgresAllocation } from '../../dist/src/postgres/activation.j
 import { disablePostgresAllocation } from '../../dist/src/postgres/disable.js';
 import { verifyManagedPostgres } from './managed-postgres.js';
 import { verifyAllocationRecovery } from './allocation-recovery.js';
+import { verifyIdentityBootstrap } from './identity-bootstrap.js';
 
 // Runs as root only on the disposable Actions runner, never on a user's host.
 if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable privileged Actions acceptance required');
@@ -77,6 +78,8 @@ try {
   });
   stage = 'managed-component-lifecycle';
   await verifyManagedPostgres(root, topology);
+  stage = 'identity-bootstrap';
+  verifyIdentityBootstrap(root);
   stage = 'custody-replay';
   prepareManagedPostgresBootstrap(options); // Preserve custody with the running socket owned by PostgreSQL.
   stage = 'permission-denial';

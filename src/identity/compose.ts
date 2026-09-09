@@ -43,7 +43,7 @@ export function managedIdentityServices(options: {
         '--truststore-paths=/run/identity/tls/cert.pem'],
       environment: { KC_DB: 'postgres', ...databaseEnvironment, KC_HOSTNAME: url.origin,
         KC_HEALTH_ENABLED: 'true', KC_METRICS_ENABLED: 'true', KC_HTTP_MANAGEMENT_SCHEME: 'http', KC_HTTP_MANAGEMENT_HOST: '127.0.0.1' },
-      volumes: [bind(options.configurationRoot, '/run/identity')],
+      volumes: allocated ? [bind(`${options.configurationRoot}/tls`, '/run/identity/tls')] : [bind(options.configurationRoot, '/run/identity')],
       // Official minimal image contains bash, not curl. Readiness is not liveness.
       healthcheck: { test: ['CMD', '/bin/bash', '-ec', 'exec 3<>/dev/tcp/127.0.0.1/9000; printf "HEAD /health/ready HTTP/1.0\\r\\n\\r\\n" >&3; grep -Eq "^HTTP/1[.][01] 200 " <&3'], interval: '5s', timeout: '3s', retries: 60, start_period: '60s' },
       security_opt: ['no-new-privileges:true'], cap_drop: ['ALL'],
