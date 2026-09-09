@@ -13,6 +13,7 @@ import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { providerRuntimeStatus } from './provider-runtime.js';
 import { reconcileLocalPostgres } from './postgres.js';
+import { inspectInstalledPostgresSource } from './postgres-source.js';
 import { activateLocalPostgresComponent } from './postgres-lifecycle.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
@@ -338,6 +339,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'component.configure':
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
 			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
+		case 'postgres.source.inspect': return inspectInstalledPostgresSource(operation.componentId, operation.release, operation.serviceId);
 		case 'postgres.plan': return reconcileLocalPostgres(operation.selections);
 		case 'postgres.component.activate': return activateLocalPostgresComponent(operation.componentId, operation.selections, operation.backupGeneration);
 		case 'postgres.apply': return reconcileLocalPostgres(operation.selections, { topologyDigest: operation.topologyDigest, inventoryDigest: operation.inventoryDigest });
