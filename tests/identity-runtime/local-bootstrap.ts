@@ -15,12 +15,14 @@ import { existsSync } from 'node:fs';
 import pg from 'pg';
 import { activatePostgresAllocation } from '../../dist/src/postgres/activation.js';
 import { disablePostgresAllocation } from '../../dist/src/postgres/disable.js';
+import { verifyManagedPostgres } from './managed-postgres.ts';
 
 // Runs as root only on the disposable Actions runner, never on a user's host.
 if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable privileged Actions acceptance required');
 const root = mkdtempSync('/run/treeseed-postgres-acceptance-');
 const name = `treeseed-postgres-test-${randomBytes(8).toString('hex')}`;
-const options = { stateRoot: join(root, 'state'), runtimeRoot: join(root, 'runtime'), hostname: 'postgres', environment: 'staging' as const };
+assert.equal(existsSync('/run/treeseed/postgres'), false, 'Disposable runtime custody must start absent');
+const options = { stateRoot: join(root, 'state/postgres'), runtimeRoot: '/run/treeseed/postgres', hostname: 'postgres', environment: 'staging' as const };
 const compose = join(root, 'compose.json');
 const docker = (...args: string[]) => execFileSync('/usr/bin/docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 180000 });
 let started = false;
@@ -32,7 +34,7 @@ try {
   stage = 'compose';
   const service = managedPostgresService({ configurationRoot: options.runtimeRoot, stateRoot: options.stateRoot });
   const runtime = { ...service, container_name: name, volumes: service.volumes.filter(volume => volume.target !== '/var/lib/postgresql/data'), tmpfs: ['/var/lib/postgresql/data'] };
-  writeFileSync(compose, JSON.stringify({ services: { postgres: runtime }, networks: { private: { internal: true } } }));
+  writeFileSync(compose, JSON.stringify({ services: { postgres: runtime }, networks: { private: { internal: true, name: 'treeseed-postgres-private' } } }));
   started = true; docker('compose', '-p', name, '-f', compose, 'up', '-d', '--wait');
   stage = 'ports';
   assert.ok(Object.values(JSON.parse(docker('inspect', '--format', '{{json .NetworkSettings.Ports}}', name))).every(value => value === null));
@@ -69,6 +71,8 @@ try {
       assert.equal((await session.query('SELECT current_user AS username')).rows[0]?.username, 'postgres');
     } finally { await runtime.end().catch(() => undefined); }
   });
+  stage = 'managed-component-lifecycle';
+  await verifyManagedPostgres(root, topology);
   stage = 'custody-replay';
   prepareManagedPostgresBootstrap(options); // Preserve custody with the running socket owned by PostgreSQL.
   stage = 'permission-denial';
@@ -84,5 +88,6 @@ try {
 } finally {
   if (started) docker('compose', '-p', name, '-f', compose, 'down', '--volumes');
   for (const path of credentialFiles) rmSync(path, { force: true });
+  rmSync('/run/treeseed/postgres', { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
 }
