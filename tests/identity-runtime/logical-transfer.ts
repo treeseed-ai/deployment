@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writePostgresLogicalArchive, restorePostgresLogicalArchive } from '../../dist/src/postgres/logical-archive.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
+import { inspectPostgresSource } from '../../dist/src/postgres/source-inventory.js';
+import { deploymentDigest } from '@treeseed/sdk/deployment';
+import { component } from '../fixtures.js';
 
 // Disposable Actions only. No host ports, network, credentials or durable volumes.
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable Actions acceptance required');
@@ -37,6 +40,7 @@ const checks: string[] = [];
 try {
   for (const [name, image] of [[source, pg16], [destination, POSTGRES_IMAGE]] as const) {
     docker(['run', '-d', '--name', name, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data',
+      '--label', `com.docker.compose.project=${prefix}`, '--label', `com.docker.compose.service=${name === source ? 'source' : 'destination'}`,
       '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', image, '-c', 'listen_addresses=']);
     let ready = false;
     for (let attempt = 0; attempt < 90; attempt++) {
@@ -62,6 +66,17 @@ try {
   sql(destination, 'postgres', 'REVOKE ALL ON DATABASE application FROM PUBLIC; GRANT CONNECT ON DATABASE application TO application_migrator,application_runtime;');
   const records = (name: string) => sql(name, 'application', 'SELECT row_to_json(r) FROM records r ORDER BY id');
   const before = records(source);
+  stage = 'source-attestation';
+  const release = component('api', 'development', 'a');
+  release.runtime.compose.projectName = prefix;
+  release.runtimeDigest = deploymentDigest(release.runtime);
+  release.images = [{ role: 'postgres', repository: 'postgres', digest: pg16.split('@')[1]!, platforms: ['linux/amd64'], consumers: ['api'] }];
+  const configuredSource = { services: { source: { image: pg16, environment: { POSTGRES_DB: 'application', POSTGRES_USER: 'postgres' } } } };
+  const observed = await inspectPostgresSource(release, 'source', configuredSource, async args => docker(args));
+  assert.equal(observed.major, 16); assert.equal(observed.database, 'application');
+  assert.match(observed.clusterIdentity, /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(records(source), before);
+  checks.push('installed-image-source-attestation-read-only');
   stage = 'export';
   const dump = processStream(source, ['pg_dump', '-U', 'postgres', '-d', 'application', '--format=custom', '--no-tablespaces']);
   dump.child.stdin.end();
