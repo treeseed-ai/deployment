@@ -24,6 +24,7 @@ export async function nativeFixture(resource: string) {
   return {
     descriptor: { clientId: 'trsd', enabled: true, protocol: 'openid-connect', publicClient: true,
       standardFlowEnabled: true, directAccessGrantsEnabled: false, serviceAccountsEnabled: false,
+      defaultClientScopes: ['basic'],
       // Keycloak's native loopback registration ignores the ephemeral port,
       // while preserving the exact path. No host/path wildcard.
       redirectUris: ['http://127.0.0.1/callback'], webOrigins: [], optionalClientScopes: ['treeseed:read','treeseed:knowledge:write','treeseed:governance:write','treeseed:projects:write','treeseed:execution'], attributes: { 'pkce.code.challenge.method': 'S256' },

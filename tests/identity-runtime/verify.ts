@@ -80,7 +80,7 @@ async function start(label: Label) {
   writeFileSync(join(directory, 'bootstrap-realm.json'), JSON.stringify(identityBootstrapRealm(readFileSync(join(directory, 'client.crt'), 'utf8'), base)), { mode: 0o644 });
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
-    clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions], defaultDefaultClientScopes: ['profile', 'email'],
+    clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions], defaultDefaultClientScopes: ['basic', 'profile', 'email'],
     users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
       credentials: [{ type: 'password', value: humanPassword, temporary: false }] }],
     identityProviders: label === 'sovereign' ? [{ alias: 'central', displayName: 'Explicit central trust', providerId: 'oidc', enabled: true,
@@ -96,7 +96,7 @@ async function start(label: Label) {
       protocolMappers: [{ name: 'audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
         config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }, ...browsers.clients, deviceClient,
       ...(label === 'central' ? [{ clientId: 'sovereign-broker', enabled: true, protocol: 'openid-connect', publicClient: false,
-        secret: brokerSecret, standardFlowEnabled: true, directAccessGrantsEnabled: false, defaultClientScopes: ['profile', 'email'],
+        secret: brokerSecret, standardFlowEnabled: true, directAccessGrantsEnabled: false, defaultClientScopes: ['basic', 'profile', 'email'],
         redirectUris: [`${issuerFor('sovereign')}/broker/central/endpoint`] }] : [])],
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.

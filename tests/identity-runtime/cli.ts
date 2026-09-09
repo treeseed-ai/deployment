@@ -10,6 +10,10 @@ export const cliScopeDefinitions = cliScopes.map(name => ({name,protocol:'openid
 // Supplying clientScopes in a realm import replaces Keycloak's built-in list.
 // Keep the minimal standard claims needed by the separate federation fixture.
 export const standardScopeDefinitions = [
+  { name: 'basic', protocol: 'openid-connect', attributes: { 'include.in.token.scope': 'false' }, protocolMappers: [
+    { name: 'subject', protocol: 'openid-connect', protocolMapper: 'oidc-sub-mapper',
+      config: { 'access.token.claim': 'true', 'introspection.token.claim': 'true' } },
+  ] },
   { name: 'profile', protocol: 'openid-connect', protocolMappers: [
     { name: 'username', protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
       config: { 'user.attribute': 'username', 'claim.name': 'preferred_username', 'jsonType.label': 'String', 'id.token.claim': 'true', 'userinfo.token.claim': 'true' } },
