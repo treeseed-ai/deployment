@@ -13,8 +13,10 @@ import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
 import { browserFixture } from './browser.mjs';
 import { recoverIdentityDatabase } from './recovery.mjs';
 import { managedIdentityServices, IDENTITY_IMAGES } from '../../src/identity/compose.ts';
+import { POSTGRES_IMAGE } from '../../src/postgres/compose.ts';
+import { startSharedDatabase } from './database.mjs';
 
-const images = IDENTITY_IMAGES;
+const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
 const prefix = `treeseed-identity-test-${randomBytes(6).toString('hex')}`;
 const names = [];
@@ -23,6 +25,8 @@ const syntheticSecrets = [];
 const originalTrust = getCACertificates('default');
 let networkCreated = false;
 let browsers;
+let sharedDatabase;
+let firstDatabasePassword;
 const humanPassword = randomBytes(32).toString('hex');
 syntheticSecrets.push(humanPassword);
 const brokerSecret = randomBytes(32).toString('hex');
@@ -56,11 +60,12 @@ async function start(label) {
   mkdirSync(join(directory, 'tls'), { mode: 0o755 });
   const password = randomBytes(32).toString('hex');
   syntheticSecrets.push(password);
+  if (label === 'sovereign') firstDatabasePassword = password;
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${label}-workload`,
     '-keyout', join(directory, 'client.key'), '-out', join(directory, 'client.crt')], { stdio: 'ignore' });
   const clientKey = await importPKCS8(readFileSync(join(directory, 'client.key'), 'utf8'), 'RS256');
   const certificate = readFileSync(join(directory, 'client.crt'), 'utf8').replace(/-----[^-]+-----|\s/g, '');
-  const db = `${prefix}-${label}-db`, server = `${prefix}-${label}`;
+  const db = sharedDatabase.allocate(label, password), server = `${prefix}-${label}`;
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
@@ -86,22 +91,21 @@ async function start(label) {
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.
   writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
-  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, stateRoot: join(directory, 'state') });
+  writeFileSync(join(directory, 'database-ca.pem'), readFileSync(join(root, 'tls/cert.pem')), { mode: 0o444 });
+  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: db });
   const services = {
-    'identity-database': { ...managed['identity-database'], container_name: db,
-      volumes: managed['identity-database'].volumes.filter(volume => volume.target !== '/var/lib/postgresql/data'), tmpfs: ['/var/lib/postgresql/data'] },
     identity: { ...managed.identity, container_name: server,
       networks: { private: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
       volumes: [...managed.identity.volumes, { type: 'bind', source: join(root, 'tls'), target: '/run/identity/tls', read_only: true },
         { type: 'bind', source: join(directory, 'realm.json'), target: '/opt/keycloak/data/import/acceptance-realm.json', read_only: true }],
       command: [...managed.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value), '--import-realm'] },
   };
-  // Each issuer gets its own private database network; only Keycloak also joins
-  // the broker network, preventing cross-instance database-name resolution.
+  // Applications share a server, not roles or databases. The private broker
+  // network carries verified TLS database connections as well as OIDC traffic.
   services.identity.networks.broker = { aliases: [`${label}.localhost`] };
   const composePath = join(directory, 'compose.json');
   writeFileSync(composePath, JSON.stringify({ services, networks: { private: {}, broker: { external: true, name: prefix } } }));
-  names.push(db, server);
+  names.push(server);
   privateNetworks.push(`${prefix}-${label}_private`);
   docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
   const discovery = await ready(`${issuer}/.well-known/openid-configuration`);
@@ -120,7 +124,7 @@ async function start(label) {
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
-  return { server, database: db, issuer, token, verifier, discovery, clientKey };
+  return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };
 }
 try {
   docker('info', '--format', '{{.ServerVersion}}');
@@ -131,12 +135,17 @@ try {
   ports.sovereign = await port(); ports.central = await port();
   mkdirSync(join(root, 'tls'), { mode: 0o755 });
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=disposable-identity',
-    '-addext', 'subjectAltName=IP:127.0.0.1,DNS:admin.localhost,DNS:market.localhost,DNS:sovereign.localhost,DNS:central.localhost', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
+    '-addext', 'subjectAltName=IP:127.0.0.1,DNS:postgres,DNS:admin.localhost,DNS:market.localhost,DNS:sovereign.localhost,DNS:central.localhost', '-keyout', join(root, 'tls/key.pem'), '-out', join(root, 'tls/cert.pem')], { stdio: 'ignore' });
   chmodSync(join(root, 'tls/key.pem'), 0o644);
   setDefaultCACertificates([...originalTrust, readFileSync(join(root, 'tls/cert.pem'), 'utf8')]);
   browsers = await browserFixture(root);
+  const bootstrapPassword = randomBytes(32).toString('hex'); syntheticSecrets.push(bootstrapPassword);
+  names.push(`${prefix}-postgres`);
+  stage = 'shared-database';
+  sharedDatabase = startSharedDatabase({ root, prefix, password: bootstrapPassword, docker });
   const first = await start('sovereign');
   const second = await start('central');
+  checks.push(...sharedDatabase.verifyIsolation(firstDatabasePassword));
   stage = 'token-validation';
   const before = await first.verifier()(await first.token());
   assert.equal(before.kind, 'service'); checks.push('real-keycloak-token', 'private-key-jwt-client-authentication', 'verified-tls', 'separate-databases');
