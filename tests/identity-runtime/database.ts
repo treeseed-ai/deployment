@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { managedPostgresService } from '../../dist/src/postgres/compose.js';
 import { verifyPostgresRuntimeAccess } from '../../dist/src/postgres/verify.js';
+import { verifyPostgresAllocationRuntime } from '../../dist/src/postgres/runtime-state.js';
 import { withManagedPostgresSession } from '../../dist/src/postgres/connection.js';
 import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js';
 import { planPostgresAllocations, applyPostgresAllocations, activatePostgresAllocation } from '../../dist/src/postgres/plan.js';
@@ -77,6 +78,18 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
     },
     async verifyIsolation(secret: string) {
       const stored = allocations.get('sovereign'); assert.ok(stored);
+      const readback = () => withManagedPostgresSession({ ...options, database: 'identity_sovereign' }, session =>
+        verifyPostgresAllocationRuntime(stored.topology, 'sovereign', stored.password, session));
+      const initial = await readback();
+      if (!initial.verified) console.error(JSON.stringify({ databaseRuntimeBlockers: initial.blockers }));
+      assert.equal(initial.action, 'noop');
+      sql('ALTER ROLE identity_sovereign CONNECTION LIMIT 21');
+      assert.ok((await readback()).blockers.includes('limits'));
+      sql('ALTER ROLE identity_sovereign CONNECTION LIMIT 20');
+      assert.equal((await readback()).action, 'noop');
+      const wrongCredential = await withManagedPostgresSession({ ...options, database: 'identity_sovereign' }, session =>
+        verifyPostgresAllocationRuntime(stored.topology, 'sovereign', 'b'.repeat(64), session));
+      assert.ok(wrongCredential.blockers.includes('credentialMismatch'));
       await assert.rejects(withManagedPostgresSession({ ...options, database: 'identity_sovereign' }, session =>
         activatePostgresAllocation(stored.topology, 'sovereign', 'migration', 'b'.repeat(64), session)), /Managed PostgreSQL operation failed/);
       const client = (query: string) => execFileSync('docker', ['exec', '-i', '-e', `PGPASSWORD=${secret}`, name, 'psql', '-h', '127.0.0.1', '-U', 'identity_sovereign', '-d', 'identity_sovereign', '-At', '-v', 'ON_ERROR_STOP=1'], {
@@ -92,7 +105,7 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       assert.throws(() => client('SET ROLE identity_sovereign_migrator;'));
       assert.throws(() => client('CREATE TABLE forbidden(id integer);'));
       assert.throws(() => client('ALTER TABLE user_entity ADD COLUMN forbidden integer;'));
-      return ['shared-postgres-server', 'cross-database-connect-denied', 'application-role-escalation-denied', 'keycloak-database-tls', 'runtime-ddl-denied', 'runtime-migrator-escalation-denied', 'active-writer-migration-denied', 'scram-credential-activation'];
+      return ['shared-postgres-server', 'cross-database-connect-denied', 'application-role-escalation-denied', 'keycloak-database-tls', 'runtime-ddl-denied', 'runtime-migrator-escalation-denied', 'active-writer-migration-denied', 'scram-credential-activation', 'active-runtime-readback', 'connection-limit-drift', 'credential-mismatch-denied'];
     },
   };
 }
