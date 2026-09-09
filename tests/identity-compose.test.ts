@@ -1,21 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { managedIdentityServices, IDENTITY_IMAGES } from '../src/identity/compose.js';
 
-const input = { publicUrl: 'https://identity.example.test', configurationRoot: '/run/treeseed/identity', stateRoot: '/var/lib/treeseed/components/identity' };
+const input = { publicUrl: 'https://identity.example.test', configurationRoot: '/run/treeseed/identity', database: { hostname: 'postgres', port: 5432, database: 'identity', username: 'identity' } };
 describe('managed identity services', () => {
   it('uses immutable images, independent PostgreSQL and protected file inputs', () => {
     const services = managedIdentityServices(input);
     expect(services.identity.image).toBe(IDENTITY_IMAGES.keycloak);
-    expect(services['identity-database'].environment.POSTGRES_PASSWORD_FILE).toBe('/run/identity/database-password');
+    expect(services).not.toHaveProperty('identity-database');
+    expect(services.identity.environment.KC_DB_URL).toContain('sslmode=verify-full');
     expect(services.identity.environment).not.toHaveProperty('KC_DB_PASSWORD');
     expect(services.identity.command).toContain('--http-enabled=false');
     expect(services.identity).not.toHaveProperty('ports');
-    expect(services['identity-database']).not.toHaveProperty('ports');
   });
   it.each(['http://identity.test', 'https://user:pass@identity.test', 'https://identity.test/realm', 'https://identity.test/?query=1'])('rejects unsafe origin %s', publicUrl => {
     expect(() => managedIdentityServices({ ...input, publicUrl })).toThrow();
   });
-  it.each(['/', '../data', '/data/../etc', '/data/$unsafe'])('rejects unsafe custody root %s', stateRoot => {
-    expect(() => managedIdentityServices({ ...input, stateRoot })).toThrow();
+  it.each(['/', '../data', '/data/../etc', '/data/$unsafe'])('rejects unsafe custody root %s', configurationRoot => {
+    expect(() => managedIdentityServices({ ...input, configurationRoot })).toThrow();
+  });
+  it('rejects absent, administrative or injectable database allocations', () => {
+    for (const database of [undefined, { ...input.database, username: 'postgres' }, { ...input.database, database: 'identity?sslmode=disable' }, { ...input.database, port: 0 }]) {
+      expect(() => managedIdentityServices({ ...input, database } as never)).toThrow();
+    }
   });
 });

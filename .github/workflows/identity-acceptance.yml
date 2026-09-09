@@ -1,10 +1,10 @@
 name: Identity compatibility
 on:
   pull_request:
-    paths: ['src/identity/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
+    paths: ['src/identity/**', 'src/postgres/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
   push:
     branches: [staging, main]
-    paths: ['src/identity/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
+    paths: ['src/identity/**', 'src/postgres/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
 permissions: { contents: read }
 jobs:
   identity-runtime:
