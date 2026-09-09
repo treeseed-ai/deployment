@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writePostgresLogicalArchive, restorePostgresLogicalArchive } from '../../dist/src/postgres/logical-archive.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
+import { fingerprintPostgresTransfer } from '../../dist/src/postgres/transfer-fingerprint.js';
+import type { PostgresInspectionSession } from '../../dist/src/postgres/inventory.js';
 
 // Disposable Actions only. No host ports, network, credentials or durable volumes.
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable Actions acceptance required');
@@ -34,10 +36,33 @@ function processStream(name: string, args: string[]) {
   return { child, completed };
 }
 const checks: string[] = [];
+// A persistent psql session is needed for read-only snapshots and cursors. The
+// fixture uses an isolated Unix socket; managed network clients require TLS.
+async function fingerprint(name: string, owner: string, major: 16 | 17) {
+  assert.ok(owned.has(name));
+  const { Client } = await import('pg');
+  const client = new Client({ host: join(root, name === source ? 'source' : 'destination'),
+    user: 'postgres', database: 'application', connectionTimeoutMillis: 10000, query_timeout: 30000 });
+  await client.connect();
+  try {
+    const session: PostgresInspectionSession = { query: async (query, values) => {
+      const result = await client.query(query, values);
+      return { rows: Array.isArray(result) ? [] : result.rows };
+    } };
+    return await fingerprintPostgresTransfer(session, { database: 'application', owner, major });
+  } finally { await client.end(); }
+}
 try {
   for (const [name, image] of [[source, pg16], [destination, POSTGRES_IMAGE]] as const) {
+    const socket = join(root, name === source ? 'source' : 'destination');
+    mkdirSync(socket); chmodSync(socket, 0o777);
+    // The mode-0700 parent excludes other host users; only this owned container
+    // receives its socket directory. Cross-image PostgreSQL UIDs differ.
     docker(['run', '-d', '--name', name, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data',
-      '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', image, '-c', 'listen_addresses=']);
+      '--mount', `type=bind,source=${socket},target=/fixture-socket`,
+      '-e', 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C',
+      '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', image, '-c', 'listen_addresses=',
+      '-c', 'unix_socket_directories=/var/run/postgresql,/fixture-socket']);
     let ready = false;
     for (let attempt = 0; attempt < 90; attempt++) {
       try { docker(['exec', name, 'pg_isready', '-U', 'postgres']); ready = true; break; }
@@ -62,6 +87,8 @@ try {
   sql(destination, 'postgres', 'REVOKE ALL ON DATABASE application FROM PUBLIC; GRANT CONNECT ON DATABASE application TO application_migrator,application_runtime;');
   const records = (name: string) => sql(name, 'application', 'SELECT row_to_json(r) FROM records r ORDER BY id');
   const before = records(source);
+  stage = 'source-fingerprint';
+  const sourceFingerprint = await fingerprint(source, 'postgres', 16);
   stage = 'export';
   const dump = processStream(source, ['pg_dump', '-U', 'postgres', '-d', 'application', '--format=custom', '--no-tablespaces']);
   dump.child.stdin.end();
@@ -74,6 +101,9 @@ try {
   };
   stage = 'restore';
   await restorePostgresLogicalArchive(root, intentDigest, key, archive, target);
+  stage = 'destination-fingerprint';
+  assert.deepEqual(await fingerprint(destination, 'application_owner', 17), sourceFingerprint);
+  checks.push('cross-major-schema-content-owner-normalized-fingerprint');
   assert.equal(records(destination), before); assert.equal(records(source), before);
   assert.equal(sql(destination, 'application', "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='records'::regclass"), 'application_owner');
   assert.equal(sql(destination, 'application', "SELECT has_table_privilege('application_runtime','records','SELECT')"), 'f');
@@ -94,6 +124,18 @@ try {
   await assert.rejects(restorePostgresLogicalArchive(root, intentDigest, key, corrupt, async () => { opened = true; return target(); }));
   assert.equal(opened, false); assert.equal(records(destination), before);
   checks.push('corrupt-gcm-denied-before-destination-process');
+  stage = 'fingerprint-drift';
+  sql(destination, 'application', "UPDATE records SET payload='{}' WHERE id=1");
+  assert.notEqual((await fingerprint(destination, 'application_owner', 17)).contentDigest, sourceFingerprint.contentDigest);
+  sql(destination, 'application', `UPDATE records SET payload='{"value":1}' WHERE id=1`);
+  sql(destination, 'application', "SELECT setval('records_id_seq',90)");
+  assert.notEqual((await fingerprint(destination, 'application_owner', 17)).contentDigest, sourceFingerprint.contentDigest);
+  sql(destination, 'application', "SELECT setval('records_id_seq',2)");
+  sql(destination, 'application', 'ALTER TABLE records ADD CONSTRAINT nonempty CHECK(length(label)>0)');
+  assert.notEqual((await fingerprint(destination, 'application_owner', 17)).schemaDigest, sourceFingerprint.schemaDigest);
+  sql(destination, 'application', 'ALTER TABLE records OWNER TO postgres');
+  await assert.rejects(fingerprint(destination, 'application_owner', 17));
+  checks.push('row-sequence-constraint-owner-drift-denied');
   console.log(JSON.stringify({ ok: true, checks }));
 } catch { console.error(JSON.stringify({ ok: false, stage })); process.exitCode = 1; }
 finally {
