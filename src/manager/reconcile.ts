@@ -398,6 +398,11 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			recordEvent('edge.repaired', {});
 		}
 		await reconcileAiModeSelection(host, effective);
+		const bootRecovery = await Promise.all(activeDevelopmentSessions.map(record => requestSupervisor<{ ready: boolean }>({ operation: 'development.boot.resume', sessionId: record.session.sessionId })));
+		if (bootRecovery.some(result => !result.ready)) {
+			recordEvent('development.boot-recovery-pending', {});
+			return previous;
+		}
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}
