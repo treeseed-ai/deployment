@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { deploymentDigest, postgresTopologySchema } from '@treeseed/sdk/deployment';
@@ -44,6 +44,12 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
     for (const release of [database, application]) {
       const path = `/usr/share/treeseed/components/${release.componentId}/${release.release}/component-release.json`;
       mkdirSync(dirname(path), { recursive: true, mode: 0o755 }); writeFileSync(path, JSON.stringify(release), { mode: 0o644 });
+      let current = '';
+      for (const part of path.split('/').filter(Boolean)) {
+        current += `/${part}`;
+        const stat = lstatSync(current);
+        if (stat.uid !== 0 || (stat.mode & 0o022) || stat.isSymbolicLink()) console.error(JSON.stringify({ custodyPath: current, uid: stat.uid, mode: stat.mode.toString(8), symlink: stat.isSymbolicLink() }));
+      }
     }
     installed = true;
     mkdirSync('/etc/treeseed/components/acceptance', { recursive: true, mode: 0o755 });
