@@ -73,7 +73,7 @@ export async function apiSessions(root: string) {
       await assert.rejects(pool.query('CREATE TABLE forbidden(id integer)'));
       } catch (error) {
         const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-        console.error(JSON.stringify({ apiDatabasePhase: phase, sqlState: /^[0-9A-Z]{5}$/u.test(code) ? code : null,
+        console.error(JSON.stringify({ apiDatabasePhase: phase, sqlState: /^[0-9A-Z_]{5,80}$/u.test(code) ? code : null,
           errorKind: error instanceof Error ? error.name : 'unknown' }));
         throw new Error('API database acceptance failed');
       }

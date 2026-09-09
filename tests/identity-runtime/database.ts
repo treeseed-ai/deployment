@@ -10,6 +10,7 @@ import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js
 import { planPostgresAllocations, applyPostgresAllocations, activatePostgresAllocation } from '../../dist/src/postgres/plan.js';
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
+import { checkServerIdentity } from 'node:tls';
 import { POSTGRES_HBA } from '../../dist/src/postgres/policy.js';
 import { postgresClientMaterial } from '../../dist/src/postgres/client-files.js';
 import { postgresTopologySchema } from '@treeseed/sdk/deployment';
@@ -40,7 +41,9 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       assert.ok(allocations.has(label));
       return new pg.Pool({ host: server.hostname, port: server.port, database: `identity_${label}`,
         user: `identity_${label}${phase === 'migration' ? '_migrator' : ''}`, password: secret,
-        ssl: { ca: options.certificateAuthority, rejectUnauthorized: true }, connectionTimeoutMillis: 5000 });
+        ssl: { ca: options.certificateAuthority, rejectUnauthorized: true,
+          checkServerIdentity: (_hostname, certificate) => checkServerIdentity(server.hostname, certificate) },
+        sslnegotiation: 'postgres', enableChannelBinding: true, connectionTimeoutMillis: 10000 });
     },
     clientFiles(label: string, phase: 'migration' | 'runtime', secret: string) {
       const stored = allocations.get(label); assert.ok(stored);
