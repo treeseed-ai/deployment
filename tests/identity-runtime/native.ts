@@ -7,7 +7,7 @@ import { createNativeOidcClient, createPublicSessionClient } from '@treeseed/ide
 type Pending = Awaited<ReturnType<Awaited<ReturnType<typeof createNativeOidcClient>>['begin']>>;
 type Result = Awaited<ReturnType<Pending['finish']>>;
 
-export async function nativeFixture(resource: string) {
+export async function nativeFixture(resource: string, scopes: string[] = []) {
   let pending: Pending | undefined, receive: ((result: Result | null) => void) | undefined, redirectUri = '';
   const server = createServer(async (request, response) => {
     try {
@@ -34,7 +34,7 @@ export async function nativeFixture(resource: string) {
       progress('discovery');
       const discovery = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();
       const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
-      const options = { issuer, clientId: 'trsd', resource, scopes: [], profile: 'keycloak' as const, transport: fetch,
+      const options = { issuer, clientId: 'trsd', resource, scopes, profile: 'keycloak' as const, transport: fetch,
         verificationKey: keys, resolvePrincipal: async (identity: { subject: string }) => ({ principalId: identity.subject, kind: 'human' as const }) };
       const client = await createNativeOidcClient({ ...options, redirectUri });
       pending = await client.begin();

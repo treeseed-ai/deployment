@@ -32,6 +32,20 @@ jobs:
       - run: npm ci --prefix tests/identity-runtime --ignore-scripts --no-audit --no-fund
       - name: Install Deployment runtime dependencies used by shared database policy
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Qualify exact Identity candidate before publication (disposable only)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: treeseed-ai/identity
+          ref: 48aacd6a73169be9d656aeb349f94f32d49d356b
+          path: .fixtures/identity
+          persist-credentials: false
+      - name: Build and install candidate in both disposable dependency roots
+        run: |
+          npm ci --prefix .fixtures/identity --ignore-scripts --no-audit --no-fund
+          npm run build --prefix .fixtures/identity
+          npm pack ./.fixtures/identity --ignore-scripts --pack-destination .fixtures
+          npm install ./.fixtures/treeseed-identity-0.1.0-rc.17.tgz --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+          npm install --prefix tests/identity-runtime ./.fixtures/treeseed-identity-0.1.0-rc.17.tgz --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
       - name: Build the Deployment implementation exercised by acceptance
         run: npm run build
       - run: node tests/identity-runtime/node_modules/playwright/cli.js install --with-deps chromium
