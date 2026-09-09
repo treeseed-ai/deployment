@@ -7,6 +7,7 @@ import { postgresRuntimeAccessSql } from '../../dist/src/postgres/access.js';
 import { verifyPostgresRuntimeAccess } from '../../dist/src/postgres/verify.js';
 import { withManagedPostgresSession } from '../../dist/src/postgres/connection.js';
 import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js';
+import { planPostgresAllocations, applyPostgresAllocations } from '../../dist/src/postgres/plan.js';
 import { readFileSync } from 'node:fs';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
@@ -22,6 +23,10 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
   const sql = (query: string, database = 'postgres') => execFileSync('docker', ['exec', '-i', name, 'psql', '-U', 'postgres', '-d', database, '-At', '-v', 'ON_ERROR_STOP=1'], {
     input: query, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000,
   });
+  const ports = JSON.parse(docker('inspect', '--format', '{{json .NetworkSettings.Ports}}', name));
+  const server = { id: 'shared', installationId: 'acceptance', environment: 'staging', mode: 'shared',
+    hostname: '127.0.0.1', port: Number(ports['5432/tcp'][0].HostPort), major: 17, extensions: [], tls: { mode: 'verify-full', trustReference: 'test-ca' } };
+  const options = { server, database: 'postgres', username: 'postgres', password, certificateAuthority: readFileSync(join(root, 'tls/cert.pem'), 'utf8') };
   return {
     name,
     async verifySession() {
@@ -37,15 +42,28 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       await assert.rejects(withManagedPostgresSession({ ...options, certificateAuthority: '-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----' }, async () => null), /Managed PostgreSQL operation failed/);
       return ['postgres-tls-session', 'postgres-wrong-password-denied', 'postgres-untrusted-ca-denied', 'postgres-catalog-snapshot'];
     },
-    allocate(label: string, secret: string, migrationSecret: string) {
+    async allocate(label: string, secret: string, migrationSecret: string) {
       assert.ok(['sovereign', 'central'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/); assert.match(migrationSecret, /^[a-f0-9]{64}$/);
       const database = `identity_${label}`;
-      sql(`CREATE ROLE ${database}_owner NOLOGIN;
-        CREATE ROLE ${database}_migrator LOGIN PASSWORD '${migrationSecret}';
+      const topology = { schemaVersion: 'treeseed.postgres-topology/v1', installationId: 'acceptance', environment: 'staging', servers: [server],
+        requirements: [{ id: label, componentId: 'identity', enabled: true, supportedMajors: [17], extensions: [], runtimeConnectionLimit: 20 }],
+        allocations: [{ requirementId: label, serverId: 'shared', database, ownerRole: `${database}_owner`, migrationRole: `${database}_migrator`, runtimeRole: database,
+          migrationCredentialReference: `${label}-migration`, runtimeCredentialReference: `${label}-runtime`, onDisable: 'preserve' }] };
+      await withManagedPostgresSession(options, async session => {
+        const inventory = await inspectPostgresAllocations('shared', session);
+        const plan = planPostgresAllocations(topology, [inventory]);
+        const result = await applyPostgresAllocations(topology, plan, new Map([['shared', session]]));
+        assert.deepEqual(result.created, [label]);
+        await assert.rejects(applyPostgresAllocations(topology, plan, new Map([['shared', session]])), /allocation failed/);
+        const replay = planPostgresAllocations(topology, [await inspectPostgresAllocations('shared', session)]);
+        assert.deepEqual((await applyPostgresAllocations(topology, replay, new Map([['shared', session]]))).created, []);
+      });
+      assert.equal(sql(`SELECT count(*) FROM pg_roles WHERE rolname IN ('${database}', '${database}_owner', '${database}_migrator') AND rolcanlogin`).trim(), '0');
+      sql(`ALTER ROLE ${database}_migrator LOGIN PASSWORD '${migrationSecret}';
         GRANT ${database}_owner TO ${database}_migrator;
         ALTER ROLE ${database}_migrator SET role = '${database}_owner';
-        CREATE ROLE ${database} LOGIN PASSWORD '${secret}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-        CREATE DATABASE ${database} OWNER ${database}_owner; REVOKE ALL ON DATABASE ${database} FROM PUBLIC; GRANT CONNECT ON DATABASE ${database} TO ${database}, ${database}_migrator;`);
+        ALTER ROLE ${database} LOGIN PASSWORD '${secret}';
+        GRANT CONNECT ON DATABASE ${database} TO ${database}, ${database}_migrator;`);
       return { hostname: 'postgres', port: 5432, database, username: database };
     },
     async activateRuntime(label: string) {

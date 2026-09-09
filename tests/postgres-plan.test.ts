@@ -12,6 +12,10 @@ const complete: PostgresInventory = { ...empty, databases: [{ name: 'api', owner
   roles: ['api_owner', 'api_migrator', 'api_runtime'].map(name => ({ name, superuser: false, createDatabase: false, createRole: false, replication: false, bypassRls: false, allocationId: 'test:staging:api' })) };
 describe('allocation preflight', () => {
   it('plans create only against observed empty custody', () => expect(planPostgresAllocations(topology, [empty]).actions[0]?.action).toBe('create'));
+  it('binds plans to topology, including connection limits', () => {
+    const changed = { ...topology, requirements: [{ ...topology.requirements[0]!, runtimeConnectionLimit: 11 }] };
+    expect(planPostgresAllocations(changed, [empty]).topologyDigest).not.toBe(planPostgresAllocations(topology, [empty]).topologyDigest);
+  });
   it('retains disabled allocations without contacting or deleting their data', () => {
     const disabled = { ...topology, requirements: [{ ...topology.requirements[0]!, enabled: false }] };
     expect(planPostgresAllocations(disabled, []).actions[0]?.action).toBe('retain');
