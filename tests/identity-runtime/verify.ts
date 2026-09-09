@@ -206,7 +206,8 @@ async function start(label: Label) {
     }
   }
   stage = `provision-${label}-native`;
-  checks.push(...await verifyManagedNative(root, bootstrapIssuer, humanPassword, nativeSubject, registry));
+  checks.push(...await verifyManagedNative(root, bootstrapIssuer, humanPassword, nativeSubject, registry,
+    value => { stage = `provision-${label}-native-${value}`; }));
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
   return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };
