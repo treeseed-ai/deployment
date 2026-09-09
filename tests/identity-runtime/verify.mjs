@@ -11,6 +11,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { createAccessTokenVerifier } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
 import { browserFixture } from './browser.mjs';
+import { recoverIdentityDatabase } from './recovery.mjs';
 
 const images = {
   keycloak: 'quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54',
@@ -111,7 +112,7 @@ async function start(label) {
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
-  return { server, issuer, token, verifier, discovery, clientKey };
+  return { server, database: db, issuer, token, verifier, discovery, clientKey };
 }
 try {
   docker('info', '--format', '{{.ServerVersion}}');
@@ -148,6 +149,12 @@ try {
   await ready(`${first.issuer}/.well-known/openid-configuration`);
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
   checks.push('restart-preserves-subject');
+  stage = 'database-recovery';
+  checks.push(...recoverIdentityDatabase(first));
+  await ready(`${first.issuer}/.well-known/openid-configuration`);
+  assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
+  checks.push('database-restore-preserves-workload-subject-and-signing-key');
+  checks.push(...(await browsers.verify(first.issuer, humanPassword)).map(check => `restored-${check}`));
   console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
 } catch {
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
