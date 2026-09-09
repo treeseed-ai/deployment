@@ -7,7 +7,7 @@ import { createNativeOidcClient, createPublicSessionClient } from '@treeseed/ide
 type Pending = Awaited<ReturnType<Awaited<ReturnType<typeof createNativeOidcClient>>['begin']>>;
 type Result = Awaited<ReturnType<Pending['finish']>>;
 
-export async function nativeFixture() {
+export async function nativeFixture(resource: string) {
   let pending: Pending | undefined, receive: ((result: Result | null) => void) | undefined, redirectUri = '';
   const server = createServer(async (request, response) => {
     try {
@@ -24,13 +24,15 @@ export async function nativeFixture() {
   return {
     descriptor: { clientId: 'trsd', enabled: true, protocol: 'openid-connect', publicClient: true,
       standardFlowEnabled: true, directAccessGrantsEnabled: false, serviceAccountsEnabled: false,
-      redirectUris: [redirectUri], webOrigins: [], attributes: { 'pkce.code.challenge.method': 'S256' },
+      // Keycloak's native loopback registration ignores the ephemeral port,
+      // while preserving the exact path. No host/path wildcard.
+      redirectUris: ['http://127.0.0.1/callback'], webOrigins: [], optionalClientScopes: ['treeseed:read','treeseed:knowledge:write','treeseed:governance:write','treeseed:projects:write','treeseed:execution'], attributes: { 'pkce.code.challenge.method': 'S256' },
       protocolMappers: [{ name: 'api-audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
-        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] },
+        config: { 'included.custom.audience': resource, 'access.token.claim': 'true' } }] },
     async verify(issuer: string, context: BrowserContext, expectedSubject: string) {
       const discovery = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();
       const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
-      const options = { issuer, clientId: 'trsd', resource: 'https://api.example.test', scopes: [], profile: 'keycloak' as const, transport: fetch,
+      const options = { issuer, clientId: 'trsd', resource, scopes: [], profile: 'keycloak' as const, transport: fetch,
         verificationKey: keys, resolvePrincipal: async (identity: { subject: string }) => ({ principalId: identity.subject, kind: 'human' as const }) };
       const client = await createNativeOidcClient({ ...options, redirectUri });
       pending = await client.begin();

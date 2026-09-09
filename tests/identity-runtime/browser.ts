@@ -10,12 +10,14 @@ import { importPKCS8 } from 'jose';
 import { chromium } from 'playwright';
 import { createBrowserOidcClient, type LoginTransaction } from '@treeseed/identity';
 import { nativeFixture } from './native.js';
+import { cliFixture } from './cli.js';
 type OidcClient = Awaited<ReturnType<typeof createBrowserOidcClient>>;
 type App = { base: string; server: ReturnType<typeof createServer>; failure: () => string | undefined;
   descriptor: Record<string, unknown>; initialize: (issuer: string) => Promise<void> };
 
 export async function browserFixture(root: string) {
-  const native = await nativeFixture();
+  const cli = await cliFixture(root);
+  const native = await nativeFixture(cli.resource);
   const tls = { key: readFileSync(join(root, 'tls/key.pem')), cert: readFileSync(join(root, 'tls/cert.pem')) };
   const pin = createHash('sha256').update(new X509Certificate(tls.cert).publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
   const apps: App[] = [];
@@ -136,10 +138,12 @@ export async function browserFixture(root: string) {
         }
         phase = 'native-cli-sso';
         const nativeChecks = await native.verify(issuer, context, first.subject);
-        return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks];
+        phase = 'published-cli-sso';
+        const cliChecks = await cli.verify(issuer, context, first.subject);
+        return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks, ...cliChecks];
       } catch { console.error(JSON.stringify({ browserPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Browser acceptance failed'); }
       finally { await browser.close(); }
     },
-    async close() { await native.close(); for (const app of apps) await new Promise<void>(resolve => app.server.close(() => resolve())); },
+    async close() { await native.close(); await cli.close(); for (const app of apps) await new Promise<void>(resolve => app.server.close(() => resolve())); },
   };
 }
