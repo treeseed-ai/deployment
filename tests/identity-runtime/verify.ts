@@ -1,7 +1,7 @@
 // Disposable compatibility test only. Not a production bootstrap or identity issuer.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { pbkdf2Sync, randomBytes } from 'node:crypto';
+import { pbkdf2Sync, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -79,6 +79,7 @@ async function start(label: Label) {
   const listenPort = ports[label];
   const base = `https://${label}.localhost:${listenPort}`;
   const issuer = `${base}/realms/acceptance`;
+  const importedSubject = randomUUID();
   // Reproduce the existing API's verifier format, then exercise the actual
   // maintenance converter. Keycloak receives a hash, never a plaintext password.
   const salt = randomBytes(16).toString('base64url');
@@ -92,7 +93,7 @@ async function start(label: Label) {
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
     clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions, { name: BROWSER_SESSION_SCOPE, protocol: 'openid-connect',
       attributes: { 'include.in.token.scope': 'true' } }], defaultDefaultClientScopes: ['basic', 'profile', 'email'],
-    users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
+    users: [{ id: importedSubject, username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
       credentials: [importedPassword] }],
     identityProviders: label === 'sovereign' ? [{ alias: 'central', displayName: 'Explicit central trust', providerId: 'oidc', enabled: true,
       trustEmail: false, storeToken: false, firstBrokerLoginFlowAlias: 'first broker login',
@@ -161,6 +162,7 @@ async function start(label: Label) {
     return result.accessToken;
   };
   const keys = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
+  await browsers.migrateAccount({ issuer, subject: importedSubject, userId: `${label}-existing-human` });
   const bootstrapIssuer = `${base}/realms/treeseed`, bootstrapResource = `${base}/admin/realms/treeseed`;
   const bootstrapDiscovery = await ready(`${bootstrapIssuer}/.well-known/openid-configuration`);
   const bootstrapKeys = createLocalJWKSet(await (await fetch(bootstrapDiscovery.jwks_uri)).json());
