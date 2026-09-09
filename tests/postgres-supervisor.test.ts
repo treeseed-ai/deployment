@@ -6,7 +6,7 @@ import { host, component } from './fixtures.js';
 
 function fixture() {
   const configuration = host();
-  configuration.components = { postgres: { ...configuration.components.api } };
+  configuration.components = { postgres: { ...configuration.components.api! } };
   configuration.postgres = { schemaVersion: 'treeseed.postgres-topology/v1', installationId: 'test', environment: 'staging',
     servers: [{ id: 'shared', installationId: 'test', environment: 'staging', mode: 'shared', hostname: 'postgres', port: 5432, major: 17, extensions: [], tls: { mode: 'verify-full', trustReference: 'ca' } }],
     requirements: [], allocations: [] };
