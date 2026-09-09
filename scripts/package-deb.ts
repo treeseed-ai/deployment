@@ -51,7 +51,7 @@ function managerPayload(stage: string) {
 	cpSync(resolve(root, 'dist/src'), resolve(stage, 'usr/lib/treeseed/manager/dist/src'), { recursive: true });
 	cpSync(resolve(root, 'infrastructure'), resolve(stage, 'usr/lib/treeseed/manager/infrastructure'), { recursive: true });
 	writeFileSync(resolve(stage, 'usr/lib/treeseed/manager/package.json'), '{"type":"module"}\n');
-	for (const dependency of [...sdkRuntimePaths, ...postgresRuntimePaths]) {
+	for (const dependency of [...sdkRuntimePaths, ...postgresRuntimePaths, '@treeseed/identity', 'jose', 'oauth4webapi']) {
 		const source = resolve(root, 'node_modules', dependency);
 		if (!existsSync(source)) throw new Error(`Runtime dependency ${dependency} is not installed.`);
 		cpSync(source, resolve(stage, 'usr/lib/treeseed/manager/node_modules', dependency), { recursive: true });
