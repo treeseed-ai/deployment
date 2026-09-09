@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { getCACertificates, setDefaultCACertificates } from 'node:tls';
 import { setTimeout as pause } from 'node:timers/promises';
-import { createAccessTokenVerifier, createWorkloadCredentials } from '@treeseed/identity';
+import { createAccessTokenVerifier, createWorkloadCredentials, createKeycloakApplicationRegistry } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8 } from 'jose';
 import { browserFixture } from './browser.js';
 import { recoverIdentityDatabase } from './recovery.js';
@@ -161,6 +161,38 @@ async function start(label: Label) {
   const bootstrapToken = await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] });
   syntheticSecrets.push(bootstrapToken.accessToken);
   assert.equal((await fetch(bootstrapResource, { headers: { Authorization: `Bearer ${bootstrapToken.accessToken}` } })).status, 200);
+  stage = `provision-${label}-clients`;
+  const registry = createKeycloakApplicationRegistry({ issuer: bootstrapIssuer, transport: fetch,
+    credentials: { token: async input => (await bootstrapCredentials.credentials(input)).accessToken } });
+  for (const kind of ['browser', 'workload'] as const) {
+    const application = { clientId: `managed-${kind}`, kind, resource: 'https://api.example.test', scopes: [], certificate,
+      redirectUris: kind === 'browser' ? ['https://admin.example.test/auth/callback'] : [] };
+    stage = `provision-${label}-${kind}-create`;
+    const created = await registry.ensure(application); assert.equal(created.action, 'create');
+    stage = `provision-${label}-${kind}-noop`;
+    const unchanged = await registry.ensure(application); assert.equal(unchanged.action, 'noop'); assert.equal(unchanged.id, created.id);
+    await assert.rejects(registry.ensure({ ...application, resource: 'https://foreign.example.test' }), /drift/);
+    assert.equal((await registry.ensure(application)).action, 'noop');
+    checks.push(`${label}-${kind}-client-create-readback-noop`, `${label}-${kind}-client-drift-denied`);
+    if (kind === 'workload') {
+      stage = `provision-${label}-workload-exchange`;
+      const registrationResponse = await fetch(`${bootstrapResource}/clients/${encodeURIComponent(created.id)}/service-account-user`, {
+        headers: { authorization: `Bearer ${(await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] })).accessToken}` },
+        redirect: 'error', signal: AbortSignal.timeout(15_000),
+      });
+      assert.equal(registrationResponse.status, 200);
+      const registration = await registrationResponse.json();
+      assert.equal(typeof registration.id, 'string');
+      const managed = await createWorkloadCredentials({ issuer: bootstrapIssuer, clientId: application.clientId, privateKey: clientKey,
+        resources: [application.resource], verificationKey: bootstrapKeys, profile: 'keycloak', transport: fetch,
+        resolvePrincipal: async identity => identity.subject === registration.id ? { principalId: registration.id, kind: 'service' } : null });
+      const accepted = await managed.credentials({ resource: application.resource, scopes: [] });
+      syntheticSecrets.push(accepted.accessToken);
+      assert.equal(accepted.principal.principalId, registration.id);
+      await assert.rejects(managed.credentials({ resource: 'https://foreign.example.test', scopes: [] }));
+      checks.push(`${label}-provisioned-workload-token-exchange`, `${label}-provisioned-workload-foreign-resource-denied`);
+    }
+  }
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
   return { server, database: sharedDatabase.name, databaseName: db.database, issuer, token, verifier, discovery, clientKey };
@@ -217,10 +249,11 @@ try {
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
   checks.push('database-restore-preserves-workload-subject-and-signing-key');
   checks.push(...(await browsers.verify(first.issuer, humanPassword)).map(check => `restored-${check}`));
-  console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
+  console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'railway-workload-authentication', 'spire', 'live-migration'] }));
 } catch (error) {
   if (error instanceof Error && /^Device acceptance failed \([a-z-]+\)$/u.test(error.message)) console.error(error.message);
   if (error instanceof Error && /^Managed PostgreSQL operation failed \([A-Za-z0-9_]+\)$/u.test(error.message)) console.error(error.message);
+  if (error instanceof Error && /^Identity application drift in [A-Za-z]+ requires a reconciliation plan$/u.test(error.message)) console.error(error.message);
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
     try {

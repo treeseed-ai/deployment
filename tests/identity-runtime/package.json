@@ -6,10 +6,10 @@
     "test": "tsc -p tsconfig.json && node --import tsx verify.ts"
   },
   "dependencies": {
-    "@treeseed/identity": "0.1.0-rc.12",
+    "@treeseed/cli": "0.13.0-rc.69",
+    "@treeseed/identity": "0.1.0-rc.15",
     "@treeseed/sdk": "0.13.0-rc.107",
     "hono": "4.13.3",
-    "@treeseed/cli": "0.13.0-rc.69",
     "jose": "6.2.12",
     "playwright": "1.63.0"
   }
