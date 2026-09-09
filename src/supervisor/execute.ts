@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
-import { probeRunnerCustody } from './runner-custody-probe.js';
+import { probeRunnerCustody, recoverRunnerCustody } from './runner-custody-probe.js';
 import { verifyAiStorage } from './ai/storage-verification.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
@@ -309,6 +309,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	switch (operation.operation) {
 		case 'supervisor.ping': return { ready: true };
 		case 'custody.runner.probe': return probeRunnerCustody();
+		case 'custody.runner.recover': return recoverRunnerCustody();
 		case 'security.plan': return providerSecurityPlan();
 		case 'security.status': return providerSecurityStatus();
 		case 'security.verify': return verifyProviderSecurity(command);

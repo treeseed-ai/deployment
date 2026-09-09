@@ -14,6 +14,7 @@ import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, rest
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
+import { recoverRunnerCustody } from './runner-custody-probe.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -110,6 +111,9 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     startVault: () => { command('/usr/bin/docker', recoveredVaultStartArguments(custodyCompose())); },
     initializeClient: () => { command('/usr/bin/docker', [...custodyCompose(), 'run', '--rm', '--no-deps', '-T', 'openbao-initialize']); },
   });
+  // A released Node runner may have auto-started before /run trust existed.
+  // A stopped runner belongs to an explicit development handoff and stays stopped.
+  if(input.targetId==='service') recoverRunnerCustody();
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
   const aiStorageKeys=prepareAiStorageIdentities(host,'api');

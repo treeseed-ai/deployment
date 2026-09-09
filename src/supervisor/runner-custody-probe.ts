@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
 import type { CommandRunner } from './compose-runtime.js';
+import { drainReleasedRunner, restoreReleasedRunner } from './development-runner.js';
 
 const name = 'treeseed-api-operations-runner-1';
 const resultSchema = z.object({
-  status: z.enum(['authenticated', 'configuration-unavailable', 'identity-unavailable', 'login-rejected', 'transport-failed', 'revocation-failed']),
+  status: z.enum(['authenticated', 'inactive', 'configuration-unavailable', 'identity-unavailable', 'login-rejected', 'transport-failed', 'revocation-failed']),
   httpStatus: z.number().int().min(100).max(599).optional(),
   transport: z.enum(['tls', 'timeout', 'connection', 'other']).optional(),
   trustModifiedAt: z.string().datetime().optional(),
@@ -55,16 +56,33 @@ const bounded: CommandRunner = (executable, args, input) => {
 
 /** Operator-only, fixed managed container, bounded and allowlisted output. */
 export function probeRunnerCustody(command: CommandRunner = bounded) {
+  let stage = 'inspect';
   try {
-    const raw = String(command('/usr/bin/docker', ['inspect', name, '--format', '{"id":{{json .Id}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"running":{{json .State.Running}},"startedAt":{{json .State.StartedAt}}'], ''));
+    const raw = String(command('/usr/bin/docker', ['inspect', name, '--format', '{"id":{{json .Id}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"running":{{json .State.Running}},"startedAt":{{json .State.StartedAt}}}'], ''));
     const state = JSON.parse(raw);
-    if (!/^[a-f0-9]{64}$/u.test(state.id) || state.project !== 'treeseed-api' || state.service !== 'operations-runner' || state.running !== true
+    if (!/^[a-f0-9]{64}$/u.test(state.id) || state.project !== 'treeseed-api' || state.service !== 'operations-runner' || typeof state.running !== 'boolean'
       || !Number.isFinite(Date.parse(state.startedAt))) throw new Error();
+    if (!state.running) return { status: 'inactive' as const, startedAt: new Date(state.startedAt).toISOString(), startedBeforeTrustFile: null };
+    stage = 'execute';
     const script = `(${probeInContainer.toString()})().catch(() => console.log(JSON.stringify({status:'transport-failed',transport:'other'})))`;
     const output = String(command('/usr/bin/docker', ['exec', '-i', state.id, 'node', '--input-type=module'], script));
+    stage = 'validate';
     if (output.length > 2048) throw new Error();
     const result = resultSchema.parse(JSON.parse(output));
     return { ...result, startedAt: new Date(state.startedAt).toISOString(),
       startedBeforeTrustFile: result.trustModifiedAt ? Date.parse(state.startedAt) < Date.parse(result.trustModifiedAt) : null };
-  } catch { throw new Error('Runner custody probe unavailable; no provider diagnostics exposed'); }
+  } catch { throw new Error(`Runner custody probe unavailable at ${stage}; no provider diagnostics exposed`); }
+}
+
+/** Refresh startup-only Node trust without killing leased work or replacing data. */
+export function recoverRunnerCustody(command: CommandRunner = bounded) {
+  const before = probeRunnerCustody(command);
+  if (before.status === 'inactive') return { action: 'noop', ...before };
+  if (before.status !== 'authenticated') throw new Error('Runner custody prerequisites are not ready.');
+  if (!before.startedBeforeTrustFile) return { action: 'noop', ...before };
+  if (!drainReleasedRunner(command)) throw new Error('Runner custody recovery lost its running target.');
+  restoreReleasedRunner(command);
+  const after = probeRunnerCustody(command);
+  if (after.status !== 'authenticated' || after.startedBeforeTrustFile) throw new Error('Runner custody recovery verification failed.');
+  return { action: 'restarted', ...after };
 }
