@@ -6,6 +6,9 @@ on:
     branches: [staging, main]
     paths: ['src/identity/**', 'src/postgres/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
 permissions: { contents: read }
+concurrency:
+  group: identity-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   identity-runtime:
     runs-on: ubuntu-26.04

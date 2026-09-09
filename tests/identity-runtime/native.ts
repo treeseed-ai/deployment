@@ -50,16 +50,16 @@ export async function nativeFixture(resource: string) {
           await page.locator('input[name="username"]').fill(login.username);
           await page.locator('input[name="password"]').fill(login.password);
           await page.locator('input[name="login"],button[name="login"]').click();
-          progress('consent-or-callback');
-          // Keycloak may skip a consent screen when no consent-bearing scope
-          // is requested. Accept only an actual prompt; otherwise await PKCE.
-          const consent = page.locator('[name="accept"]');
-          const next = await Promise.race([
-            completed.then(() => 'callback' as const),
-            consent.waitFor({ state: 'visible' }).then(() => 'consent' as const).catch(() => 'timeout' as const),
-          ]);
-          if (next === 'consent') await consent.click();
         }
+        progress('consent-or-callback');
+        // SSO removes password entry, not necessarily a first client consent.
+        // Keycloak can skip consent when no consent-bearing scope is requested.
+        const consent = page.locator('[name="accept"]');
+        const next = await Promise.race([
+          completed.then(() => 'callback' as const),
+          consent.waitFor({ state: 'visible' }).then(() => 'consent' as const).catch(() => 'timeout' as const),
+        ]);
+        if (next === 'consent') await consent.click();
         progress('callback');
         const result = await completed; assert.ok(result);
         assert.equal(result.principal.identity.subject, expectedSubject);
