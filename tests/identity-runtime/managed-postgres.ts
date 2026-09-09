@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { deploymentDigest, postgresTopologySchema } from '@treeseed/sdk/deployment';
@@ -40,16 +40,16 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
   application.images = database.images.map(image => ({ ...image, consumers: ['acceptance'] }));
   const files = `/usr/share/treeseed/components/acceptance/${application.release}/compose.yml`;
   let installed = false;
+  // GitHub's disposable image makes /usr/share world-writable. A supported
+  // installed host must not; retain the production ancestor guard unchanged.
+  const shareMode = lstatSync('/usr/share').mode & 0o777;
+  assert.equal(lstatSync('/usr/share').uid, 0);
+  assert.equal(lstatSync('/usr/share').isSymbolicLink(), false);
   try {
+    chmodSync('/usr/share', 0o755);
     for (const release of [database, application]) {
       const path = `/usr/share/treeseed/components/${release.componentId}/${release.release}/component-release.json`;
       mkdirSync(dirname(path), { recursive: true, mode: 0o755 }); writeFileSync(path, JSON.stringify(release), { mode: 0o644 });
-      let current = '';
-      for (const part of path.split('/').filter(Boolean)) {
-        current += `/${part}`;
-        const stat = lstatSync(current);
-        if (stat.uid !== 0 || (stat.mode & 0o022) || stat.isSymbolicLink()) console.error(JSON.stringify({ custodyPath: current, uid: stat.uid, mode: stat.mode.toString(8), symlink: stat.isSymbolicLink() }));
-      }
     }
     installed = true;
     mkdirSync('/etc/treeseed/components/acceptance', { recursive: true, mode: 0o755 });
@@ -61,6 +61,7 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'noop');
     assert.equal(existsSync('/run/treeseed/postgres-clients/acceptance/acceptance/migration/password'), false);
   } finally {
+    chmodSync('/usr/share', shareMode);
     if (installed && existsSync(files)) await postgresDocker(['compose', '--file', files, '--project-name', application.runtime.compose.projectName, 'down', '--volumes'], 60);
     for (const path of paths) rmSync(path, { recursive: path !== '/etc/treeseed/platform.json', force: true });
     rmSync('/run/treeseed/postgres-clients/acceptance', { recursive: true, force: true });
