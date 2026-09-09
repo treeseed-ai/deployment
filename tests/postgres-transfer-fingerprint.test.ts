@@ -25,6 +25,7 @@ it('returns only digests/count and normalizes explicitly expected owner across m
   const second = await fingerprintPostgresTransfer(f.session, { database: 'application', owner: 'target_owner', major: 17 });
   expect(first).toEqual(second); expect(JSON.stringify(first)).not.toContain('records');
   expect(f.calls.at(-1)).toBe('COMMIT');
+  expect(f.calls.some(sql => sql.includes('SET LOCAL row_security=off'))).toBe(true);
 });
 it.each(['value','constraint'] as const)('detects changed %s', async field => {
   const f = fixture(), first = await f.run(); f.state[field] += ' changed';

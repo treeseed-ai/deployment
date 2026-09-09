@@ -13,7 +13,9 @@ const name = (value: unknown) => { if (typeof value !== 'string' || !value || va
 export async function fingerprintPostgresTransfer(session: PostgresInspectionSession, expected: { database: string; owner: string; major: 16 | 17 }) {
   try {
     await session.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    await session.query("SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'; SET LOCAL extra_float_digits=3; SET LOCAL bytea_output='hex'; SET LOCAL datestyle='ISO, YMD'");
+    // Fail rather than hash a policy-filtered subset when a supplied inspection
+    // role cannot bypass RLS. This setting does not grant bypass authority.
+    await session.query("SET LOCAL search_path=pg_catalog; SET LOCAL row_security=off; SET LOCAL timezone='UTC'; SET LOCAL extra_float_digits=3; SET LOCAL bytea_output='hex'; SET LOCAL datestyle='ISO, YMD'");
     const identity = await session.query(`SELECT current_database() AS database, current_setting('server_version_num')::int/10000 AS major,
       jsonb_build_object('encoding',pg_encoding_to_char(d.encoding),'collate',d.datcollate,'ctype',d.datctype,
         'provider',d.datlocprovider,'version',d.datcollversion,'locale',COALESCE(to_jsonb(d)->>'datlocale',to_jsonb(d)->>'daticulocale')) AS locale
