@@ -112,7 +112,9 @@ async function start(label) {
   await ready(`${issuer}/.well-known/openid-configuration`);
   docker('stop', server);
   sharedDatabase.activateRuntime(label);
+  chmodSync(join(directory, 'database-password'), 0o600);
   writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
+  chmodSync(join(directory, 'database-password'), 0o444);
   const runtime = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: db });
   services.identity.environment = runtime.identity.environment;
   services.identity.command = runtime.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value);
