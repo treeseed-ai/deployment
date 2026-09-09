@@ -57,7 +57,15 @@ export function composeRuntimeStatus(operation: Extract<SupervisorOperation, { o
 	if (!operation.runtime) return { present: containers.length > 0, running: running.length > 0, containers: containers.length, runningContainers: running.length };
 	const { componentId, files, services } = operation.runtime;
 	const observations = composeServiceObservations(operation.projectName, command);
-	const expectedImages = expectedComposeImages(componentId, files, operation.projectName, command);
+	let expectedImages: ReturnType<typeof expectedComposeImages>;
+	try { expectedImages = expectedComposeImages(componentId, files, operation.projectName, command); }
+	catch {
+		// Missing /run inputs after boot are repairable drift. Do not leak Compose
+		// stderr (which can contain credentials) or abort other component checks.
+		return { present: containers.length > 0, running: running.length > 0, ready: false,
+			containers: containers.length, runningContainers: running.length,
+			expectedServices: services.length, issues: [{ service: componentId, reason: 'configuration-unavailable' }] };
+	}
 	const issues: Array<{ service: string; reason: 'missing' | 'stopped' | 'unhealthy' | 'wrong-image' }> = [];
 	const persistentServices = services.filter((service) => expectedImages.get(service)?.persistent !== false);
 	for (const service of persistentServices) {

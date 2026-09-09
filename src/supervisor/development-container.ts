@@ -7,12 +7,13 @@ import { atomicJson } from '../core/files.js';
 import { DevelopmentSessionStore, type ManagedDevelopmentSession } from '../manager/development-sessions.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents } from '../manager/current-state.js';
-import { managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
-import { componentStateRoot, resolveDevelopmentSecretEnvironment } from './component.js';
-import type { CommandRunner } from './compose-runtime.js';
+import { managedContainerDevelopmentConnectionEnvironment, componentActivationInputs, composeFiles } from '../manager/reconcile.js';
+import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment } from './component.js';
+import { componentComposeArguments, type CommandRunner } from './compose-runtime.js';
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
+import { recoverDevelopmentCustody } from './development-custody-recovery.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -93,6 +94,20 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   if(!component)throw new Error('Installed API foundation is required for development.');
   const target=record.runtimes.find(r=>r.project.id==='api')?.targets.find(t=>t.id===input.targetId);
   if(!target)throw new Error('API development target contract is missing.');
+  // Development holds the API release, not its managed custody prerequisites.
+  // Reconstruct /run from encrypted persistent custody before mounting clients.
+  const custodyCompose = () => ['compose', ...componentComposeArguments('api', composeFiles(component)), '--project-name', component.runtime.compose.projectName];
+  recoverDevelopmentCustody({
+    ready: () => existsSync('/run/treeseed/openbao/client/identity.json'),
+    prepare: () => {
+      const services = new Set(component.runtime.services.map(service => service.composeService));
+      if (!services.has('openbao') || !services.has('openbao-initialize')) throw new Error('Managed API custody recovery contract is unavailable.');
+      const inputs = componentActivationInputs(host, component, releases, record.routes);
+      configureComponent('api', component.release, inputs.connectionEnvironment, inputs.secretFileIds, inputs.optionalSecretEnvironment);
+    },
+    startVault: () => { command('/usr/bin/docker', [...custodyCompose(), 'up', '--detach', '--wait', '--wait-timeout', '120', 'openbao']); },
+    initializeClient: () => { command('/usr/bin/docker', [...custodyCompose(), 'run', '--rm', '--no-deps', '-T', 'openbao-initialize']); },
+  });
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
   const aiStorageKeys=prepareAiStorageIdentities(host,'api');

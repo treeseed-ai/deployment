@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 	previous: undefined as any,
 	active: [] as any[],
 	paused: false,
+	edgeReady: true,
 	eligible: true,
 	refreshFailure: null as Error | null,
 	installFailure: null as Error | null,
@@ -29,6 +30,7 @@ vi.mock('node:fs', async (importOriginal) => {
 	return { ...actual, existsSync: (path: import('node:fs').PathLike) => String(path).startsWith('/etc/apt/sources.list.d/treeseed-deployment-') || actual.existsSync(path) };
 });
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.host }));
+vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => state.edgeReady }));
 vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager`, cli: `${state.root}/cli` } }));
 vi.mock('../src/catalog/load.js', () => ({ loadCatalog: (path: string) => path.endsWith('stable.json') ? state.stable : state.development }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: () => undefined }));
@@ -45,6 +47,7 @@ vi.mock('../src/manager/update-state.js', () => ({
 vi.mock('../src/manager/update-policy.js', () => ({ activationEligible: () => state.eligible, metadataRefreshDue: () => true }));
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
 	state.operations.push(operation);
+	if (operation.operation === 'edge.apply') state.edgeReady = true;
 	if (operation.operation === 'apt.refresh') {
 		if (state.refreshFailure) throw state.refreshFailure;
 		return { coreUpdated: false, before: {}, after: {} };
@@ -190,6 +193,19 @@ describe('isolated update fault qualification', () => {
 		expect(unchanged).toBe(state.previous);
 		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status', 'cli.configure']);
 		state.evidence.push({ case: 'post-self-update-cli-custody', result: 'passed', componentRestartCount: 0, endpointAndCaRepaired: true });
+	});
+
+	it('repairs a failed TLS listener on an unchanged generation without reinstalling packages', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.edgeReady = false;
+		expect(await reconcile('development')).toBe(state.previous);
+		expect(state.operations.filter(item => item.operation === 'edge.apply')).toHaveLength(1);
+		expect(state.operations.some(item => item.operation === 'apt.install')).toBe(false);
+		state.operations = [];
+		await reconcile('development');
+		expect(state.operations.some(item => item.operation === 'edge.apply')).toBe(false);
 	});
 
 	it('records a catalog-only generation once without restarting components', async () => {
