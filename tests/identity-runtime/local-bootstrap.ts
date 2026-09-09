@@ -83,6 +83,8 @@ try {
 } catch (error) {
   const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[a-zA-Z0-9_]{1,64}$/u.test(error.code) ? error.code : 'unavailable';
   console.error(JSON.stringify({ stage, code, type: error instanceof Error ? error.name : 'unknown',
+    frames: error instanceof Error ? error.stack?.split('\n').slice(1).filter(line => /^\s+at /u.test(line)).slice(0, 8) : [],
+    lifecycleStage: error instanceof Error ? /^PostgreSQL component activation failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined,
     systemd: execFileSync('/usr/bin/systemd-creds', ['--version'], { encoding: 'utf8' }).split('\n')[0] }));
   throw new Error('Disposable local PostgreSQL bootstrap acceptance failed');
 } finally {
