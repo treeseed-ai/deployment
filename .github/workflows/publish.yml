@@ -210,8 +210,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes apt-utils dpkg-dev
+          # Publishing tools come from Ubuntu, not the runner's unrelated vendor feeds.
+          ubuntu_sources=/etc/apt/sources.list.d/ubuntu.sources
+          test -s "$ubuntu_sources"
+          apt_sources=(-o "Dir::Etc::sourcelist=$ubuntu_sources" -o 'Dir::Etc::sourceparts=-')
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install --yes apt-utils dpkg-dev
           if git fetch --depth=1 origin gh-pages; then
             git worktree add --detach .treeseed/pages origin/gh-pages
           else
