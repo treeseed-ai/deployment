@@ -6,8 +6,8 @@
     "test": "tsc -p tsconfig.json && node --import tsx verify.ts"
   },
   "dependencies": {
-    "@treeseed/identity": "0.1.0-rc.7",
-    "@treeseed/sdk": "0.13.0-rc.104",
+    "@treeseed/identity": "0.1.0-rc.8",
+    "@treeseed/sdk": "0.13.0-rc.105",
     "jose": "6.2.12",
     "playwright": "1.63.0"
   }

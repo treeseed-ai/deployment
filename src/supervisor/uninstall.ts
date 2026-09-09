@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, readlinkSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -121,7 +121,12 @@ export function executeHostUninstall(purgeSecurity: boolean, options: { root?: s
 	for (const mapper of by('mapper')) command('/usr/sbin/cryptsetup', ['close', mapper]);
 	// Remove package-created links while their targets still exist. This avoids
 	// leaving a dangling host link when package and managed-root removal follows.
-	for (const path of selectedPaths.filter((path) => ownedLinkPaths.has(path))) rmSync(rooted(root, path), { recursive: true, force: true });
+	for (const path of selectedPaths.filter((path) => ownedLinkPaths.has(path))) {
+		const target = rooted(root, path), ownership = ownedLinks.find(link => link.path === path)!;
+		if (!pathEntryExists(target)) continue;
+		if (!ownedSymbolicLink(target, ownership.target)) throw new Error(`TreeSeed link ownership changed: ${path}`);
+		unlinkSync(target); // Unlink the exact link, including a dangling target; never recurse.
+	}
 	const packages = by('package'); if (packages.length) command('/usr/bin/apt-get', ['-y', 'purge', ...packages]);
 	for (const unit of by('unit')) for (const directory of unitRoots) rmSync(rooted(root, `${directory}/${unit}`), { recursive: true, force: true });
 	for (const path of selectedPaths.filter((path) => !ownedLinkPaths.has(path))) rmSync(rooted(root, path), { recursive: true, force: true });
