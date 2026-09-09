@@ -15,14 +15,14 @@ import { existsSync } from 'node:fs';
 import pg from 'pg';
 import { activatePostgresAllocation } from '../../dist/src/postgres/activation.js';
 import { disablePostgresAllocation } from '../../dist/src/postgres/disable.js';
-import { verifyManagedPostgres } from './managed-postgres.ts';
+import { verifyManagedPostgres } from './managed-postgres.js';
 
 // Runs as root only on the disposable Actions runner, never on a user's host.
 if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable privileged Actions acceptance required');
 const root = mkdtempSync('/run/treeseed-postgres-acceptance-');
 const name = `treeseed-postgres-test-${randomBytes(8).toString('hex')}`;
 assert.equal(existsSync('/run/treeseed/postgres'), false, 'Disposable runtime custody must start absent');
-const options = { stateRoot: join(root, 'state/postgres'), runtimeRoot: '/run/treeseed/postgres', hostname: 'postgres', environment: 'staging' as const };
+const options = { stateRoot: join(root, '.treeseed/data/postgres'), runtimeRoot: '/run/treeseed/postgres', hostname: 'postgres', environment: 'staging' as const };
 const compose = join(root, 'compose.json');
 const docker = (...args: string[]) => execFileSync('/usr/bin/docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 180000 });
 let started = false;

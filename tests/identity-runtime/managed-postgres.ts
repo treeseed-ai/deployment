@@ -16,7 +16,7 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
   const topology = postgresTopologySchema.parse(input);
   topology.requirements[0]!.componentId = 'acceptance';
   const configuration = host();
-  configuration.runtime.environment = 'development'; configuration.runtime.dataRoot = `${root}/state`;
+  configuration.runtime.environment = 'development'; configuration.runtime.dataRoot = `${root}/.treeseed/data`;
   configuration.components = { postgres: { ...configuration.components.api! }, acceptance: { ...configuration.components.api! } };
   configuration.postgres = topology;
   for (const allocation of topology.allocations) for (const id of [allocation.migrationCredentialReference, allocation.runtimeCredentialReference]) configuration.secrets[id] = { provider: 'systemd-credential', reference: `/etc/treeseed/credentials/${id}.cred` };
@@ -37,7 +37,7 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
   application.runtime.postgresRequirements = [{ id: 'acceptance', supportedMajors: [17], extensions: [], runtimeConnectionLimit: 10 }];
   application.runtime.postgresLifecycle = [{ requirementId: 'acceptance', credentialOwner: { uid: 65532, gid: 65532 }, migration: { composeService: 'migration', completion: 'exit-zero', timeoutSeconds: 30 }, runtimeServices: ['runtime'] }];
   application.runtimeDigest = deploymentDigest(application.runtime);
-  application.images = database.images;
+  application.images = database.images.map(image => ({ ...image, consumers: ['acceptance'] }));
   const files = `/usr/share/treeseed/components/acceptance/${application.release}/compose.yml`;
   let installed = false;
   try {
