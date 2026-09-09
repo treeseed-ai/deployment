@@ -12,8 +12,8 @@ import { createAccessTokenVerifier } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
 import { browserFixture } from './browser.mjs';
 import { recoverIdentityDatabase } from './recovery.mjs';
-import { managedIdentityServices, IDENTITY_IMAGES } from '../../src/identity/compose.ts';
-import { POSTGRES_IMAGE } from '../../src/postgres/compose.ts';
+import { managedIdentityServices, IDENTITY_IMAGES } from '../../dist/src/identity/compose.js';
+import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { startSharedDatabase } from './database.mjs';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };

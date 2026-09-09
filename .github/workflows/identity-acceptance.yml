@@ -16,7 +16,9 @@ jobs:
         with: { node-version: 24 }
       - run: npm ci --prefix tests/identity-runtime --ignore-scripts --no-audit --no-fund
       - name: Install Deployment runtime dependencies used by shared database policy
-        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the Deployment implementation exercised by acceptance
+        run: npm run build
       - run: node tests/identity-runtime/node_modules/playwright/cli.js install --with-deps chromium
       - name: Resolve disposable TLS names only on this ephemeral runner
         run: echo '127.0.0.1 sovereign.localhost central.localhost' | sudo tee -a /etc/hosts

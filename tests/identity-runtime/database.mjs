@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { managedPostgresService } from '../../src/postgres/compose.ts';
-import { postgresRuntimeAccessSql } from '../../src/postgres/access.ts';
-import { verifyPostgresRuntimeAccess } from '../../src/postgres/verify.ts';
-import { withManagedPostgresSession } from '../../src/postgres/connection.ts';
-import { inspectPostgresAllocations } from '../../src/postgres/inventory.ts';
+import { managedPostgresService } from '../../dist/src/postgres/compose.js';
+import { postgresRuntimeAccessSql } from '../../dist/src/postgres/access.js';
+import { verifyPostgresRuntimeAccess } from '../../dist/src/postgres/verify.js';
+import { withManagedPostgresSession } from '../../dist/src/postgres/connection.js';
+import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js';
 import { readFileSync } from 'node:fs';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
