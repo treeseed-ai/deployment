@@ -336,6 +336,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	}
 	const developmentSessions = new DevelopmentSessionStore();
 	const activeDevelopmentSessions = developmentSessions.list();
+	// User-owned recovery must be scheduled even when an unrelated AI runtime fails.
+	const bootRecovery = await Promise.allSettled(activeDevelopmentSessions.map(record => requestSupervisor<{ ready: boolean }>({ operation: 'development.boot.resume', sessionId: record.session.sessionId })));
 	recoverDevelopmentPauseOwners(activeDevelopmentSessions.map((record) => record.session.sessionId));
 	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
 	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
@@ -398,8 +400,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			recordEvent('edge.repaired', {});
 		}
 		await reconcileAiModeSelection(host, effective);
-		const bootRecovery = await Promise.all(activeDevelopmentSessions.map(record => requestSupervisor<{ ready: boolean }>({ operation: 'development.boot.resume', sessionId: record.session.sessionId })));
-		if (bootRecovery.some(result => !result.ready)) {
+		if (bootRecovery.some(result => result.status === 'rejected' || !result.value.ready)) {
 			recordEvent('development.boot-recovery-pending', {});
 			return previous;
 		}

@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { developmentBootCommand } from '../src/supervisor/development-boot.js';
+import { captureBootCommand, developmentBootCommand } from '../src/supervisor/development-boot.js';
 import type { ManagedDevelopmentSession } from '../src/manager/development-sessions.js';
 
 describe('development boot process custody', () => {
+	it('requests captured output rather than inheriting the service journal', () => {
+		const runner = (_executable: string, _args: string[], input?: string) => input === '' ? 'loaded\n' : undefined;
+		expect(captureBootCommand(runner, '/usr/bin/systemctl', ['show'])).toBe('loaded');
+		expect(() => captureBootCommand(() => undefined, '/usr/bin/getent', ['passwd'])).toThrow('no captured output');
+	});
 	const record = { session: { sessionId: 'dev-example' } } as ManagedDevelopmentSession;
 	it('executes only the installed worker under the non-root source owner', () => {
 		const args = developmentBootCommand(record, { uid: 1001, gid: 1001, home: '/workspace/developer' });
