@@ -186,6 +186,23 @@ async function start(label: Label) {
     const unchanged = await registry.ensure(application); assert.equal(unchanged.action, 'noop'); assert.equal(unchanged.id, created.id);
     await assert.rejects(registry.ensure({ ...application, resource: 'https://foreign.example.test' }), /drift/);
     assert.equal((await registry.ensure(application)).action, 'noop');
+    if (kind === 'workload') {
+      stage = `provision-${label}-workload-exchange`;
+      const registrationResponse = await fetch(`${bootstrapResource}/clients/${encodeURIComponent(created.id)}/service-account-user`, {
+        headers: { authorization: `Bearer ${(await bootstrapCredentials.credentials({ resource: bootstrapResource, scopes: [] })).accessToken}` },
+        redirect: 'error', signal: AbortSignal.timeout(15_000),
+      });
+      assert.equal(registrationResponse.status, 200);
+      const registration = await registrationResponse.json();
+      assert.equal(typeof registration.id, 'string');
+      const managed = await createWorkloadCredentials({ issuer: bootstrapIssuer, clientId: application.clientId, privateKey: clientKey,
+        resources: [application.resource], verificationKey: bootstrapKeys, profile: 'keycloak', transport: fetch,
+        resolvePrincipal: async identity => identity.subject === registration.id ? { principalId: registration.id, kind: 'service' } : null });
+      const accepted = await managed.credentials({ resource: application.resource, scopes: [] });
+      syntheticSecrets.push(accepted.accessToken);
+      assert.equal(accepted.principal.principalId, registration.id);
+      await assert.rejects(managed.credentials({ resource: 'https://foreign.example.test', scopes: [] }));
+    }
   }
   const verifier = (audience = 'https://api.example.test') => createAccessTokenVerifier({ issuer, audience, profile: 'keycloak', verificationKey: keys,
     resolvePrincipal: async identity => ({ principalId: `${label}:${identity.subject}`, kind: 'service' }) });
