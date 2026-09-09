@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { componentCredential } from '../core/component-credential.js';
 import { readComponentCredential } from './component-sealed.js';
@@ -25,8 +25,9 @@ export function ensureComponentCredential(host: HostConfiguration, id: string, c
     const sealed = execFileSync('/usr/bin/systemd-creds', ['encrypt', '--with-key=host', `--name=${secret.name}`, '-', '-'],
       { input: plaintext, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15_000, maxBuffer: 1_048_576 });
     writeFileSync(temporary, sealed, { mode: 0o600, flag: 'wx' });
-    if (existsSync(secret.reference)) throw new Error('Credential appeared during initialization');
-    renameSync(temporary, secret.reference);
+    // Atomic no-replace publication: even a concurrent creator or dangling
+    // symlink must never be overwritten by initialization.
+    linkSync(temporary, secret.reference);
     return plaintext.toString('utf8');
   } catch { throw new Error(`Managed component credential ${id} could not be initialized`); }
   finally { plaintext?.fill(0); if (existsSync(temporary)) unlinkSync(temporary); }
