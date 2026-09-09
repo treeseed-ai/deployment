@@ -74,6 +74,7 @@ export async function browserFixture(root: string) {
   return {
     clients: [...apps.flatMap(app => app.descriptors), native.descriptor],
     provision: api.provision,
+    migrateAccount: api.migrateAccount,
     async verifyFederation(localIssuer: string, remoteIssuer: string, password: string) {
       for (const app of apps) await app.initialize(localIssuer);
       const browser = await chromium.launch({ args: [`--ignore-certificate-errors-spki-list=${pin}`, '--host-resolver-rules=MAP *.localhost 127.0.0.1'] });

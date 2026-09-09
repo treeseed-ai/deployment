@@ -14,6 +14,8 @@ import { createApiIdentityRuntime } from '../../.fixtures/api/dist/api/auth/brow
 import { BrowserSessionStore } from '../../.fixtures/api/dist/api/auth/browser/session-store.js';
 import { createBrowserIdentityService } from '../../.fixtures/api/dist/api/auth/browser/service.js';
 import { installIdentityBrowserRoutes } from '../../.fixtures/api/dist/api/auth/browser/routes.js';
+import { planIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-plan.js';
+import { applyIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-transaction.js';
 import type { startSharedDatabase } from './database.js';
 import type { importPKCS8 } from 'jose';
 
@@ -57,7 +59,8 @@ export async function apiSessions(root: string) {
     if (sql.includes('FROM user_identities identities')) {
       const [issuer, subject] = params;
       const workload = await pool.query('SELECT id FROM identity_workloads WHERE issuer=$1 AND subject=$2', [issuer, subject]);
-      if (!workload.rowCount) {
+      const mapped = await pool.query('SELECT user_id FROM user_identities WHERE provider=$1 AND provider_subject=$2', [issuer, subject]);
+      if (!workload.rowCount && !mapped.rowCount) {
         const id = createHash('sha256').update(JSON.stringify([issuer, subject])).digest('hex');
         await pool.query("INSERT INTO users(id,status,created_at,updated_at) VALUES($1,'active','now','now') ON CONFLICT DO NOTHING", [id]);
         await pool.query("INSERT INTO user_identities(id,user_id,provider,provider_subject,created_at,updated_at) VALUES($1,$1,$2,$3,'now','now') ON CONFLICT DO NOTHING", [id,issuer,subject]);
@@ -67,6 +70,20 @@ export async function apiSessions(root: string) {
   };
   return {
     resource,
+    async migrateAccount(input: { issuer: string; subject: string; userId: string }) {
+      assert.ok(pool);
+      await pool.query("INSERT INTO users(id,status,created_at,updated_at) VALUES($1,'active','before-migration','before-migration')", [input.userId]);
+      const planned = async () => planIdentityMappings({
+        users: (await pool!.query('SELECT id,status FROM users')).rows,
+        mappings: (await pool!.query('SELECT user_id AS "userId",provider AS issuer,provider_subject AS subject FROM user_identities')).rows,
+      }, [input]);
+      const plan = await planned(); assert.equal(plan.operations[0]?.action, 'bind');
+      await applyIdentityMappings(database, { requested: [input], inventoryDigest: plan.inventoryDigest });
+      const repeated = await planned(); assert.equal(repeated.operations[0]?.action, 'noop');
+      await applyIdentityMappings(database, { requested: [input], inventoryDigest: repeated.inventoryDigest });
+      const user = (await pool.query('SELECT id,created_at FROM users WHERE id=$1', [input.userId])).rows[0];
+      assert.deepEqual(user, { id: input.userId, created_at: 'before-migration' });
+    },
     async provision(shared: ReturnType<typeof startSharedDatabase>) {
       const runtime = randomBytes(32).toString('hex'), migration = randomBytes(32).toString('hex');
       let phase = 'allocate';
@@ -119,12 +136,15 @@ export async function apiSessions(root: string) {
       assert.ok(pool);
       const rows = (await pool.query('SELECT * FROM identity_browser_sessions')).rows;
       assert.ok(rows.length >= 2);
+      const imported = (await pool.query("SELECT s.user_id,u.created_at FROM identity_browser_sessions s JOIN users u ON u.id=s.user_id WHERE u.created_at='before-migration'")).rows;
+      assert.ok(imported.length >= 2, 'both applications must authenticate the existing mapped account');
+      for (const row of imported) assert.equal(row.user_id, 'sovereign-existing-human');
       const serialized = JSON.stringify(rows);
       for (const handle of handles) assert.equal(serialized.includes(handle), false);
       assert.equal(serialized.includes('accessToken'), false); assert.equal(serialized.includes('refreshToken'), false);
       assert.equal((await pool.query('SELECT * FROM identity_login_transactions')).rowCount, 0);
       assert.equal(await new BrowserSessionStore(database, codec, 'unregistered').use(handles[0]!, async () => ({ result: true })), null);
-      return ['real-api-encrypted-bff', 'api-shared-postgres-runtime-role', 'bff-workload-authentication', 'encrypted-session-handles', 'consumed-pkce-state', 'cross-client-session-denied'];
+      return ['real-api-encrypted-bff', 'api-shared-postgres-runtime-role', 'bff-workload-authentication', 'encrypted-session-handles', 'consumed-pkce-state', 'cross-client-session-denied', 'existing-user-id-preserved-through-login', 'identity-mapping-repeat-noop'];
     },
     async close() { await pool?.end(); await new Promise<void>(resolve => server.close(() => resolve())); },
   };
