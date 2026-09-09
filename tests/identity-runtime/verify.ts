@@ -169,7 +169,7 @@ async function start(label: Label) {
       const rows = await response.clone().json();
       if (Array.isArray(rows)) console.error(JSON.stringify({ registryShape: rows.map(row => ({
         fields: Object.keys(row), attributes: Object.keys(row.attributes ?? {}), defaultScopes: row.defaultClientScopes,
-        optionalScopes: row.optionalClientScopes, mappers: row.protocolMappers?.map(mapper => ({ fields: Object.keys(mapper), config: Object.keys(mapper.config ?? {}) })),
+        optionalScopes: row.optionalClientScopes, mappers: row.protocolMappers?.map((mapper: { config?: Record<string, unknown> }) => ({ fields: Object.keys(mapper), config: Object.keys(mapper.config ?? {}) })),
       })) }));
     }
     return response;
