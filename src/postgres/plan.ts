@@ -5,6 +5,7 @@ export { postgresRuntimeAccessSql } from './access.js';
 export { verifyPostgresRuntimeAccess } from './verify.js';
 export { withManagedPostgresSession } from './connection.js';
 export { applyPostgresAllocations } from './apply.js';
+export { activatePostgresAllocation } from './activation.js';
 
 export interface PostgresInventory {
   serverId: string;

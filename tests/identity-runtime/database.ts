@@ -3,11 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { managedPostgresService } from '../../dist/src/postgres/compose.js';
-import { postgresRuntimeAccessSql } from '../../dist/src/postgres/access.js';
 import { verifyPostgresRuntimeAccess } from '../../dist/src/postgres/verify.js';
 import { withManagedPostgresSession } from '../../dist/src/postgres/connection.js';
 import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js';
-import { planPostgresAllocations, applyPostgresAllocations } from '../../dist/src/postgres/plan.js';
+import { planPostgresAllocations, applyPostgresAllocations, activatePostgresAllocation } from '../../dist/src/postgres/plan.js';
 import { readFileSync } from 'node:fs';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
@@ -27,6 +26,7 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
   const server = { id: 'shared', installationId: 'acceptance', environment: 'staging', mode: 'shared',
     hostname: '127.0.0.1', port: Number(ports['5432/tcp'][0].HostPort), major: 17, extensions: [], tls: { mode: 'verify-full', trustReference: 'test-ca' } };
   const options = { server, database: 'postgres', username: 'postgres', password, certificateAuthority: readFileSync(join(root, 'tls/cert.pem'), 'utf8') };
+  const allocations = new Map<string, { topology: unknown; password: string }>();
   return {
     name,
     async verifySession() {
@@ -59,11 +59,8 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
         assert.deepEqual((await applyPostgresAllocations(topology, replay, new Map([['shared', session]]))).created, []);
       });
       assert.equal(sql(`SELECT count(*) FROM pg_roles WHERE rolname IN ('${database}', '${database}_owner', '${database}_migrator') AND rolcanlogin`).trim(), '0');
-      sql(`ALTER ROLE ${database}_migrator LOGIN PASSWORD '${migrationSecret}';
-        GRANT ${database}_owner TO ${database}_migrator;
-        ALTER ROLE ${database}_migrator SET role = '${database}_owner';
-        ALTER ROLE ${database} LOGIN PASSWORD '${secret}';
-        GRANT CONNECT ON DATABASE ${database} TO ${database}, ${database}_migrator;`);
+      await withManagedPostgresSession({ ...options, database }, session => activatePostgresAllocation(topology, label, 'migration', migrationSecret, session));
+      allocations.set(label, { topology, password: secret });
       return { hostname: 'postgres', port: 5432, database, username: database };
     },
     async activateRuntime(label: string) {
@@ -72,12 +69,15 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       const allocation = { requirementId: label, serverId: 'shared', database,
         ownerRole: `${database}_owner`, migrationRole: `${database}_migrator`, runtimeRole: database,
         migrationCredentialReference: `${label}-migration`, runtimeCredentialReference: `${label}-runtime`, onDisable: 'preserve' };
-      sql(postgresRuntimeAccessSql(allocation), database);
-      sql(`ALTER ROLE ${database}_migrator NOLOGIN;`);
+      const stored = allocations.get(label); assert.ok(stored);
+      await withManagedPostgresSession({ ...options, database }, session => activatePostgresAllocation(stored.topology, label, 'runtime', stored.password, session));
       const access = await verifyPostgresRuntimeAccess(allocation, { query: async query => ({ rows: [JSON.parse(sql(`SELECT row_to_json(result) FROM (${query}) result`, database))] }) });
       assert.deepEqual(access, { verified: true, blockers: [] });
     },
-    verifyIsolation(secret: string) {
+    async verifyIsolation(secret: string) {
+      const stored = allocations.get('sovereign'); assert.ok(stored);
+      await assert.rejects(withManagedPostgresSession({ ...options, database: 'identity_sovereign' }, session =>
+        activatePostgresAllocation(stored.topology, 'sovereign', 'migration', 'b'.repeat(64), session)), /Managed PostgreSQL operation failed/);
       const client = (query: string) => execFileSync('docker', ['exec', '-i', '-e', `PGPASSWORD=${secret}`, name, 'psql', '-h', '127.0.0.1', '-U', 'identity_sovereign', '-d', 'identity_sovereign', '-At', '-v', 'ON_ERROR_STOP=1'], {
         input: query, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000,
       });
@@ -91,7 +91,7 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       assert.throws(() => client('SET ROLE identity_sovereign_migrator;'));
       assert.throws(() => client('CREATE TABLE forbidden(id integer);'));
       assert.throws(() => client('ALTER TABLE user_entity ADD COLUMN forbidden integer;'));
-      return ['shared-postgres-server', 'cross-database-connect-denied', 'application-role-escalation-denied', 'keycloak-database-tls', 'runtime-ddl-denied', 'runtime-migrator-escalation-denied'];
+      return ['shared-postgres-server', 'cross-database-connect-denied', 'application-role-escalation-denied', 'keycloak-database-tls', 'runtime-ddl-denied', 'runtime-migrator-escalation-denied', 'active-writer-migration-denied', 'scram-credential-activation'];
     },
   };
 }
