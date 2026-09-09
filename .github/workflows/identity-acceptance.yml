@@ -8,8 +8,10 @@ on:
 permissions: { contents: read }
 jobs:
   identity-runtime:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.identity-browsers
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -23,7 +25,8 @@ jobs:
       - name: Resolve disposable TLS names only on this ephemeral runner
         run: echo '127.0.0.1 sovereign.localhost central.localhost' | sudo tee -a /etc/hosts
       - run: npx tsc -p tests/identity-runtime/tsconfig.json
-      - run: node --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
+      - name: Verify published CLI and real OS custody with Keycloak
+        run: sudo --preserve-env=GITHUB_ACTIONS,PLAYWRIGHT_BROWSERS_PATH "$(command -v node)" --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: identity-acceptance-${{ github.sha }}

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 
 export const deviceClient = { clientId: 'cli', enabled: true, protocol: 'openid-connect', publicClient: true,
   consentRequired: true,
+  defaultClientScopes: ['basic'],
   standardFlowEnabled: false, directAccessGrantsEnabled: false, serviceAccountsEnabled: false,
   attributes: { 'oauth2.device.authorization.grant.enabled': 'true' },
   protocolMappers: [{ name: 'api-audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
