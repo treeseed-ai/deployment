@@ -43,12 +43,12 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
   try {
     for (const release of [database, application]) {
       const path = `/usr/share/treeseed/components/${release.componentId}/${release.release}/component-release.json`;
-      mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, JSON.stringify(release));
+      mkdirSync(dirname(path), { recursive: true, mode: 0o755 }); writeFileSync(path, JSON.stringify(release), { mode: 0o644 });
     }
     installed = true;
-    mkdirSync('/etc/treeseed/components/acceptance', { recursive: true });
+    mkdirSync('/etc/treeseed/components/acceptance', { recursive: true, mode: 0o755 });
     writeFileSync('/etc/treeseed/components/acceptance/environment', '', { mode: 0o600 });
-    writeFileSync(files, compose);
+    writeFileSync(files, compose, { mode: 0o644 });
     writeFileSync('/etc/treeseed/platform.json', JSON.stringify(configuration), { mode: 0o600 });
     const selections = [database, application].map(({ componentId, release }) => ({ componentId, release }));
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'activated');
