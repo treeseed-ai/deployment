@@ -16,16 +16,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: { node-version: 24 }
-      - name: Check out exact Identity read-back fix (disposable test only)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: treeseed-ai/identity
-          ref: d452ffbd2eef5564cb607a7be7cb7c03fd00e977
-          path: .fixtures/identity
-          persist-credentials: false
-      - name: Build Identity independently before publishing a replacement RC
-        working-directory: .fixtures/identity
-        run: npm ci --ignore-scripts --no-audit --no-fund && npm run verify
       - name: Check out the accepted API session implementation (disposable test only)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
