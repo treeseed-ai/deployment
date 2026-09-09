@@ -12,14 +12,13 @@ import { createAccessTokenVerifier } from '@treeseed/identity';
 import { createLocalJWKSet, importPKCS8, SignJWT } from 'jose';
 import { browserFixture } from './browser.mjs';
 import { recoverIdentityDatabase } from './recovery.mjs';
+import { managedIdentityServices, IDENTITY_IMAGES } from '../../src/identity/compose.ts';
 
-const images = {
-  keycloak: 'quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54',
-  postgres: 'postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94',
-};
+const images = IDENTITY_IMAGES;
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
 const prefix = `treeseed-identity-test-${randomBytes(6).toString('hex')}`;
 const names = [];
+const privateNetworks = [];
 const syntheticSecrets = [];
 const originalTrust = getCACertificates('default');
 let networkCreated = false;
@@ -54,6 +53,7 @@ async function ready(url) {
 async function start(label) {
   stage = `start-${label}`;
   const directory = join(root, label); mkdirSync(directory, { mode: 0o755 });
+  mkdirSync(join(directory, 'tls'), { mode: 0o755 });
   const password = randomBytes(32).toString('hex');
   syntheticSecrets.push(password);
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${label}-workload`,
@@ -85,17 +85,25 @@ async function start(label) {
         redirectUris: [`${issuerFor('sovereign')}/broker/central/endpoint`] }] : [])],
   }), { mode: 0o644 });
   // Synthetic, one-run credentials only; never print Docker output or imported records.
-  writeFileSync(join(directory, 'db.env'), `POSTGRES_DB=identity\nPOSTGRES_USER=identity\nPOSTGRES_PASSWORD=${password}\n`, { mode: 0o600 });
-  writeFileSync(join(directory, 'kc.env'), `KC_DB=postgres\nKC_DB_URL=jdbc:postgresql://${db}:5432/identity\nKC_DB_USERNAME=identity\nKC_DB_PASSWORD=${password}\n`, { mode: 0o600 });
-  names.push(db);
-  docker('run', '-d', '--name', db, '--network', prefix, '--tmpfs', '/var/lib/postgresql/data', '--env-file', join(directory, 'db.env'), images.postgres);
-  names.push(server);
-  docker('run', '-d', '--name', server, '--network', prefix, '--network-alias', `${label}.localhost`, '-p', `127.0.0.1:${listenPort}:${listenPort}`,
-    '--env-file', join(directory, 'kc.env'),
-    '-v', `${join(root, 'tls')}:/run/identity-test:ro`,
-    '-v', `${join(directory, 'realm.json')}:/opt/keycloak/data/import/acceptance-realm.json:ro`,
-    images.keycloak, 'start', '--import-realm', `--hostname=${base}`, `--https-port=${listenPort}`, '--http-enabled=false', '--truststore-paths=/run/identity-test/cert.pem',
-    '--https-certificate-file=/run/identity-test/cert.pem', '--https-certificate-key-file=/run/identity-test/key.pem');
+  writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
+  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, stateRoot: join(directory, 'state') });
+  const services = {
+    'identity-database': { ...managed['identity-database'], container_name: db,
+      volumes: managed['identity-database'].volumes.filter(volume => volume.target !== '/var/lib/postgresql/data'), tmpfs: ['/var/lib/postgresql/data'] },
+    identity: { ...managed.identity, container_name: server,
+      networks: { private: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
+      volumes: [...managed.identity.volumes, { type: 'bind', source: join(root, 'tls'), target: '/run/identity/tls', read_only: true },
+        { type: 'bind', source: join(directory, 'realm.json'), target: '/opt/keycloak/data/import/acceptance-realm.json', read_only: true }],
+      command: [...managed.identity.command.map(value => value === '--https-port=8443' ? `--https-port=${listenPort}` : value), '--import-realm'] },
+  };
+  // Each issuer gets its own private database network; only Keycloak also joins
+  // the broker network, preventing cross-instance database-name resolution.
+  services.identity.networks.broker = { aliases: [`${label}.localhost`] };
+  const composePath = join(directory, 'compose.json');
+  writeFileSync(composePath, JSON.stringify({ services, networks: { private: {}, broker: { external: true, name: prefix } } }));
+  names.push(db, server);
+  privateNetworks.push(`${prefix}-${label}_private`);
+  docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
   const discovery = await ready(`${issuer}/.well-known/openid-configuration`);
   assert.equal(discovery.issuer, issuer);
   assert.equal(discovery.token_endpoint, `${issuer}/protocol/openid-connect/token`);
@@ -160,7 +168,7 @@ try {
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
     try {
-      const state = docker('inspect', '--format', '{{.State.Status}} exit={{.State.ExitCode}}', name);
+      const state = docker('inspect', '--format', '{{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}', name);
       const output = execFileSync('docker', ['logs', '--tail', '60', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       const redacted = syntheticSecrets.reduce((text, secret) => text.replaceAll(secret, '[REDACTED]'), output);
       const diagnostics = redacted.split('\n').filter(line => /ERROR|WARN|error|failed|Listening|started/i.test(line)).map(line => line.slice(0, 500));
@@ -171,6 +179,7 @@ try {
 } finally {
   if (browsers) await browsers.close();
   for (const name of names.reverse()) { try { docker('rm', '-f', '-v', name); } catch {} }
+  for (const name of privateNetworks) { try { docker('network', 'rm', name); } catch {} }
   if (networkCreated) { try { docker('network', 'rm', prefix); } catch {} }
   setDefaultCACertificates(originalTrust);
   rmSync(root, { recursive: true, force: true });
