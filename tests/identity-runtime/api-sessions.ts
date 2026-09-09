@@ -57,15 +57,26 @@ export async function apiSessions(root: string) {
     resource,
     async provision(shared: ReturnType<typeof startSharedDatabase>) {
       const runtime = randomBytes(32).toString('hex'), migration = randomBytes(32).toString('hex');
+      let phase = 'allocate';
+      try {
       await shared.allocate('api', runtime, migration);
+      phase = 'migrate';
       const migrator = shared.pool('api', 'migration', migration);
       try {
         for (const sql of AUTH_SCHEMA_SQL.slice(0, 3)) await migrator.query(sql);
         for (const name of ['0019_identity_browser_sessions.sql','0020_identity_workloads.sql','0021_identity_login_transactions.sql'])
           await migrator.query(readFileSync(new URL(`../../.fixtures/api/drizzle/control-plane/${name}`, import.meta.url), 'utf8'));
       } finally { await migrator.end(); }
+      phase = 'activate-runtime';
       await shared.activateRuntime('api'); pool = shared.pool('api', 'runtime', runtime);
+      phase = 'runtime-ddl-negative';
       await assert.rejects(pool.query('CREATE TABLE forbidden(id integer)'));
+      } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+        console.error(JSON.stringify({ apiDatabasePhase: phase, sqlState: /^[0-9A-Z]{5}$/u.test(code) ? code : null,
+          errorKind: error instanceof Error ? error.name : 'unknown' }));
+        throw new Error('API database acceptance failed');
+      }
     },
     async application(input: { issuer: string; name: string; callback: string; browserKey: Awaited<ReturnType<typeof importPKCS8>>; workloadKey: Awaited<ReturnType<typeof importPKCS8>> }) {
       assert.ok(pool);
