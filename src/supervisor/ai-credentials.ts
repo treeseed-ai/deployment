@@ -1,9 +1,8 @@
-import { execFileSync } from 'node:child_process';
-import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, scryptSync } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createPublicKey, generateKeyPairSync, randomBytes, scryptSync } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { componentCredential } from '../core/component-credential.js';
-import { readComponentCredential } from './component-sealed.js';
+import { ensureComponentCredential } from './component-sealed-write.js';
 
 export const aiCredentialNames = {
 	'ai-inference-postgres-password': 'ai-inference-postgres-password',
@@ -63,9 +62,6 @@ export function provisionAiCredentialGraph(ensure: EnsureAiCredential) {
 export function prepareManagedAiCredentials(host: HostConfiguration, componentId: string) {
 	if (!['ai-inference', 'ai-training', 'ai-lab'].includes(componentId)) return;
 	const root = '/etc/treeseed/credentials';
-	mkdirSync(root, { recursive: true, mode: 0o700 });
-	const metadata = lstatSync(root);
-	if (!metadata.isDirectory() || metadata.isSymbolicLink() || metadata.uid !== 0 || (metadata.mode & 0o022)) throw new Error('Managed credential directory is unsafe.');
 	// Resolve the entire graph before generating anything. Unknown or partial custody must fail closed.
 	const records = Object.fromEntries(Object.entries(aiCredentialNames).map(([id, name]) => {
 		const secret = componentCredential(host, id, `${root}/${name}`);
@@ -75,20 +71,5 @@ export function prepareManagedAiCredentials(host: HostConfiguration, componentId
 	const stateRoot = host.runtime.environment === 'development' ? host.runtime.dataRoot : '/var/lib/treeseed/components';
 	const initialized = ['ai-inference', 'ai-training'].some(id => existsSync(`${stateRoot}/${id}/data/postgres/PG_VERSION`));
 	if (initialized && Object.values(records).some(secret => !existsSync(secret.reference))) throw new Error('Managed AI state exists but its credential graph is incomplete; restore custody before activation.');
-	provisionAiCredentialGraph((id, create) => {
-		const secret = records[id]!;
-		if (existsSync(secret.reference)) return readComponentCredential(host, id, `${root}/${aiCredentialNames[id]}`);
-		let plaintext: Buffer | undefined;
-		const temporary = `${secret.reference}.${randomUUID()}.new`;
-		try {
-			plaintext = Buffer.from(create());
-			const sealed = execFileSync('/usr/bin/systemd-creds', ['encrypt', '--with-key=host', `--name=${secret.name}`, '-', '-'], { input: plaintext, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15_000, maxBuffer: 1_048_576 });
-			writeFileSync(temporary, sealed, { mode: 0o600, flag: 'wx' });
-			// Serialized supervisor initialization publishes only a complete sealed record.
-			if (existsSync(secret.reference)) throw new Error('Credential appeared during initialization.');
-			renameSync(temporary, secret.reference);
-			return plaintext.toString('utf8');
-		} catch { throw new Error(`Managed AI credential ${id} could not be initialized.`); }
-		finally { plaintext?.fill(0); if (existsSync(temporary)) unlinkSync(temporary); }
-	});
+	provisionAiCredentialGraph((id, create) => ensureComponentCredential(host, id, create, `${root}/${aiCredentialNames[id]}`));
 }

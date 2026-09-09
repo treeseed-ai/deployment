@@ -261,8 +261,11 @@ export function configureComponent(componentId: string, release: string, connect
 	if (componentId === 'agent') { const historical = applicationKeys.filter((entry) => !entry.active).map((entry) => `${entry.version}:/run/credentials/credentials-v${entry.version}`).join(','); if (historical) connectionEnvironment.TREESEED_PROVIDER_CREDENTIAL_HISTORICAL_KEY_FILES = historical; }
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
 	if (componentId === 'api') prepareManagedOpenBao(stateRoot);
-	if (componentId === 'postgres') prepareManagedPostgresBootstrap({ stateRoot, runtimeRoot: '/run/treeseed/postgres', hostname: 'postgres',
-		environment: host.runtime.environment === 'production' ? 'production' : 'staging' });
+	if (componentId === 'postgres') {
+		if (!host.postgres) throw new Error('An explicit PostgreSQL topology is required before bootstrap.');
+		prepareManagedPostgresBootstrap({ stateRoot, runtimeRoot: '/run/treeseed/postgres', hostname: 'postgres',
+			environment: host.postgres.environment });
+	}
 	prepareManagedAiCredentials(host, componentId);
 	const aiStorageKeys = prepareAiStorageIdentities(host, componentId);
 	if (componentId === 'api' && Object.keys(aiStorageKeys).length) connectionEnvironment.TREESEED_AI_STORAGE_PUBLIC_KEYS = JSON.stringify(aiStorageKeys);
