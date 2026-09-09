@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { managedPostgresService } from '../../src/postgres/compose.ts';
+import { postgresRuntimeAccessSql } from '../../src/postgres/access.ts';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
 export function startSharedDatabase({ root, prefix, password, docker }) {
@@ -19,12 +20,24 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
   });
   return {
     name,
-    allocate(label, secret) {
-      assert.ok(['sovereign', 'central'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/);
+    allocate(label, secret, migrationSecret) {
+      assert.ok(['sovereign', 'central'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/); assert.match(migrationSecret, /^[a-f0-9]{64}$/);
       const database = `identity_${label}`;
-      sql(`CREATE ROLE ${database} LOGIN PASSWORD '${secret}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-        CREATE DATABASE ${database} OWNER ${database}; REVOKE ALL ON DATABASE ${database} FROM PUBLIC; GRANT CONNECT ON DATABASE ${database} TO ${database};`);
+      sql(`CREATE ROLE ${database}_owner NOLOGIN;
+        CREATE ROLE ${database}_migrator LOGIN PASSWORD '${migrationSecret}';
+        GRANT ${database}_owner TO ${database}_migrator;
+        ALTER ROLE ${database}_migrator SET role = '${database}_owner';
+        CREATE ROLE ${database} LOGIN PASSWORD '${secret}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE DATABASE ${database} OWNER ${database}_owner; REVOKE ALL ON DATABASE ${database} FROM PUBLIC; GRANT CONNECT ON DATABASE ${database} TO ${database}, ${database}_migrator;`);
       return { hostname: 'postgres', port: 5432, database, username: database };
+    },
+    activateRuntime(label) {
+      assert.ok(['sovereign', 'central'].includes(label));
+      const database = `identity_${label}`;
+      sql(postgresRuntimeAccessSql({ requirementId: label, serverId: 'shared', database,
+        ownerRole: `${database}_owner`, migrationRole: `${database}_migrator`, runtimeRole: database,
+        migrationCredentialReference: `${label}-migration`, runtimeCredentialReference: `${label}-runtime`, onDisable: 'preserve' }), database);
+      sql(`ALTER ROLE ${database}_migrator NOLOGIN;`);
     },
     verifyIsolation(secret) {
       const client = query => execFileSync('docker', ['exec', '-i', '-e', `PGPASSWORD=${secret}`, name, 'psql', '-h', '127.0.0.1', '-U', 'identity_sovereign', '-d', 'identity_sovereign', '-At', '-v', 'ON_ERROR_STOP=1'], {
@@ -36,7 +49,11 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
       assert.throws(() => client('CREATE ROLE forbidden;'));
       assert.throws(() => client('CREATE DATABASE forbidden;'));
       assert.throws(() => client('SET ROLE postgres;'));
-      return ['shared-postgres-server', 'cross-database-connect-denied', 'application-role-escalation-denied', 'keycloak-database-tls'];
+      assert.throws(() => client('SET ROLE identity_sovereign_owner;'));
+      assert.throws(() => client('SET ROLE identity_sovereign_migrator;'));
+      assert.throws(() => client('CREATE TABLE forbidden(id integer);'));
+      assert.throws(() => client('ALTER TABLE user_entity ADD COLUMN forbidden integer;'));
+      return ['shared-postgres-server', 'cross-database-connect-denied', 'application-role-escalation-denied', 'keycloak-database-tls', 'runtime-ddl-denied', 'runtime-migrator-escalation-denied'];
     },
   };
 }

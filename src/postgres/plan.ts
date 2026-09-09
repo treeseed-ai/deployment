@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { postgresTopologySchema, type PostgresTopology } from '@treeseed/sdk/deployment';
 export { inspectPostgresAllocations, postgresAllocationMarker, type PostgresInspectionSession } from './inventory.js';
+export { postgresRuntimeAccessSql } from './access.js';
 
 export interface PostgresInventory {
   serverId: string;

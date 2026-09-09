@@ -32,7 +32,7 @@ export function recoverIdentityDatabase({ server, database, databaseName }) {
     // Only the positively identified disposable database is replaced. Keycloak
     // is stopped, so the restore never runs beneath an active authentication writer.
     command(['exec', database, 'dropdb', '-U', 'postgres', databaseName]);
-    command(['exec', database, 'createdb', '-U', 'postgres', '-O', databaseName, databaseName]);
+    command(['exec', database, 'createdb', '-U', 'postgres', '-O', `${databaseName}_owner`, databaseName]);
     sql(`REVOKE ALL ON DATABASE ${databaseName} FROM PUBLIC; GRANT CONNECT ON DATABASE ${databaseName} TO ${databaseName};`);
     command(['exec', '-i', database, 'pg_restore', '-U', 'postgres', '-d', databaseName, '--exit-on-error', '--single-transaction'], restored);
     assert.deepEqual(sql('SELECT id, username, realm_id FROM user_entity ORDER BY id'), before);
