@@ -16,6 +16,7 @@ import { managedIdentityServices, IDENTITY_IMAGES } from '../../dist/src/identit
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { startSharedDatabase } from './database.js';
 import { identityBootstrapRealm } from '../../dist/src/identity/bootstrap.js';
+import { deviceClient, verifyDevice } from './device.js';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
@@ -91,7 +92,7 @@ async function start(label: Label) {
       clientAuthenticatorType: 'client-jwt', attributes: { 'jwt.credential.certificate': certificate, 'token.endpoint.auth.signing.alg': 'RS256' },
       serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
       protocolMappers: [{ name: 'audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
-        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }, ...browsers.clients,
+        config: { 'included.custom.audience': 'https://api.example.test', 'access.token.claim': 'true' } }] }, ...browsers.clients, deviceClient,
       ...(label === 'central' ? [{ clientId: 'sovereign-broker', enabled: true, protocol: 'openid-connect', publicClient: false,
         secret: brokerSecret, standardFlowEnabled: true, directAccessGrantsEnabled: false,
         redirectUris: [`${issuerFor('sovereign')}/broker/central/endpoint`] }] : [])],
@@ -192,6 +193,8 @@ try {
   await assert.rejects(first.verifier('https://wrong.example.test')(await first.token())); checks.push('wrong-audience-denied');
   stage = 'federated-browser';
   checks.push(...await browsers.verifyFederation(first.issuer, second.issuer, humanPassword));
+  stage = 'device-authorization';
+  checks.push(...await verifyDevice(root, first.issuer, humanPassword));
   stage = 'sovereign-outage';
   docker('stop', second.server);
   assert.equal((await first.verifier()(await first.token())).principalId, before.principalId);
@@ -211,6 +214,7 @@ try {
   checks.push(...(await browsers.verify(first.issuer, humanPassword)).map(check => `restored-${check}`));
   console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
 } catch (error) {
+  if (error instanceof Error && /^Device acceptance failed \([a-z-]+\)$/u.test(error.message)) console.error(error.message);
   if (error instanceof Error && /^Managed PostgreSQL operation failed \([A-Za-z0-9_]+\)$/u.test(error.message)) console.error(error.message);
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
