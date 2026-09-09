@@ -69,8 +69,8 @@ export async function browserFixture(root: string) {
       for (const app of apps) await app.initialize(localIssuer);
       const browser = await chromium.launch({ args: [`--ignore-certificate-errors-spki-list=${pin}`, '--host-resolver-rules=MAP *.localhost 127.0.0.1'] });
       let phase = 'provider-selection';
+      const context = await browser.newContext(); const page = await context.newPage(); page.setDefaultTimeout(20_000);
       try {
-        const context = await browser.newContext(); const page = await context.newPage(); page.setDefaultTimeout(20_000);
         await page.goto(`${admin.base}/login`);
         await page.getByRole('link', { name: 'Explicit central trust' }).click();
         phase = 'remote-login';
@@ -98,7 +98,12 @@ export async function browserFixture(root: string) {
         assert.ok(absentBroker);
         assert.ok(absentBroker.status() >= 400 && absentBroker.status() < 500);
         return ['explicit-directional-broker-login', 'reverse-trust-not-inferred'];
-      } catch { console.error(JSON.stringify({ federationPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Federation acceptance failed'); }
+      } catch {
+        console.error(JSON.stringify({ federationPhase: phase, path: new URL(page.url()).pathname,
+          fields: await page.locator('input[name]').evaluateAll(inputs => inputs.map(input => input.getAttribute('name'))),
+          serverFailures: apps.map(app => app.failure() ?? null) }));
+        throw new Error('Federation acceptance failed');
+      }
       finally { await browser.close(); }
     },
     async verify(issuer: string, password: string) {

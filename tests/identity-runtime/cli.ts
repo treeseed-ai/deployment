@@ -13,6 +13,10 @@ export const standardScopeDefinitions = [
   { name: 'profile', protocol: 'openid-connect', protocolMappers: [
     { name: 'username', protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
       config: { 'user.attribute': 'username', 'claim.name': 'preferred_username', 'jsonType.label': 'String', 'id.token.claim': 'true', 'userinfo.token.claim': 'true' } },
+    ...[['firstName', 'given_name'], ['lastName', 'family_name']].map(([property, claim]) => ({
+      name: property!, protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
+      config: { 'user.attribute': property!, 'claim.name': claim!, 'jsonType.label': 'String', 'id.token.claim': 'true', 'userinfo.token.claim': 'true' },
+    })),
   ] },
   { name: 'email', protocol: 'openid-connect', protocolMappers: [
     { name: 'email', protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
