@@ -13,7 +13,9 @@ import { createIdentityAuthenticator } from '../../.fixtures/api/dist/api/auth/i
 import { createApiIdentityRuntime } from '../../.fixtures/api/dist/api/auth/browser/runtime.js';
 import { BrowserSessionStore } from '../../.fixtures/api/dist/api/auth/browser/session-store.js';
 import { createBrowserIdentityService } from '../../.fixtures/api/dist/api/auth/browser/service.js';
-import { installIdentityBrowserRoutes } from '../../.fixtures/api/dist/api/auth/browser/routes.js';
+import { installApiIdentityRoutes } from '../../.fixtures/api/dist/api/auth/browser/api-routes.js';
+import { controlPlaneOperations } from '../../.fixtures/api/dist/api/control-plane/catalog/index.js';
+import { OperationRegistry } from '../../.fixtures/api/dist/api/control-plane/catalog/operation-registry.js';
 import { planIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-plan.js';
 import { applyIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-transaction.js';
 import type { startSharedDatabase } from './database.js';
@@ -26,9 +28,7 @@ export async function apiSessions(root: string) {
   let authenticate: ReturnType<typeof createIdentityAuthenticator> | undefined;
   const services = new Map<string, Awaited<ReturnType<typeof createBrowserIdentityService>>>();
   const app = new Hono();
-  installIdentityBrowserRoutes(app, { services, authenticate: token => {
-    assert.ok(authenticate); return authenticate(token);
-  } });
+  let registeredIssuer: string | undefined;
   const server = createServer({ key: readFileSync(join(root, 'tls/key.pem')), cert: readFileSync(join(root, 'tls/cert.pem')) }, async (request, response) => {
     try {
       const chunks: Buffer[] = []; let length = 0;
@@ -121,6 +121,15 @@ export async function apiSessions(root: string) {
       } });
       authenticate = runtime.authenticate;
       for (const [id, service] of runtime.services) services.set(id, service);
+      if (registeredIssuer) assert.equal(issuer, registeredIssuer);
+      else {
+        installApiIdentityRoutes(app, { ...runtime, services, authenticate: token => {
+          assert.ok(authenticate); return authenticate(token);
+        } }, { registry: new OperationRegistry([controlPlaneOperations.require('status.show')]) });
+        registeredIssuer = issuer;
+        const metadata = await (await fetch(`${resource}/.well-known/oauth-protected-resource`)).json();
+        assert.deepEqual(metadata.authorization_servers, [issuer]); assert.equal(metadata.resource, resource);
+      }
       const workload = await createWorkloadCredentials({ issuer, clientId: workloadId, privateKey: input.workloadKey,
         resources: [resource], profile: 'keycloak', verificationKey: keys, transport: fetch,
         resolvePrincipal: async identity => {
