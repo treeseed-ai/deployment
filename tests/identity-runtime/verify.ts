@@ -162,12 +162,26 @@ async function start(label: Label) {
   syntheticSecrets.push(bootstrapToken.accessToken);
   assert.equal((await fetch(bootstrapResource, { headers: { Authorization: `Bearer ${bootstrapToken.accessToken}` } })).status, 200);
   stage = `provision-${label}-clients`;
-  const registry = createKeycloakApplicationRegistry({ issuer: bootstrapIssuer, transport: fetch,
+  const registryTransport: typeof fetch = async (input, init) => {
+    const response = await fetch(input, init);
+    console.error(JSON.stringify({ registryMethod: init?.method, status: response.status }));
+    if (init?.method === 'GET' && response.ok) {
+      const rows = await response.clone().json();
+      if (Array.isArray(rows)) console.error(JSON.stringify({ registryShape: rows.map(row => ({
+        fields: Object.keys(row), attributes: Object.keys(row.attributes ?? {}), defaultScopes: row.defaultClientScopes,
+        optionalScopes: row.optionalClientScopes, mappers: row.protocolMappers?.map(mapper => ({ fields: Object.keys(mapper), config: Object.keys(mapper.config ?? {}) })),
+      })) }));
+    }
+    return response;
+  };
+  const registry = createKeycloakApplicationRegistry({ issuer: bootstrapIssuer, transport: registryTransport,
     credentials: { token: async input => (await bootstrapCredentials.credentials(input)).accessToken } });
   for (const kind of ['browser', 'workload'] as const) {
     const application = { clientId: `managed-${kind}`, kind, resource: 'https://api.example.test', scopes: [], certificate,
       redirectUris: kind === 'browser' ? ['https://admin.example.test/auth/callback'] : [] };
+    stage = `provision-${label}-${kind}-create`;
     const created = await registry.ensure(application); assert.equal(created.action, 'create');
+    stage = `provision-${label}-${kind}-noop`;
     const unchanged = await registry.ensure(application); assert.equal(unchanged.action, 'noop'); assert.equal(unchanged.id, created.id);
     await assert.rejects(registry.ensure({ ...application, resource: 'https://foreign.example.test' }), /drift/);
     assert.equal((await registry.ensure(application)).action, 'noop');
