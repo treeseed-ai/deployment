@@ -1,5 +1,5 @@
 /** One server per selected installation/environment; applications own databases. */
-export const POSTGRES_IMAGE = 'postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94';
+export const POSTGRES_IMAGE = 'postgres:17.11-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73';
 
 export function managedPostgresService(options: { configurationRoot: string; stateRoot: string }) {
   for (const path of [options.configurationRoot, options.stateRoot]) {

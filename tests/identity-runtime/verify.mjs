@@ -111,7 +111,7 @@ async function start(label) {
   docker('compose', '-p', `${prefix}-${label}`, '-f', composePath, 'up', '-d');
   await ready(`${issuer}/.well-known/openid-configuration`);
   docker('stop', server);
-  sharedDatabase.activateRuntime(label);
+  await sharedDatabase.activateRuntime(label);
   chmodSync(join(directory, 'database-password'), 0o600);
   writeFileSync(join(directory, 'database-password'), password, { mode: 0o444 });
   chmodSync(join(directory, 'database-password'), 0o444);

@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { managedPostgresService } from '../../src/postgres/compose.ts';
 import { postgresRuntimeAccessSql } from '../../src/postgres/access.ts';
+import { verifyPostgresRuntimeAccess } from '../../src/postgres/verify.ts';
 
 /** Disposable allocation harness. Production reconciliation is a separate gate. */
 export function startSharedDatabase({ root, prefix, password, docker }) {
@@ -31,13 +32,16 @@ export function startSharedDatabase({ root, prefix, password, docker }) {
         CREATE DATABASE ${database} OWNER ${database}_owner; REVOKE ALL ON DATABASE ${database} FROM PUBLIC; GRANT CONNECT ON DATABASE ${database} TO ${database}, ${database}_migrator;`);
       return { hostname: 'postgres', port: 5432, database, username: database };
     },
-    activateRuntime(label) {
+    async activateRuntime(label) {
       assert.ok(['sovereign', 'central'].includes(label));
       const database = `identity_${label}`;
-      sql(postgresRuntimeAccessSql({ requirementId: label, serverId: 'shared', database,
+      const allocation = { requirementId: label, serverId: 'shared', database,
         ownerRole: `${database}_owner`, migrationRole: `${database}_migrator`, runtimeRole: database,
-        migrationCredentialReference: `${label}-migration`, runtimeCredentialReference: `${label}-runtime`, onDisable: 'preserve' }), database);
+        migrationCredentialReference: `${label}-migration`, runtimeCredentialReference: `${label}-runtime`, onDisable: 'preserve' };
+      sql(postgresRuntimeAccessSql(allocation), database);
       sql(`ALTER ROLE ${database}_migrator NOLOGIN;`);
+      const access = await verifyPostgresRuntimeAccess(allocation, { query: async query => ({ rows: [JSON.parse(sql(`SELECT row_to_json(result) FROM (${query}) result`, database))] }) });
+      assert.deepEqual(access, { verified: true, blockers: [] });
     },
     verifyIsolation(secret) {
       const client = query => execFileSync('docker', ['exec', '-i', '-e', `PGPASSWORD=${secret}`, name, 'psql', '-h', '127.0.0.1', '-U', 'identity_sovereign', '-d', 'identity_sovereign', '-At', '-v', 'ON_ERROR_STOP=1'], {
