@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writePostgresLogicalArchive, restorePostgresLogicalArchive } from '../../dist/src/postgres/logical-archive.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
+import { inspectPostgresSource } from '../../dist/src/postgres/source-inventory.js';
+import { deploymentDigest } from '@treeseed/sdk/deployment';
+import { component } from '../fixtures.js';
 import { fingerprintPostgresTransfer } from '../../dist/src/postgres/transfer-fingerprint.js';
 import type { PostgresInspectionSession } from '../../dist/src/postgres/inventory.js';
 
@@ -59,6 +62,7 @@ try {
     // The mode-0700 parent excludes other host users; only this owned container
     // receives its socket directory. Cross-image PostgreSQL UIDs differ.
     docker(['run', '-d', '--name', name, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data',
+      '--label', `com.docker.compose.project=${prefix}`, '--label', `com.docker.compose.service=${name === source ? 'source' : 'destination'}`,
       '--mount', `type=bind,source=${socket},target=/fixture-socket`,
       '-e', 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C',
       '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', image, '-c', 'listen_addresses=',
@@ -87,6 +91,18 @@ try {
   sql(destination, 'postgres', 'REVOKE ALL ON DATABASE application FROM PUBLIC; GRANT CONNECT ON DATABASE application TO application_migrator,application_runtime;');
   const records = (name: string) => sql(name, 'application', 'SELECT row_to_json(r) FROM records r ORDER BY id');
   const before = records(source);
+  stage = 'source-attestation';
+  const release = component('api', 'development', 'a');
+  release.runtime.compose.projectName = prefix;
+  release.runtime.services[0]!.composeService = 'source';
+  release.runtimeDigest = deploymentDigest(release.runtime);
+  release.images = [{ role: 'postgres', repository: 'postgres', digest: pg16.split('@')[1]!, platforms: ['linux/amd64'], consumers: ['api'] }];
+  const configuredSource = { services: { source: { image: pg16, environment: { POSTGRES_DB: 'application', POSTGRES_USER: 'postgres' } } } };
+  const observed = await inspectPostgresSource(release, 'source', configuredSource, async args => docker(args));
+  assert.equal(observed.major, 16); assert.equal(observed.database, 'application');
+  assert.match(observed.clusterIdentity, /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(records(source), before);
+  checks.push('installed-image-source-attestation-read-only');
   stage = 'source-fingerprint';
   const sourceFingerprint = await fingerprint(source, 'postgres', 16);
   stage = 'export';

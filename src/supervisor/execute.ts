@@ -12,8 +12,7 @@ import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } 
 import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { providerRuntimeStatus } from './provider-runtime.js';
-import { reconcileLocalPostgres } from './postgres.js';
-import { activateLocalPostgresComponent } from './postgres-lifecycle.js';
+import { executePostgresOperation } from './postgres-operations.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { backupConfiguration, preserveAcceptedConfiguration } from './backup-configuration.js';
@@ -338,9 +337,10 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'component.configure':
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
 			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
-		case 'postgres.plan': return reconcileLocalPostgres(operation.selections);
-		case 'postgres.component.activate': return activateLocalPostgresComponent(operation.componentId, operation.selections, operation.backupGeneration);
-		case 'postgres.apply': return reconcileLocalPostgres(operation.selections, { topologyDigest: operation.topologyDigest, inventoryDigest: operation.inventoryDigest });
+		case 'postgres.source.inspect':
+		case 'postgres.plan':
+		case 'postgres.component.activate':
+		case 'postgres.apply': return executePostgresOperation(operation);
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
 		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
