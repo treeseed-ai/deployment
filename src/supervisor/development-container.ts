@@ -13,7 +13,7 @@ import { componentComposeArguments, type CommandRunner } from './compose-runtime
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
-import { recoverDevelopmentCustody } from './development-custody-recovery.js';
+import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -105,7 +105,9 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
       const inputs = componentActivationInputs(host, component, releases, record.routes);
       configureComponent('api', component.release, inputs.connectionEnvironment, inputs.secretFileIds, inputs.optionalSecretEnvironment);
     },
-    startVault: () => { command('/usr/bin/docker', [...custodyCompose(), 'up', '--detach', '--wait', '--wait-timeout', '120', 'openbao']); },
+    // Docker may have restarted the old container before /run was restored.
+    // Recreate its process/mounts after materialization, retaining persistent data.
+    startVault: () => { command('/usr/bin/docker', recoveredVaultStartArguments(custodyCompose())); },
     initializeClient: () => { command('/usr/bin/docker', [...custodyCompose(), 'run', '--rm', '--no-deps', '-T', 'openbao-initialize']); },
   });
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
