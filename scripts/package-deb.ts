@@ -123,6 +123,14 @@ const packages: Record<string, Definition> = {
 	'treeseed-cli': { architecture: 'all', version: cliPackageVersion, depends: `treeseed-sdk (= ${sdkPayload ? debianVersion(sdkPayload.version) : deploymentVersion}), treeseed-host-runtime`, description: 'TreeSeed trsd host client payload', payload(stage) {
 		if (!cliPayload) throw new Error('No integration lock selects the CLI host payload.');
 		extractNpm(cliPayload.archive, resolve(stage, 'usr/lib/treeseed/cli'));
+		const cliManifest = JSON.parse(readFileSync(resolve(stage, 'usr/lib/treeseed/cli/package.json'), 'utf8')) as { dependencies?: Record<string, string> };
+		if (cliManifest.dependencies?.['@treeseed/identity']) {
+			for (const [id, target] of [['identity', '@treeseed/identity'], ['jose', 'jose'], ['oauth4webapi', 'oauth4webapi']] as const) {
+				const payload = hostPayload(id, packageIntegration!);
+				if (id === 'identity' && payload.version !== cliManifest.dependencies['@treeseed/identity']) throw new Error('CLI Identity payload must match its declared exact dependency.');
+				extractNpm(payload.archive, resolve(stage, 'usr/lib/treeseed/cli/node_modules', target));
+			}
+		}
 		for (const path of sdkOwnedCliRuntimePaths) rmSync(resolve(stage, 'usr/lib/treeseed/cli/node_modules', path), { recursive: true, force: true });
 		install('scripts/cli-wrapper.sh', resolve(stage, 'usr/bin/trsd'), 0o755);
 	} },
