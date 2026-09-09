@@ -1,8 +1,144 @@
 {
   "schemaVersion": 1,
-  "currentTag": "0.1.0-rc.280",
-  "rollbackTag": "0.1.0-rc.279",
+  "currentTag": "0.1.0-rc.282",
+  "rollbackTag": "0.1.0-rc.280",
   "packages": [
+    {
+      "name": "treeseed-cli_0.13.0~rc73-2+deployment0.1.0~rc282_all.deb",
+      "digest": "sha256:153249714d61193b9881a93ecbb97245ba5069e78e32caf48b2c6940505e7d9f",
+      "size": 1054164,
+      "package": "treeseed-cli",
+      "version": "0.13.0~rc73-2+deployment0.1.0~rc282",
+      "depends": "treeseed-sdk (= 0.13.0~rc108-1), treeseed-host-runtime"
+    },
+    {
+      "name": "treeseed-component-admin_0.12.59~rc35-1_all.deb",
+      "digest": "sha256:5cbd6664081f8476fdd44c42f6275c65804021fb0362f419c3bdcbe58ca26211",
+      "size": 2188,
+      "package": "treeseed-component-admin",
+      "version": "0.12.59~rc35-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-component-agent_0.13.0~rc47-1_all.deb",
+      "digest": "sha256:5b6861b2a311db3754b271e668197b0001a7ffd6ff7d8f2d5864fd22fefda911",
+      "size": 10432,
+      "package": "treeseed-component-agent",
+      "version": "0.13.0~rc47-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-component-ai-inference_0.11.0~rc22-1_all.deb",
+      "digest": "sha256:6f1078a0ac4bdfa9d3142ba82282f8cf91d88f16ac90ef85ba36e0507c29edea",
+      "size": 4636,
+      "package": "treeseed-component-ai-inference",
+      "version": "0.11.0~rc22-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-component-ai-lab_0.11.0~rc22-1_all.deb",
+      "digest": "sha256:3377caa1b7863bbc59cd541d086d2c6d22ffa9eb2c69249c7af51ddd363ceeb4",
+      "size": 4770,
+      "package": "treeseed-component-ai-lab",
+      "version": "0.11.0~rc22-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-component-ai-training_0.11.0~rc22-1_all.deb",
+      "digest": "sha256:3c36f7fb8ce4c51867650f30b8f7fbe02693a2dddcd2970ec99dc758bde191a5",
+      "size": 4324,
+      "package": "treeseed-component-ai-training",
+      "version": "0.11.0~rc22-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-component-api_0.8.0~rc96-1_all.deb",
+      "digest": "sha256:3a52e1462e289db543a7754c7704ba6460c69b7e9a498b35793cb1abed40ea97",
+      "size": 3750,
+      "package": "treeseed-component-api",
+      "version": "0.8.0~rc96-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-component-treedx_0.3.0~rc17-1_all.deb",
+      "digest": "sha256:17feb19afecf0badf306534a807fc4309b20141d016a2aee308e5be7aa4df421",
+      "size": 2748,
+      "package": "treeseed-component-treedx",
+      "version": "0.3.0~rc17-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-edge_0.1.0~rc282-1_all.deb",
+      "digest": "sha256:46efb97511f3af681eb8eee552358948b42f3ebdf669428d957cfde74d2f69cd",
+      "size": 1926,
+      "package": "treeseed-edge",
+      "version": "0.1.0~rc282-1",
+      "depends": "docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin"
+    },
+    {
+      "name": "treeseed-host-runtime_0.1.0~rc282-1_amd64.deb",
+      "digest": "sha256:499c6d4d90ca21ee71fa548bf4b66c654462aec9f4fe6468eda58017c4edc705",
+      "size": 33349246,
+      "package": "treeseed-host-runtime",
+      "version": "0.1.0~rc282-1",
+      "depends": "libc6 (>= 2.36), libstdc++6, ca-certificates, docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin"
+    },
+    {
+      "name": "treeseed-kata-runtime_0.1.0~rc282-1_amd64.deb",
+      "digest": "sha256:bbcdc545ddd7ed4b69be68df1870795694b28c577b6b45ad98ebfd79217e6f38",
+      "size": 1606,
+      "package": "treeseed-kata-runtime",
+      "version": "0.1.0~rc282-1",
+      "depends": "containerd (>= 2.0) | containerd.io (>= 2.0), qemu-system-x86, zstd, curl, ca-certificates"
+    },
+    {
+      "name": "treeseed-lab_0.1.0~rc34-1_all.deb",
+      "digest": "sha256:15bf3eeb1fdba122272576d7b78e7b22e4f25220e908348ef2dee67a02127e5e",
+      "size": 2260,
+      "package": "treeseed-lab",
+      "version": "0.1.0~rc34-1",
+      "depends": "treeseed-manager"
+    },
+    {
+      "name": "treeseed-manager_0.1.0~rc282-1_amd64.deb",
+      "digest": "sha256:f3ad8d524736df413613d84f2bfc45c32f8daeb0e62a4d9b027b8870074a77de",
+      "size": 4253694,
+      "package": "treeseed-manager",
+      "version": "0.1.0~rc282-1",
+      "depends": "treeseed-host-runtime (= 0.1.0~rc282-1), treeseed-kata-runtime (= 0.1.0~rc282-1), treeseed-sdk (= 0.13.0~rc108-1), treeseed-cli (= 0.13.0~rc73-2+deployment0.1.0~rc282), util-linux, iproute2, containerd (>= 2.0) | containerd.io (>= 2.0), containernetworking-plugins, nftables, openssl, cryptsetup (>= 2:2.6), rsync"
+    },
+    {
+      "name": "treeseed-release-catalog-development_0.1.0~rc282-1_all.deb",
+      "digest": "sha256:15b3331ca44d0e468289d93cac161ee4787714b7c7049af4a4a3df6aba53eb2d",
+      "size": 15092,
+      "package": "treeseed-release-catalog-development",
+      "version": "0.1.0~rc282-1",
+      "depends": "treeseed-release-catalog (= 0.1.0-36+catalog.be9a3b39e19e)"
+    },
+    {
+      "name": "treeseed-release-catalog_0.1.0-36+catalog.be9a3b39e19e_all.deb",
+      "digest": "sha256:74345b9540fd52d13aeb69b42110ef5b7a9f6cdb27caf8be640d6d2e4bc1bc5f",
+      "size": 894,
+      "package": "treeseed-release-catalog",
+      "version": "0.1.0-36+catalog.be9a3b39e19e",
+      "depends": ""
+    },
+    {
+      "name": "treeseed-sdk_0.13.0~rc108-1_all.deb",
+      "digest": "sha256:4541fec435c687d5e162c135dd39565ecdd3df535411607aaa46bdd811b14379",
+      "size": 1215724,
+      "package": "treeseed-sdk",
+      "version": "0.13.0~rc108-1",
+      "depends": ""
+    },
+    {
+      "name": "treeseed_0.1.0~rc282-1_amd64.deb",
+      "digest": "sha256:ae0d4875f97c4d25f643746b3f6970e8073947da3ecdcfb0a18882bd3ac1881a",
+      "size": 4032,
+      "package": "treeseed",
+      "version": "0.1.0~rc282-1",
+      "depends": "systemd, ca-certificates, curl, gnupg, openssl, jq, apt (>= 2.4)"
+    },
     {
       "name": "treeseed-cli_0.13.0.rc72-2+deployment0.1.0.rc280_all.deb",
       "digest": "sha256:518e4d534d219e8b5d22c24da4206b16500180ab0e2ca6c17ef71a64f21ff044",
@@ -116,7 +252,7 @@
       "depends": "treeseed-release-catalog (= 0.1.0-36+catalog.be9a3b39e19e)"
     },
     {
-      "name": "treeseed-release-catalog_0.1.0-36+catalog.be9a3b39e19e_all.deb",
+      "name": "treeseed-archive-ca752be4136418f989dae8b44fa317cefaad609e1638d3a0941cf460c601df54.deb",
       "digest": "sha256:ca752be4136418f989dae8b44fa317cefaad609e1638d3a0941cf460c601df54",
       "size": 894,
       "package": "treeseed-release-catalog",
@@ -137,142 +273,6 @@
       "size": 4034,
       "package": "treeseed",
       "version": "0.1.0~rc280-1",
-      "depends": "systemd, ca-certificates, curl, gnupg, openssl, jq, apt (>= 2.4)"
-    },
-    {
-      "name": "treeseed-cli_0.13.0~rc72-2+deployment0.1.0~rc279_all.deb",
-      "digest": "sha256:0ff3ee9a40f37d3061450532dda4302f980bdda09ddc2aaa7535f8b079c25362",
-      "size": 1053386,
-      "package": "treeseed-cli",
-      "version": "0.13.0~rc72-2+deployment0.1.0~rc279",
-      "depends": "treeseed-sdk (= 0.13.0~rc108-1), treeseed-host-runtime"
-    },
-    {
-      "name": "treeseed-component-admin_0.12.59~rc35-1_all.deb",
-      "digest": "sha256:0ef580a2457e2b69745109eea4d37868de17c9f218f40dd33270c544d2a05c04",
-      "size": 2190,
-      "package": "treeseed-component-admin",
-      "version": "0.12.59~rc35-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-component-agent_0.13.0~rc47-1_all.deb",
-      "digest": "sha256:88affc012bbe74b782de99d34833b6cad8c1fd9835dda526449a45ff6ddba117",
-      "size": 10434,
-      "package": "treeseed-component-agent",
-      "version": "0.13.0~rc47-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-component-ai-inference_0.11.0~rc22-1_all.deb",
-      "digest": "sha256:3c015947df6c5db327e771dc92ffa373428f7fce2ed903ad1a4f47709177b339",
-      "size": 4642,
-      "package": "treeseed-component-ai-inference",
-      "version": "0.11.0~rc22-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-component-ai-lab_0.11.0~rc22-1_all.deb",
-      "digest": "sha256:70687f95a2df46eeafa80d420830f0c91b2066fb8e0212e1cac996cb41eccde4",
-      "size": 4780,
-      "package": "treeseed-component-ai-lab",
-      "version": "0.11.0~rc22-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-component-ai-training_0.11.0~rc22-1_all.deb",
-      "digest": "sha256:99ec3668712400adf4a6704aa7bc37a33abfe8f05c08454cde5e68c954385674",
-      "size": 4328,
-      "package": "treeseed-component-ai-training",
-      "version": "0.11.0~rc22-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-component-api_0.8.0~rc96-1_all.deb",
-      "digest": "sha256:38ff83895fe8ec45cd8ab64ab578be1e05860bbb3ed0c38c126f15076c123489",
-      "size": 3752,
-      "package": "treeseed-component-api",
-      "version": "0.8.0~rc96-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-component-treedx_0.3.0~rc17-1_all.deb",
-      "digest": "sha256:eff587ef5b842b93da42c34f5124ebd653b75495333117133b021a1de06fd5ae",
-      "size": 2750,
-      "package": "treeseed-component-treedx",
-      "version": "0.3.0~rc17-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-edge_0.1.0~rc279-1_all.deb",
-      "digest": "sha256:c373b132e994889adc9e23c6b84c7f5ae5a23a47b7eb168e6425ed095d740828",
-      "size": 1924,
-      "package": "treeseed-edge",
-      "version": "0.1.0~rc279-1",
-      "depends": "docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin"
-    },
-    {
-      "name": "treeseed-host-runtime_0.1.0~rc279-1_amd64.deb",
-      "digest": "sha256:eea9786508c18f6ccee5b91b2b9405fe93f9ce86d45b320ce8aa8a0ef9130c7d",
-      "size": 33347540,
-      "package": "treeseed-host-runtime",
-      "version": "0.1.0~rc279-1",
-      "depends": "libc6 (>= 2.36), libstdc++6, ca-certificates, docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin"
-    },
-    {
-      "name": "treeseed-kata-runtime_0.1.0~rc279-1_amd64.deb",
-      "digest": "sha256:1faf6e8686bf7e641bf8c8340191fb9a0244f2eeaba17e8d706152ea39b8dcff",
-      "size": 1602,
-      "package": "treeseed-kata-runtime",
-      "version": "0.1.0~rc279-1",
-      "depends": "containerd (>= 2.0) | containerd.io (>= 2.0), qemu-system-x86, zstd, curl, ca-certificates"
-    },
-    {
-      "name": "treeseed-lab_0.1.0~rc34-1_all.deb",
-      "digest": "sha256:e05f6db099714348f0d9df0ce813718337fd434dd3f1f67f264c28d3646eec88",
-      "size": 2266,
-      "package": "treeseed-lab",
-      "version": "0.1.0~rc34-1",
-      "depends": "treeseed-manager"
-    },
-    {
-      "name": "treeseed-manager_0.1.0~rc279-1_amd64.deb",
-      "digest": "sha256:bb3f44d2563455f86589e45dd88fc865d11bc8a54b70d5322476fb33ff369d4d",
-      "size": 4254088,
-      "package": "treeseed-manager",
-      "version": "0.1.0~rc279-1",
-      "depends": "treeseed-host-runtime (= 0.1.0~rc279-1), treeseed-kata-runtime (= 0.1.0~rc279-1), treeseed-sdk (= 0.13.0~rc108-1), treeseed-cli (= 0.13.0~rc72-2+deployment0.1.0~rc279), util-linux, iproute2, containerd (>= 2.0) | containerd.io (>= 2.0), containernetworking-plugins, nftables, openssl, cryptsetup (>= 2:2.6), rsync"
-    },
-    {
-      "name": "treeseed-release-catalog-development_0.1.0~rc279-1_all.deb",
-      "digest": "sha256:539bb6e4ac0609953f519aa34c59ccf6bb2bd399dd2e3448ac24eab1d6f001b8",
-      "size": 15092,
-      "package": "treeseed-release-catalog-development",
-      "version": "0.1.0~rc279-1",
-      "depends": "treeseed-release-catalog (= 0.1.0-36+catalog.be9a3b39e19e)"
-    },
-    {
-      "name": "treeseed-archive-769a109b252b5c75fe5d78fbb5d55bf6e0308fdc218dc466dee41a5918efd34c.deb",
-      "digest": "sha256:769a109b252b5c75fe5d78fbb5d55bf6e0308fdc218dc466dee41a5918efd34c",
-      "size": 896,
-      "package": "treeseed-release-catalog",
-      "version": "0.1.0-36+catalog.be9a3b39e19e",
-      "depends": ""
-    },
-    {
-      "name": "treeseed-sdk_0.13.0~rc108-1_all.deb",
-      "digest": "sha256:3de280f0df827a93eca57f9707e11ef92979298613911abfbaf83cd913a88789",
-      "size": 1215568,
-      "package": "treeseed-sdk",
-      "version": "0.13.0~rc108-1",
-      "depends": ""
-    },
-    {
-      "name": "treeseed_0.1.0~rc279-1_amd64.deb",
-      "digest": "sha256:05b3173f89220fcece5b2a3844ee5b3afd7ef6d97439aed7f9a4adb0a5416e9e",
-      "size": 4034,
-      "package": "treeseed",
-      "version": "0.1.0~rc279-1",
       "depends": "systemd, ca-certificates, curl, gnupg, openssl, jq, apt (>= 2.4)"
     }
   ]
