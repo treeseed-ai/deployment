@@ -186,7 +186,8 @@ try {
   checks.push('database-restore-preserves-workload-subject-and-signing-key');
   checks.push(...(await browsers.verify(first.issuer, humanPassword)).map(check => `restored-${check}`));
   console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'asymmetric-workload-exchange', 'spire', 'live-migration'] }));
-} catch {
+} catch (error) {
+  if (/^Managed PostgreSQL operation failed \([A-Za-z0-9_]+\)$/u.test(error?.message ?? '')) console.error(error.message);
   console.error(JSON.stringify({ ok: false, stage, error: 'Disposable identity acceptance failed; no credentials or raw provider output emitted.' }));
   for (const name of names) {
     try {

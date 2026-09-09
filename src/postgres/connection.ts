@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { checkServerIdentity } from 'node:tls';
 import { postgresServerSchema } from '@treeseed/sdk/deployment';
 import type { PostgresInspectionSession } from './inventory.js';
 
@@ -13,7 +14,8 @@ export async function withManagedPostgresSession<T>(options: {
   // Never use a connection string: its SSL query options can override explicit trust.
   const client = new pg.Client({ host: server.hostname, port: server.port, database: options.database,
     user: options.username, password: options.password,
-    ssl: { ca: options.certificateAuthority, rejectUnauthorized: true },
+    ssl: { ca: options.certificateAuthority, rejectUnauthorized: true,
+      checkServerIdentity: (_hostname, certificate) => checkServerIdentity(server.hostname, certificate) },
     connectionTimeoutMillis: 10_000, statement_timeout: 60_000, query_timeout: 65_000,
     lock_timeout: 5_000, idle_in_transaction_session_timeout: 30_000,
     application_name: 'treeseed-postgres-reconciliation', options: '-c search_path=public', client_encoding: 'UTF8',
@@ -29,7 +31,9 @@ export async function withManagedPostgresSession<T>(options: {
     if (failed) throw new Error('PostgreSQL session unavailable');
     return result;
   } catch (error) {
-    const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[A-Z0-9]{5}$/u.test(error.code) ? error.code : 'unavailable';
+    const candidate = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    const safeCodes = ['ERR_TLS_CERT_ALTNAME_INVALID', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'CERT_HAS_EXPIRED', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_OSSL_PEM_BAD_BASE64_DECODE', 'ERR_OSSL_PEM_NO_START_LINE'];
+    const code = typeof candidate === 'string' && (/^[A-Z0-9]{5}$/u.test(candidate) || safeCodes.includes(candidate)) ? candidate : 'unavailable';
     // Do not attach the original driver error, SQL, parameters or connection options.
     throw new Error(`Managed PostgreSQL operation failed (${code})`);
   } finally { await client.end().catch(() => undefined); }
