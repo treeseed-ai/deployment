@@ -7,6 +7,10 @@
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
+    "./postgres/reconciliation": {
+      "types": "./dist/src/postgres/plan.d.ts",
+      "import": "./dist/src/postgres/plan.js"
+    },
     "./postgres/runtime": {
       "types": "./dist/src/postgres/compose.d.ts",
       "import": "./dist/src/postgres/compose.js"
@@ -67,7 +71,7 @@
     "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.99",
+    "@treeseed/sdk": "0.13.0-rc.101",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
     "yaml": "^2.8.1",
