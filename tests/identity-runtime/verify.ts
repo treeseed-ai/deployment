@@ -162,6 +162,7 @@ try {
   const first = await start('sovereign');
   const second = await start('central');
   checks.push('allocation-custody-apply', 'allocation-stale-plan-denied', 'allocation-custody-replay', 'allocation-roles-start-disabled');
+  stage = 'database-isolation';
   checks.push(...await sharedDatabase.verifyIsolation(firstDatabasePassword));
   stage = 'token-validation';
   const before = await first.verifier()(await first.token());

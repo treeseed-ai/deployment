@@ -80,7 +80,9 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       const stored = allocations.get('sovereign'); assert.ok(stored);
       const readback = () => withManagedPostgresSession({ ...options, database: 'identity_sovereign' }, session =>
         verifyPostgresAllocationRuntime(stored.topology, 'sovereign', stored.password, session));
-      assert.equal((await readback()).action, 'noop');
+      const initial = await readback();
+      if (!initial.verified) console.error(JSON.stringify({ databaseRuntimeBlockers: initial.blockers }));
+      assert.equal(initial.action, 'noop');
       sql('ALTER ROLE identity_sovereign CONNECTION LIMIT 21');
       assert.ok((await readback()).blockers.includes('limits'));
       sql('ALTER ROLE identity_sovereign CONNECTION LIMIT 20');

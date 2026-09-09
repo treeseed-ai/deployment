@@ -39,7 +39,7 @@ export async function verifyPostgresAllocationRuntime(input: unknown, requiremen
       (SELECT count(*)=3 FROM pg_roles WHERE rolname=ANY($3::text[]) AND shobj_description(oid,'pg_authid')=$4
         AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)) AS custody,
       EXISTS (SELECT 1 FROM pg_database WHERE datname=current_database() AND shobj_description(oid,'pg_database')=$4 AND datallowconn) AS database,
-      EXISTS (SELECT 1 FROM pg_roles WHERE rolname=$5 AND NOT rolcanlogin) AS migratorDisabled,
+      EXISTS (SELECT 1 FROM pg_roles WHERE rolname=$5 AND NOT rolcanlogin) AS "migratorDisabled",
       NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
         AND (NOT has_table_privilege($1,c.oid,'SELECT') OR NOT has_table_privilege($1,c.oid,'INSERT') OR NOT has_table_privilege($1,c.oid,'UPDATE') OR NOT has_table_privilege($1,c.oid,'DELETE')
           OR has_table_privilege($1,c.oid,'TRUNCATE') OR has_table_privilege($1,c.oid,'REFERENCES') OR has_table_privilege($1,c.oid,'TRIGGER'))) AS tables,
