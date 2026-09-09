@@ -6,6 +6,7 @@ import { atomicJson } from '../core/files.js';
 import { recordEvent } from '../core/events.js';
 import { paths } from '../core/paths.js';
 import { edgeRoutes, renderCaddyfile, subjectAlternativeNames, type EdgeRoute } from '../edge/caddy.js';
+import { edgeReadiness } from '../edge/readiness.js';
 import { createPlan } from './plan.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
@@ -391,6 +392,11 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	if (cliConfigurationChanged) await requestSupervisor({ operation: 'cli.configure', controlPlaneUrl: cliControlPlaneUrl });
 	if (previous && changed.length === 0 && !configurationChanged && !catalogChanged && removed.length === 0) await reconcileDevelopmentPeers(host, effective, developmentSessions);
 	if (changed.length === 0 && removed.length === 0 && !configurationChanged && !catalogChanged && !refresh.coreUpdated && previous) {
+		if (routes.length && !await edgeReadiness(subjectAlternativeNames(routes))) {
+			await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+			if (!await edgeReadiness(subjectAlternativeNames(routes))) throw new Error('Managed edge TLS readiness failed after repair.');
+			recordEvent('edge.repaired', {});
+		}
 		await reconcileAiModeSelection(host, effective);
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;

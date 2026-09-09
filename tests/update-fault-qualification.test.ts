@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 	previous: undefined as any,
 	active: [] as any[],
 	paused: false,
+	edgeReady: true,
 	eligible: true,
 	refreshFailure: null as Error | null,
 	installFailure: null as Error | null,
@@ -29,6 +30,7 @@ vi.mock('node:fs', async (importOriginal) => {
 	return { ...actual, existsSync: (path: import('node:fs').PathLike) => String(path).startsWith('/etc/apt/sources.list.d/treeseed-deployment-') || actual.existsSync(path) };
 });
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.host }));
+vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => state.edgeReady }));
 vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager`, cli: `${state.root}/cli` } }));
 vi.mock('../src/catalog/load.js', () => ({ loadCatalog: (path: string) => path.endsWith('stable.json') ? state.stable : state.development }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: () => undefined }));
@@ -45,6 +47,7 @@ vi.mock('../src/manager/update-state.js', () => ({
 vi.mock('../src/manager/update-policy.js', () => ({ activationEligible: () => state.eligible, metadataRefreshDue: () => true }));
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
 	state.operations.push(operation);
+	if (operation.operation === 'edge.apply') state.edgeReady = true;
 	if (operation.operation === 'apt.refresh') {
 		if (state.refreshFailure) throw state.refreshFailure;
 		return { coreUpdated: false, before: {}, after: {} };

@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { executeSupervisorOperation } from '../src/supervisor/execute.js';
 
 describe('managed Compose runtime status', () => {
+	it('reports missing boot-time inputs as repairable drift without exposing errors', () => {
+		const status = executeSupervisorOperation({ operation: 'compose.status', projectName: 'treeseed-api', runtime: { componentId: 'api', files: ['api/1.0.0/compose.yml'], services: ['api'] } }, (_executable, args) => {
+			if (args[0] === 'ps') return '';
+			throw new Error('missing environment: SECRET=must-not-escape');
+		});
+		expect(status).toMatchObject({ ready: false, issues: [{ service: 'api', reason: 'configuration-unavailable' }] });
+		expect(JSON.stringify(status)).not.toContain('must-not-escape');
+	});
 	it('reports exact missing, unhealthy, and wrong-image service drift', () => {
 		const inspections: Record<string, string> = {
 			api: ['api', 'running', 'healthy', 'treeseed/api@sha256:expected'].join('\t'),
