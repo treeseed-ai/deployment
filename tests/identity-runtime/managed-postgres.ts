@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { deploymentDigest, postgresTopologySchema } from '@treeseed/sdk/deployment';
 import { component, host } from '../../dist/tests/fixtures.js';
 import { activateLocalPostgresComponent } from '../../dist/src/supervisor/postgres-lifecycle.js';
@@ -60,6 +60,11 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'activated');
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'noop');
     assert.equal(existsSync('/run/treeseed/postgres-clients/acceptance/acceptance/migration/password'), false);
+    const interrupted = `/run/treeseed/postgres-clients/acceptance/acceptance/runtime/password.tmp-${randomUUID()}`;
+    writeFileSync(interrupted, 'synthetic interrupted materialization', { mode: 0o400, flag: 'wx' });
+    await postgresDocker(['compose', '--file', files, '--project-name', application.runtime.compose.projectName, 'stop', 'runtime'], 60);
+    assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'restarted');
+    assert.equal(existsSync(interrupted), false);
   } finally {
     chmodSync('/usr/share', shareMode);
     if (installed && existsSync(files)) await postgresDocker(['compose', '--file', files, '--project-name', application.runtime.compose.projectName, 'down', '--volumes'], 60);

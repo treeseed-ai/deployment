@@ -16,6 +16,7 @@ import pg from 'pg';
 import { activatePostgresAllocation } from '../../dist/src/postgres/activation.js';
 import { disablePostgresAllocation } from '../../dist/src/postgres/disable.js';
 import { verifyManagedPostgres } from './managed-postgres.js';
+import { verifyAllocationRecovery } from './allocation-recovery.js';
 
 // Runs as root only on the disposable Actions runner, never on a user's host.
 if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable privileged Actions acceptance required');
@@ -51,6 +52,9 @@ try {
   };
   const host = { secrets: Object.fromEntries(credentialIds.map((id, index) => [id, { provider: 'systemd-credential', reference: credentialFiles[index] }])) } as HostConfiguration;
   await withLocalPostgresBootstrap(directory, 'postgres', async session => {
+    stage = 'interrupted-allocation-recovery';
+    await verifyAllocationRecovery(topology, session);
+    stage = 'allocation-credentials';
     const plan = planPostgresAllocations(topology, [await inspectPostgresAllocations('shared', session)]);
     await applyPostgresAllocations(topology, plan, new Map([['shared', session]]));
     const custody = { exists: (id: string) => existsSync(`/etc/treeseed/credentials/${id}.cred`),
@@ -79,7 +83,7 @@ try {
   chmodSync(directory, 0o755);
   await assert.rejects(withLocalPostgresBootstrap(directory, 'postgres', async () => true), /Unsafe PostgreSQL bootstrap socket/);
   chmodSync(directory, 0o700);
-  console.log(JSON.stringify({ ok: true, checks: ['real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved'] }));
+  console.log(JSON.stringify({ ok: true, checks: ['real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved', 'interrupted-allocation-recovery', 'managed-component-activation', 'managed-component-noop'] }));
 } catch (error) {
   const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[a-zA-Z0-9_]{1,64}$/u.test(error.code) ? error.code : 'unavailable';
   console.error(JSON.stringify({ stage, code, type: error instanceof Error ? error.name : 'unknown',

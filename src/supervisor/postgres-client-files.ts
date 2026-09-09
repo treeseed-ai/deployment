@@ -22,7 +22,17 @@ function directory(componentId: string, requirementId: string, phase: 'migration
     if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== 0 || (stat.mode & 0o022)
       || (current === root && (stat.mode & 0o077))) throw new Error('Unsafe PostgreSQL client custody');
   }
-  if (readdirSync(target).some(name => !names.includes(name))) throw new Error('Unexpected PostgreSQL client custody files');
+  const entries = readdirSync(target);
+  const interrupted = entries.filter(name => !names.includes(name));
+  for (const name of interrupted) {
+    const match = /^([a-z.-]+)\.tmp-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.exec(name);
+    const stat = lstatSync(join(target, name));
+    if (!match || !names.includes(match[1]!) || !stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o777) !== 0o400)
+      throw new Error('Unexpected PostgreSQL client custody files');
+  }
+  // Only our exact atomic-write remnants inside root-private custody; unknown
+  // files remain untouched. A killed writer must not force a reinstall.
+  for (const name of interrupted) unlinkSync(join(target, name));
   return target;
 }
 

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { postgresTopologySchema, type PostgresTopology } from '@treeseed/sdk/deployment';
+import { postgresAllocationIntent } from './intent.js';
 export { inspectPostgresAllocations, postgresAllocationMarker, type PostgresInspectionSession } from './inventory.js';
 export { postgresRuntimeAccessSql } from './access.js';
 export { verifyPostgresRuntimeAccess } from './verify.js';
@@ -11,15 +12,15 @@ export interface PostgresInventory {
   serverId: string;
   major: number;
   extensions: string[];
-  databases: Array<{ name: string; owner: string; allocationId: string | null }>;
-  roles: Array<{ name: string; superuser: boolean; createDatabase: boolean; createRole: boolean; replication: boolean; bypassRls: boolean; allocationId: string | null }>;
+  databases: Array<{ name: string; owner: string; allocationId: string | null; allowConnections?: boolean }>;
+  roles: Array<{ name: string; superuser: boolean; createDatabase: boolean; createRole: boolean; replication: boolean; bypassRls: boolean; allocationId: string | null; pendingDigest?: string; login?: boolean; memberships?: boolean }>;
 }
 
 /** Read-only planning. Never adopts unmarked existing data or removes disabled data. */
 export function planPostgresAllocations(input: unknown, observed: PostgresInventory[]) {
   const topology = postgresTopologySchema.parse(input);
   const blockers: string[] = [];
-  const actions: Array<{ requirementId: string; serverId: string; database: string; action: 'create' | 'verify' | 'retain' }> = [];
+  const actions: Array<{ requirementId: string; serverId: string; database: string; action: 'create' | 'resume' | 'verify' | 'retain' }> = [];
   if (new Set(observed.map(server => server.serverId)).size !== observed.length) throw new Error('Duplicate PostgreSQL server inventory');
   for (const allocation of topology.allocations) {
     const requirement = topology.requirements.find(item => item.id === allocation.requirementId)!;
@@ -37,6 +38,16 @@ export function planPostgresAllocations(input: unknown, observed: PostgresInvent
     const database = server.databases.find(item => item.name === allocation.database);
     const names = [allocation.ownerRole, allocation.migrationRole, allocation.runtimeRole];
     const roles = server.roles.filter(item => names.includes(item.name));
+    const pending = roles.some(role => role.pendingDigest !== undefined);
+    if (pending) {
+      const intent = postgresAllocationIntent(topology, requirement.id);
+      const proven = roles.length === 3 && roles.every(role => role.allocationId === allocationId && role.pendingDigest === intent
+        && role.login === false && role.memberships === false && !role.superuser && !role.createDatabase && !role.createRole && !role.replication && !role.bypassRls)
+        && (!database || database.owner === allocation.ownerRole && database.allocationId === null && database.allowConnections === false);
+      if (!proven) { blockers.push(`${requirement.id}:pending-custody-conflict`); continue; }
+      actions.push({ requirementId: requirement.id, serverId: allocation.serverId, database: allocation.database, action: 'resume' });
+      continue;
+    }
     if (database && (database.owner !== allocation.ownerRole || database.allocationId !== allocationId) ||
         roles.some(role => role.allocationId !== allocationId || role.superuser || role.createDatabase || role.createRole || role.replication || role.bypassRls)) {
       blockers.push(`${requirement.id}:existing-custody-conflict`); continue;

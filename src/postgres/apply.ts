@@ -1,6 +1,7 @@
 import { postgresTopologySchema } from '@treeseed/sdk/deployment';
 import { inspectPostgresAllocations, postgresAllocationMarker, type PostgresInspectionSession } from './inventory.js';
 import { planPostgresAllocations, postgresAllocationId } from './plan.js';
+import { postgresAllocationIntent, postgresPendingMarker } from './intent.js';
 
 type Plan = ReturnType<typeof planPostgresAllocations>;
 
@@ -32,33 +33,36 @@ export async function applyPostgresAllocations(input: unknown, expected: Pick<Pl
     }
     const created: string[] = [];
     for (const action of plan.actions) {
-      if (action.action !== 'create') continue;
+      if (action.action !== 'create' && action.action !== 'resume') continue;
       const allocation = topology.allocations.find(item => item.requirementId === action.requirementId)!;
       const session = sessions.get(allocation.serverId)!;
       const quote = (name: string) => `"${name}"`; // SDK validates every identifier.
       const marker = postgresAllocationMarker(postgresAllocationId(topology, allocation.requirementId)).replaceAll("'", "''");
+      const pending = postgresPendingMarker(postgresAllocationId(topology, allocation.requirementId), postgresAllocationIntent(topology, allocation.requirementId)).replaceAll("'", "''");
       const owner = quote(allocation.ownerRole), database = quote(allocation.database);
-      // Roles and ownership markers are atomic. Any unexpected partial custody
-      // on a subsequent run stays blocked rather than being adopted or deleted.
-      await transaction(session, async () => {
+      // All three pending role markers commit atomically; re-plan may resume
+      // only this exact intent while every owned login remains disabled.
+      if (action.action === 'create') await transaction(session, async () => {
         for (const role of [allocation.ownerRole, allocation.migrationRole, allocation.runtimeRole]) {
           await session.query(`CREATE ROLE ${quote(role)} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
-          await session.query(`COMMENT ON ROLE ${quote(role)} IS '${marker}'`);
+          await session.query(`COMMENT ON ROLE ${quote(role)} IS '${pending}'`);
         }
       });
       // PostgreSQL cannot CREATE DATABASE inside a transaction. Initially deny
       // connections so interruption cannot expose an unconfigured database.
-      await session.query(`CREATE DATABASE ${database} OWNER ${owner} TEMPLATE template0 ALLOW_CONNECTIONS false`);
+      if (!observed.find(item => item.serverId === allocation.serverId)!.databases.some(item => item.name === allocation.database))
+        await session.query(`CREATE DATABASE ${database} OWNER ${owner} TEMPLATE template0 ALLOW_CONNECTIONS false`);
       await transaction(session, async () => {
         await session.query(`COMMENT ON DATABASE ${database} IS '${marker}'`);
         await session.query(`REVOKE ALL ON DATABASE ${database} FROM PUBLIC`);
+        for (const role of [allocation.ownerRole, allocation.migrationRole, allocation.runtimeRole]) await session.query(`COMMENT ON ROLE ${quote(role)} IS '${marker}'`);
         await session.query(`ALTER DATABASE ${database} ALLOW_CONNECTIONS true`);
       });
       created.push(allocation.requirementId);
     }
     const after = await Promise.all(serverIds.map(id => inspectPostgresAllocations(id, sessions.get(id)!)));
     const verified = planPostgresAllocations(topology, after);
-    if (!verified.ready || verified.actions.some(action => action.action === 'create')) throw new Error('PostgreSQL custody read-back failed');
+    if (!verified.ready || verified.actions.some(action => action.action === 'create' || action.action === 'resume')) throw new Error('PostgreSQL custody read-back failed');
     return { schemaVersion: 'treeseed.postgres-custody-result/v1' as const, created,
       topologyDigest: verified.topologyDigest, inventoryDigest: verified.inventoryDigest,
       activationRequired: enabled.map(item => item.requirementId) };
