@@ -7,6 +7,14 @@ import { activateHostDevelopment, hostDevelopmentActivationSchema, hostDevelopme
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 
 const digest = `sha256:${'a'.repeat(64)}`;
+it('accepts additional runtime packages but rejects dependency path traversal', () => {
+	for (const path of ['node_modules/pg/lib/index.js', 'node_modules/@treeseed/identity/dist/index.js', 'node_modules/pg/node_modules/pg-protocol/dist/index.js']) {
+		expect(hostDevelopmentActivationSchema.safeParse({ ...activation, files: [...activation.files, { path, size: 1, sha256: digest }] }).success).toBe(true);
+	}
+	for (const path of ['node_modules/pg/../../secret.json', 'node_modules/pg/./secret.json']) {
+		expect(hostDevelopmentActivationSchema.safeParse({ ...activation, files: [...activation.files, { path, size: 1, sha256: digest }] }).success).toBe(false);
+	}
+});
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const activation = {

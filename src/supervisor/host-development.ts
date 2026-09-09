@@ -21,7 +21,7 @@ const entrypoints = {
 } as const;
 
 export const hostDevelopmentFileSchema = z.object({
-	path: z.string().regex(/^(?:package\.json|dist\/(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+|node_modules\/(?:@treeseed\/(?:sdk|treedx)|typescript|yaml|zod)\/(?:[a-zA-Z0-9@._+-]+\/)*[a-zA-Z0-9@._+-]+)$/u).max(512),
+	path: z.string().regex(/^(?:package\.json|dist\/(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+|node_modules\/(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+\/(?:[a-zA-Z0-9@._+-]+\/)*[a-zA-Z0-9@._+-]+)$/u).max(512).refine(path => path.split('/').every(segment => segment !== '.' && segment !== '..'), 'Runtime paths must not traverse directories'),
 	size: z.number().int().min(0).max(16_777_216),
 	sha256: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
 }).strict();
