@@ -1,70 +1,79 @@
 // Two typed, independent BFF applications used only for protocol acceptance.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:https';
-import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomBytes, createHash, X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { importPKCS8 } from 'jose';
 import { chromium } from 'playwright';
-import { createBrowserOidcClient, type LoginTransaction } from '@treeseed/identity';
+import { createApplicationSession } from '@treeseed/identity';
+import { BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
+import { apiSessions } from './api-sessions.js';
 import { nativeFixture } from './native.js';
 import { cliFixture } from './cli.js';
-type OidcClient = Awaited<ReturnType<typeof createBrowserOidcClient>>;
+type Application = ReturnType<typeof createApplicationSession>;
 type App = { base: string; server: ReturnType<typeof createServer>; failure: () => string | undefined;
-  descriptor: Record<string, unknown>; initialize: (issuer: string) => Promise<void> };
+  descriptors: Record<string, unknown>[]; initialize: (issuer: string) => Promise<void> };
 
 export async function browserFixture(root: string) {
+  const api = await apiSessions(root);
   const cli = await cliFixture(root);
   const native = await nativeFixture(cli.resource);
   const tls = { key: readFileSync(join(root, 'tls/key.pem')), cert: readFileSync(join(root, 'tls/cert.pem')) };
   const pin = createHash('sha256').update(new X509Certificate(tls.cert).publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
   const apps: App[] = [];
   for (const name of ['admin', 'market']) {
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${name}-client`,
-      '-keyout', join(root, `${name}.key`), '-out', join(root, `${name}.crt`)], { stdio: 'ignore' });
+    for (const client of [name, `${name}-bff`]) execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', `/CN=${client}-client`,
+      '-keyout', join(root, `${client}.key`), '-out', join(root, `${client}.crt`)], { stdio: 'ignore' });
     const privateKey = await importPKCS8(readFileSync(join(root, `${name}.key`), 'utf8'), 'RS256');
     const certificate = readFileSync(join(root, `${name}.crt`), 'utf8').replace(/-----[^-]+-----|\s/g, '');
-    const transactions = new Map<string, LoginTransaction>(), sessions = new Map<string, Awaited<ReturnType<OidcClient['finish']>>>();
-    const cookie = (request: IncomingMessage, key: string) => (request.headers.cookie ?? '').split(';').map(s => s.trim()).find(s => s.startsWith(`${key}=`))?.slice(key.length + 1) ?? '';
-    const setCookie = (response: ServerResponse, key: string, value: string) => response.setHeader('Set-Cookie', `${key}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax`);
-    let client: OidcClient | undefined, base = '', failure: string | undefined;
+    const workloadKey = await importPKCS8(readFileSync(join(root, `${name}-bff.key`), 'utf8'), 'RS256');
+    const workloadCertificate = readFileSync(join(root, `${name}-bff.crt`), 'utf8').replace(/-----[^-]+-----|\s/g, '');
+    let client: Application | undefined, base = '', failure: string | undefined;
     const server = createServer(tls, async (request, response) => {
       try {
         assert.ok(client);
         const url = new URL(request.url ?? '/', base);
+        const input = new Request(url, { method: request.method ?? 'GET', headers: { cookie: request.headers.cookie ?? '', ...(request.headers.origin ? { origin: request.headers.origin } : {}) } });
+        let result: Response;
         if (url.pathname === '/login') {
-          const binding = randomBytes(32).toString('hex'); setCookie(response, '__Host-login', binding);
-          response.writeHead(302, { Location: await client.begin(binding) }); response.end();
+          result = await client.login(input);
         } else if (url.pathname === '/callback') {
-          const result = await client.finish(cookie(request, '__Host-login'), url);
-          const id = randomBytes(32).toString('hex'); sessions.set(id, result);
-          setCookie(response, '__Host-session', id); response.writeHead(302, { Location: '/me' }); response.end();
+          result = await client.callback(input);
+        } else if (url.pathname === '/logout') {
+          result = await client.logout(input);
         } else if (url.pathname === '/me') {
-          const session = sessions.get(cookie(request, '__Host-session'));
-          response.writeHead(session ? 200 : 401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          response.end(JSON.stringify(session ? { app: name, subject: session.identity.subject } : { authenticated: false }));
-        } else { response.writeHead(404); response.end(); }
+          const session = await client.session(input);
+          result = Response.json(session ? { app: name, subject: session.principal.identity.subject } : { authenticated: false },
+            { status: session ? 200 : 401, headers: { 'cache-control': 'no-store' } });
+        } else { result = new Response(null, { status: 404 }); }
+        result.headers.forEach((value, key) => { if (key !== 'set-cookie') response.setHeader(key, value); });
+        if (result.headers.getSetCookie().length) response.setHeader('set-cookie', result.headers.getSetCookie());
+        response.writeHead(result.status); response.end(Buffer.from(await result.arrayBuffer()));
       } catch (error) { failure = error instanceof Error && 'code' in error ? String(error.code) : 'browser-fixture-failed'; response.writeHead(500); response.end('Login failed'); }
     });
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address(); assert.ok(address && typeof address !== 'string');
     base = `https://${name}.localhost:${address.port}`;
     const redirectUri = `${base}/callback`;
-    apps.push({ base, server, failure: () => failure, descriptor: { clientId: name, enabled: true, protocol: 'openid-connect', publicClient: false,
+    const audience = [{ name: 'api-audience', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
+      config: { 'included.custom.audience': api.resource, 'access.token.claim': 'true' } }];
+    apps.push({ base, server, failure: () => failure, descriptors: [{ clientId: name, enabled: true, protocol: 'openid-connect', publicClient: false,
       clientAuthenticatorType: 'client-jwt', attributes: { 'jwt.credential.certificate': certificate, 'token.endpoint.auth.signing.alg': 'RS256', 'pkce.code.challenge.method': 'S256' },
-      standardFlowEnabled: true, directAccessGrantsEnabled: false, serviceAccountsEnabled: false, redirectUris: [redirectUri], webOrigins: [] },
-      async initialize(issuer: string) { client = await createBrowserOidcClient({ issuer, clientId: name, redirectUri, privateKey, transport: fetch,
-        store: {
-          async put(binding, transaction) { transactions.set(`${binding}:${transaction.state}`, transaction); },
-          async consume(binding, state) { const key = `${binding}:${state}`; const value = transactions.get(key); transactions.delete(key); return value ?? null; },
-        } }); },
+      standardFlowEnabled: true, directAccessGrantsEnabled: false, serviceAccountsEnabled: false, redirectUris: [redirectUri], webOrigins: [],
+      defaultClientScopes: ['basic','profile','email'], optionalClientScopes: ['treeseed:read'], protocolMappers: audience },
+      { clientId: `${name}-bff`, enabled: true, protocol: 'openid-connect', publicClient: false, clientAuthenticatorType: 'client-jwt',
+        attributes: { 'jwt.credential.certificate': workloadCertificate, 'token.endpoint.auth.signing.alg': 'RS256' },
+        standardFlowEnabled: false, directAccessGrantsEnabled: false, serviceAccountsEnabled: true, defaultClientScopes: ['basic'],
+        optionalClientScopes: [BROWSER_SESSION_SCOPE], protocolMappers: audience }],
+      async initialize(issuer: string) { client = await api.application({ issuer, name, callback: redirectUri, browserKey: privateKey, workloadKey }); },
     });
   }
   const [admin, market] = apps; assert.ok(admin && market);
   return {
-    clients: [...apps.map(app => app.descriptor), native.descriptor],
+    clients: [...apps.flatMap(app => app.descriptors), native.descriptor],
+    provision: api.provision,
     async verifyFederation(localIssuer: string, remoteIssuer: string, password: string) {
       for (const app of apps) await app.initialize(localIssuer);
       const browser = await chromium.launch({ args: [`--ignore-certificate-errors-spki-list=${pin}`, '--host-resolver-rules=MAP *.localhost 127.0.0.1'] });
@@ -145,10 +154,11 @@ export async function browserFixture(root: string) {
         const nativeChecks = await native.verify(issuer, context, first.subject);
         phase = 'published-cli-sso';
         const cliChecks = await cli.verify(issuer, context, first.subject);
-        return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks, ...cliChecks];
+        const storageChecks = await api.verifyStorage(cookies.map(cookie => cookie.value));
+        return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks, ...cliChecks, ...storageChecks];
       } catch { console.error(JSON.stringify({ browserPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Browser acceptance failed'); }
       finally { await browser.close(); }
     },
-    async close() { await native.close(); await cli.close(); for (const app of apps) await new Promise<void>(resolve => app.server.close(() => resolve())); },
+    async close() { await native.close(); await cli.close(); for (const app of apps) await new Promise<void>(resolve => app.server.close(() => resolve())); await api.close(); },
   };
 }

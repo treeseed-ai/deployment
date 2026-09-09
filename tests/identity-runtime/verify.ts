@@ -18,6 +18,7 @@ import { startSharedDatabase } from './database.js';
 import { identityBootstrapRealm } from '../../dist/src/identity/bootstrap.js';
 import { deviceClient, verifyDevice } from './device.js';
 import { cliScopeDefinitions, standardScopeDefinitions } from './cli.js';
+import { BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
 
 const images = { ...IDENTITY_IMAGES, postgres: POSTGRES_IMAGE };
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-acceptance-'));
@@ -80,7 +81,8 @@ async function start(label: Label) {
   writeFileSync(join(directory, 'bootstrap-realm.json'), JSON.stringify(identityBootstrapRealm(readFileSync(join(directory, 'client.crt'), 'utf8'), base)), { mode: 0o644 });
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
     realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
-    clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions], defaultDefaultClientScopes: ['basic', 'profile', 'email'],
+    clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions, { name: BROWSER_SESSION_SCOPE, protocol: 'openid-connect',
+      attributes: { 'include.in.token.scope': 'true' } }], defaultDefaultClientScopes: ['basic', 'profile', 'email'],
     users: [{ username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
       credentials: [{ type: 'password', value: humanPassword, temporary: false }] }],
     identityProviders: label === 'sovereign' ? [{ alias: 'central', displayName: 'Explicit central trust', providerId: 'oidc', enabled: true,
@@ -180,6 +182,7 @@ try {
   names.push(`${prefix}-postgres`);
   stage = 'shared-database';
   sharedDatabase = startSharedDatabase({ root, prefix, password: bootstrapPassword, docker });
+  await browsers.provision(sharedDatabase);
   checks.push(...await sharedDatabase.verifySession());
   const first = await start('sovereign');
   const second = await start('central');

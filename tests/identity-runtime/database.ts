@@ -10,6 +10,7 @@ import { inspectPostgresAllocations } from '../../dist/src/postgres/inventory.js
 import { planPostgresAllocations, applyPostgresAllocations, activatePostgresAllocation } from '../../dist/src/postgres/plan.js';
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
+import { checkServerIdentity } from 'node:tls';
 import { POSTGRES_HBA } from '../../dist/src/postgres/policy.js';
 import { postgresClientMaterial } from '../../dist/src/postgres/client-files.js';
 import { postgresTopologySchema } from '@treeseed/sdk/deployment';
@@ -36,6 +37,14 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
   const allocations = new Map<string, { topology: unknown; password: string }>();
   return {
     name,
+    pool(label: 'api', phase: 'migration' | 'runtime', secret: string) {
+      assert.ok(allocations.has(label));
+      return new pg.Pool({ host: server.hostname, port: server.port, database: `identity_${label}`,
+        user: `identity_${label}${phase === 'migration' ? '_migrator' : ''}`, password: secret,
+        ssl: { ca: options.certificateAuthority, rejectUnauthorized: true,
+          checkServerIdentity: (_hostname, certificate) => checkServerIdentity(server.hostname, certificate) },
+        sslnegotiation: 'postgres', enableChannelBinding: true, connectionTimeoutMillis: 10000 });
+    },
     clientFiles(label: string, phase: 'migration' | 'runtime', secret: string) {
       const stored = allocations.get(label); assert.ok(stored);
       const topology = postgresTopologySchema.parse(stored.topology);
@@ -58,10 +67,10 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       return ['postgres-tls-session', 'postgres-plaintext-network-denied', 'postgres-wrong-password-denied', 'postgres-untrusted-ca-denied', 'postgres-catalog-snapshot'];
     },
     async allocate(label: string, secret: string, migrationSecret: string) {
-      assert.ok(['sovereign', 'central'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/); assert.match(migrationSecret, /^[a-f0-9]{64}$/);
+      assert.ok(['sovereign', 'central', 'api'].includes(label)); assert.match(secret, /^[a-f0-9]{64}$/); assert.match(migrationSecret, /^[a-f0-9]{64}$/);
       const database = `identity_${label}`;
       const topology = { schemaVersion: 'treeseed.postgres-topology/v1', installationId: 'acceptance', environment: 'staging', servers: [server],
-        requirements: [{ id: label, componentId: 'identity', enabled: true, supportedMajors: [17], extensions: [], runtimeConnectionLimit: 20 }],
+        requirements: [{ id: label, componentId: label === 'api' ? 'api' : 'identity', enabled: true, supportedMajors: [17], extensions: [], runtimeConnectionLimit: 20 }],
         allocations: [{ requirementId: label, serverId: 'shared', database, ownerRole: `${database}_owner`, migrationRole: `${database}_migrator`, runtimeRole: database,
           migrationCredentialReference: `${label}-migration`, runtimeCredentialReference: `${label}-runtime`, onDisable: 'preserve' }] };
       await withManagedPostgresSession(options, async session => {
@@ -79,7 +88,7 @@ export function startSharedDatabase({ root, prefix, password, docker }: { root: 
       return { hostname: 'postgres', port: 5432, database, username: database };
     },
     async activateRuntime(label: string) {
-      assert.ok(['sovereign', 'central'].includes(label));
+      assert.ok(['sovereign', 'central', 'api'].includes(label));
       const database = `identity_${label}`;
       const allocation = { requirementId: label, serverId: 'shared', database,
         ownerRole: `${database}_owner`, migrationRole: `${database}_migrator`, runtimeRole: database,

@@ -6,3 +6,4 @@ release/out/
 *.deb
 *.buildinfo
 *.changes
+.fixtures/
