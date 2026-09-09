@@ -7,6 +7,20 @@ import { createAccessTokenVerifier, discoverSigningKeys } from '@treeseed/identi
 
 export const cliScopes = ['treeseed:read','treeseed:knowledge:write','treeseed:governance:write','treeseed:projects:write','treeseed:execution'];
 export const cliScopeDefinitions = cliScopes.map(name => ({name,protocol:'openid-connect',attributes:{'include.in.token.scope':'true','display.on.consent.screen':'true'}}));
+// Supplying clientScopes in a realm import replaces Keycloak's built-in list.
+// Keep the minimal standard claims needed by the separate federation fixture.
+export const standardScopeDefinitions = [
+  { name: 'profile', protocol: 'openid-connect', protocolMappers: [
+    { name: 'username', protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
+      config: { 'user.attribute': 'username', 'claim.name': 'preferred_username', 'jsonType.label': 'String', 'id.token.claim': 'true', 'userinfo.token.claim': 'true' } },
+  ] },
+  { name: 'email', protocol: 'openid-connect', protocolMappers: [
+    { name: 'email', protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
+      config: { 'user.attribute': 'email', 'claim.name': 'email', 'jsonType.label': 'String', 'id.token.claim': 'true', 'userinfo.token.claim': 'true' } },
+    { name: 'email verified', protocol: 'openid-connect', protocolMapper: 'oidc-usermodel-property-mapper',
+      config: { 'user.attribute': 'emailVerified', 'claim.name': 'email_verified', 'jsonType.label': 'boolean', 'id.token.claim': 'true', 'userinfo.token.claim': 'true' } },
+  ] },
+];
 
 /** Published CLI + real Keycloak + real OS custody; the small API is a typed
  * protocol fixture, not a replacement for subsequent live API acceptance. */
