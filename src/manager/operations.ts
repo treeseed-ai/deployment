@@ -455,6 +455,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.aliases.list': return { aliases: plan().routes.map(({ alias, upstream, authentication }) => ({ alias, upstream, authentication })) };
 		case 'local.host.recovery.status': return {
 			developmentHold: await requestSupervisor({ operation: 'development.backup.status' }),
+			postgresTransfer: await requestSupervisor({ operation: 'postgres.transfer.status' }),
 			current: receipt(),
 			backups: await listRecoveryBackups(),
 			receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [],

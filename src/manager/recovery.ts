@@ -112,16 +112,19 @@ export async function restoreManagedGeneration(generation: number) {
 	if (!currentReceipt) throw new Error('A current known-good receipt is required before manual recovery.');
 	const safetyGeneration = Date.now();
 	const held = await requestSupervisor<{ generation: number } | null>({ operation: 'development.backup.status' });
+	const transfer = await requestSupervisor<{ restoreGeneration: number; restoreDigest: string } | null>({ operation: 'postgres.transfer.status' });
+	if (transfer && (transfer.restoreGeneration !== generation || transfer.restoreDigest !== `sha256:${target.sha256}`)) throw new Error('Exact coordinated PostgreSQL restore point required');
 	const holdGeneration = held?.generation ?? safetyGeneration;
 	const apiRuntimeDigest = target.components.find(component => component.componentId === 'api')?.runtimeDigest;
 	if (held) await requestSupervisor({ operation: 'development.backup.fence', generation: holdGeneration, apiRuntimeDigest });
-	else await requestSupervisor({ operation: 'development.backup.begin', generation: holdGeneration, apiRuntimeDigest });
+	else if (!transfer) await requestSupervisor({ operation: 'development.backup.begin', generation: holdGeneration, apiRuntimeDigest });
 	// A raw database archive is recoverable only after its writers are stopped.
 	// If capture fails, resume the current generation; no usable safety image exists yet.
 	try {
 		await stopGeneration(currentHost, currentComponents);
 		await requestSupervisor({ operation: 'backup.create', generation: safetyGeneration });
 	} catch (error) {
+		if (transfer) throw error; // Never restart a partially migrated current generation.
 		await activateRestoredGeneration(currentHost, currentComponents);
 		// A pre-existing interrupted hold may not yet have a verified restore;
 		// retain it instead of claiming its old runtime is safe to resume.
@@ -135,10 +138,15 @@ export async function restoreManagedGeneration(generation: number) {
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		await activateRestoredGeneration(target.configuration, target.components);
 		const receipt = persistRestoredReceipt(target.receipt, target.components);
-		await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
+		if (held || !transfer) await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
 		recordEvent('recovery.restore-complete', { generation, receiptId: receipt.receiptId, targetReceiptId: target.receipt.receiptId });
 		return { generation, restored: true, safetyGeneration, targetReceiptId: target.receipt.receiptId, receipt };
 	} catch (error) {
+		if (transfer) {
+			try { await stopGeneration(target.configuration, target.components); } catch { /* retain containment failure for explicit recovery */ }
+			recordEvent('recovery.transfer-restore-failed', { generation, safetyGeneration });
+			throw error; // Safety snapshot may contain incompatible partial transfer data.
+		}
 		recordEvent('recovery.restore-rollback-started', { generation, safetyGeneration, message: error instanceof Error ? error.message : String(error) });
 		try { await stopGeneration(target.configuration, target.components); } catch { /* continue restoring the safety generation */ }
 		await requestSupervisor({ operation: 'recovery.restore', generation: safetyGeneration });

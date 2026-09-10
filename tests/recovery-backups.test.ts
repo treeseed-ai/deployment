@@ -36,6 +36,13 @@ function backup(root: string, generation: number, valid = true, aiState = false,
 }
 
 describe('recovery backup discovery', () => {
+	it('rejects a different authenticated archive before touching destination state', async () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-exact-recovery-')); backup(root, 46);
+		const target = resolve(root, 'restored'); mkdirSync(target); let checkedWriters = false;
+		await expect(restoreVerifiedBackup(46, { backupRoot: root, destinationRoot: target, key,
+			expectedSha256: '0'.repeat(64), checkWriters: () => { checkedWriters = true; } })).rejects.toThrow('identity changed');
+		expect(checkedWriters).toBe(false); expect(readdirSync(target)).toEqual([]);
+	});
 	it('archives the accepted settings exactly once when live settings already contain a proposal', async () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-config-snapshot-')); backup(root, 45, true, false, true);
 		const inspected = await inspectGenerationBackup(45, {backupRoot:root,key});

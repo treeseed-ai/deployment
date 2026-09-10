@@ -73,7 +73,7 @@ export async function createGenerationBackup(generation: number) {
 		return { generation, archive, sha256, encrypted: true as const, stateDirectories: state };
 	} finally { child.kill(); key.fill(0); rmSync(temporary, { force: true }); rmSync(`/${configurationMember}`, { force: true }); }
 }
-export async function restoreVerifiedBackup(generation: number, options: { backupRoot: string; destinationRoot: string; key: Buffer; checkWriters: (members: string[]) => void }) {
+export async function restoreVerifiedBackup(generation: number, options: { backupRoot: string; destinationRoot: string; key: Buffer; checkWriters: (members: string[]) => void; expectedSha256?: string }) {
 	// Inspect and extract the same private encrypted snapshot. Never stream newly
 	// opened, potentially replaced ciphertext into the live filesystem.
 	const source = checkedArchive(generation, options.backupRoot);
@@ -83,6 +83,7 @@ export async function restoreVerifiedBackup(generation: number, options: { backu
 	copyFileSync(source.path, path, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
 	writeFileSync(`${path}.sha256`, source.sha256, { mode: 0o600 });
 	const inspected = await inspectGenerationBackup(generation, { backupRoot: snapshotRoot, key: options.key });
+	if (options.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(options.expectedSha256) || inspected.sha256 !== options.expectedSha256)) throw new Error('Coordinated recovery archive identity changed; live state unchanged.');
 	options.checkWriters(inspected.coverage.stateDirectories);
 	return await withReplacedBackupState(options.destinationRoot, inspected.coverage.stateDirectories, async () => {
 	const sha256 = inspected.sha256;
@@ -99,8 +100,8 @@ export async function restoreVerifiedBackup(generation: number, options: { backu
 	});
 	} finally { rmSync(snapshotRoot, { recursive: true, force: true }); }
 }
-export async function restoreGenerationBackup(generation: number) {
+export async function restoreGenerationBackup(generation: number, expectedSha256?: string) {
 	const key = loadKey();
-	try { return await restoreVerifiedBackup(generation, { backupRoot: paths.backups, destinationRoot: '/', key, checkWriters: assertNoBackupWriters }); }
+	try { return await restoreVerifiedBackup(generation, { backupRoot: paths.backups, destinationRoot: '/', key, checkWriters: assertNoBackupWriters, ...(expectedSha256 ? { expectedSha256 } : {}) }); }
 	finally { key.fill(0); }
 }

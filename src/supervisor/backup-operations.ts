@@ -3,6 +3,7 @@ import type { SupervisorOperation } from './protocol.js';
 import type { CommandRunner } from './compose-runtime.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { beginDevelopmentBackup, finishDevelopmentBackup, developmentBackupDependencies, developmentBackupStatus, fenceDevelopmentBackup, markDevelopmentBackupRestored } from './development-backup.js';
+import { activePostgresTransferJournal } from './postgres-transfer-guard.js';
 
 const command: CommandRunner = (executable, args) => {
   const result = spawnSync(executable, [...args], { encoding: 'utf8', timeout: 180_000, maxBuffer: 1_048_576,
@@ -21,7 +22,15 @@ export function executeBackupOperation(operation: SupervisorOperation) {
     case 'backup.create': return createGenerationBackup(operation.generation);
     case 'backup.inspect': return inspectGenerationBackup(operation.generation);
     case 'backup.list': return listGenerationBackups();
-    case 'recovery.restore': return restoreGenerationBackup(operation.generation).then(result => { markDevelopmentBackupRestored(deps); return result; });
+    case 'recovery.restore': {
+      const journal = activePostgresTransferJournal(), active = journal?.active();
+      if (active && active.restoreGeneration !== operation.generation) throw new Error('Exact coordinated PostgreSQL restore point required');
+      return restoreGenerationBackup(operation.generation, active?.restoreDigest.slice(7)).then(result => {
+        markDevelopmentBackupRestored(deps);
+        journal?.restored(result.generation, result.sha256);
+        return result;
+      });
+    }
     default: throw new Error('Unknown fixed backup operation.');
   }
 }
