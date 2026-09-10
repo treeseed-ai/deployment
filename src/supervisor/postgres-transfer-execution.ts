@@ -20,6 +20,7 @@ import { postgresTransitionStore, previousPostgresComponent, privatePostgresStat
 import { activateLocalPostgresComponent } from './postgres-lifecycle.js';
 import { postgresComponentRuntimeHealthy } from './postgres-runtime-health.js';
 import { reconcileLocalPostgres } from './postgres.js';
+import { cleanupPostgresSourceCopies } from './postgres-copy-cleanup.js';
 
 /** Normal component activation enters here after the manager has stopped all
  * generation writers and captured its coordinated backup. Exact preparation
@@ -30,6 +31,7 @@ export async function activateOrTransferPostgresComponent(componentId: string,
   const journal = postgresTransferJournal();
   return journal.locked(async () => {
     if (journal.active()) throw new Error('Interrupted PostgreSQL transfer requires coordinated recovery');
+    await cleanupPostgresSourceCopies();
     const host = loadHostConfiguration(), selected = selections.filter(item => item.componentId === componentId);
     if (selected.length !== 1) throw new Error('Exact component selection required');
     const component = installedComponentRelease(componentId, selected[0]!.release), previous = previousPostgresComponent(componentId);

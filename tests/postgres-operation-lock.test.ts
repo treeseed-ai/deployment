@@ -8,6 +8,7 @@ vi.mock('../src/supervisor/postgres-transfer-guard.js',()=>({postgresTransferJou
 vi.mock('../src/core/configuration.js',()=>({loadHostConfiguration:()=>host()}));
 vi.mock('../src/supervisor/component-release.js',()=>({installedComponentRelease:()=>component('api','stable','a')}));
 vi.mock('../src/supervisor/postgres-transition-custody.js',()=>({previousPostgresComponent:()=>undefined}));
+vi.mock('../src/supervisor/postgres-copy-cleanup.js',()=>({cleanupPostgresSourceCopies:async()=>undefined}));
 beforeEach(()=>{
   vi.clearAllMocks();f.locked=false;f.held=false;
   f.lock.mockImplementation(async(run)=>{f.locked=true;try{return await run();}finally{f.locked=false;}});

@@ -13,6 +13,7 @@ vi.mock('../src/supervisor/postgres-transfer-guard.js', () => ({ postgresTransfe
 vi.mock('../src/supervisor/backup.js', () => ({ inspectGenerationBackup: f.backup }));
 vi.mock('../src/supervisor/backup-writers.js', () => ({ assertNoBackupWriters: f.writers }));
 vi.mock('../src/supervisor/postgres-copy-reader.js', () => ({ withManagedPostgresSourceCopy: f.copy }));
+vi.mock('../src/supervisor/postgres-copy-cleanup.js', () => ({ cleanupPostgresSourceCopies: async () => undefined }));
 vi.mock('../src/supervisor/postgres-transfer-plan.js', () => ({ planManagedPostgresTransferFromSource: f.plan }));
 vi.mock('../src/supervisor/postgres-transfer-data.js', () => ({ managedPostgresTransferData: f.data }));
 vi.mock('../src/postgres/transfer-plan-store.js', () => ({ PostgresTransferPlanStore: class { save = f.save; } }));

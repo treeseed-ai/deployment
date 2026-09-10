@@ -92,7 +92,9 @@ export async function verifyManagedTransfer(host: HostConfiguration, application
   } catch (error) {
     // Fixed failure stages only; never expose driver errors or credential data.
     const phase = error instanceof Error ? /PostgreSQL transfer failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
-    console.error(JSON.stringify({ fixture: 'managed-transfer', stage, phase }));
+    console.error(JSON.stringify({ fixture: 'managed-transfer', stage, phase,
+      frames: error instanceof Error ? error.stack?.split('\n').slice(1).filter(line => /^\s+at /u.test(line)).slice(0, 8) : [],
+    }));
     throw new Error('Disposable managed transfer acceptance failed');
   } finally {
     if (created) await postgresDocker(['rm', '--force', source], 30);
