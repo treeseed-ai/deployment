@@ -34,7 +34,8 @@ let stage = 'os-custody';
 const credentialIds = [`${name}-migration`, `${name}-runtime`];
 const credentialFiles = credentialIds.map(id => `/etc/treeseed/credentials/${id}.cred`);
 try {
-  prepareManagedPostgresBootstrap(options); // Real systemd-creds, not the unit-test stub.
+  const previousUmask = process.umask(0o077);
+  try { prepareManagedPostgresBootstrap(options); } finally { process.umask(previousUmask); }
   stage = 'compose';
   const service = managedPostgresService({ configurationRoot: options.runtimeRoot, stateRoot: options.stateRoot });
   const runtime = { ...service, container_name: name };
@@ -90,7 +91,7 @@ try {
   chmodSync(directory, 0o755);
   await assert.rejects(withLocalPostgresBootstrap(directory, 'postgres', async () => true), /Unsafe PostgreSQL bootstrap socket/);
   chmodSync(directory, 0o700);
-  console.log(JSON.stringify({ ok: true, checks: [...apiIdentityChecks, 'real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved', 'interrupted-allocation-recovery', 'managed-component-activation', 'managed-component-noop'] }));
+  console.log(JSON.stringify({ ok: true, checks: [...apiIdentityChecks, 'persistent-pgdata-bind', 'restrictive-supervisor-umask', 'real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved', 'interrupted-allocation-recovery', 'managed-component-activation', 'managed-component-noop'] }));
 } catch (error) {
   let startup: ReturnType<typeof postgresStartupDiagnostic> = null;
   try {

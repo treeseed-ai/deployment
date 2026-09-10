@@ -31,3 +31,18 @@ it('does not initialize over existing data without custody', () => {
   writeFileSync(join(input.stateRoot, 'postgres/PG_VERSION'), '16');
   expect(() => prepareManagedPostgresBootstrap(input)).toThrow('original bootstrap custody');
 });
+it.each([0o007, 0o077])('materializes exact public and private modes under supervisor umask %i', mask => {
+  const input = options(), previous = process.umask(mask);
+  try {
+    prepareManagedPostgresBootstrap(input);
+    const mode = (path: string) => statSync(join(input.runtimeRoot, path)).mode & 0o777;
+    expect(mode('tls')).toBe(0o755);
+    expect(mode('tls/cert.pem')).toBe(0o644);
+    expect(mode('hba.conf')).toBe(0o444);
+    expect(mode('tls/key.pem')).toBe(0o600);
+    expect(mode('bootstrap-password')).toBe(0o600);
+    expect(mode('socket')).toBe(0o700);
+    prepareManagedPostgresBootstrap(input);
+    expect(mode('tls/cert.pem')).toBe(0o644);
+  } finally { process.umask(previous); }
+});
