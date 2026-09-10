@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { LocalSecretCustody } from '../security/custody/local.js';
 import { decryptBackupStream, encryptBackupStream } from '../supervisor/backup-stream.js';
 import type { PostgresTransferArchive } from './transfer.js';
+import { postgresProcessReason, PostgresProcessFailure } from './transfer-diagnostic.js';
 
 const digestPattern = /^sha256:[a-f0-9]{64}$/u;
 const domain = 'treeseed.postgres-logical-transfer/v1';
@@ -65,6 +66,7 @@ export async function writePostgresLogicalArchive(root: string, intentDigest: st
 export async function restorePostgresLogicalArchive(root: string, intentDigest: string, backupKey: Buffer,
   archive: PostgresTransferArchive, destination: () => Promise<{ input: Writable; completed: Promise<void> }>) {
   let key: Buffer | undefined, temporary: string | undefined, fd: number | undefined;
+  let processFailure: PostgresProcessFailure | undefined;
   try {
     key = archiveKey(root, intentDigest, backupKey);
     if (archive.intentDigest !== intentDigest || archive.encrypted !== true || !digestPattern.test(archive.digest)) throw new Error();
@@ -78,11 +80,15 @@ export async function restorePostgresLogicalArchive(root: string, intentDigest: 
     if (await checksum(snapshot) !== archive.digest) throw new Error();
     await decryptBackupStream(snapshot, 1, key, new Writable({ write(chunk: Buffer, _encoding, done) { chunk.fill(0); done(); } }));
     const target = await destination();
-    const completion = target.completed.catch(() => { target.input.destroy(new Error('Logical restore failed')); throw new Error('Logical restore failed'); });
+    const completion = target.completed.catch((error: unknown) => {
+      const reason = postgresProcessReason(error);
+      if (reason) processFailure = new PostgresProcessFailure(reason);
+      target.input.destroy(new Error('Logical restore failed')); throw new Error('Logical restore failed');
+    });
     try { await Promise.all([decryptBackupStream(snapshot, 1, key, target.input), completion]); }
-    finally { target.input.destroy(); }
+    finally { target.input.destroy(); await completion.catch(() => undefined); }
     return { restored: true as const, intentDigest, archiveDigest: archive.digest };
-  } catch { throw new Error('PostgreSQL authenticated restore failed; explicit recovery required.'); }
+  } catch { throw processFailure ?? new Error('PostgreSQL authenticated restore failed; explicit recovery required.'); }
   finally {
     if (fd !== undefined) closeSync(fd);
     key?.fill(0);

@@ -102,10 +102,11 @@ export async function transferPostgresDatabase(input: unknown, expectedDigest: s
       try { await ports.fenceWriters(intent); if (!await ports.writersFenced(intent)) cleanupFailed = true; }
       catch { cleanupFailed = true; }
       try { await ports.clearTransientCredentials(intent); } catch { cleanupFailed = true; }
-      throw Object.assign(new TransferFailure(`PostgreSQL transfer failed (${stage}); ${cleanupFailed ? 'containment requires recovery' : 'writers fenced; explicit coordinated recovery required'}. Source data retained.`), { diagnostic: { lifecycleStage, locations } });
+      throw Object.assign(new TransferFailure(`PostgreSQL transfer failed (${stage}); ${cleanupFailed ? 'containment requires recovery' : 'writers fenced; explicit coordinated recovery required'}. Source data retained.`), { diagnostic: { lifecycleStage, locations, processReason: postgresProcessReason(error) } });
     }
   }).catch((error: unknown) => {
     if (error instanceof TransferFailure) throw error;
     throw new Error('PostgreSQL transfer inspection or lock failed; explicit state read-back required.');
   });
 }
+import { postgresProcessReason } from './transfer-diagnostic.js';

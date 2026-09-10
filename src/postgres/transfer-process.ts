@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { classifyPostgresFailure, PostgresProcessFailure } from './transfer-diagnostic.js';
 
 type Selection = { container: string; database: string; username: string; intentDigest: string };
 const identifier = /^[a-z][a-z0-9_]{0,62}$/u;
@@ -25,7 +26,13 @@ function start(selection: Selection, mode: 'export' | 'restore', owner?: string)
     'timeout', '-s', 'TERM', '-k', '5', '600', ...args], {
     stdio: ['pipe','pipe','pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
   });
-  child.stderr.resume();
+  let diagnostic: ConstructorParameters<typeof PostgresProcessFailure>[0] = 'unknown';
+  let pending = '';
+  child.stderr.on('data', (chunk: Buffer) => {
+    // Retain only a bounded fragment for chunk-spanning categories; never log it.
+    pending = (pending + chunk.toString('utf8')).slice(-8192);
+    diagnostic = classifyPostgresFailure(pending) ?? diagnostic;
+  });
   child.stdin.on('error', () => undefined); child.stdout.on('error', () => undefined);
   if (mode === 'export') child.stdin.end(); else child.stdout.resume();
   let exceeded = false;
@@ -34,8 +41,9 @@ function start(selection: Selection, mode: 'export' | 'restore', owner?: string)
     child.once('error', () => { clearTimeout(timer); reject(new Error('PostgreSQL transfer process unavailable')); });
     child.once('close', code => {
       clearTimeout(timer);
+      pending = '';
       if (!exceeded && code === 0) resolve();
-      else reject(new Error('PostgreSQL transfer process failed; explicit containment required'));
+      else reject(new PostgresProcessFailure(exceeded ? 'timeout' : diagnostic));
     });
   });
   void completed.catch(() => undefined);

@@ -31,3 +31,16 @@ it.each(['owned', 'roles', 'idle', 'memberships'])('rejects failed %s evidence b
   expect(queries.at(-1)).toBe('ROLLBACK');
   expect(queries.some(sql => sql.includes('PASSWORD'))).toBe(false);
 });
+it('creates trusted extensions as the database owner before restoring migration credentials', async () => {
+  const selected = structuredClone(topology);
+  selected.servers[0]!.extensions = ['pgcrypto'];
+  selected.requirements[0]!.extensions = ['pgcrypto'];
+  const queries: string[] = [];
+  await activatePostgresAllocation(selected, 'api', 'migration', 'a'.repeat(64), { query: async (sql: string) => {
+    queries.push(sql);
+    return { rows: sql.includes('current_setting') ? [{ shared: '', session: '', local: '' }] : [{ owned: true, roles: true, idle: true, memberships: true }] };
+  } });
+  const extension = queries.indexOf('CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA public');
+  expect(queries[extension - 1]).toBe('SET LOCAL ROLE "api_owner"');
+  expect(queries[extension + 1]).toBe('RESET ROLE');
+});
