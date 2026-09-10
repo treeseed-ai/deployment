@@ -13,6 +13,7 @@ import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { providerRuntimeStatus } from './provider-runtime.js';
 import { executePostgresOperation } from './postgres-operations.js';
+import { guardPostgresTransferOperation, activePostgresTransferJournal } from './postgres-transfer-guard.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { executeBackupOperation } from './backup-operations.js';
 import { backupConfiguration, preserveAcceptedConfiguration } from './backup-configuration.js';
@@ -303,10 +304,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	sleep: (milliseconds: number) => void = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); }, now: () => number = Date.now) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
+	guardPostgresTransferOperation(operation);
 	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
 	if (operation.operation === 'provider.runtime.status') return providerRuntimeStatus(componentStateRoot(loadHostConfiguration(), 'agent'));
 	switch (operation.operation) {
+		case 'postgres.transfer.status': return activePostgresTransferJournal()?.active() ?? null;
 		case 'supervisor.ping': return { ready: true };
 		case 'custody.runner.probe': return probeRunnerCustody();
 		case 'custody.runner.recover': return recoverRunnerCustody();
