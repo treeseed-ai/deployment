@@ -9,12 +9,21 @@ import type { PostgresTransferJournal } from './transfer-journal.js';
 export function journaledPostgresTransfer(ports: PostgresTransferPorts, journal: PostgresTransferJournal,
   restorePoint: { generation: number; digest: string }): PostgresTransferPorts {
   return {
-    ...ports,
+    ...journaledPostgresTransferPhases(ports, journal, restorePoint),
     withLock: (intent, run) => ports.withLock(intent, () => journal.locked(async () => {
       if (intent.restorePointDigest !== restorePoint.digest) throw new Error('Coordinated restore identity changed');
       if (journal.active()) throw new Error('Interrupted PostgreSQL transfer requires coordinated recovery');
       return run();
     })),
+  };
+}
+
+/** Internal phase decoration for the root coordinator that already owns the
+ * journal OS lock while creating and attesting its isolated source helper. */
+export function journaledPostgresTransferPhases(ports: PostgresTransferPorts, journal: PostgresTransferJournal,
+  restorePoint: { generation: number; digest: string }): PostgresTransferPorts {
+  return {
+    ...ports,
     accepted: async id => journal.accepted(id) && await ports.accepted(id),
     fenceWriters: async intent => {
       const intentDigest = deploymentDigest(intent);

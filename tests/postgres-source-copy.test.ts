@@ -15,7 +15,7 @@ function fixture() {
   release.runtimeDigest = deploymentDigest(release.runtime);
   const staged = { component: release, configuration: host(), member: 'var/lib/treeseed/components/api/postgres',
     directory: '/private/copy', dataDirectory: '/private/copy/var/lib/treeseed/components/api/postgres',
-    major: 16 as const, generation: 7, backupDigest: `sha256:${'b'.repeat(64)}` };
+    coveredState: ['var/lib/treeseed/components/api/postgres'], major: 16 as const, generation: 7, backupDigest: `sha256:${'b'.repeat(64)}` };
   const original = 'c'.repeat(64), helper = 'd'.repeat(64), imageId = `sha256:${'e'.repeat(64)}`;
   const observed = { image: 'postgres:16-bookworm', database: 'POSTGRES_DB=application', username: 'POSTGRES_USER=owner',
     mounts: [{ Type: 'bind', Source: `/${staged.member}`, Destination: '/var/lib/postgresql/data' }],

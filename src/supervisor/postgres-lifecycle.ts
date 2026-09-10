@@ -21,6 +21,7 @@ import { localPostgresTopology, reconcileLocalPostgres } from './postgres.js';
 import { aiModeActivationServices } from '../manager/ai-mode.js';
 import { requirePostgresTransition } from './postgres-transition.js';
 import type { PostgresTransferIntent } from '../postgres/transfer.js';
+import { postgresComponentRuntimeHealthy } from './postgres-runtime-health.js';
 
 const active = new Set<string>();
 
@@ -98,22 +99,7 @@ export async function activateLocalPostgresComponent(componentId: string, select
       startRuntime: async services => { unchanged(); await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...services], 190); },
       runtimeHealthy: async services => {
         unchanged();
-        const configured = JSON.parse(await postgresDocker([...compose(), 'config', '--format', 'json'], 30, true));
-        const raw = await postgresDocker([...compose(), 'ps', '--all', '--format', 'json', ...services], 30, true);
-        const rows = raw.trim().startsWith('[') ? JSON.parse(raw) : raw.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-        for (const service of services) {
-          const expected = configured.services?.[service];
-          const instances = rows.filter((row: { Service: string }) => row.Service === service);
-          if (!expected?.image || !instances.length) return false;
-          for (const instance of instances) {
-            if (!/^[a-f0-9]{12,64}$/u.test(instance.ID)) return false;
-            const observed = JSON.parse(await postgresDocker(['inspect', '--format', '{"image":{{json .Config.Image}},"state":{{json .State.Status}},"exit":{{json .State.ExitCode}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}', instance.ID], 30, true));
-            if (observed.image !== expected.image || (expected.restart === 'no'
-              ? observed.state !== 'exited' || observed.exit !== 0
-              : observed.state !== 'running' || observed.health !== 'healthy')) return false;
-          }
-        }
-        return true;
+        return postgresComponentRuntimeHealthy(component, services);
       },
       record: async (runtimeDigest, topologyDigest) => { unchanged(); atomicJson(receipt, { runtimeDigest, topologyDigest }, 0o600); },
     }, selectedRuntime);

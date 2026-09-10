@@ -65,7 +65,7 @@ export async function stagePostgresBackup(generation: number, options: {
       const version = readFileSync(join(dataDirectory, 'PG_VERSION'), 'utf8').trim();
       if (!/^(16|17)$/u.test(version)) throw new Error('Unsupported retained PostgreSQL source major');
       options.checkOriginalStopped([selected.member]);
-      return { ...selected, generation, backupDigest: options.backupDigest, directory, dataDirectory, major: Number(version) as 16 | 17 };
+      return { ...selected, coveredState: inspection.coverage.stateDirectories, generation, backupDigest: options.backupDigest, directory, dataDirectory, major: Number(version) as 16 | 17 };
     } catch {
       rmSync(directory, { recursive: true, force: true });
       throw new Error('PostgreSQL source snapshot staging failed; original state unchanged');

@@ -26,7 +26,7 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
   serviceId: string, docker: SourceDocker, run: (source: {
     container: string; database: string; username: string; major: 16 | 17;
     clusterIdentity: string; locale: z.infer<typeof postgresSourceDescriptorSchema>['locale'];
-    custodyDigest: string; revalidate: () => Promise<void>;
+    custodyDigest: string; imageDigest: string; revalidate: () => Promise<void>; stop: () => Promise<void>;
   }) => Promise<T>): Promise<T> {
   if (process.getuid?.() !== 0 || !staged.component.runtime.services.some(item => item.composeService === serviceId) ||
     realpathSync(staged.directory) !== staged.directory || realpathSync(staged.dataDirectory) !== staged.dataDirectory ||
@@ -63,6 +63,7 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
   }
   const name = `treeseed-postgres-copy-${randomUUID()}`;
   let container: string | undefined;
+  let removed = false;
   try {
     container = id.parse((await docker(['run', '--detach', '--name', name, '--network', 'none', '--read-only',
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '128', '--memory', '2g',
@@ -87,15 +88,18 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
         throw new Error('PostgreSQL source copy identity changed');
     };
     await revalidate();
-    const value = await run({ container, database, username, major: staged.major, locale: before.locale,
+    const stop = async () => { if (!removed) { await docker(['rm', '--force', container!], 30, false); removed = true; } };
+    const value = await run({ container, database, username, major: staged.major, locale: before.locale, imageDigest: image[0]!.digest, stop,
       clusterIdentity: deploymentDigest({ cluster: before.cluster }),
       custodyDigest: deploymentDigest({ backup: staged.backupDigest, member: staged.member, runtime: staged.component.runtimeDigest,
         image: pinnedImage, original, inventory: before }), revalidate });
-    await revalidate(); return value;
+    if (!removed) await revalidate();
+    else if (deploymentDigest(await inspectOriginal()) !== deploymentDigest(observed)) throw new Error('Original source changed');
+    return value;
   } catch { throw new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'); }
   finally {
     // A failed Docker command can still have created the exact random-name
     // helper. Remove only that helper; never prune or touch the original.
-    await docker(['rm', '--force', container ?? name], 30, false);
+    if (!removed) await docker(['rm', '--force', container ?? name], 30, false);
   }
 }

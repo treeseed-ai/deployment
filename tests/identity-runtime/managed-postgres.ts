@@ -7,6 +7,7 @@ import { component, host } from '../../dist/tests/fixtures.js';
 import { activateLocalPostgresComponent } from '../../dist/src/supervisor/postgres-lifecycle.js';
 import { postgresComponentBundle } from '../../dist/src/postgres/release.js';
 import { postgresDocker } from '../../dist/src/supervisor/postgres-process.js';
+import { verifyManagedTransfer } from './managed-transfer.js';
 
 /** Exercise the actual privileged adapter on the disposable runner only. */
 export async function verifyManagedPostgres(root: string, input: unknown) {
@@ -59,7 +60,9 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
     writeFileSync('/etc/treeseed/platform.json', JSON.stringify(configuration), { mode: 0o600 });
     const selections = [database, application].map(({ componentId, release }) => ({ componentId, release }));
     previousUmask = process.umask(0o077);
-    assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'activated');
+    const source = process.env.TREESEED_POSTGRES_TRANSFER_SOURCE;
+    if (source && source !== 'fresh') await verifyManagedTransfer(configuration, application, database, source);
+    else assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'activated');
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'noop');
     assert.equal(lstatSync('/run/treeseed/postgres-clients/acceptance/acceptance/runtime').mode & 0o777, 0o755);
     assert.equal(existsSync('/run/treeseed/postgres-clients/acceptance/acceptance/migration/password'), false);

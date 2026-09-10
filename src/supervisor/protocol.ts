@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { hostDevelopmentActivationSchema } from './host-development.js';
 import { developmentContainerSchema } from './development-container-contract.js';
 import { managedPostgresTransferSelectionSchema } from '../postgres/managed-transfer-contract.js';
+import { postgresTransitionSelectionSchema } from '../postgres/transition-store.js';
 
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	managedPostgresTransferSelectionSchema.extend({operation:z.literal('postgres.transfer.plan')}),
+	postgresTransitionSelectionSchema.extend({operation:z.literal('postgres.transfer.prepare')}),
 	z.object({ operation: z.literal('postgres.source.recovery.inspect'), generation: z.number().int().positive().safe(), backupDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), serviceId: z.string().regex(/^[a-z][a-z0-9.-]{0,127}$/u), inventoryDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u).optional() }).strict(),
 	z.object({ operation: z.literal('postgres.transfer.status') }).strict(),
 	z.object({ operation: z.literal('postgres.source.fingerprint'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), release: z.string().regex(/^[0-9][a-zA-Z0-9.+~-]{0,127}$/u), serviceId: z.string().regex(/^[a-z][a-z0-9.-]{0,127}$/u), inventoryDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u) }).strict(),
