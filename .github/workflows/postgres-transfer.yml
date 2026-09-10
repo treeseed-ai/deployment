@@ -1,10 +1,10 @@
 name: PostgreSQL logical transfer
 on:
   pull_request:
-    paths: ['src/postgres/**', 'src/supervisor/backup-stream.ts', 'tests/identity-runtime/logical-transfer.ts', '.github/workflows/postgres-transfer.yml']
+    paths: ['src/postgres/**', 'src/supervisor/postgres*.ts', 'src/supervisor/backup-stream.ts', 'tests/identity-runtime/logical-transfer.ts', '.github/workflows/postgres-transfer.yml']
   push:
     branches: [staging, main]
-    paths: ['src/postgres/**', 'src/supervisor/backup-stream.ts', 'tests/identity-runtime/logical-transfer.ts', '.github/workflows/postgres-transfer.yml']
+    paths: ['src/postgres/**', 'src/supervisor/postgres*.ts', 'src/supervisor/backup-stream.ts', 'tests/identity-runtime/logical-transfer.ts', '.github/workflows/postgres-transfer.yml']
 permissions: { contents: read }
 jobs:
   logical-transfer:
