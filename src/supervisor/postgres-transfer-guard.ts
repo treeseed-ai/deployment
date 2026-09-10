@@ -24,5 +24,9 @@ export function guardPostgresTransferOperation(operation: SupervisorOperation, m
 export function activePostgresTransferJournal() {
   try { lstatSync(postgresTransferHoldPath); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw new Error('PostgreSQL transfer state unavailable'); }
+  return postgresTransferJournal();
+}
+
+export function postgresTransferJournal() {
   return new PostgresTransferJournal(postgresTransferJournalRoot, postgresTransferHoldPath);
 }
