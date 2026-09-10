@@ -27,12 +27,21 @@ try {
     '--label', 'com.docker.compose.service=database', '--mount', `type=bind,source=${state},target=/var/lib/postgresql/data`,
     '-e', 'POSTGRES_DB=application', '-e', 'POSTGRES_USER=postgres', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', image]);
   created = true;
+  stage = 'original-ready';
   for (let i = 0; ; i++) {
-    try { await docker(['exec', id, 'pg_isready', '-U', 'postgres', '-d', 'application']); break; }
+    try {
+      // pg_isready also succeeds against the entrypoint's temporary init server
+      // before the application database exists. Wait for the final PID1 server.
+      assert.equal(await docker(['exec', id, 'cat', '/proc/1/comm']), 'postgres');
+      assert.equal(await docker(['exec', id, 'psql', '-XAt', '-U', 'postgres', '-d', 'application', '-c', 'SELECT 1']), '1');
+      break;
+    }
     catch { if (i >= 60) throw new Error('Original startup failed'); await new Promise(resolve => setTimeout(resolve, 500)); }
   }
+  stage = 'original-fixture';
   await docker(['exec', id, 'psql', '-X', '-U', 'postgres', '-d', 'application', '-v', 'ON_ERROR_STOP=1', '-c',
     "CREATE TABLE source_records(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,label text); INSERT INTO source_records(label) VALUES('preserved'),('雪');"]);
+  stage = 'original-stop';
   await docker(['stop', '--time', '30', id]);
   const originalControl = createHash('sha256').update(readFileSync(join(state, 'global/pg_control'))).digest('hex');
   stage = 'encrypted-backup';
