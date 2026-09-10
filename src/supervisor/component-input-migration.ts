@@ -1,33 +1,16 @@
 import { constants, closeSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { Parser } from 'tar';
-import type { Writable } from 'node:stream';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { paths } from '../core/paths.js';
 import { installedComponentRelease } from './component-release.js';
 import { usesSealedComponentCredentials } from './component-ephemeral.js';
 import { withApplicationBackupKey, withVerifiedGenerationBackup } from './backup.js';
-import { decryptBackupStream } from './backup-stream.js';
+import { archivedInputDigest } from './backup-stream.js';
 import { postgresDocker } from './postgres-process.js';
 
 export function assertInputMigrationProof(input:{confirmed:boolean;current:string;expected:string;archived:string;running:boolean}) {
   if(!input.confirmed || input.running || !/^[a-f0-9]{64}$/u.test(input.expected) ||
     input.current!==input.expected || input.archived!==input.expected) throw new Error('Exact stopped and backed-up component input confirmation required');
-}
-
-/** Hash one bounded regular member, but authenticate/drain the complete archive. */
-export async function archivedInputDigest(snapshot:string,generation:number,key:Buffer,member:string) {
-  let count=0,size=0,invalid=false;
-  const hash=createHash('sha256');
-  const parser=new Parser({strict:true,onReadEntry(entry){
-    if(entry.path!==member){entry.resume();return;}
-    count++;
-    if(entry.type!=='File' || entry.size>1048576 || count!==1){invalid=true;entry.resume();return;}
-    entry.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>1048576)invalid=true;else hash.update(chunk);});
-  }});
-  await decryptBackupStream(snapshot,generation,key,parser as unknown as Writable);
-  if(invalid || count!==1) throw new Error('Exact persistent input missing from authenticated recovery archive');
-  return hash.digest('hex');
 }
 
 export async function migratePersistentComponentInput(input:{componentId:string;release:string;plan:boolean;expectedDigest?:string|undefined;backupGeneration?:number|undefined;confirm?:boolean|undefined}) {

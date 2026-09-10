@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { c } from 'tar';
 import type { Readable } from 'node:stream';
-import { archivedInputDigest,assertInputMigrationProof } from '../src/supervisor/component-input-migration.js';
-import { encryptBackupStream } from '../src/supervisor/backup-stream.js';
+import { assertInputMigrationProof } from '../src/supervisor/component-input-migration.js';
+import { archivedInputDigest,encryptBackupStream } from '../src/supervisor/backup-stream.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 
 it('requires exact current and archived bytes, stopped services and explicit confirmation',()=>{
