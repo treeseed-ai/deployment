@@ -69,8 +69,12 @@ export function composeFailureDiagnostics(componentId: string, projectName: stri
 				try { diagnostic = agentCrashDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--tail', '8', id], '')); }
 				catch { /* raw logs are never emitted; retain the safe service summary */ }
 			}
-			if (componentId === 'postgres' && !diagnostic) {
-				try { diagnostic = postgresStartupDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--tail', '80', id], '')); }
+			if (componentId === 'postgres' && !diagnostic && (state !== 'running' || health !== 'healthy')) {
+				try {
+					const started = String(command('/usr/bin/docker', ['inspect', '--format', '{{.State.StartedAt}}', id], '') ?? '').trim();
+					if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(started))
+						diagnostic = postgresStartupDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--since', started, '--tail', '80', id], ''));
+				}
 				catch { /* Never emit raw PostgreSQL logs, even when classification fails. */ }
 			}
 			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
@@ -78,4 +82,3 @@ export function composeFailureDiagnostics(componentId: string, projectName: stri
 	}
 	return diagnostics;
 }
-
