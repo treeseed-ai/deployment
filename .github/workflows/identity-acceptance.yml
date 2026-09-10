@@ -38,6 +38,9 @@ jobs:
       - name: Resolve disposable TLS names only on this ephemeral runner
         run: echo '127.0.0.1 sovereign.localhost central.localhost' | sudo tee -a /etc/hosts
       - run: npx tsc -p tests/identity-runtime/tsconfig.json
+      - name: Preflight the exact published CLI module before starting containers
+        working-directory: tests/identity-runtime
+        run: node --input-type=module -e 'const cli = await import("@treeseed/cli/dist/cli/runtime.js"); if (typeof cli.runCommandLine !== "function") throw new Error("Published CLI entrypoint missing");'
       - name: Verify published CLI and real OS custody with Keycloak
         run: sudo --preserve-env=GITHUB_ACTIONS,PLAYWRIGHT_BROWSERS_PATH "$(command -v node)" --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
