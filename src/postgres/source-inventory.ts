@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { deploymentDigest, type ComponentRelease } from '@treeseed/sdk/deployment';
 
 const identifier = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/u);
-const descriptor = z.object({
+export const postgresSourceDescriptorSchema = z.object({
   database: identifier, major: z.number().int().min(16).max(17),
   cluster: z.string().regex(/^[0-9]{1,20}$/u),
   locale: z.object({ encoding: z.string().max(64), collate: z.string().max(256), ctype: z.string().max(256),
@@ -52,7 +52,7 @@ export async function inspectPostgresSource(component: ComponentRelease, service
       return value;
     };
     const before = await inspect();
-    const inventory = descriptor.parse(JSON.parse(await docker(['exec', container, 'env', '-i',
+    const inventory = postgresSourceDescriptorSchema.parse(JSON.parse(await docker(['exec', container, 'env', '-i',
       'PATH=/usr/local/bin:/usr/bin:/bin', 'PGPASSFILE=/dev/null', 'psql', '--no-password', '-X', '-qAt',
       '-h', '/var/run/postgresql', '-p', '5432', '-U', service.environment.POSTGRES_USER, '-d', service.environment.POSTGRES_DB,
       '-v', 'ON_ERROR_STOP=1', '-c', postgresSourceInventorySql], 15, true)));
