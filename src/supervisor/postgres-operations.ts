@@ -3,16 +3,33 @@ import { reconcileLocalPostgres } from './postgres.js';
 import { inspectInstalledPostgresSource, fingerprintInstalledPostgresSource } from './postgres-source.js';
 import { activateLocalPostgresComponent } from './postgres-lifecycle.js';
 import { inspectRecoveryPostgresFingerprint } from './postgres-source-backup.js';
+import { planManagedPostgresTransfer } from './postgres-transfer-plan.js';
+import { postgresTransferJournal } from './postgres-transfer-guard.js';
 
-type PostgresOperation = Extract<SupervisorOperation, { operation: 'postgres.plan' | 'postgres.apply' | 'postgres.source.inspect' | 'postgres.source.fingerprint' | 'postgres.source.recovery.inspect' | 'postgres.component.activate' }>;
+type PostgresOperation = Extract<SupervisorOperation, { operation: 'postgres.plan' | 'postgres.apply' | 'postgres.source.inspect' | 'postgres.source.fingerprint' | 'postgres.source.recovery.inspect' | 'postgres.transfer.plan' | 'postgres.component.activate' }>;
 const operations = new Set<PostgresOperation['operation']>(['postgres.plan','postgres.apply','postgres.source.inspect',
-  'postgres.source.fingerprint','postgres.source.recovery.inspect','postgres.component.activate']);
+  'postgres.source.fingerprint','postgres.source.recovery.inspect','postgres.component.activate','postgres.transfer.plan']);
 export function isPostgresOperation(operation: SupervisorOperation): operation is PostgresOperation {
   return [...operations].some(name => name === operation.operation);
 }
 
 export function executePostgresOperation(operation: PostgresOperation) {
+  if (operation.operation === 'postgres.apply' || operation.operation === 'postgres.component.activate') {
+    const journal=postgresTransferJournal();
+    return journal.locked(async()=>{
+      if(journal.active())throw new Error('PostgreSQL transfer holds allocation and runtime mutation');
+      return dispatchPostgresOperation(operation);
+    });
+  }
+  return dispatchPostgresOperation(operation);
+}
+
+function dispatchPostgresOperation(operation: PostgresOperation) {
   switch (operation.operation) {
+    case 'postgres.transfer.plan': {
+      const {operation:_operation,...selection}=operation;
+      return planManagedPostgresTransfer(selection);
+    }
     case 'postgres.source.recovery.inspect': return inspectRecoveryPostgresFingerprint(operation.generation, operation.backupDigest, operation.componentId, operation.serviceId, operation.inventoryDigest);
     case 'postgres.source.fingerprint': return fingerprintInstalledPostgresSource(operation.componentId, operation.release, operation.serviceId, operation.inventoryDigest);
     case 'postgres.plan': return reconcileLocalPostgres(operation.selections);
