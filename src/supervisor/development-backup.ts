@@ -71,13 +71,14 @@ function validate(deps: DevelopmentBackupDependencies, entries: Entry[]) {
   for (const entry of entries) {
     const record = records.find(item => item.session.sessionId === entry.sessionId);
     if (!record || record.session.status !== 'active' || api?.runtimeDigest !== entry.apiRuntimeDigest
-      || !record.session.targets.some(target => target.projectId === 'api' && target.targetId === 'operations-runner' && target.mode === 'candidate')
+      || !record.session.targets.some(target => target.projectId === 'api' && target.targetId === 'operations-runner'
+        && (target.mode === 'candidate' || target.mode === 'live'))
       || deploymentDigest(snapshot(deps, record, entry.image, api.runtimeDigest)) !== deploymentDigest(entry))
       throw new Error('Development selection or snapshot changed during backup; explicit recovery required.');
   }
 }
 
-/** Fixed registered candidate only. Labels alone never authorize a stop: the
+/** Fixed registered live/candidate snapshot only. Labels alone never authorize a stop: the
  * active selection, root snapshot and immutable running image must all match.
  * Unrecognized writers are rejected before any released component is stopped.
  */

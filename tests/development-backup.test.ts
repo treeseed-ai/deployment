@@ -10,10 +10,10 @@ import type { ManagedDevelopmentSession } from '../src/manager/development-sessi
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function fixture() {
+function createFixture(mode: 'candidate' | 'live') {
   const root = mkdtempSync(join(tmpdir(), 'treeseed-hold-')); roots.push(root);
   const api = component('api', 'development', 'a'), id = 'dev-test', image = `sha256:${'b'.repeat(64)}`, calls: string[] = [];
-  const record = { session: { sessionId: id, status: 'active', targets: [{ projectId: 'api', targetId: 'operations-runner', mode: 'candidate' }] } } as ManagedDevelopmentSession;
+  const record = { session: { sessionId: id, status: 'active', targets: [{ projectId: 'api', targetId: 'operations-runner', mode }] } } as ManagedDevelopmentSession;
   const dir = join(root, id, 'operations-runner'); mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, 'compose.json'), JSON.stringify({ services: { runtime: { image, container_name: `treeseed-${id}-api-operations-runner` } } }), { mode: 0o600 });
   writeFileSync(join(dir, 'runtime-receipt.json'), '{"digest":"original-snapshot"}', { mode: 0o600 });
@@ -35,7 +35,8 @@ function fixture() {
     } };
   return { deps, api, state, record, calls, dir, fail: (value: string) => { failure = value; } };
 }
-describe('registered candidate backup hold', () => {
+describe.each(['candidate', 'live'] as const)('registered %s backup hold', (mode) => {
+  const fixture = () => createFixture(mode);
   it('drains without restoring released runner or deleting snapshots; resumes exact selection once', () => {
     const f = fixture(), original = JSON.stringify(f.record);
     expect(beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toEqual({ held: true, generation: 1, targets: 1 });
@@ -67,6 +68,7 @@ describe('registered candidate backup hold', () => {
   it('rejects changed snapshots, selections and API runtime before resumption', () => {
     for (const mutate of [(f: ReturnType<typeof fixture>) => { writeFileSync(join(f.dir, 'runtime-receipt.json'), 'changed'); },
       (f: ReturnType<typeof fixture>) => { f.record.session.targets[0]!.mode = 'released'; },
+      (f: ReturnType<typeof fixture>) => { f.record.session.targets[0]!.mode = mode === 'live' ? 'candidate' : 'live'; },
       (f: ReturnType<typeof fixture>) => { f.api.runtimeDigest = 'c'.repeat(64); }]) {
       const f = fixture(); beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest); mutate(f);
       expect(() => finishDevelopmentBackup(1, f.deps)).toThrow();
