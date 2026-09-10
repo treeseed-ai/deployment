@@ -5,6 +5,13 @@ import { join } from 'node:path';
 
 export interface Archive { name: string; digest: string | null; size: number; url: string }
 export interface Package { name: string; digest: string; size: number; package: string; version: string; depends: string }
+export function selectRollbackTag(currentTag: string, prior: { rollbackTag: string } | undefined, explicit?: string) {
+  // Publishing a candidate is not host acceptance. Keep the accepted rollback
+  // anchor until an explicit retention operation advances it after acceptance.
+  const tag = explicit ?? prior?.rollbackTag;
+  if (!tag || tag === currentTag || !/^0\.1\.0-rc\.[0-9]+$/u.test(tag)) throw new Error('A distinct accepted rollback tag is required.');
+  return tag;
+}
 // Pool filenames may be content-addressed to preserve an older build that
 // reused a versioned filename. Only exact content establishes custody.
 const archived = (p: Package, a: Archive) => p.digest === a.digest && p.size === a.size;
@@ -48,8 +55,7 @@ export function retainDevelopmentPool(apt: string, currentTag: string, explicitR
   for (const path of [apt, join(apt, 'pool'), pool]) if (!lstatSync(path).isDirectory() || lstatSync(path).isSymbolicLink()) throw new Error('Unsafe APT pool.');
   let prior: { currentTag: string; rollbackTag: string } | undefined;
   try { prior = JSON.parse(readFileSync(receiptPath, 'utf8')); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-  const rollbackTag = explicitRollback ?? (prior?.currentTag === currentTag ? prior.rollbackTag : prior?.currentTag);
-  if (!rollbackTag || rollbackTag === currentTag) throw new Error('A distinct accepted rollback tag is required on first retention.');
+  const rollbackTag = selectRollbackTag(currentTag, prior, explicitRollback);
   const current = assets(release(currentTag)), previous = assets(release(rollbackTag));
   const inspect = (name: string): Package => {
     if (!/^treeseed[a-z0-9._+~-]*\.deb$/u.test(name)) throw new Error(`Unmanaged file in development pool: ${name}`);
