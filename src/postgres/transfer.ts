@@ -92,14 +92,17 @@ export async function transferPostgresDatabase(input: unknown, expectedDigest: s
       stage = 'acceptance';
       await ports.recordAccepted(intentDigest, archive.digest);
       return { action: 'transferred' as const, intentDigest, archiveDigest: archive.digest };
-    } catch {
+    } catch (error) {
+      const lifecycleStage = error instanceof Error
+        ? /^PostgreSQL component activation failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
+      const locations = error instanceof Error ? [...(error.stack ?? '').matchAll(/\/(src\/[a-zA-Z0-9_./-]+\.[jt]s:\d+:\d+)/gu)].slice(0, 6).map(match => match[1]) : [];
       // Even a partially successful stop/switch/record is uncertain. Never restart
       // the source or delete either database as an implicit rollback.
       let cleanupFailed = false;
       try { await ports.fenceWriters(intent); if (!await ports.writersFenced(intent)) cleanupFailed = true; }
       catch { cleanupFailed = true; }
       try { await ports.clearTransientCredentials(intent); } catch { cleanupFailed = true; }
-      throw new TransferFailure(`PostgreSQL transfer failed (${stage}); ${cleanupFailed ? 'containment requires recovery' : 'writers fenced; explicit coordinated recovery required'}. Source data retained.`);
+      throw Object.assign(new TransferFailure(`PostgreSQL transfer failed (${stage}); ${cleanupFailed ? 'containment requires recovery' : 'writers fenced; explicit coordinated recovery required'}. Source data retained.`), { diagnostic: { lifecycleStage, locations } });
     }
   }).catch((error: unknown) => {
     if (error instanceof TransferFailure) throw error;
