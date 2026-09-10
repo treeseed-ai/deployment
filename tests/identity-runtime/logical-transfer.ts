@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { writePostgresLogicalArchive, restorePostgresLogicalArchive } from '../../dist/src/postgres/logical-archive.js';
 import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { inspectPostgresSource } from '../../dist/src/postgres/source-inventory.js';
+import { withAttestedPostgresSource } from '../../dist/src/postgres/source-session.js';
 import { deploymentDigest } from '@treeseed/sdk/deployment';
 import { component } from '../fixtures.js';
 import { fingerprintPostgresTransfer } from '../../dist/src/postgres/transfer-fingerprint.js';
@@ -120,6 +121,17 @@ try {
   checks.push('installed-image-source-attestation-read-only');
   stage = 'source-fingerprint';
   const sourceFingerprint = await fingerprint(source, 'postgres', sourceMajor);
+  stage = 'attested-source-session';
+  const sourceSelection = { container: observed.container, database: 'application', username: 'postgres',
+    major: sourceMajor as 16 | 17, clusterIdentity: observed.clusterIdentity };
+  const attested = await withAttestedPostgresSource(sourceSelection, async args => docker(args),
+    session => fingerprintPostgresTransfer(session, { database: 'application', owner: 'postgres', major: sourceMajor }));
+  assert.deepEqual(attested, sourceFingerprint);
+  let enteredWrongCluster = false;
+  await assert.rejects(withAttestedPostgresSource({ ...sourceSelection, clusterIdentity: `sha256:${'0'.repeat(64)}` },
+    async args => docker(args), async () => { enteredWrongCluster = true; }));
+  assert.equal(enteredWrongCluster, false); assert.equal(records(source), before);
+  checks.push('attested-process-socket-fingerprint-equivalent', 'wrong-cluster-denied-before-fingerprint');
   stage = 'export';
   const dump = processStream(source, ['pg_dump', '-U', 'postgres', '-d', 'application', '--format=custom', '--no-tablespaces']);
   dump.child.stdin.end();

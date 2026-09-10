@@ -339,6 +339,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
 			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
 		case 'postgres.source.inspect':
+		case 'postgres.source.fingerprint':
 		case 'postgres.plan':
 		case 'postgres.component.activate':
 		case 'postgres.apply': return executePostgresOperation(operation);

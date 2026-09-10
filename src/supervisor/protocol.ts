@@ -4,6 +4,7 @@ import { hostDevelopmentActivationSchema } from './host-development.js';
 import { developmentContainerSchema } from './development-container-contract.js';
 
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
+	z.object({ operation: z.literal('postgres.source.fingerprint'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), release: z.string().regex(/^[0-9][a-zA-Z0-9.+~-]{0,127}$/u), serviceId: z.string().regex(/^[a-z][a-z0-9.-]{0,127}$/u), inventoryDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u) }).strict(),
 	z.object({ operation: z.literal('development.backup.begin'), generation: z.number().int().positive(), apiRuntimeDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u).optional() }).strict(),
 	z.object({ operation: z.literal('development.backup.finish'), generation: z.number().int().positive() }).strict(),
 	z.object({ operation: z.literal('development.backup.status') }).strict(),
