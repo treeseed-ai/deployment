@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { retentionPlan, type Package, type Archive } from '../scripts/apt-retention.js';
+import { retentionPlan, selectRollbackTag, type Package, type Archive } from '../scripts/apt-retention.js';
 
 const pkg = (name: string, version: string, depends = ''): Package => ({ name: `${name}_${version}_all.deb`, package: name, version, depends, size: 10, digest: `sha256:${name}-${version}` });
 const archive = (p: Package): Archive => ({ name: p.name, size: p.size, digest: p.digest, url: `https://github.com/treeseed-ai/deployment/releases/download/test/${p.name}` });
 const matches = (v: string, op: string, required: string) => op === '=' && v === required;
 describe('APT generation retention', () => {
+  it('does not confuse the last published candidate with accepted rollback custody', () => {
+    expect(selectRollbackTag('0.1.0-rc.294', { rollbackTag: '0.1.0-rc.291' })).toBe('0.1.0-rc.291');
+    expect(selectRollbackTag('0.1.0-rc.294', { rollbackTag: '0.1.0-rc.291' }, '0.1.0-rc.293')).toBe('0.1.0-rc.293');
+    expect(() => selectRollbackTag('0.1.0-rc.294', undefined)).toThrow('accepted rollback');
+    expect(() => selectRollbackTag('0.1.0-rc.294', { rollbackTag: '0.1.0-rc.294' })).toThrow('accepted rollback');
+  });
   it('retains a content-addressed rollback artifact even when versioned filenames were reused', () => {
     const current = pkg('treeseed-manager', '3');
     const prior = { ...current, name: 'treeseed-archive-old.deb', digest: 'sha256:older-build' };
