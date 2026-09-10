@@ -40,6 +40,13 @@ it('rejects moved plan bindings before invoking privileged ports', async () => {
   const { intent, ports, calls } = fixture(); const expected = deploymentDigest(intent); intent.environment = 'production';
   await expect(transferPostgresDatabase(intent, expected, ports)).rejects.toThrow('Exact'); expect(calls).toEqual([]);
 });
+it('rejects a locale conversion added after the plan was captured', async () => {
+  const { intent, ports, calls } = fixture(); const expected = deploymentDigest(intent);
+  const source = { encoding: 'UTF8', collate: 'en_US.utf8', ctype: 'en_US.utf8', provider: 'c' as const, version: null, locale: null };
+  intent.localeConversion = { method: 'logical-rebuild', source, destination: { ...source, version: '2.36' } };
+  await expect(transferPostgresDatabase(intent, expected, ports)).rejects.toThrow('Exact');
+  expect(calls).toEqual([]);
+});
 it.each(['same-database', 'downgrade', 'unknown-field'])('rejects %s intents', async mode => {
   const { intent, ports, calls } = fixture();
   if (mode === 'same-database') intent.destination = { ...intent.source };

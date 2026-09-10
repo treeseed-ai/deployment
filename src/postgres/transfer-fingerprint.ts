@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { deploymentDigest } from '@treeseed/sdk/deployment';
 import type { PostgresInspectionSession } from './inventory.js';
 import { transferOwnershipSql, transferRelationsSql, transferSchemaSql, transferUnsupportedSql } from './transfer-catalog.js';
+import { postgresTransferLocaleSchema, postgresTransferValiditySql } from './transfer-locale.js';
 
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const name = (value: unknown) => { if (typeof value !== 'string' || !value || value.includes('\0')) throw new Error(); return value; };
@@ -21,6 +22,8 @@ export async function fingerprintPostgresTransfer(session: PostgresInspectionSes
         'provider',d.datlocprovider,'version',d.datcollversion,'locale',COALESCE(to_jsonb(d)->>'datlocale',to_jsonb(d)->>'daticulocale')) AS locale
       FROM pg_database d WHERE d.datname=current_database()`);
     if (identity.rows.length !== 1 || identity.rows[0]?.database !== expected.database || Number(identity.rows[0]?.major) !== expected.major) throw new Error();
+    const locale = postgresTransferLocaleSchema.parse(identity.rows[0].locale);
+    if ((await session.query(postgresTransferValiditySql)).rows[0]?.valid !== true) throw new Error();
     if ((await session.query(transferUnsupportedSql)).rows[0]?.unsupported !== false) throw new Error();
     if ((await session.query(transferOwnershipSql, [expected.owner])).rows[0]?.owned !== true) throw new Error();
     const relations = (await session.query(transferRelationsSql)).rows;
@@ -56,8 +59,9 @@ export async function fingerprintPostgresTransfer(session: PostgresInspectionSes
         content.push({ schema: schemaName, name: relationName, digest: `sha256:${hash.digest('hex')}`, rows });
       }
     }
-    if (!identity.rows[0]?.locale || typeof identity.rows[0].locale !== 'object') throw new Error();
-    const result = { schemaDigest: deploymentDigest({ locale: identity.rows[0].locale, relations, schema }), contentDigest: deploymentDigest(content), relationCount: relations.length };
+    const result = { schemaDigest: deploymentDigest({ locale, relations, schema }),
+      definitionDigest: deploymentDigest({ relations, schema }), localeDigest: deploymentDigest(locale),
+      contentDigest: deploymentDigest(content), relationCount: relations.length };
     await session.query('COMMIT');
     return result;
   } catch {
