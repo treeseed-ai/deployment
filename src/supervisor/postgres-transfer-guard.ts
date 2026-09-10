@@ -9,6 +9,7 @@ const containmentOperations = new Set([
   'backup.inspect', 'backup.list', 'backup.create', 'recovery.restore',
   'development.backup.status', 'development.backup.fence',
   'postgres.transfer.status',
+  'postgres.source.recovery.inspect',
 ]);
 
 /** Fixed boundary while a transfer may have changed data. In particular, do not

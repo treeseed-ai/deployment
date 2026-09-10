@@ -14,6 +14,7 @@ import { deploymentDigest, postgresTopologySchema } from '@treeseed/sdk/deployme
 import { inspectPostgresTransferDestination } from '../../dist/src/postgres/transfer-destination.js';
 import { postgresAllocationId } from '../../dist/src/postgres/plan.js';
 import { postgresAllocationMarker } from '../../dist/src/postgres/inventory.js';
+import { backupPostgresSourceFormat } from '../../dist/src/supervisor/postgres-source-backup.js';
 import { component } from '../fixtures.js';
 import { fingerprintPostgresTransfer } from '../../dist/src/postgres/transfer-fingerprint.js';
 import type { PostgresInspectionSession } from '../../dist/src/postgres/inventory.js';
@@ -89,6 +90,14 @@ try {
     assert.ok(ready);
   }
   stage = 'fixture';
+  const projection = `${prefix}-projection`; owned.add(projection);
+  docker(['create','--name',projection,'--network','none','--tmpfs','/var/lib/postgresql/data',
+    '-e','POSTGRES_DB=application','-e','POSTGRES_USER=owner','-e','POSTGRES_PASSWORD=never-return-this',POSTGRES_IMAGE]);
+  const projected = docker(['inspect','--format',backupPostgresSourceFormat,projection]);
+  assert.equal(JSON.parse(projected).database,'POSTGRES_DB=application');
+  assert.equal(JSON.parse(projected).username,'POSTGRES_USER=owner');
+  assert.ok(!projected.includes('never-return-this')); docker(['rm',projection]);
+  checks.push('backup-source-projection-excludes-passwords');
   assert.equal(sql(source, 'postgres', "SELECT current_setting('server_version_num')::int/10000"), String(sourceMajor));
   assert.equal(sql(destination, 'postgres', "SELECT current_setting('server_version_num')::int/10000"), '17');
   sql(source, 'postgres', 'CREATE DATABASE application');

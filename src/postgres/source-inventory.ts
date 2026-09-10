@@ -52,7 +52,8 @@ export async function inspectPostgresSource(component: ComponentRelease, service
       return value;
     };
     const before = await inspect();
-    const inventory = descriptor.parse(JSON.parse(await docker(['exec', container, 'psql', '-X', '-qAt',
+    const inventory = descriptor.parse(JSON.parse(await docker(['exec', container, 'env', '-i',
+      'PATH=/usr/local/bin:/usr/bin:/bin', 'PGPASSFILE=/dev/null', 'psql', '--no-password', '-X', '-qAt',
       '-h', '/var/run/postgresql', '-p', '5432', '-U', service.environment.POSTGRES_USER, '-d', service.environment.POSTGRES_DB,
       '-v', 'ON_ERROR_STOP=1', '-c', postgresSourceInventorySql], 15, true)));
     if (inventory.database !== service.environment.POSTGRES_DB || deploymentDigest(before) !== deploymentDigest(await inspect())) throw new Error();
