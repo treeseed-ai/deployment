@@ -41,6 +41,7 @@ jobs:
       - name: Verify published CLI and real OS custody with Keycloak
         run: sudo --preserve-env=GITHUB_ACTIONS,PLAYWRIGHT_BROWSERS_PATH "$(command -v node)" --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: identity-acceptance-${{ github.sha }}
           path: |

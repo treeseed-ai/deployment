@@ -131,10 +131,11 @@ export async function browserFixture(root: string) {
         await page.goto(`${admin.base}/login`);
         phase = 'first-login-form';
         assert.equal(await page.locator('.auth-brand__name').innerText(), 'TreeSeed');
+        await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
+        phase = 'theme-favicon';
         const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
         assert.ok(favicon);
         assert.ok(favicon?.endsWith('/img/treeseed-logo.svg'));
-        phase = 'theme-favicon';
         // Use the browser's explicitly pinned TLS context, not Playwright's
         // separate API request client (which does not inherit Chromium pins).
         assert.equal(await page.evaluate(async href => (await fetch(href, { credentials: 'omit' })).status, favicon), 200);
