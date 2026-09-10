@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { deploymentDigest } from '@treeseed/sdk/deployment';
 import { component, host } from './fixtures.js';
-import { backupPostgresSourceFormat, inspectRecoveryPostgresSource, inspectRecoveryPostgresFingerprint } from '../src/supervisor/postgres-source-backup.js';
+import { backupPostgresSourceFormat, inspectRecoveryPostgresSource, inspectRecoveryPostgresFingerprint,createRecoveryPostgresSourceReader } from '../src/supervisor/postgres-source-backup.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 
 const f = vi.hoisted(() => ({ backup: vi.fn(), host: vi.fn(), docker: vi.fn(), inspect: vi.fn(), realpath: vi.fn(), session: vi.fn(), fingerprint: vi.fn() }));
@@ -76,4 +76,11 @@ it('accepts only fixed recovery descriptors on the supervisor wire',()=>{
   expect(supervisorOperationSchema.safeParse(request).success).toBe(true);
   for(const invalid of [{path:'/unowned'},{sql:'SELECT 1'},{generation:Number.MAX_SAFE_INTEGER+1},{backupDigest:'latest'},{componentId:'../api'}])
     expect(supervisorOperationSchema.safeParse({...request,...invalid}).success).toBe(false);
+});
+it('authenticates once inside a locked transaction but still reattests source custody on each read',async()=>{
+  const v=fixture(),reader=await createRecoveryPostgresSourceReader(7,`sha256:${'a'.repeat(64)}`,'api','database');
+  await reader();await reader();expect(f.backup).toHaveBeenCalledTimes(1);expect(f.inspect).toHaveBeenCalledTimes(2);
+  v.observed.mounts[0]!.Source='/changed';await expect(reader()).rejects.toThrow('source unchanged');
+  expect(f.backup).toHaveBeenCalledTimes(1);
+  await expect(v.run()).rejects.toThrow('source unchanged');expect(f.backup).toHaveBeenCalledTimes(2);
 });

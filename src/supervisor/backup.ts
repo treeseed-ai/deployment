@@ -27,8 +27,15 @@ function archivePath(generation: number, root: string = paths.backups) {
 function loadKey(override?: Buffer) {
 	if (override) { if (override.length !== 32) throw new Error('Backup encryption key must contain exactly 32 bytes.'); return Buffer.from(override); }
 	const plaintext = execFileSync('/usr/bin/systemd-creds', ['decrypt', `--name=${backupKeyId}`, credentialPath, '-'], { stdio: ['ignore', 'pipe', 'pipe'] });
-	try { const key = Buffer.from(plaintext.toString('utf8').trim(), 'base64url'); if (key.length !== 32) throw new Error('Backup encryption credential is invalid.'); return key; }
+	try { const key = Buffer.from(plaintext.toString('utf8').trim(), 'base64url'); if (key.length !== 32) { key.fill(0); throw new Error('Backup encryption credential is invalid.'); } return key; }
 	finally { plaintext.fill(0); }
+}
+/** Internal protected use of the existing application recovery KEK. No new key
+ * store or wire export; every caller-owned working copy is cleared on return.
+ */
+export async function withApplicationBackupKey<T>(run: (key: Buffer) => Promise<T>): Promise<T> {
+	const key = loadKey();
+	try { return await run(key); } finally { key.fill(0); }
 }
 function checksum(path: string) { return execFileSync('/usr/bin/sha256sum', [path], { encoding: 'utf8' }).split(/\s/u)[0]!; }
 function checkedArchive(generation: number, root?: string) {
