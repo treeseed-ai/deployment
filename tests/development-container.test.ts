@@ -55,13 +55,15 @@ it('does not publish a runner port and confines its writable state',()=>{
     '/var/lib/treeseed/components/api/operations-runner','/var/lib/treeseed/components/api/published-knowledge']);
 });
 it.each(['service','operations-runner'] as const)('mounts only API runtime database and Identity custody for %s',targetId=>{
-  const runtime=renderDevelopmentContainer({...input,targetId}).services.runtime;
+  const runtime=renderDevelopmentContainer({...input,targetId,environment:{TREESEED_IDENTITY_HOSTNAME:'identity.example.localhost'}}).services.runtime;
   expect(runtime.environment.TREESEED_DATABASE_URL_FILE).toBe('/run/treeseed/postgres/api/url');
   expect(runtime.volumes).toContainEqual({type:'bind',source:'/run/treeseed/postgres-clients/api/api/runtime',target:'/run/treeseed/postgres/api',read_only:true});
   expect(runtime.volumes).toContainEqual({type:'bind',source:'/run/treeseed/identity-clients/api',target:'/run/treeseed/identity/api',read_only:true});
   expect(JSON.stringify(runtime.volumes)).not.toContain('/migration');
   expect(JSON.stringify(runtime.volumes)).not.toContain('/postgres-clients/identity');
   expect(runtime.environment).not.toHaveProperty('TREESEED_DATABASE_URL');
+  expect(runtime.extra_hosts).toContain('identity.example.localhost:host-gateway');
+  expect(runtime.environment.NODE_EXTRA_CA_CERTS).toBe('/run/openbao-client/ca.pem');
 });
 it('allows group-readable source without changing state identity or enabling writes',()=>{
   const runtime=renderDevelopmentContainer({...input,targetId:'operations-runner',uid:0,gid:0,sourceGid:1000}).services.runtime;

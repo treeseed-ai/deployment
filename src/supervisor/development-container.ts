@@ -17,6 +17,7 @@ import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './devel
 import { recoverRunnerCustody } from './runner-custody-probe.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
+import { managedIdentityClientPlan } from '../identity/client-plan.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -83,7 +84,8 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
       {type:'bind',source:'/run/treeseed/identity-clients/api',target:'/run/treeseed/identity/api',read_only:true},
       ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner'},
         {type:'bind',source:resolve(input.stateRoot,'published-knowledge'),target:'/data/published-knowledge'}])],
-    tmpfs:['/tmp'],extra_hosts:['host.docker.internal:host-gateway'],
+    tmpfs:['/tmp'],extra_hosts:['host.docker.internal:host-gateway',
+      ...(input.environment.TREESEED_IDENTITY_HOSTNAME?[`${input.environment.TREESEED_IDENTITY_HOSTNAME}:host-gateway`]:[])],
     ...(api?{ports:['127.0.0.1:3000:3000']}:{}),
     healthcheck:{test:['CMD','node','-e',`fetch('http://127.0.0.1:3000${api?'/v1/health/ready':'/readyz'}').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))`],interval:'2s',timeout:'2s',retries:60},
     networks:{private:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:{}}}},
@@ -139,6 +141,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Both targets consume the installed API's file-scoped runtime credentials.
   // Source ownership cannot grant a different OS identity access to custody.
   const identity=developmentRuntimeOwner(host,component);
+  environment.TREESEED_IDENTITY_HOSTNAME=new URL(managedIdentityClientPlan(host).issuer).hostname;
   if(input.targetId==='operations-runner') {
     const runner=releasedRunnerIdentity(command);
     if(runner.uid!==identity.uid||runner.gid!==identity.gid)throw new Error('Managed development runner custody identity mismatch.');
