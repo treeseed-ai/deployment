@@ -20,13 +20,20 @@ export interface PostgresLifecyclePorts {
  * belong to the privileged supervisor; none are supplied by an API caller.
  * Failure never silently resumes an old writer against a changed schema.
  */
-export async function runPostgresComponentLifecycle(input: unknown, topologyDigest: string, ports: PostgresLifecyclePorts) {
+export async function runPostgresComponentLifecycle(input: unknown, topologyDigest: string, ports: PostgresLifecyclePorts, selectedRuntime?: string[]) {
   const component = componentReleaseSchema.parse(input);
   if (!/^[a-f0-9]{64}$/u.test(topologyDigest) || deploymentDigest(component.runtime) !== component.runtimeDigest) throw new Error('Exact PostgreSQL lifecycle binding required');
   const lifecycles = component.runtime.postgresLifecycle;
   if (!lifecycles?.length) throw new Error('Declared PostgreSQL lifecycle required');
   const migrations = lifecycles.map(item => item.migration.composeService);
-  const runtime = component.runtime.services.map(item => item.composeService).filter(service => !migrations.includes(service));
+  const allRuntime = component.runtime.services.map(item => item.composeService).filter(service => !migrations.includes(service));
+  const gpu = component.runtime.modeControl?.services.gpu ?? [];
+  if (gpu.length && !selectedRuntime) throw new Error('Explicit AI mode selection required for PostgreSQL activation');
+  const runtime = selectedRuntime ?? allRuntime;
+  if (new Set(runtime).size !== runtime.length || runtime.some(service => !allRuntime.includes(service)) ||
+    allRuntime.some(service => !runtime.includes(service) && !gpu.includes(service)) ||
+    lifecycles.some(item => item.runtimeServices.some(service => !runtime.includes(service))))
+    throw new Error('Invalid PostgreSQL runtime service selection');
   if (await ports.accepted(component.runtimeDigest, topologyDigest)) {
     const verified = await Promise.all(lifecycles.map(item => ports.verifyRuntime(item.requirementId)));
     if (verified.every(Boolean)) {
@@ -42,7 +49,7 @@ export async function runPostgresComponentLifecycle(input: unknown, topologyDige
   await ports.requireRestorePoint();
   let stage = 'stop-writers';
   try {
-    await ports.stopServices([...runtime, ...migrations]);
+    await ports.stopServices([...allRuntime, ...migrations]);
     for (const item of lifecycles) {
       const id = item.requirementId;
       stage = 'credential-custody'; await ports.ensureCredentials(id);
@@ -62,7 +69,7 @@ export async function runPostgresComponentLifecycle(input: unknown, topologyDige
     return { componentId: component.componentId, action: 'activated' as const };
   } catch {
     const cleanup = await Promise.allSettled([
-      ports.stopServices([...runtime, ...migrations]),
+      ports.stopServices([...allRuntime, ...migrations]),
       ...lifecycles.map(item => ports.disable(item.requirementId)),
       ...lifecycles.flatMap(item => (['migration', 'runtime'] as const).map(phase => ports.clear(item.requirementId, phase))),
     ]);

@@ -18,6 +18,7 @@ import { clearPostgresClient, materializePostgresClient } from './postgres-clien
 import { preparePostgresCredentials } from './postgres-credentials.js';
 import { postgresDocker } from './postgres-process.js';
 import { localPostgresTopology, reconcileLocalPostgres } from './postgres.js';
+import { aiModeActivationServices } from '../manager/ai-mode.js';
 
 const active = new Set<string>();
 
@@ -30,6 +31,9 @@ export async function activateLocalPostgresComponent(componentId: string, select
     const releases = selections.map(item => installedComponentRelease(item.componentId, item.release));
     const component = releases.find(item => item.componentId === componentId);
     if (!component) throw new Error('Selected PostgreSQL component missing');
+    const migrations = new Set(component.runtime.postgresLifecycle?.map(item => item.migration.composeService));
+    const selection = () => aiModeActivationServices(component)?.filter(service => !migrations.has(service));
+    const selectedRuntime = selection(), selectionDigest = deploymentDigest(selectedRuntime ?? null);
     const topology = localPostgresTopology(host, releases);
     const plan = await reconcileLocalPostgres(selections);
     if (!('ready' in plan) || !plan.ready) throw new Error('PostgreSQL allocation plan is blocked');
@@ -45,7 +49,7 @@ export async function activateLocalPostgresComponent(componentId: string, select
       if (path === '/') break;
     }
     const receipt = `${receiptRoot}/${componentId}.json`;
-    const unchanged = () => { if (deploymentDigest(loadHostConfiguration()) !== hostDigest) throw new Error('Host configuration changed during PostgreSQL activation'); };
+    const unchanged = () => { if (deploymentDigest(loadHostConfiguration()) !== hostDigest || deploymentDigest(selection() ?? null) !== selectionDigest) throw new Error('Host configuration or AI mode changed during PostgreSQL activation'); };
     const allocation = (id: string) => {
       const value = topology.allocations.find(item => item.requirementId === id);
       if (!value || !topology.requirements.some(item => item.id === id && item.componentId === componentId && item.enabled)) throw new Error('Invalid component allocation');
@@ -90,6 +94,7 @@ export async function activateLocalPostgresComponent(componentId: string, select
       disable: async id => { await session(id, connection => disablePostgresAllocation(topology, id, connection)); },
       startRuntime: async services => { unchanged(); await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...services], 190); },
       runtimeHealthy: async services => {
+        unchanged();
         const configured = JSON.parse(await postgresDocker([...compose(), 'config', '--format', 'json'], 30, true));
         const raw = await postgresDocker([...compose(), 'ps', '--all', '--format', 'json', ...services], 30, true);
         const rows = raw.trim().startsWith('[') ? JSON.parse(raw) : raw.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -108,6 +113,6 @@ export async function activateLocalPostgresComponent(componentId: string, select
         return true;
       },
       record: async (runtimeDigest, topologyDigest) => { unchanged(); atomicJson(receipt, { runtimeDigest, topologyDigest }, 0o600); },
-    });
+    }, selectedRuntime);
   } finally { active.delete(componentId); }
 }
