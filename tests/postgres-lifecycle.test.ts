@@ -55,3 +55,27 @@ it('disables access and clears both phases on migration failure, without recordi
   expect(calls).toContain('disable:api'); expect(calls).toContain('clear:api:migration'); expect(calls).toContain('clear:api:runtime');
   expect(calls).not.toContain('start:service'); expect(calls).not.toContain('record');
 });
+function aiFixture() {
+  const f = fixture();
+  f.release.runtime.services.push({ id: 'gpu', composeService: 'gpu', endpoints: [] });
+  f.release.runtime.modeControl = { resource: 'ai-gpu', role: 'training',
+    gate: { service: 'service', executable: '/usr/local/bin/treeseed-ai-gpu-gate' }, services: { base: ['service'], gpu: ['gpu'] } };
+  f.release.runtimeDigest = deploymentDigest(f.release.runtime);
+  return f;
+}
+it('requires explicit AI selection before invoking any lifecycle port', async () => {
+  const { release, ports, calls } = aiFixture();
+  await expect(runPostgresComponentLifecycle(release, 'a'.repeat(64), ports)).rejects.toThrow('Explicit AI mode');
+  expect(calls).toEqual([]);
+});
+it('stops all previous writers but starts only the selected AI mode', async () => {
+  const { release, ports, calls } = aiFixture();
+  await runPostgresComponentLifecycle(release, 'a'.repeat(64), ports, ['service']);
+  expect(calls).toContain('stop:service,gpu,migration');
+  expect(calls).toContain('start:service'); expect(calls).not.toContain('start:service,gpu');
+});
+it.each([['gpu'], ['service','unknown'], ['service','migration'], ['service','service']])('rejects incomplete or foreign AI selection %j', async (...selection) => {
+  const { release, ports, calls } = aiFixture();
+  await expect(runPostgresComponentLifecycle(release, 'a'.repeat(64), ports, selection)).rejects.toThrow('Invalid PostgreSQL runtime');
+  expect(calls).toEqual([]);
+});

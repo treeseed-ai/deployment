@@ -8,8 +8,16 @@ import { backupKeyId, decryptBackupStream, encryptBackupStream, inspectBackupStr
 import { assertNoBackupWriters } from './backup-writers.js';
 import { backupConfiguration, selectBackupConfiguration } from './backup-configuration.js';
 import { withReplacedBackupState } from './backup-state-replacement.js';
+import { postgresTransferJournal } from './postgres-transfer-guard.js';
 
 const credentialPath = `/etc/treeseed/credentials/${backupKeyId}.cred`;
+export function retiredBackupArchives(names: string[], pinnedGeneration?: number) {
+	if (pinnedGeneration !== undefined && (!Number.isSafeInteger(pinnedGeneration) || pinnedGeneration < 1)) throw new Error('Invalid pinned recovery generation');
+	return names.flatMap(name => {
+		const match = /^generation-([1-9][0-9]*)\.tar\.gz\.enc$/u.exec(name), generation = match ? Number(match[1]) : NaN;
+		return Number.isSafeInteger(generation) && generation !== pinnedGeneration ? [{name,generation}] : [];
+	}).sort((a,b) => b.generation-a.generation).slice(10).map(item => item.name);
+}
 export const backupArchiveArguments = (configurationMember: string, members: string[], sourceRoot = '/') =>
 	['--create', '--use-compress-program=/usr/bin/gzip -1', '--file', '-', '--directory', sourceRoot, '--numeric-owner', '--exclude=etc/treeseed/platform.json', `--transform=s|^${configurationMember}$|etc/treeseed/platform.json|`, ...members];
 function archivePath(generation: number, root: string = paths.backups) {
@@ -68,8 +76,13 @@ export async function createGenerationBackup(generation: number) {
 		if (exit[0] !== 0) throw new Error('Required managed state could not be archived consistently.');
 		renameSync(temporary, archive);
 		const sha256 = checksum(archive); writeFileSync(`${archive}.sha256`, `${sha256}  generation-${generation}.tar.gz.enc\n`, { mode: 0o600 });
-		const retained = readdirSync(paths.backups).filter(name => /^generation-[1-9][0-9]*\.tar\.gz\.enc$/u.test(name)).sort((a, b) => Number(b.slice(11, -11)) - Number(a.slice(11, -11)));
-		for (const stale of retained.slice(10)) { rmSync(`${paths.backups}/${stale}`, { force: true }); rmSync(`${paths.backups}/${stale}.sha256`, { force: true }); }
+		// Share the transfer's OS lock: a new intent cannot pin an archive in the
+		// interval between retention inspection and deletion.
+		const journal = postgresTransferJournal();
+		await journal.locked(async () => {
+			const pinnedGeneration = journal.active()?.restoreGeneration;
+			for (const stale of retiredBackupArchives(readdirSync(paths.backups), pinnedGeneration)) { rmSync(`${paths.backups}/${stale}`, { force: true }); rmSync(`${paths.backups}/${stale}.sha256`, { force: true }); }
+		});
 		return { generation, archive, sha256, encrypted: true as const, stateDirectories: state };
 	} finally { child.kill(); key.fill(0); rmSync(temporary, { force: true }); rmSync(`/${configurationMember}`, { force: true }); }
 }
