@@ -39,6 +39,8 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
     `label=com.docker.compose.service=${serviceId}`], 10, true)).trim());
   const inspectOriginal = async () => {
     const value = observedSchema.parse(JSON.parse(await docker(['inspect', '--format', format, original], 10, true)));
+    if (new Set(value.mounts.map(mount => mount.Destination)).size !== value.mounts.length) throw new Error('Ambiguous retained source mounts');
+    value.mounts.sort((a, b) => a.Destination.localeCompare(b.Destination));
     const mounts = value.mounts.filter(item => item.Destination === '/var/lib/postgresql/data' || item.Destination.startsWith('/var/lib/postgresql/data/'));
     if (mounts.length !== 1 || mounts[0]!.Type !== 'bind' || mounts[0]!.Source !== `/${staged.member}` ||
       mounts[0]!.Destination !== '/var/lib/postgresql/data') throw new Error('Retained PostgreSQL source mount changed');
@@ -104,7 +106,7 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
     // process output or credential values. Useful in privileged Actions too.
     const locations = error instanceof Error ? [...(error.stack ?? '').matchAll(/\/(src\/[a-zA-Z0-9_./-]+\.[jt]s:\d+:\d+)/gu)].slice(0, 6).map(match => match[1]) : [];
     const phase = error instanceof Error ? /PostgreSQL transfer failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
-    const causeStage = z.object({ stage: z.enum(['selection', 'container-selection', 'container-image', 'data-mount', 'socket-mount', 'allocation-custody', 'cluster-readback']) }).safeParse(error && typeof error === 'object' && 'diagnostic' in error ? error.diagnostic : undefined);
+    const causeStage = z.object({ stage: z.enum(['selection', 'container-selection', 'container-image', 'data-mount', 'socket-mount', 'allocation-custody', 'cluster-readback', 'container-readback', 'configuration-readback']) }).safeParse(error && typeof error === 'object' && 'diagnostic' in error ? error.diagnostic : undefined);
     throw Object.assign(new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'), { diagnostic: { stage, phase, locations, causeStage: causeStage.success ? causeStage.data.stage : undefined } });
   }
   finally {
