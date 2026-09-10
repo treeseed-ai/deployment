@@ -56,7 +56,12 @@ export async function activatePostgresAllocation(input: unknown, requirementId: 
     await session.query(`ALTER ROLE ${migration} NOLOGIN; ALTER ROLE ${runtime} NOLOGIN`);
     await session.query(postgresRuntimeAccessSql(allocation));
     if (phase === 'migration') {
+      // Trusted extensions belong to the application owner, not the host
+      // administrator. pg_restore restores their comments as that same owner.
+      // PostgreSQL still rejects untrusted extensions for this restricted role.
+      await session.query(`SET LOCAL ROLE ${owner}`);
       for (const extension of requirement.extensions) await session.query(`CREATE EXTENSION IF NOT EXISTS ${quote(extension)} WITH SCHEMA public`);
+      await session.query('RESET ROLE');
       await session.query(`GRANT ${owner} TO ${migration}; ALTER ROLE ${migration} SET role = '${allocation.ownerRole}'`);
       await session.query(`ALTER ROLE ${migration} LOGIN CONNECTION LIMIT 4 PASSWORD '${verifier}'`);
     } else {

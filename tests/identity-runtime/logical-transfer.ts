@@ -14,6 +14,7 @@ import { deploymentDigest, postgresTopologySchema } from '@treeseed/sdk/deployme
 import { inspectPostgresTransferDestination } from '../../dist/src/postgres/transfer-destination.js';
 import { postgresAllocationId } from '../../dist/src/postgres/plan.js';
 import { postgresAllocationMarker } from '../../dist/src/postgres/inventory.js';
+import { activatePostgresAllocation } from '../../dist/src/postgres/activation.js';
 import { backupPostgresSourceFormat } from '../../dist/src/supervisor/postgres-source-backup.js';
 import { component } from '../fixtures.js';
 import { fingerprintPostgresTransfer } from '../../dist/src/postgres/transfer-fingerprint.js';
@@ -188,7 +189,9 @@ try {
     return { input: restore.input, completed: restore.completed };
   };
   stage = 'restore';
-  sql(destination, 'postgres', 'ALTER ROLE application_migrator LOGIN');
+  // Exercise the real host activation, including pre-provisioned extensions.
+  await withFixtureSession(destination, session => activatePostgresAllocation(topology, 'api', 'migration', 'a'.repeat(64), session));
+  assert.equal(sql(destination, 'application', "SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname='pgcrypto'"), 'application_owner');
   await assert.rejects(inspectDestination());
   assert.deepEqual(await inspectDestination(true), emptyDestination);
   await restorePostgresLogicalArchive(root, intentDigest, key, archive, target);
@@ -202,7 +205,10 @@ try {
   checks.push('cross-major-schema-content-owner-normalized-fingerprint');
   assert.equal(records(destination), before); assert.equal(records(source), before);
   assert.equal(sql(destination, 'application', "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='records'::regclass"), 'application_owner');
-  assert.equal(sql(destination, 'application', "SELECT has_table_privilege('application_runtime','records','SELECT')"), 'f');
+  // Real allocation activation installs bounded default grants before import;
+  // runtime authentication remains disabled until the lifecycle accepts it.
+  assert.equal(sql(destination, 'application', "SELECT has_table_privilege('application_runtime','records','SELECT')"), 't');
+  assert.equal(sql(destination, 'postgres', "SELECT rolcanlogin FROM pg_roles WHERE rolname='application_runtime'"), 'f');
   assert.equal(sql(destination, 'application', 'SELECT last_value FROM records_id_seq'), sql(source, 'application', 'SELECT last_value FROM records_id_seq'));
   assert.equal(sql(destination, 'application', 'SELECT count(*) FROM labels'), '2');
   assert.equal(sql(destination, 'application', "SELECT count(*) FROM pg_extension WHERE extname='pgcrypto'"), '1');

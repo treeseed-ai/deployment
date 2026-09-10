@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { startPostgresExport, startPostgresImport } from '../src/postgres/transfer-process.js';
+import { postgresProcessReason } from '../src/postgres/transfer-diagnostic.js';
 
 const fake = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: fake.spawn }));
@@ -42,6 +43,14 @@ it('discards process diagnostics and reports that failed imports still require c
   const child = fixture(), result = startPostgresImport({ ...selection, owner: 'owner' });
   child.stderr.write('password=private and secret rows'); child.emit('close', 1);
   await expect(result.completed).rejects.toThrow('explicit containment required');
+});
+it('classifies extension ownership without exposing database output', async () => {
+  const child = fixture(), result = startPostgresImport({ ...selection, owner: 'owner' });
+  child.stderr.write('pg_restore: error: must be owner of exten');
+  child.stderr.write('sion pgcrypto\nCommand was: secret SQL payload'); child.emit('close', 1);
+  const error: unknown = await result.completed.catch(error => error);
+  expect(postgresProcessReason(error)).toBe('extension-owner');
+  expect(String(error)).not.toContain('secret SQL');
 });
 it('bounds the attach process without claiming Docker disconnect killed its database session', async () => {
   vi.useFakeTimers(); const child = fixture(), result = startPostgresExport(selection);
