@@ -30,6 +30,7 @@ import { storageEnvironmentForRolloutGroup } from '../cloudflare/r2-replication-
 import { assertTreeDxResetSafe } from './reset-safety.js';
 import { planHostInitialization, renderHostInitializationConfiguration, validateHostInitializationInputs } from './initialization.js';
 import { executeProviderEnvironmentCommand } from './provider-environment.js';
+import { executePostgresTransferCommand } from './postgres-transfer.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -294,6 +295,8 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.freeze':
 		case 'local.dev.verify': throw new Error('Candidate freeze and verification execute unprivileged through trsd.');
 		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
+		case 'local.host.postgres.transfer.prepare':
+		case 'local.host.postgres.transfer.status': return executePostgresTransferCommand(request, context.local);
 		case 'local.host.ai.mode.show': return aiModeStatus();
 		case 'local.host.ai.storage.verify': {
 			if (request.options.plan === true) return { operation: 'ai.storage.verify', mutation: false, proposedEffects: ['Create/read/delete bounded R2 probe objects; no training or artifact migration.'] };

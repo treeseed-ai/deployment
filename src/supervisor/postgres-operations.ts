@@ -28,8 +28,8 @@ export function executePostgresOperation(operation: PostgresOperation) {
 function dispatchPostgresOperation(operation: PostgresOperation) {
   switch (operation.operation) {
     case 'postgres.transfer.prepare': {
-      const {operation:_operation,...selection}=operation;
-      return prepareLocalPostgresTransition(selection);
+      const {operation:_operation,planOnly,...selection}=operation;
+      return prepareLocalPostgresTransition(selection,planOnly);
     }
     case 'postgres.transfer.plan': {
       const {operation:_operation,...selection}=operation;

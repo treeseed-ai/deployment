@@ -2,17 +2,12 @@ import { closeSync, constants, existsSync, fsyncSync, fstatSync, mkdirSync, open
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { postgresTransferRecordSchema } from '@treeseed/sdk/deployment';
 import { LocalSecretCustody } from '../security/custody/local.js';
 import { withOsCustodyLock } from '../security/custody/os-lock.js';
 
 const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
-export const transferJournalSchema = z.object({
-  schemaVersion: z.literal('treeseed.postgres-transfer-journal/v1'),
-  intentDigest: digest, restoreGeneration: z.number().int().positive(), restoreDigest: digest,
-  stage: z.enum(['fencing', 'export', 'restore', 'verify', 'switch', 'activate', 'accepted', 'recovery-required', 'rolled-back']),
-  archiveDigest: digest.optional(),
-}).strict();
-export type TransferJournal = z.infer<typeof transferJournalSchema>;
+export type TransferJournal = z.infer<typeof postgresTransferRecordSchema>;
 
 function durableJson(path: string, value: unknown) {
   const temporary = `${path}.${randomUUID()}.new`;
@@ -42,7 +37,7 @@ export class PostgresTransferJournal {
     try {
       const stat = fstatSync(fd);
       if (!stat.isFile() || stat.uid !== process.getuid?.() || stat.nlink !== 1 || (stat.mode & 0o077) || stat.size > 4096) throw new Error();
-      return transferJournalSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
+      return postgresTransferRecordSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
     } catch { throw new Error('Invalid PostgreSQL transfer journal; recovery required'); }
     finally { closeSync(fd); }
   }
@@ -50,7 +45,7 @@ export class PostgresTransferJournal {
   active() { return this.read(this.marker); }
   accepted(intentDigest: string) { return this.read(this.path(intentDigest))?.stage === 'accepted'; }
   begin(input: Omit<TransferJournal, 'schemaVersion' | 'stage' | 'archiveDigest'>) {
-    const record = transferJournalSchema.parse({ ...input, schemaVersion: 'treeseed.postgres-transfer-journal/v1', stage: 'fencing' });
+    const record = postgresTransferRecordSchema.parse({ ...input, schemaVersion: 'treeseed.postgres-transfer-journal/v1', stage: 'fencing' });
     if (this.active() || this.read(this.path(record.intentDigest))) throw new Error('PostgreSQL transfer already recorded; explicit recovery required');
     // Marker is durable before any writer or database mutation.
     durableJson(this.marker, record);
@@ -63,7 +58,7 @@ export class PostgresTransferJournal {
     const phases = ['fencing', 'export', 'restore', 'verify', 'switch', 'activate', 'accepted'];
     if (stage !== 'recovery-required' && (current.stage === 'recovery-required' || phases.indexOf(stage) !== phases.indexOf(current.stage) + 1))
       throw new Error('Invalid PostgreSQL transfer phase');
-    const record = transferJournalSchema.parse({ ...current, stage, ...(archiveDigest ? { archiveDigest } : {}) });
+    const record = postgresTransferRecordSchema.parse({ ...current, stage, ...(archiveDigest ? { archiveDigest } : {}) });
     if (['restore','verify','switch','activate','accepted'].includes(stage) && !record.archiveDigest) throw new Error('Verified archive identity required');
     durableJson(this.marker, record);
     durableJson(this.path(intentDigest), record);
