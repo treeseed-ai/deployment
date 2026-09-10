@@ -3,6 +3,15 @@
   "version": "0.1.0-rc.298",
   "private": true,
   "treeseed": {
+    "hostRuntimeAssets": [
+      "node_modules/@treeseed/identity/themes/treeseed/login/theme.properties",
+      "node_modules/@treeseed/identity/themes/treeseed/login/template.ftl",
+      "node_modules/@treeseed/identity/themes/treeseed/login/messages/messages_en.properties",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/css/tokens.css",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/css/auth.css",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/css/treeseed.css",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/img/treeseed-logo.svg"
+    ],
     "hostRuntimeDependencies": [
       "@treeseed/sdk",
       "@treeseed/identity",
