@@ -75,7 +75,7 @@ const { createPlan } = await import('../src/manager/plan.js');
 function release(componentId: string, track: 'stable' | 'development', marker: string, version: string) {
 	const value = component(componentId, track, marker);
 	value.release = version; value.applicationVersion = version; value.runtime.version = version;
-	value.packages[0]!.version = version; value.runtimeDigest = hash(marker); value.images[0]!.digest = hash(marker);
+	value.packages[0]!.version = version; value.runtimeDigest = deploymentDigest(value.runtime); value.images[0]!.digest = hash(marker);
 	return value;
 }
 

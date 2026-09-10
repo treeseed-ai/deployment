@@ -8,6 +8,7 @@ import { paths } from '../core/paths.js';
 import { edgeRoutes, renderCaddyfile, subjectAlternativeNames, type EdgeRoute } from '../edge/caddy.js';
 import { edgeReadiness } from '../edge/readiness.js';
 import { createPlan } from './plan.js';
+import { verifiedComponentRelease } from '../catalog/component-integrity.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
@@ -357,6 +358,9 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			? activeById.get(component.componentId) ?? component : component;
 	}) : accepted.components;
 	const effective = [...effectiveCandidates, ...active.filter((component) => heldDevelopmentComponents.has(component.componentId) && !effectiveCandidates.some((candidate) => candidate.componentId === component.componentId))];
+	// Development-held releases are not necessarily the catalog candidates.
+	// Check their exact custody before any backup, writer stop or activation.
+	for (const component of effective) verifiedComponentRelease(component);
 	const routes = developmentSessions.activeRoutes(rollbackRoutes(host, effective));
 	const targets = previous && track ? effective.filter((component) => host.components[component.componentId]?.track === track) : effective;
 	const selectedIds = new Set(effective.map((component) => component.componentId));
