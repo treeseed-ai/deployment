@@ -5,6 +5,7 @@ import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 describe('workspace block qualification boundary', () => {
 	it('accepts only the fixed operator operation, never caller-selected host paths or guest commands', () => {
 		expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify' }).success).toBe(true);
+		expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', mode: 'hold' }).success).toBe(true);
 		for (const field of ['device', 'image', 'command', 'directory', 'credentials']) {
 			expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', [field]: '/untrusted' }).success).toBe(false);
 		}

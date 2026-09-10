@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { containerdImageReference } from './image-reference.js';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { recordEvent } from '../core/events.js';
+import { startWorkspaceNbdService } from './workspace-nbd-service.js';
 
 const exec = promisify(execFile);
 const root = '/var/lib/treeseed/sandboxes/workspace-qualification';
@@ -68,8 +69,17 @@ async function vacantDevice() {
 }
 
 async function disconnectOwnedDevice(device: string, directory: string) {
-	const expected = (await readFile(join(directory, 'nbd.pid'), 'utf8')).trim();
 	const pidPath = `/sys/block/${device.slice('/dev/'.length)}/pid`;
+	let expected: string;
+	try { expected = (await readFile(join(directory, 'nbd.pid'), 'utf8')).trim(); }
+	catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+		const state = (await run('/usr/bin/systemctl', ['show', `treeseed-${directory.split('/').at(-1)}.service`, '--property=ActiveState', '--value'])).trim();
+		if (!['inactive', 'failed'].includes(state)) throw new Error('NBD service may still attach; retaining its storage fence.');
+		try { await stat(pidPath); }
+		catch (missing) { if ((missing as NodeJS.ErrnoException).code === 'ENOENT') return; throw missing; }
+		throw new Error('Mapped NBD device has no recorded owner; refusing to detach it.');
+	}
 	let actual: string;
 	try { actual = (await readFile(pidPath, 'utf8')).trim(); }
 	catch (error) {
@@ -112,14 +122,14 @@ export async function recoverWorkspaceQualification(config: SandboxBrokerConfigu
 }
 
 /** Fixed local operator diagnostic: no caller-selected image, path, shell, source or credentials. */
-export async function qualifyWorkspaceStorage(config: SandboxBrokerConfiguration, mode: 'cold' | 'warm' = 'cold') {
+export async function qualifyWorkspaceStorage(config: SandboxBrokerConfiguration, mode: 'cold' | 'warm' | 'hold' = 'cold') {
 	if (qualificationRunning) throw new Error('Workspace qualification is already running.');
 	qualificationRunning = true;
 	try { return await runQualification(config, mode); }
 	finally { qualificationRunning = false; }
 }
 
-async function runQualification(config: SandboxBrokerConfiguration, mode: 'cold' | 'warm') {
+async function runQualification(config: SandboxBrokerConfiguration, mode: 'cold' | 'warm' | 'hold') {
 	await mkdir(root, { recursive: true, mode: 0o700 });
 	// Cross-process exclusion; a crash deliberately leaves this fence for recovery, not reuse.
 	const fence = join(root, 'active');
@@ -130,6 +140,7 @@ async function runQualification(config: SandboxBrokerConfiguration, mode: 'cold'
 	let attached = false;
 	let stopped = true;
 	let warmOwned = false;
+	let held = false;
 	const startedAt = Date.now();
 	const ctr = ['--address', config.containerdAddress, '--namespace', config.namespace];
 	try {
@@ -160,8 +171,12 @@ async function runQualification(config: SandboxBrokerConfiguration, mode: 'cold'
 			await run('/usr/bin/qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', base, overlay]);
 			// NBD exports raw sectors to Kata; neither filesystem is mounted by the host.
 			attached = true; // A failed connect may still have partially attached the device.
-			await run('/usr/bin/qemu-nbd', ['--format=qcow2', '--fork', `--pid-file=${join(directory, 'nbd.pid')}`,
-				...(readOnly ? ['--read-only'] : []), `--connect=${device}`, overlay]);
+			await startWorkspaceNbdService({ id, directory, device, image: readOnly ? 'analysis.qcow2' : 'work.qcow2', readOnly });
+			if (mode === 'hold') {
+				held = true;
+				return { schemaVersion: 'treeseed.workspace-storage-hold/v1', id, mode,
+					unit: `treeseed-${id}.service`, requiresRecovery: true };
+			}
 			let warmBootId: string | undefined;
 			if (mode === 'warm') { warmOwned = true; warmBootId = await prepareWarmProbe(config, image, id, input, output); }
 			const executionStartedAt = Date.now();
@@ -196,8 +211,10 @@ async function runQualification(config: SandboxBrokerConfiguration, mode: 'cold'
 			await removeProbeContainer(config, `${id}-ready`);
 			await removeProbeContainer(config, `${id}-warm`);
 		}
-		if (attached && device) await disconnectOwnedDevice(device, directory);
-		await rm(directory, { recursive: true, force: true });
-		await rm(fence, { recursive: true });
+		if (!held) {
+			if (attached && device) await disconnectOwnedDevice(device, directory);
+			await rm(directory, { recursive: true, force: true });
+			await rm(fence, { recursive: true });
+		}
 	}
 }
