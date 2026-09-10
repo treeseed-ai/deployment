@@ -5,9 +5,18 @@ import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 describe('workspace block qualification boundary', () => {
 	it('accepts only the fixed operator operation, never caller-selected host paths or guest commands', () => {
 		expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify' }).success).toBe(true);
+		expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', mode: 'hold' }).success).toBe(true);
 		for (const field of ['device', 'image', 'command', 'directory', 'credentials']) {
 			expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', [field]: '/untrusted' }).success).toBe(false);
 		}
+	});
+	it('joins only the selected warm sandbox while retaining a per-execution source mount', () => {
+		const args = qualificationArguments({ address: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes',
+			runtime: 'io.containerd.kata.v2', image: 'trusted@sha256:fixture', id: 'probe', device: '/dev/nbd0',
+			input: '/fixture/input', output: '/fixture/output', readOnly: true, warmSandboxId: 'probe-warm' });
+		expect(args).toContain('io.kubernetes.cri.container-type=container');
+		expect(args).toContain('io.kubernetes.cri.sandbox-id=probe-warm');
+		expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', mode: 'reused' }).success).toBe(false);
 	});
 	it.each([true, false])('uses a block mount and separate credential-free, unprivileged guest for readOnly=%s', readOnly => {
 		const args = qualificationArguments({ address: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes',

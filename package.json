@@ -25,6 +25,10 @@
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
+    "./security/source": {
+      "types": "./dist/src/security/services/source-credential-delivery.d.ts",
+      "import": "./dist/src/security/services/source-credential-delivery.js"
+    },
     "./identity/transport": {
       "types": "./dist/src/identity/transport.d.ts",
       "import": "./dist/src/identity/transport.js"
@@ -94,7 +98,7 @@
   },
   "dependencies": {
     "@treeseed/identity": "0.1.0-rc.23",
-    "@treeseed/sdk": "0.13.0-rc.110",
+    "@treeseed/sdk": "0.13.0-rc.112",
     "pg": "8.22.0",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
