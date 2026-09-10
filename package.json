@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.294",
+  "version": "0.1.0-rc.295",
   "private": true,
   "treeseed": {
     "hostRuntimeDependencies": ["@treeseed/sdk", "@treeseed/identity", "pg", "yaml", "zod"]

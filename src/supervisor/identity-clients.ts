@@ -20,6 +20,7 @@ export async function reconcileManagedIdentityClients() {
   const registry = createManagedIdentityApplications({ stateRoot, publicUrl: plan.origin, environment: plan.environment,
     transport: createIdentityTransport({ origin: plan.origin, ca: readFileSync(`${paths.tls}/ca.crt`, 'utf8'), hostname: '127.0.0.1', port: 443 }) });
   const results = [];
+  await registry.ensure(plan.nativeClient);
   for (const client of plan.clients) {
     const certificate = (id: string, reference: string) => {
       const privateKey = ensureComponentCredential(host, reference,
