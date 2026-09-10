@@ -1,5 +1,6 @@
 import { createHash, createPrivateKey, createPublicKey, X509Certificate } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { lstatSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OsSecretCustody } from '../security/custody/os.js';
 
@@ -8,7 +9,7 @@ import { OsSecretCustody } from '../security/custody/os.js';
  * component reference. Drift/expiry require deliberate rotation, not overwrite.
  */
 export function ensureApplicationCertificate(options: {
-  stateRoot: string; environment: 'staging' | 'production'; clientId: string; privateKey: string;
+  stateRoot: string; runtimeRoot?: string; environment: 'staging' | 'production'; clientId: string; privateKey: string;
 }) {
   const key = createPrivateKey(options.privateKey);
   if (key.asymmetricKeyType !== 'rsa' || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048)
@@ -21,9 +22,22 @@ export function ensureApplicationCertificate(options: {
   return store.run(custody => {
     let saved = custody.read(scope);
     if (!saved) {
-      const certificate = execFileSync('/usr/bin/openssl', ['req', '-new', '-x509', '-key', '/dev/stdin',
-        '-days', '365', '-subj', '/CN=treeseed-application'], { input: options.privateKey,
-        stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8', timeout: 10_000, maxBuffer: 16_384 });
+      const runtime = options.runtimeRoot ?? '/run/treeseed/identity';
+      const stat = lstatSync(runtime);
+      if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o022))
+        throw new Error('Unsafe Identity certificate runtime directory');
+      const temporary = mkdtempSync(join(runtime, 'application-certificate-'));
+      let certificate: string;
+      try {
+        // OpenSSL cannot reopen Node's socket-backed /dev/stdin as a key file.
+        // Materialize only in private runtime storage and remove on every exit.
+        const path = join(temporary, 'key.pem');
+        writeFileSync(path, options.privateKey, { mode: 0o400, flag: 'wx' });
+        certificate = execFileSync('/usr/bin/openssl', ['req', '-new', '-x509', '-key', path,
+          '-days', '365', '-subj', '/CN=treeseed-application'], {
+          stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: 10_000, maxBuffer: 16_384 });
+      } catch { throw new Error('Identity application certificate creation failed'); }
+      finally { rmSync(temporary, { recursive: true }); }
       custody.write(scope, { clientId: options.clientId, fingerprint, certificate }, 0);
       saved = custody.read(scope);
     }
