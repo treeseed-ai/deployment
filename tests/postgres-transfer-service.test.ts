@@ -1,11 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { component } from './fixtures.js';
+import { deploymentDigest } from '@treeseed/sdk/deployment';
 import { retainedPostgresService } from '../src/supervisor/postgres-transfer-service.js';
 const docker = vi.hoisted(() => vi.fn());
 vi.mock('../src/supervisor/postgres-process.js', () => ({ postgresDocker: docker }));
 beforeEach(() => vi.resetAllMocks());
 function fixture() {
   const source = component('api', 'stable', 'a'); source.images[0]!.repository = 'postgres';
+  source.runtimeDigest = deploymentDigest(source.runtime);
   const image = `sha256:${'a'.repeat(64)}`;
   docker.mockImplementation(async (args: string[]) => args[0] === 'image' ? image : args[0] === 'ps' ? 'b'.repeat(64) : `${image}\tfalse\tservice\n`);
   return { source, image };

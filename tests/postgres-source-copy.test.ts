@@ -68,3 +68,12 @@ it('cleans the exact allocated name after an uncertain Docker start', async () =
   const started = f.docker.mock.calls.find(([args]) => args[0] === 'run')![0];
   expect(f.docker.mock.calls.at(-1)![0]).toEqual(['rm', '--force', started[started.indexOf('--name') + 1]]);
 });
+it('retains safe transfer diagnostics without driver messages or secret values', async () => {
+  const f = fixture();
+  const error = await withPostgresSourceCopy(f.staged, 'database', f.docker, async () => {
+    throw new Error('synthetic-secret: failed SQL credential');
+  }).catch(error => error as Error & { diagnostic: { stage: string } });
+  expect(error.diagnostic.stage).toBe('transfer-operation');
+  expect(JSON.stringify(error)).not.toMatch(/synthetic-secret|failed SQL credential/u);
+  expect(error.message).not.toContain('synthetic-secret');
+});

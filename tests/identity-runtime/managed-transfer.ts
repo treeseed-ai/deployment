@@ -11,6 +11,7 @@ import { withLocalPostgresBootstrap } from '../../dist/src/postgres/connection.j
 import { componentStateRoot } from '../../dist/src/supervisor/component.js';
 import { ensureComponentCredential } from '../../dist/src/supervisor/component-sealed-write.js';
 import { postgresDocker } from '../../dist/src/supervisor/postgres-process.js';
+import { executeBackupOperation } from '../../dist/src/supervisor/backup-operations.js';
 
 /** Full root coordinator, real OS recovery custody and unchanged source data.
  * Invoked only inside the isolated bootstrap Actions matrix. */
@@ -87,12 +88,32 @@ export async function verifyManagedTransfer(host: HostConfiguration, application
     assert.equal((await postgresDocker(['inspect', '--format', '{{.State.Running}}', source], 10, true)).trim(), 'false');
     assert.equal(createHash('sha256').update(readFileSync(join(data, 'global/pg_control'))).digest('hex'), originalControl);
     assert.equal(existsSync('/var/lib/treeseed/postgres-transfer-hold.json'), false);
+    stage = 'coordinated-rollback';
+    await postgresDocker(['compose', '--file', `/usr/share/treeseed/components/${id}/${application.release}/compose.yml`,
+      '--project-name', application.runtime.compose.projectName, 'stop'], 60);
+    await postgresDocker(['stop', '--time', '30', shared], 40);
+    await executeBackupOperation({ operation: 'recovery.restore', generation });
+    assert.equal(existsSync(`${componentStateRoot(host, 'postgres')}/lifecycle/transfers/binding-${id}.json`), false);
+    assert.equal(createHash('sha256').update(readFileSync(join(data, 'global/pg_control'))).digest('hex'), originalControl);
+    await postgresDocker(['start', shared], 30);
+    for (let i = 0; ; i++) {
+      if ((await postgresDocker(['inspect', '--format', '{{.State.Health.Status}}', shared], 5, true)).trim() === 'healthy') break;
+      if (i >= 60) throw new Error('Restored shared startup'); await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    const restored = await withLocalPostgresBootstrap('/run/treeseed/postgres/socket', next.postgres!.allocations[0]!.database,
+      session => session.query("SELECT to_regclass('public.lifecycle_acceptance') IS NULL AS empty"));
+    assert.equal(restored.rows[0]?.empty, true);
+    stage = 'transfer-after-rollback';
+    writeFileSync('/etc/treeseed/platform.json', JSON.stringify(next), { mode: 0o600 });
+    assert.equal((await activateOrTransferPostgresComponent(id, selections, generation)).action, 'transferred');
+    assert.equal((await activateOrTransferPostgresComponent(id, selections)).action, 'noop');
     // The manager normally records the newly accepted component inventory.
     writeFileSync('/var/lib/treeseed/manager/active-components.json', JSON.stringify([database, application]), { mode: 0o600 });
   } catch (error) {
     // Fixed failure stages only; never expose driver errors or credential data.
     const phase = error instanceof Error ? /PostgreSQL transfer failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
     console.error(JSON.stringify({ fixture: 'managed-transfer', stage, phase,
+      diagnostic: error instanceof Error && 'diagnostic' in error ? error.diagnostic : undefined,
       frames: error instanceof Error ? error.stack?.split('\n').slice(1).filter(line => /^\s+at /u.test(line)).slice(0, 8) : [],
     }));
     throw new Error('Disposable managed transfer acceptance failed');
