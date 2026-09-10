@@ -8,8 +8,14 @@ on:
 permissions: { contents: read }
 jobs:
   logical-transfer:
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [bookworm, alpine]
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    env:
+      TREESEED_POSTGRES_SOURCE: ${{ matrix.source }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -23,7 +29,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: postgres-transfer-${{ github.sha }}
+          name: postgres-transfer-${{ matrix.source }}-${{ github.sha }}
           path: postgres-transfer-acceptance.json
           retention-days: 14
           if-no-files-found: error

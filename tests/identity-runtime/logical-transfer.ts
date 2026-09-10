@@ -11,6 +11,7 @@ import { deploymentDigest } from '@treeseed/sdk/deployment';
 import { component } from '../fixtures.js';
 import { fingerprintPostgresTransfer } from '../../dist/src/postgres/transfer-fingerprint.js';
 import type { PostgresInspectionSession } from '../../dist/src/postgres/inventory.js';
+import { postgresTransferLocaleSchema, verifyPostgresTransferFingerprints } from '../../dist/src/postgres/transfer-locale.js';
 
 // Disposable Actions only. No host ports, network, credentials or durable volumes.
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('Disposable Actions acceptance required');
@@ -20,6 +21,9 @@ const owned = new Set([source, destination]);
 const root = mkdtempSync(join(tmpdir(), 'treeseed-pg-transfer-'));
 const key = randomBytes(32), intentDigest = `sha256:${createHash('sha256').update(prefix).digest('hex')}`;
 const pg16 = 'postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825';
+const alpine = 'postgres:17.11-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73';
+const convert = process.env.TREESEED_POSTGRES_SOURCE === 'alpine';
+const sourceImage = convert ? alpine : pg16, sourceMajor = convert ? 17 : 16;
 let stage = 'start';
 const docker = (args: string[]) => execFileSync('/usr/bin/docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 180000, maxBuffer: 1_048_576 });
 const sql = (name: string, database: string, query: string, user = 'postgres') => {
@@ -56,7 +60,7 @@ async function fingerprint(name: string, owner: string, major: 16 | 17) {
   } finally { await client.end(); }
 }
 try {
-  for (const [name, image] of [[source, pg16], [destination, POSTGRES_IMAGE]] as const) {
+  for (const [name, image] of [[source, sourceImage], [destination, POSTGRES_IMAGE]] as const) {
     const socket = join(root, name === source ? 'source' : 'destination');
     mkdirSync(socket); chmodSync(socket, 0o777);
     // The mode-0700 parent excludes other host users; only this owned container
@@ -64,7 +68,7 @@ try {
     docker(['run', '-d', '--name', name, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data',
       '--label', `com.docker.compose.project=${prefix}`, '--label', `com.docker.compose.service=${name === source ? 'source' : 'destination'}`,
       '--mount', `type=bind,source=${socket},target=/fixture-socket`,
-      '-e', 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C',
+      '-e', 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=en_US.utf8',
       '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', image, '-c', 'listen_addresses=',
       '-c', 'unix_socket_directories=/var/run/postgresql,/fixture-socket']);
     let ready = false;
@@ -75,7 +79,7 @@ try {
     assert.ok(ready);
   }
   stage = 'fixture';
-  assert.equal(sql(source, 'postgres', "SELECT current_setting('server_version_num')::int/10000"), '16');
+  assert.equal(sql(source, 'postgres', "SELECT current_setting('server_version_num')::int/10000"), String(sourceMajor));
   assert.equal(sql(destination, 'postgres', "SELECT current_setting('server_version_num')::int/10000"), '17');
   sql(source, 'postgres', 'CREATE DATABASE application');
   sql(source, 'application', `CREATE EXTENSION pgcrypto;
@@ -88,6 +92,17 @@ try {
     CREATE ROLE application_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
     GRANT application_owner TO application_migrator;`);
   sql(destination, 'postgres', 'CREATE DATABASE application OWNER application_owner');
+  const locale = (name: string) => postgresTransferLocaleSchema.parse(JSON.parse(sql(name, 'application', `SELECT jsonb_build_object(
+    'encoding',pg_encoding_to_char(d.encoding),'collate',d.datcollate,'ctype',d.datctype,'provider',d.datlocprovider,
+    'version',d.datcollversion,'locale',COALESCE(to_jsonb(d)->>'datlocale',to_jsonb(d)->>'daticulocale'))
+    FROM pg_database d WHERE datname=current_database()`)));
+  const sourceLocale = locale(source), destinationLocale = locale(destination);
+  assert.equal(destinationLocale.version, '2.36');
+  if (convert) assert.equal(sourceLocale.version, null); else assert.deepEqual(sourceLocale, destinationLocale);
+  const conversion = convert ? { method: 'logical-rebuild', source: sourceLocale, destination: destinationLocale } : undefined;
+  const order = (name: string) => sql(name, 'application', "SELECT string_agg(value,',' ORDER BY value) FROM (VALUES ('Z'),('a'),('ä'),('b')) AS samples(value)");
+  if (convert) assert.notEqual(order(source), order(destination)); else assert.equal(order(source), order(destination));
+  checks.push(convert ? 'explicit-musl-to-glibc-order-change' : 'api-glibc-locale-and-order-preserved');
   sql(destination, 'postgres', 'REVOKE ALL ON DATABASE application FROM PUBLIC; GRANT CONNECT ON DATABASE application TO application_migrator,application_runtime;');
   const records = (name: string) => sql(name, 'application', 'SELECT row_to_json(r) FROM records r ORDER BY id');
   const before = records(source);
@@ -96,15 +111,15 @@ try {
   release.runtime.compose.projectName = prefix;
   release.runtime.services[0]!.composeService = 'source';
   release.runtimeDigest = deploymentDigest(release.runtime);
-  release.images = [{ role: 'postgres', repository: 'postgres', digest: pg16.split('@')[1]!, platforms: ['linux/amd64'], consumers: ['api'] }];
-  const configuredSource = { services: { source: { image: pg16, environment: { POSTGRES_DB: 'application', POSTGRES_USER: 'postgres' } } } };
+  release.images = [{ role: 'postgres', repository: 'postgres', digest: sourceImage.split('@')[1]!, platforms: ['linux/amd64'], consumers: ['api'] }];
+  const configuredSource = { services: { source: { image: sourceImage, environment: { POSTGRES_DB: 'application', POSTGRES_USER: 'postgres' } } } };
   const observed = await inspectPostgresSource(release, 'source', configuredSource, async args => docker(args));
-  assert.equal(observed.major, 16); assert.equal(observed.database, 'application');
+  assert.equal(observed.major, sourceMajor); assert.equal(observed.database, 'application');
   assert.match(observed.clusterIdentity, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(records(source), before);
   checks.push('installed-image-source-attestation-read-only');
   stage = 'source-fingerprint';
-  const sourceFingerprint = await fingerprint(source, 'postgres', 16);
+  const sourceFingerprint = await fingerprint(source, 'postgres', sourceMajor);
   stage = 'export';
   const dump = processStream(source, ['pg_dump', '-U', 'postgres', '-d', 'application', '--format=custom', '--no-tablespaces']);
   dump.child.stdin.end();
@@ -118,7 +133,9 @@ try {
   stage = 'restore';
   await restorePostgresLogicalArchive(root, intentDigest, key, archive, target);
   stage = 'destination-fingerprint';
-  assert.deepEqual(await fingerprint(destination, 'application_owner', 17), sourceFingerprint);
+  const destinationFingerprint = await fingerprint(destination, 'application_owner', 17);
+  assert.equal(verifyPostgresTransferFingerprints(sourceFingerprint, destinationFingerprint, conversion), true);
+  assert.equal(verifyPostgresTransferFingerprints(sourceFingerprint, destinationFingerprint), !convert);
   checks.push('cross-major-schema-content-owner-normalized-fingerprint');
   assert.equal(records(destination), before); assert.equal(records(source), before);
   assert.equal(sql(destination, 'application', "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='records'::regclass"), 'application_owner');
@@ -127,7 +144,21 @@ try {
   assert.equal(sql(destination, 'application', 'SELECT count(*) FROM labels'), '2');
   assert.equal(sql(destination, 'application', "SELECT count(*) FROM pg_extension WHERE extname='pgcrypto'"), '1');
   assert.equal(sql(destination, 'application', "SELECT count(*) FROM pg_constraint WHERE conrelid='links'::regclass AND contype='f'"), '1');
-  checks.push('pg16-to-pg17-records-sequences-view-extension-constraints', 'source-retained', 'restricted-restore-owner', 'source-public-grant-not-inherited');
+  checks.push('records-sequences-view-extension-constraints-preserved', 'source-retained', 'restricted-restore-owner', 'source-public-grant-not-inherited');
+  assert.throws(() => sql(destination, 'application', "INSERT INTO records(label,payload) VALUES('alpha','{}')"));
+  assert.equal(records(destination), before);
+  // A rejected insert can advance the identity sequence; restore its captured
+  // value before subsequent fingerprint drift assertions.
+  sql(destination, 'application', "SELECT setval('records_id_seq',2)");
+  sql(destination, 'application', 'ALTER TABLE records ADD CONSTRAINT unchecked CHECK(id>0) NOT VALID');
+  await assert.rejects(fingerprint(destination, 'application_owner', 17));
+  sql(destination, 'application', 'ALTER TABLE records DROP CONSTRAINT unchecked');
+  sql(destination, 'application', "CREATE TABLE duplicate_probe(value text); ALTER TABLE duplicate_probe OWNER TO application_owner; INSERT INTO duplicate_probe VALUES('same'),('same')");
+  assert.throws(() => sql(destination, 'application', 'CREATE UNIQUE INDEX CONCURRENTLY duplicate_probe_unique ON duplicate_probe(value)'));
+  assert.equal(sql(destination, 'application', "SELECT indisvalid FROM pg_index WHERE indexrelid='duplicate_probe_unique'::regclass"), 'f');
+  await assert.rejects(fingerprint(destination, 'application_owner', 17));
+  sql(destination, 'application', 'DROP TABLE duplicate_probe');
+  checks.push('rebuilt-unique-index-enforced', 'unvalidated-constraint-denied', 'uniqueness-conflict-invalid-index-denied');
   stage = 'occupied-destination';
   await assert.rejects(restorePostgresLogicalArchive(root, intentDigest, key, archive, target));
   assert.equal(records(destination), before);
@@ -152,7 +183,7 @@ try {
   sql(destination, 'application', 'ALTER TABLE records OWNER TO postgres');
   await assert.rejects(fingerprint(destination, 'application_owner', 17));
   checks.push('row-sequence-constraint-owner-drift-denied');
-  console.log(JSON.stringify({ ok: true, checks }));
+  console.log(JSON.stringify({ ok: true, sourceMajor, conversion: convert, checks }));
 } catch { console.error(JSON.stringify({ ok: false, stage })); process.exitCode = 1; }
 finally {
   key.fill(0);

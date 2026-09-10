@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { deploymentDigest } from '@treeseed/sdk/deployment';
+import { postgresLocaleConversionSchema } from './transfer-locale.js';
 
 const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const identifier = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/u);
@@ -13,6 +14,7 @@ const intentSchema = z.object({
   source: endpoint, destination: endpoint,
   sourceInventoryDigest: digest, destinationAllocationDigest: digest,
   restorePointDigest: digest,
+  localeConversion: postgresLocaleConversionSchema.optional(),
 }).strict().superRefine((value, context) => {
   if (value.source.clusterIdentity === value.destination.clusterIdentity && value.source.database === value.destination.database)
     context.addIssue({ code: 'custom', message: 'Distinct PostgreSQL databases required' });

@@ -1,5 +1,5 @@
 /** One server per selected installation/environment; applications own databases. */
-export const POSTGRES_IMAGE = 'postgres:17.11-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73';
+export const POSTGRES_IMAGE = 'postgres:17.11-bookworm@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0';
 export { prepareManagedPostgresBootstrap } from './bootstrap.js';
 
 export function managedPostgresService(options: { configurationRoot: string; stateRoot: string }) {
