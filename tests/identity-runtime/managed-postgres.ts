@@ -40,6 +40,7 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
   application.images = database.images.map(image => ({ ...image, consumers: ['acceptance'] }));
   const files = `/usr/share/treeseed/components/acceptance/${application.release}/compose.yml`;
   let installed = false;
+  let previousUmask: number | undefined;
   // GitHub's disposable image makes /usr/share world-writable. A supported
   // installed host must not; retain the production ancestor guard unchanged.
   const shareMode = lstatSync('/usr/share').mode & 0o777;
@@ -57,8 +58,10 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
     writeFileSync(files, compose, { mode: 0o644 });
     writeFileSync('/etc/treeseed/platform.json', JSON.stringify(configuration), { mode: 0o600 });
     const selections = [database, application].map(({ componentId, release }) => ({ componentId, release }));
+    previousUmask = process.umask(0o077);
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'activated');
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'noop');
+    assert.equal(lstatSync('/run/treeseed/postgres-clients/acceptance/acceptance/runtime').mode & 0o777, 0o755);
     assert.equal(existsSync('/run/treeseed/postgres-clients/acceptance/acceptance/migration/password'), false);
     const interrupted = `/run/treeseed/postgres-clients/acceptance/acceptance/runtime/password.tmp-${randomUUID()}`;
     writeFileSync(interrupted, 'synthetic interrupted materialization', { mode: 0o400, flag: 'wx' });
@@ -66,6 +69,7 @@ export async function verifyManagedPostgres(root: string, input: unknown) {
     assert.equal((await activateLocalPostgresComponent('acceptance', selections)).action, 'restarted');
     assert.equal(existsSync(interrupted), false);
   } finally {
+    if (previousUmask !== undefined) process.umask(previousUmask);
     chmodSync('/usr/share', shareMode);
     if (installed && existsSync(files)) await postgresDocker(['compose', '--file', files, '--project-name', application.runtime.compose.projectName, 'down', '--volumes'], 60);
     for (const path of paths) rmSync(path, { recursive: path !== '/etc/treeseed/platform.json', force: true });

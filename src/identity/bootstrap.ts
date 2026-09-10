@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, chownSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, chownSync, chmodSync } from 'node:fs';
 import { randomUUID, X509Certificate } from 'node:crypto';
 import { join } from 'node:path';
 import { OsSecretCustody, type CredentialCommand } from '../security/custody/os.js';
@@ -49,6 +49,7 @@ export function prepareIdentityBootstrap(options: {
     mkdirSync(path, { recursive: true, mode: 0o755 });
     const stat = lstatSync(path);
     if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o022)) throw new Error('Unsafe Identity runtime directory');
+    chmodSync(path, 0o755); // Explicit container traversal, independent of supervisor umask; files remain UID1000/0400.
   }
   const materialize = (path: string, content: string) => {
     const temporary = `${path}.tmp-${randomUUID()}`;

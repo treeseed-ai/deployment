@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { OsSecretCustody, type CredentialCommand } from '../security/custody/os.js';
 import { LocalSecretCustody } from '../security/custody/local.js';
@@ -51,9 +51,13 @@ export function prepareManagedPostgresBootstrap(options: {
   mkdirSync(tls, { mode: 0o755, recursive: true });
   const stat = lstatSync(tls);
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o022)) throw new Error('Unsafe PostgreSQL TLS directory');
+  // The supervisor's restrictive umask must not hide public trust/policy from
+  // the non-root database process. Keep bootstrap/password/private key private.
+  chmodSync(tls, 0o755);
   const materialize = (path: string, value: string, mode: number) => {
     const temporary = `${path}.${randomUUID()}`;
     writeFileSync(temporary, value, { mode, flag: 'wx' });
+    chmodSync(temporary, mode);
     renameSync(temporary, path);
   };
   materialize(hba, POSTGRES_HBA, 0o444);

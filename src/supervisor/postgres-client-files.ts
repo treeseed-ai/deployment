@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { componentReleaseSchema, hostConfigurationSchema, type ComponentRelease, type HostConfiguration } from '@treeseed/sdk/deployment';
 import { postgresClientMaterial } from '../postgres/client-files.js';
@@ -21,6 +21,7 @@ function directory(componentId: string, requirementId: string, phase: 'migration
     const stat = lstatSync(current);
     if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== 0 || (stat.mode & 0o022)
       || (current === root && (stat.mode & 0o077))) throw new Error('Unsafe PostgreSQL client custody');
+    if (create && current === target) chmodSync(current, 0o755); // Only this phase is mounted; host parents stay private.
   }
   const entries = readdirSync(target);
   const interrupted = entries.filter(name => !names.includes(name));
