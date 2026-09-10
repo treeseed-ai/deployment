@@ -36,7 +36,7 @@ export async function activateOrTransferPostgresComponent(componentId: string,
     if (selected.length !== 1) throw new Error('Exact component selection required');
     const component = installedComponentRelease(componentId, selected[0]!.release), previous = previousPostgresComponent(componentId);
     const privateSource = previous && !previous.runtime.postgresLifecycle?.length &&
-      previous.images.some(image => image.repository === 'postgres' || image.repository.endsWith('/postgres'));
+      previous.images.some(image => image.role === 'postgres');
     if (!privateSource) return activateLocalPostgresComponent(componentId, selections, backupGeneration);
     if (!host.postgres || component.runtime.postgresLifecycle?.length !== 1)
       throw new Error('Coordinated PostgreSQL transition required; source retained');

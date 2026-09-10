@@ -12,7 +12,7 @@ vi.mock('../src/supervisor/backup-writers.js',()=>({assertNoBackupWriters:f.writ
 beforeEach(()=>{vi.clearAllMocks();f.binding.mockReturnValue(null);f.accepted.mockReturnValue(false);f.writers.mockImplementation(()=>undefined);});
 function fixture() {
   const configuration=host(), previous=component('api','stable','a'), next=component('api','stable','b');
-  previous.images[0]!.repository='postgres';
+  previous.images[0]!.repository='treeseed/api-postgres'; previous.images[0]!.role='postgres';
   previous.runtimeDigest=deploymentDigest(previous.runtime);
   next.runtime.services.push({id:'migration',composeService:'migration',endpoints:[]});
   next.runtime.stateVolumes=[{id:'postgres',volume:'/var/lib/treeseed/components/api/postgres',backup:'required'}];

@@ -19,7 +19,7 @@ export async function verifyManagedTransfer(host: HostConfiguration, application
   if (process.env.GITHUB_ACTIONS !== 'true' || process.getuid?.() !== 0 || !['bookworm', 'alpine'].includes(sourceKind)) throw new Error('Disposable transfer acceptance required');
   const sourceImage = sourceKind === 'alpine'
     ? 'postgres:17.11-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
-    : 'postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825';
+    : 'treeseed/api-postgres@sha256:95f73123b0835c69170dc70d54e5d6ce5be4d4df3684da007d636bc09be042b7';
   const id = application.componentId, source = `treeseed-transfer-source-${randomBytes(8).toString('hex')}`;
   const data = join(componentStateRoot(host, id), 'postgres'), generation = Date.now();
   const backupKey = 'application-backup-kek-v1', keyPath = `/etc/treeseed/credentials/${backupKey}.cred`;
@@ -50,7 +50,7 @@ export async function verifyManagedTransfer(host: HostConfiguration, application
     prior.runtime.services = [{ id: 'database', composeService: 'database', endpoints: [] }];
     prior.runtime.stateVolumes = [{ id: 'postgres', volume: `/var/lib/treeseed/components/${id}/postgres`, backup: 'required' }];
     prior.runtimeDigest = deploymentDigest(prior.runtime);
-    prior.images = [{ role: 'postgres', repository: 'postgres', digest: sourceImage.split('@')[1]!, platforms: ['linux/amd64'], consumers: [id] }];
+    prior.images = [{ role: 'postgres', repository: sourceImage.split('@')[0]!.replace(/:[^/:]+$/u, ''), digest: sourceImage.split('@')[1]!, platforms: ['linux/amd64'], consumers: [id] }];
     application.runtime.stateVolumes = prior.runtime.stateVolumes;
     application.runtimeDigest = deploymentDigest(application.runtime);
     writeFileSync(`/usr/share/treeseed/components/${id}/${application.release}/component-release.json`, JSON.stringify(application), { mode: 0o644 });

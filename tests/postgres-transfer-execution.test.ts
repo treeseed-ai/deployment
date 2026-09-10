@@ -29,7 +29,7 @@ vi.mock('../src/manager/ai-mode.js', () => ({ aiModeActivationServices: () => un
 beforeEach(() => { vi.resetAllMocks(); f.events = []; });
 function fixture() {
   const configuration = host(), prior = component('api', 'stable', 'a'), next = component('api', 'development', 'b');
-  prior.images[0]!.repository = 'postgres';
+  prior.images[0]!.repository = 'treeseed/api-postgres'; prior.images[0]!.role = 'postgres';
   next.runtime.postgresLifecycle = [{ requirementId: 'api', credentialOwner: { uid: 1000, gid: 1000 },
     migration: { composeService: 'migration', completion: 'exit-zero', timeoutSeconds: 120 }, runtimeServices: ['service'] }];
   configuration.postgres = { schemaVersion: 'treeseed.postgres-topology/v1', installationId: 'test', environment: 'staging',
