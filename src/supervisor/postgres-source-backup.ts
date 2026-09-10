@@ -30,10 +30,25 @@ const fields = z.object({ image: z.string().min(1).max(512),
  */
 export async function inspectRecoveryPostgresSource(generation: number, expectedBackupDigest: string,
   componentId: string, serviceId: string) {
+  return inspectBackupPostgresSource(generation,expectedBackupDigest,componentId,serviceId);
+}
+
+/** Internal transaction-scoped reader, used only while holding the transfer OS
+ * lock that also excludes archive retention/recovery. Authenticate the immutable
+ * backup once, but reattest the actual source on every call. Never cache across
+ * supervisor requests or bypass authentication for public diagnostics.
+ */
+export async function createRecoveryPostgresSourceReader(generation:number,expectedBackupDigest:string,componentId:string,serviceId:string) {
+  const backup=await inspectGenerationBackup(generation);
+  return ()=>inspectBackupPostgresSource(generation,expectedBackupDigest,componentId,serviceId,backup);
+}
+
+async function inspectBackupPostgresSource(generation:number,expectedBackupDigest:string,componentId:string,serviceId:string,
+  authenticated?:Awaited<ReturnType<typeof inspectGenerationBackup>>) {
   try {
     if (process.getuid?.() !== 0 || !/^sha256:[a-f0-9]{64}$/u.test(expectedBackupDigest) ||
       !/^[a-z][a-z0-9.-]{0,127}$/u.test(serviceId)) throw new Error();
-    const backup = await inspectGenerationBackup(generation);
+    const backup = authenticated ?? await inspectGenerationBackup(generation);
     if (`sha256:${backup.sha256}` !== expectedBackupDigest) throw new Error();
     const previous = hostConfigurationSchema.parse(backup.configuration), current = loadHostConfiguration();
     if (previous.configurationId !== current.configurationId || previous.host.id !== current.host.id ||

@@ -13,6 +13,7 @@ function fixture() {
   previous.images[0]!.repository='postgres';
   previous.runtimeDigest=deploymentDigest(previous.runtime);
   next.runtime.services.push({id:'migration',composeService:'migration',endpoints:[]});
+  next.runtime.stateVolumes=[{id:'postgres',volume:'/var/lib/treeseed/components/api/postgres',backup:'required'}];
   next.runtime.postgresRequirements=[{id:'api',supportedMajors:[17],extensions:[],runtimeConnectionLimit:10}];
   next.runtime.postgresLifecycle=[{requirementId:'api',credentialOwner:{uid:1000,gid:1000},
     migration:{composeService:'migration',completion:'exit-zero',timeoutSeconds:120},runtimeServices:['service']}];
@@ -38,6 +39,11 @@ it('allows a genuinely fresh installation and an already migrated consumer',()=>
 });
 it('does not mistake missing active metadata with retained database files for a fresh installation',()=>{
   const fxt=fixture(); f.exists.mockImplementation(path=>String(path).endsWith('PG_VERSION')); expect(fxt.run).toThrow('verified managed transfer');
+});
+it('uses the declared nested AI data volume instead of assuming the API directory layout',()=>{
+  const fxt=fixture();fxt.next.runtime.stateVolumes[0]!.volume='/var/lib/treeseed/components/api/data/postgres';
+  f.exists.mockImplementation(path=>String(path).endsWith('/data/postgres/PG_VERSION'));
+  expect(fxt.run).toThrow('verified managed transfer');
 });
 it('fails closed on corrupt or duplicate active component records',()=>{
   const fxt=fixture(); f.read.mockReturnValue('invalid'); expect(fxt.run).toThrow();

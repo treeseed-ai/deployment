@@ -8,7 +8,7 @@ const endpoint = z.object({
   // Catalog-attested cluster identity, not a caller-selected network address.
   clusterIdentity: digest, database: identifier, major: z.number().int().min(16).max(17),
 }).strict();
-const intentSchema = z.object({
+export const postgresTransferIntentSchema = z.object({
   installationId: z.string().min(1).max(128), environment: z.enum(['staging', 'production']),
   requirementId: z.string().min(1).max(128), topologyDigest: digest, runtimeDigest: digest,
   source: endpoint, destination: endpoint,
@@ -22,7 +22,7 @@ const intentSchema = z.object({
     context.addIssue({ code: 'custom', message: 'PostgreSQL major downgrade is not supported' });
 });
 
-export type PostgresTransferIntent = z.infer<typeof intentSchema>;
+export type PostgresTransferIntent = z.infer<typeof postgresTransferIntentSchema>;
 export interface PostgresTransferArchive { digest: string; encrypted: true; intentDigest: string }
 class TransferFailure extends Error {}
 
@@ -56,7 +56,7 @@ export interface PostgresTransferPorts {
 }
 
 export async function transferPostgresDatabase(input: unknown, expectedDigest: string, ports: PostgresTransferPorts) {
-  const intent = intentSchema.parse(input);
+  const intent = postgresTransferIntentSchema.parse(input);
   const intentDigest = deploymentDigest(intent);
   if (expectedDigest !== intentDigest) throw new Error('Exact PostgreSQL transfer intent required');
   return ports.withLock(intent, async () => {

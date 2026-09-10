@@ -6,19 +6,15 @@ import { componentStateRoot } from './component.js';
 import { inspectManagedPostgresDestination } from './postgres-destination.js';
 import { inspectRecoveryPostgresSource } from './postgres-source-backup.js';
 import { postgresDocker } from './postgres-process.js';
-
-export interface ManagedPostgresTransferSelection {
-  componentId:string; serviceId:string; requirementId:string;
-  generation:number; backupDigest:string; allowLocaleConversion:boolean;
-  selections:Array<{componentId:string;release:string}>;
-}
+import { managedPostgresTransferSelectionSchema,managedPostgresTransferPlanSchema,type ManagedPostgresTransferSelection } from '../postgres/managed-transfer-contract.js';
 
 /** Read-only exact plan. Source custody comes from the authenticated coordinated
  * backup; target custody comes from the installed immutable component inventory.
  * No addresses, SQL, credential material, paths or invented database names are
  * accepted. Actual execution must revalidate and fence before export.
  */
-export async function planManagedPostgresTransfer(selection:ManagedPostgresTransferSelection) {
+export async function planManagedPostgresTransfer(input:ManagedPostgresTransferSelection) {
+  const selection=managedPostgresTransferSelectionSchema.parse(input);
   const source=await inspectRecoveryPostgresSource(selection.generation,selection.backupDigest,selection.componentId,selection.serviceId);
   const target=await inspectManagedPostgresDestination(selection.selections,selection.requirementId);
   if(target.component.componentId!==selection.componentId || !target.destination.empty ||
@@ -46,5 +42,5 @@ export async function planManagedPostgresTransfer(selection:ManagedPostgresTrans
     intent,intentDigest:deploymentDigest(intent),sourceNetworks:networks,
     targetContainerDigest:target.containerDigest,configurationDigest:deploymentDigest(target.host),
     componentDigest:deploymentDigest(target.component),selectionDigest:deploymentDigest(selection)};
-  return {...plan,planDigest:deploymentDigest(plan)};
+  return managedPostgresTransferPlanSchema.parse({...plan,planDigest:deploymentDigest(plan)});
 }
