@@ -86,6 +86,9 @@ export class KataSandboxRuntime {
 		await writeFile(resolve(inputDirectory, 'operation-token'), guestToken, { mode: 0o400, flag: 'wx' });
 		await writeFile(resolve(inputDirectory, 'sandbox-id'), `${sandboxId}\n`, { mode: 0o400, flag: 'wx' });
 		const brokerFiles = ['assignment.json', 'operation-token', 'sandbox-id'];
+		// Compiled Deployment instrumentation, not caller-supplied executable input.
+		await writeFile(resolve(inputDirectory, 'startup-monitor.mjs'), await readFile(new URL('./guest-startup-monitor.js', import.meta.url)), { mode: 0o400, flag: 'wx' });
+		brokerFiles.push('startup-monitor.mjs');
 		if (modelGateway?.authenticationMode === 'codex-subscription') {
 			const authentication = await readFile(modelGateway.credentialFile);
 			if (authentication.byteLength > 1_048_576) throw new Error('Codex subscription authentication exceeds the broker limit.');
@@ -150,6 +153,7 @@ export class KataSandboxRuntime {
 			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
 			'--env', `TREESEED_SANDBOX_PROCESS_LIMIT=${sandbox.assignment.resources.processLimit}`, '--env', `TREESEED_SANDBOX_DISK_LIMIT=${sandbox.assignment.resources.diskBytes}`,
 			'--env', `TREESEED_SANDBOX_OUTPUT_LIMIT=${sandbox.assignment.resources.outputBytes}`,
+			'--env', 'NODE_OPTIONS=--import=/run/treeseed-assignment/startup-monitor.mjs',
 			'--mount', `type=tmpfs,src=tmpfs,dst=/workspace,options=size=${sandbox.assignment.resources.diskBytes}:mode=0770:uid=65532:gid=65532`,
 			'--mount', `type=bind,src=${resolverFile},dst=/etc/resolv.conf,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.inputDirectory},dst=/run/treeseed-assignment,options=rbind:ro`,
