@@ -15,7 +15,12 @@ function fixture() {
   const run=()=>inspectLifecycle(release,async args=>{
     calls.push(args);
     if(args[0]==='ps') return 'b'.repeat(64);
-    if(args[0]==='inspect') return JSON.stringify(state);
+    if(args[0]==='inspect') {
+      const values=Object.values(state);let index=0;
+      const rendered=args[2]!.replace(/\{\{.*?\}\}/gu,()=>JSON.stringify(values[index++]));
+      JSON.parse(rendered);
+      return rendered;
+    }
     if(args[0]==='logs') return 'password=never-export-me Error: permission denied for relation private_records';
     throw new Error('Unexpected command');
   });

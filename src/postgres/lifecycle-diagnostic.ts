@@ -34,7 +34,7 @@ export async function inspectLifecycle(input: unknown, docker: DiagnosticDocker)
       '--filter',`label=com.docker.compose.service=${service}`])).trim().split('\n').filter(Boolean);
     if (!ids.length) { results.push({service,state:'absent' as const,reasons:[]}); continue; }
     if (ids.length !== 1 || !/^[a-f0-9]{64}$/u.test(ids[0]!)) throw new Error('Ambiguous migration container');
-    const format = '{"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"exitCode":{{json .State.ExitCode}},"oomKilled":{{json .State.OOMKilled}}';
+    const format = '{"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"exitCode":{{json .State.ExitCode}},"oomKilled":{{json .State.OOMKilled}}}';
     const state = stateSchema.parse(JSON.parse(await docker(['inspect','--format',format,ids[0]!])));
     if (state.project !== component.runtime.compose.projectName || state.service !== service ||
       !component.images.some(image => state.image === `${image.repository}@${image.digest}`)) throw new Error('Migration container does not match installed release');
