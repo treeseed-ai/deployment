@@ -6,7 +6,7 @@ const docker = vi.hoisted(() => vi.fn());
 vi.mock('../src/supervisor/postgres-process.js', () => ({ postgresDocker: docker }));
 beforeEach(() => vi.resetAllMocks());
 function fixture() {
-  const source = component('api', 'stable', 'a'); source.images[0]!.repository = 'postgres';
+  const source = component('api', 'stable', 'a'); source.images[0]!.repository = 'treeseed/api-postgres'; source.images[0]!.role = 'postgres';
   source.runtimeDigest = deploymentDigest(source.runtime);
   const image = `sha256:${'a'.repeat(64)}`;
   docker.mockImplementation(async (args: string[]) => args[0] === 'image' ? image : args[0] === 'ps' ? 'b'.repeat(64) : `${image}\tfalse\tservice\n`);
@@ -15,6 +15,11 @@ function fixture() {
 it('selects only the retained stopped service with the published image', async () => {
   const f = fixture(); expect(await retainedPostgresService(f.source)).toBe('service');
   expect(docker.mock.calls.every(([args]) => !args.includes('start') && !args.includes('Config.Env'))).toBe(true);
+});
+it('uses the published role, never a repository-name heuristic', async () => {
+  const f = fixture(); f.source.images[0]!.repository = 'postgres'; f.source.images[0]!.role = 'application';
+  await expect(retainedPostgresService(f.source)).rejects.toThrow('One published PostgreSQL');
+  expect(docker).not.toHaveBeenCalled();
 });
 it.each(['running', 'wrong-image', 'unknown-service', 'duplicate'] as const)('rejects %s custody', async failure => {
   const f = fixture(); docker.mockImplementation(async (args: string[]) => {

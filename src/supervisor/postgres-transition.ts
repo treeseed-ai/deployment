@@ -25,7 +25,7 @@ export function requirePostgresTransition(host: HostConfiguration, component: Co
   const previous = prior[0];
   if (previous && previous.runtimeDigest !== deploymentDigest(previous.runtime)) throw new Error('Previous PostgreSQL runtime custody is invalid');
   const privateSource = previous && !previous.runtime.postgresLifecycle?.length &&
-    previous.images.some(image => image.repository === 'postgres' || image.repository.endsWith('/postgres'));
+    previous.images.some(image => image.role === 'postgres');
   const prefix=`/var/lib/treeseed/components/${component.componentId}/`;
   const sourceVolumes=component.runtime.stateVolumes.filter(volume=>volume.id==='postgres');
   const sourcePaths=sourceVolumes.map(volume=>{

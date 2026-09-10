@@ -5,7 +5,7 @@ import { postgresDocker } from './postgres-process.js';
  * rendering an old manifest that package replacement may already have removed. */
 export async function retainedPostgresService(component: ComponentRelease) {
   if (deploymentDigest(component.runtime) !== component.runtimeDigest) throw new Error('Source runtime changed');
-  const images = component.images.filter(item => item.repository === 'postgres' || item.repository.endsWith('/postgres'));
+  const images = component.images.filter(item => item.role === 'postgres');
   if (images.length !== 1) throw new Error('One published PostgreSQL source image required');
   const imageId = (await postgresDocker(['image', 'inspect', '--format', '{{.Id}}', `${images[0]!.repository}@${images[0]!.digest}`], 10, true)).trim();
   if (!/^sha256:[a-f0-9]{64}$/u.test(imageId)) throw new Error('Source image unavailable');
