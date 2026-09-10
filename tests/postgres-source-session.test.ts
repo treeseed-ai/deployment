@@ -47,7 +47,7 @@ it.each(['pid', 'started'] as const)('rejects %s changes after connection and af
 });
 it('redacts driver and callback errors and always closes', async () => {
   const f = fixture(); fake.connect.mockRejectedValue(new Error('password=secret database rows'));
-  await expect(f.execute()).rejects.toThrow(/^Attested PostgreSQL source session unavailable or changed; source unchanged\.$/u);
+  await expect(f.execute()).rejects.toThrow('Attested PostgreSQL source session unavailable or changed (connect/unavailable); source unchanged.');
   expect(fake.end).toHaveBeenCalledOnce(); expect(f.run).not.toHaveBeenCalled();
 });
 it('rejects process-path injection and non-running or foreign container state', async () => {

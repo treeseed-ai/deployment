@@ -18,6 +18,7 @@ export async function withAttestedPostgresSource<T>(selection: {
 }, docker: SourceDocker, run: (session: PostgresInspectionSession) => Promise<T>): Promise<T> {
   let client: pg.Client | undefined;
   let failed = false;
+  let stage = 'selection';
   try {
     if (process.getuid?.() !== 0 || process.env.PGREPLICATION ||
       !/^[a-f0-9]{64}$/u.test(selection.container) ||
@@ -31,6 +32,7 @@ export async function withAttestedPostgresSource<T>(selection: {
       if (state.id !== selection.container) throw new Error();
       return state;
     };
+    stage = 'process-inspection';
     const before = await inspect();
     client = new pg.Client({ host: `/proc/${before.pid}/root/var/run/postgresql`, port: 5432,
       user: selection.username, database: selection.database,
@@ -40,8 +42,11 @@ export async function withAttestedPostgresSource<T>(selection: {
       connectionTimeoutMillis: 10_000, statement_timeout: 60_000, query_timeout: 65_000,
       lock_timeout: 5_000, idle_in_transaction_session_timeout: 30_000 });
     client.on('error', () => { failed = true; });
+    stage = 'connect';
     await client.connect();
+    stage = 'connected-process-check';
     if (deploymentDigest(before) !== deploymentDigest(await inspect())) throw new Error();
+    stage = 'database-identity';
     const identity = await client.query(`SELECT current_database() AS database,
       current_setting('server_version_num')::int/10000 AS major,
       (SELECT system_identifier::text FROM pg_control_system()) AS cluster`);
@@ -49,14 +54,18 @@ export async function withAttestedPostgresSource<T>(selection: {
     if (identity.rows.length !== 1 || row?.database !== selection.database || row.major !== selection.major ||
       typeof row.cluster !== 'string' || deploymentDigest({ cluster: row.cluster }) !== selection.clusterIdentity) throw new Error();
     const connection = client;
+    stage = 'fingerprint';
     const result = await run({ query: async (sql, values) => {
       if (failed) throw new Error();
       return connection.query(sql, values);
     } });
+    stage = 'completed-process-check';
     if (failed || deploymentDigest(before) !== deploymentDigest(await inspect())) throw new Error();
     return result;
-  } catch {
+  } catch (error) {
     // Never return driver errors, SQL, process details or database values.
-    throw new Error('Attested PostgreSQL source session unavailable or changed; source unchanged.');
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    const safeCode = typeof code === 'string' && ['EACCES','EPERM','ENOENT','ECONNREFUSED','ETIMEDOUT','28P01','28000','3D000','42501','57P01'].includes(code) ? code : 'unavailable';
+    throw new Error(`Attested PostgreSQL source session unavailable or changed (${stage}/${safeCode}); source unchanged.`);
   } finally { await client?.end().catch(() => undefined); }
 }

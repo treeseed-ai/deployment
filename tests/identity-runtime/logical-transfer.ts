@@ -196,7 +196,10 @@ try {
   await assert.rejects(fingerprint(destination, 'application_owner', 17));
   checks.push('row-sequence-constraint-owner-drift-denied');
   console.log(JSON.stringify({ ok: true, sourceMajor, conversion: convert, checks }));
-} catch { console.error(JSON.stringify({ ok: false, stage })); process.exitCode = 1; }
+} catch (error) {
+  const diagnostic = error instanceof Error && /^Attested PostgreSQL source session unavailable or changed \([a-z-]+\/[A-Z0-9a-z]+\); source unchanged\.$/u.test(error.message) ? error.message : undefined;
+  console.error(JSON.stringify({ ok: false, stage, diagnostic })); process.exitCode = 1;
+}
 finally {
   key.fill(0);
   for (const name of owned) { try { docker(['rm', '-f', name]); } catch { /* Only positively owned disposable names. */ } }
