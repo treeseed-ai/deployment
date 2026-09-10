@@ -2,13 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { componentReleaseSchema, hostInitializationProfileSchema, integrationReleaseSchema, type ComponentRelease, type HostInitializationProfile, type IntegrationRelease } from '@treeseed/sdk/deployment';
 import { sealCatalog } from './compile-catalog.js';
+import { verifiedComponentRelease } from '../src/catalog/component-integrity.js';
 
 const artifacts = resolve(process.cwd(), '.treeseed/artifacts');
 function integration(track: 'stable' | 'development') { return integrationReleaseSchema.parse(JSON.parse(readFileSync(resolve(artifacts, 'integrations', `${track}.json`), 'utf8'))); }
 function components(lock: IntegrationRelease) {
 	return lock.components.map((selected) => {
 		const root = resolve(artifacts, 'components', selected.componentId, selected.release);
-		const component = componentReleaseSchema.parse(JSON.parse(readFileSync(resolve(root, 'component-release.json'), 'utf8')));
+		const component = verifiedComponentRelease(JSON.parse(readFileSync(resolve(root, 'component-release.json'), 'utf8')));
 		if (component.componentId !== selected.componentId || component.release !== selected.release) throw new Error(`Integration selection ${selected.componentId}@${selected.release} does not match its component manifest.`);
 		for (const file of selected.files) {
 			const declared = component.runtime.compose.files.find((candidate) => candidate.path === file.path);

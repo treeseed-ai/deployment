@@ -5,6 +5,7 @@ import { basename, resolve } from 'node:path';
 import { componentReleaseSchema, integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
 import { stableCatalogDebianVersion } from './catalog-package-version.js';
 import { postgresRuntimePaths } from './postgres-runtime-dependencies.js';
+import { verifiedComponentRelease } from '../src/catalog/component-integrity.js';
 
 interface Definition { architecture: 'all' | 'amd64'; depends: string; description: string; packageName?: string; version?: string; replaces?: string; breaks?: string; payload?: (stage: string) => void; postinst?: string }
 const root = process.cwd(), output = resolve(root, 'release/out'), cache = resolve(root, '.treeseed/cache'), artifacts = resolve(root, '.treeseed/artifacts');
@@ -82,7 +83,7 @@ function kataRuntime(stage: string) {
 function component(id: string, release: string): Definition {
 	const source = resolve(artifacts, 'components', id, release), manifest = JSON.parse(readFileSync(resolve(source, 'component-release.json'), 'utf8')) as { componentId?: string; release?: string };
 	if (manifest.componentId !== id || manifest.release !== release) throw new Error(`Locked ${id} component identity does not match its package.`);
-	const accepted = componentReleaseSchema.parse(manifest), declaredPackage = accepted.packages[0];
+	const accepted = verifiedComponentRelease(manifest), declaredPackage = accepted.packages[0];
 	if (!declaredPackage) throw new Error(`Component ${id}@${release} does not declare a Debian package.`);
 	return { architecture: declaredPackage.architecture, packageName: declaredPackage.name, version: declaredPackage.version, depends: 'treeseed-manager', description: `Exact runtime bundle for the TreeSeed ${id} component`, payload(stage) {
 		cpSync(source, resolve(stage, `usr/share/treeseed/components/${id}/${release}`), { recursive: true });

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { componentReleaseSchema, deploymentDigest, integrationReleaseSchema, releaseCatalogSchema } from '@treeseed/sdk/deployment';
+import { verifiedComponentRelease } from '../src/catalog/component-integrity.js';
 
 const output = resolve('release/out');
 const aptSuite = process.env.TREESEED_APT_SUITE;
@@ -80,7 +81,7 @@ try {
 	}
 	for (const component of selected) {
 		const directory = resolve(root, 'usr/share/treeseed/components', component.componentId, component.release);
-		const installed = componentReleaseSchema.parse(JSON.parse(readFileSync(resolve(directory, 'component-release.json'), 'utf8')));
+		const installed = verifiedComponentRelease(JSON.parse(readFileSync(resolve(directory, 'component-release.json'), 'utf8')));
 		if (installed.runtimeDigest !== component.runtimeDigest) throw new Error(`${component.componentId} installed runtime digest changed.`);
 		for (const file of component.runtime.compose.files) if (!existsSync(resolve(directory, file.path))) throw new Error(`${component.componentId} is missing packaged Compose file ${file.path}.`);
 	}
