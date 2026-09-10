@@ -1,9 +1,15 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.295",
+  "version": "0.1.0-rc.296",
   "private": true,
   "treeseed": {
-    "hostRuntimeDependencies": ["@treeseed/sdk", "@treeseed/identity", "pg", "yaml", "zod"]
+    "hostRuntimeDependencies": [
+      "@treeseed/sdk",
+      "@treeseed/identity",
+      "pg",
+      "yaml",
+      "zod"
+    ]
   },
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",

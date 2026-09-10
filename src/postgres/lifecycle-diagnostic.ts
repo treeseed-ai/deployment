@@ -17,7 +17,10 @@ export function migrationFailureCategories(output: string) {
     ['connection-unavailable', /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed/iu],
     ['syntax-error', /SyntaxError/u],
   ];
-  return patterns.filter(([,pattern]) => pattern.test(text)).map(([code]) => code);
+  const reasons = patterns.filter(([,pattern]) => pattern.test(text)).map(([code]) => code);
+  const marker = text.match(/Managed Identity account migration failed \((descriptor-custody|descriptor-validation|signing-key|issuer-discovery|account-mapping)\/(database-permission|database-schema|database-conflict|password-reset-required|account-recovery-required|restore-point-required|issuer-request-failed|issuer-profile-unavailable|issuer-profile-readback|issuer-marker-policy|account-link-required|account-ownership-readback|account-import-readback|unclassified)\)/u);
+  if (marker) reasons.push(`identity-${marker[1]}`, `identity-${marker[2]}`);
+  return reasons;
 }
 
 export type DiagnosticDocker = (args: string[]) => Promise<string>;

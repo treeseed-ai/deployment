@@ -44,6 +44,8 @@ it('never echoes unknown messages and bounds classification',()=>{
   expect(migrationFailureCategories('secret=abc')).toEqual([]);
   expect(migrationFailureCategories('SyntaxError'+'x'.repeat(131072))).toEqual([]);
   expect(migrationFailureCategories('Managed Identity account migration failed')).toEqual(['identity-account-migration']);
+  expect(migrationFailureCategories('Managed Identity account migration failed (account-mapping/password-reset-required)')).toEqual(['identity-account-migration','identity-account-mapping','identity-password-reset-required']);
+  expect(migrationFailureCategories('Managed Identity account migration failed (account-mapping/private-value)')).toEqual(['identity-account-migration']);
 });
 it('does not accept log selectors, commands or credential material',()=>{
   const request={operation:'postgres.lifecycle.inspect',componentId:'api',release:'1.0.0'};
