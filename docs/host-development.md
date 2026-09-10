@@ -14,6 +14,8 @@ Pass another Deployment worktree explicitly when needed. `--guest-image sha256:<
 
 The bridge is available only through the protected local manager socket and only on development rollout groups. `--plan` performs no build or mutation.
 
+Deployment declares non-code runtime files in `treeseed.hostRuntimeAssets` in its package manifest. The CLI includes these exact files only from the declared production dependency closure, verifies their digests, and rejects missing assets before activation. This includes the published Identity login theme; do not copy arbitrary source directories or rely on assets left behind by an installed generation.
+
 ## Container-to-control-plane access
 
 Managed AI containers reach the local HTTPS edge through Docker's default bridge gateway. Deployment observes that gateway and publishes HTTPS only on its assigned private bridge address, in addition to loopback; it never adds a wildcard or LAN listener. The generated host-network overlay is runtime state, not portable Platform configuration. An absent or unassigned private bridge address fails closed.
