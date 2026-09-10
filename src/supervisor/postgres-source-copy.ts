@@ -104,7 +104,8 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
     // process output or credential values. Useful in privileged Actions too.
     const locations = error instanceof Error ? [...(error.stack ?? '').matchAll(/\/(src\/[a-zA-Z0-9_./-]+\.[jt]s:\d+:\d+)/gu)].slice(0, 6).map(match => match[1]) : [];
     const phase = error instanceof Error ? /PostgreSQL transfer failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
-    throw Object.assign(new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'), { diagnostic: { stage, phase, locations } });
+    const causeStage = z.object({ stage: z.enum(['selection', 'container-selection', 'container-image', 'data-mount', 'socket-mount', 'allocation-custody', 'cluster-readback']) }).safeParse(error && typeof error === 'object' && 'diagnostic' in error ? error.diagnostic : undefined);
+    throw Object.assign(new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'), { diagnostic: { stage, phase, locations, causeStage: causeStage.success ? causeStage.data.stage : undefined } });
   }
   finally {
     // A failed Docker command can still have created the exact random-name
