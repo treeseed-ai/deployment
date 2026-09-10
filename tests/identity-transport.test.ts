@@ -8,7 +8,7 @@ import { createIdentityTransport } from '../src/identity/transport.js';
 
 const root = mkdtempSync(join(tmpdir(), 'treeseed-identity-transport-'));
 let server: Server, port: number, ca: string;
-let observed: { host?: string; cookie?: string; body: string } | undefined;
+let observed: { host: string | undefined; cookie: string | undefined; body: string } | undefined;
 beforeAll(async () => {
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
     '-subj', '/CN=identity.example.test', '-addext', 'subjectAltName=DNS:identity.example.test',

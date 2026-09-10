@@ -17,6 +17,7 @@ import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js';
 import { startSharedDatabase } from './database.js';
 import { prepareIdentityBootstrap } from '../../dist/src/identity/bootstrap.js';
 import { createManagedIdentityApplications } from '../../dist/src/identity/managed-applications.js';
+import { ensureApplicationCertificate } from '../../dist/src/identity/application-certificate.js';
 import { deviceClient, verifyDevice } from './device.js';
 import { cliScopeDefinitions, standardScopeDefinitions } from './cli.js';
 import { BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
@@ -181,7 +182,10 @@ async function start(label: Label) {
   stage = `provision-${label}-clients`;
   const registry = createManagedIdentityApplications({ ...managedBootstrap, transport: fetch });
   for (const kind of ['browser', 'workload'] as const) {
-    const application = { clientId: `managed-${kind}`, kind, resource: 'https://api.example.test', scopes: [], certificate,
+    const certificateInput = { ...managedBootstrap, clientId: `managed-${kind}`, privateKey: readFileSync(join(directory, 'client.key'), 'utf8') };
+    const managedCertificate = ensureApplicationCertificate(certificateInput);
+    assert.equal(ensureApplicationCertificate(certificateInput), managedCertificate);
+    const application = { clientId: `managed-${kind}`, kind, resource: 'https://api.example.test', scopes: [], certificate: managedCertificate,
       redirectUris: kind === 'browser' ? ['https://admin.example.test/auth/callback'] : [] };
     stage = `provision-${label}-${kind}-create`;
     const created = await registry.ensure(application); assert.equal(created.action, 'create');
