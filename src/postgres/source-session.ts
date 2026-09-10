@@ -34,7 +34,9 @@ export async function withAttestedPostgresSource<T>(selection: {
     };
     stage = 'process-inspection';
     const before = await inspect();
-    client = new pg.Client({ host: `/proc/${before.pid}/root/var/run/postgresql`, port: 5432,
+    // Debian's /var/run -> /run is absolute; following it through /proc/root
+    // would escape to the supervisor's /run. Use the actual container directory.
+    client = new pg.Client({ host: `/proc/${before.pid}/root/run/postgresql`, port: 5432,
       user: selection.username, database: selection.database,
       password: 'attested-local-source-does-not-use-passwords', ssl: false,
       application_name: 'treeseed-postgres-source-inspection', client_encoding: 'UTF8',

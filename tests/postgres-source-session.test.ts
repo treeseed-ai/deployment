@@ -24,7 +24,7 @@ function fixture() {
 }
 it('uses only attested process-local socket and explicit read-only options; closes once', async () => {
   const f = fixture(); expect(await f.execute()).toEqual({ digest: 'safe' });
-  expect(fake.options).toMatchObject({ host: '/proc/1234/root/var/run/postgresql', port: 5432,
+  expect(fake.options).toMatchObject({ host: '/proc/1234/root/run/postgresql', port: 5432,
     ssl: false, user: 'postgres', database: 'application', options: '-c search_path=pg_catalog -c default_transaction_read_only=on' });
   expect(f.docker).toHaveBeenCalledTimes(3); expect(fake.end).toHaveBeenCalledOnce();
 });
