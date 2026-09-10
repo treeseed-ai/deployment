@@ -11,7 +11,7 @@ export function apiIdentityMaterial(input: HostConfiguration, selected: Componen
   const owners = component.runtime.postgresLifecycle?.map(item => item.credentialOwner) ?? [];
   const owner = owners[0];
   if (!config.success || !host.components.api?.enabled || component.componentId !== 'api'
-    || component.runtimeDigest !== deploymentDigest(component.runtime) || !owner || owner.uid === 0
+    || component.runtimeDigest !== deploymentDigest(component.runtime) || !owner
     || owners.some(item => item.uid !== owner.uid || item.gid !== owner.gid)) throw new Error('Verified API Identity bootstrap binding required');
   const references = [config.data.sessionKeys.active.credentialReference,
     ...config.data.sessionKeys.historical.map(item => item.credentialReference),

@@ -5,6 +5,7 @@ import { apiIdentityFixture } from '../../tests/identity-api-fixture.js';
 import { materializeApiIdentityRuntime } from '../../dist/src/supervisor/identity-api-files.js';
 import { ensureComponentCredential } from '../../dist/src/supervisor/component-sealed-write.js';
 import { readOsCredentialFile } from '../../dist/src/security/custody/os-file.js';
+import { prepareApiIdentityBootstrap } from '../../dist/src/identity/api-bootstrap.js';
 
 /** Synthetic keys and exact scratch targets, only on a disposable root runner. */
 export function verifyApiIdentityFiles() {
@@ -16,9 +17,7 @@ export function verifyApiIdentityFiles() {
   for (const path of paths) assert.equal(existsSync(path), false);
   const signing = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
   try {
-    ensureComponentCredential(configuration, descriptor.sessionKeys.active.credentialReference, () => randomBytes(32).toString('base64url'));
-    ensureComponentCredential(configuration, descriptor.applications[0]!.signingKeyReference, () => signing);
-    assert.equal(materializeApiIdentityRuntime(configuration, release).action, 'materialized');
+    assert.deepEqual(prepareApiIdentityBootstrap(configuration, release), { configured: true, applications: 1 });
     const descriptorPath = `${root}/runtime.json`;
     const first = lstatSync(descriptorPath);
     assert.equal(first.mode & 0o777, 0o400); assert.equal(first.uid, 65532);
