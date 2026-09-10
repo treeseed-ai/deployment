@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createKeycloakApplicationRegistry, createWorkloadCredentials, discoverSigningKeys, type KeycloakApplication } from '@treeseed/identity';
 import { OsSecretCustody } from '../security/custody/os.js';
+import { reconcileIdentityLoginPolicy, type IdentityLoginPolicy } from './login-policy.js';
 
 /** Deployment-only registration through the already provisioned asymmetric
  * reconciler. No human/admin password, operational vault or bootstrap creation.
@@ -10,6 +11,7 @@ import { OsSecretCustody } from '../security/custody/os.js';
  */
 export function createManagedIdentityApplications(options: {
   stateRoot: string; publicUrl: string; environment: 'staging' | 'production'; transport: typeof fetch;
+  loginPolicy?: IdentityLoginPolicy;
 }) {
   const url = new URL(options.publicUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash
@@ -39,7 +41,13 @@ export function createManagedIdentityApplications(options: {
           resolvePrincipal: async identity => ({ principalId: identity.subject, kind: 'service', clientId: 'treeseed-identity-reconciler' }) });
         const registry = createKeycloakApplicationRegistry({ issuer, transport: options.transport,
           credentials: { token: async input => (await credentials.credentials(input)).accessToken } });
-        const result = await registry.ensure(application);
+        if (options.loginPolicy) {
+          if (options.loginPolicy.mailTransport === 'local-mailpit' && options.environment !== 'staging') throw new Error();
+          const access = await credentials.credentials({ resource, scopes: [] });
+          await reconcileIdentityLoginPolicy({ resource, transport: options.transport, token: access.accessToken, policy: options.loginPolicy });
+        }
+        const result = await registry.ensure(application, application.profileClaims
+          ? { expectedCurrent: { ...application, profileClaims: false } } : undefined);
         if (application.kind !== 'workload') return { ...result, subject: null };
         if (!/^[A-Za-z0-9-]{1,128}$/u.test(result.id)) throw new Error();
         const token = await credentials.credentials({ resource, scopes: [] });

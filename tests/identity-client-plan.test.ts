@@ -23,6 +23,15 @@ it('plans one distinct workload consumer with only browser-bridge authority', ()
     workloadPrincipalId: 'admin-bff', workloadKeyReference: 'admin-workload',
     permissions: ['identity:sessions:manage'], workloadScopes: ['treeseed:identity:sessions'] });
 });
+it('requires matching API registration policy and rejects local mail in production', () => {
+  const { configuration } = fixture();
+  configuration.components.identity!.configuration.authentication = { registrationAllowed: true, resetPasswordAllowed: true, mailTransport: 'existing' };
+  expect(() => managedIdentityClientPlan(configuration)).toThrow('registration must match');
+  Object.assign(configuration.components.api!.configuration.identityRuntime as object, { registration: { enabled: true } });
+  expect(managedIdentityClientPlan(configuration).loginPolicy?.registrationAllowed).toBe(true);
+  configuration.components.identity!.configuration.authentication = { registrationAllowed: true, resetPasswordAllowed: true, mailTransport: 'local-mailpit' };
+  expect(() => managedIdentityClientPlan(configuration)).toThrow('local mail capture');
+});
 
 it('derives the public resource from a manager-owned local API connection', () => {
   const { configuration } = fixture();

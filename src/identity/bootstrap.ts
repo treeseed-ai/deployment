@@ -4,6 +4,7 @@ import { randomUUID, X509Certificate } from 'node:crypto';
 import { join } from 'node:path';
 import { OsSecretCustody, type CredentialCommand } from '../security/custody/os.js';
 import { LocalSecretCustody } from '../security/custody/local.js';
+import { materializeIdentityTheme } from './theme.js';
 
 /** Local managed-host bootstrap only. Railway supplies independent protected
  * bootstrap material through its adapter. No API/OpenBao startup dependency.
@@ -59,6 +60,7 @@ export function prepareIdentityBootstrap(options: {
   materialize(join(tls, 'cert.pem'), `${identity.serverCertificate}\n${authority}`);
   materialize(join(tls, 'key.pem'), identity.serverKey);
   materialize(join(imported, 'treeseed-realm.json'), JSON.stringify(realm));
+  materializeIdentityTheme(options.runtimeRoot);
   return { configured: true, publicUrl: publicUrl.origin, realm: 'treeseed', custody: 'os' as const };
 }
 

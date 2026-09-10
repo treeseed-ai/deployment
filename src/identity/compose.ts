@@ -5,6 +5,7 @@ export const IDENTITY_IMAGES = {
 
 export function managedIdentityServices(options: {
   publicUrl: string; configurationRoot: string;
+  themeRoot?: string;
   database: { hostname: string; port: number; database: string; username: string } | { allocationRoot: string };
   databasePhase?: 'migration' | 'runtime';
 }) {
@@ -20,7 +21,7 @@ export function managedIdentityServices(options: {
       ![database.database, database.username].every(value => /^[a-z][a-z0-9_]{0,62}$/u.test(value)) || database.username === 'postgres') {
     throw new Error('Identity requires an explicit restricted PostgreSQL allocation');
   }
-  for (const path of [options.configurationRoot]) {
+  for (const path of [options.configurationRoot, ...(options.themeRoot ? [options.themeRoot] : [])]) {
     if (!path.startsWith('/') || path === '/' || path.split('/').some(part => part === '..' || part === '.') || /[\r\n\0$]/u.test(path)) {
       throw new Error('Identity custody roots must be explicit absolute directories');
     }
@@ -43,7 +44,8 @@ export function managedIdentityServices(options: {
         '--truststore-paths=/run/identity/tls/cert.pem'],
       environment: { KC_DB: 'postgres', ...databaseEnvironment, KC_HOSTNAME: url.origin,
         KC_HEALTH_ENABLED: 'true', KC_METRICS_ENABLED: 'true', KC_HTTP_MANAGEMENT_SCHEME: 'http', KC_HTTP_MANAGEMENT_HOST: '127.0.0.1' },
-      volumes: allocated ? [bind(`${options.configurationRoot}/tls`, '/run/identity/tls')] : [bind(options.configurationRoot, '/run/identity')],
+      volumes: [...(allocated ? [bind(`${options.configurationRoot}/tls`, '/run/identity/tls')] : [bind(options.configurationRoot, '/run/identity')]),
+        bind(options.themeRoot ?? `${options.configurationRoot}/themes`, '/opt/keycloak/themes')],
       // Official minimal image contains bash, not curl. Readiness is not liveness.
       healthcheck: { test: ['CMD', '/bin/bash', '-ec', 'exec 3<>/dev/tcp/127.0.0.1/9000; printf "HEAD /health/ready HTTP/1.0\\r\\n\\r\\n" >&3; grep -Eq "^HTTP/1[.][01] 200 " <&3'], interval: '5s', timeout: '3s', retries: 60, start_period: '60s' },
       security_opt: ['no-new-privileges:true'], cap_drop: ['ALL'],

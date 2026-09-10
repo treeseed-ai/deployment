@@ -1,6 +1,7 @@
 import { identityApiRuntimeSchema, BROWSER_SESSION_PERMISSION, BROWSER_SESSION_SCOPE } from '@treeseed/sdk/identity';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { componentCredential } from '../core/component-credential.js';
+import { identityLoginPolicySchema } from './login-policy.js';
 
 /** Public descriptors only. Deployment configuration binds each browser to
  * exactly one enabled workload consumer and an independent sealed key.
@@ -39,5 +40,9 @@ export function managedIdentityClientPlan(host: HostConfiguration) {
   // Registration permits sign-in only; API-local user permissions remain final.
   const nativeClient = { kind: 'native' as const, clientId: 'trsd', resource, scopes: config.scopes,
     redirectUris: ['http://127.0.0.1/callback'], deviceAuthorization: true };
-  return { origin, issuer: config.issuer, resource, environment: host.postgres.environment, clients, nativeClient };
+  const loginPolicy = identity.configuration.authentication === undefined ? undefined : identityLoginPolicySchema.parse(identity.configuration.authentication);
+  if (loginPolicy && (loginPolicy.registrationAllowed !== (config.registration?.enabled === true)
+    || loginPolicy.mailTransport === 'local-mailpit' && (host.postgres.environment !== 'staging' || !host.components.lab?.enabled)))
+    throw new Error('Identity registration must match API enrollment; local mail capture requires an enabled staging Lab');
+  return { origin, issuer: config.issuer, resource, environment: host.postgres.environment, clients, nativeClient, loginPolicy };
 }
