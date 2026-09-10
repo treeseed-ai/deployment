@@ -44,7 +44,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('security.recovery.verify'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024) }).strict(),
 	z.object({ operation: z.literal('sandbox.status') }).strict(),
 	z.object({ operation: z.literal('sandbox.doctor') }).strict(),
-	z.object({ operation: z.literal('sandbox.workspace.qualify') }).strict(),
+	z.object({ operation: z.literal('sandbox.workspace.qualify'), mode: z.enum(['cold', 'warm']).default('cold') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.qualification.recover') }).strict(),
 	z.object({ operation: z.literal('sandbox.trust-anchor.repair') }).strict(),
 	z.object({ operation: z.literal('sandbox.guest-trust.digests') }).strict(),

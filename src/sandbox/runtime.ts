@@ -9,8 +9,11 @@ import { sandboxAssignmentSchema, sandboxEventSchema, sandboxResultSchema, type 
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import type { SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider/sandbox';
 import { containerdImageReference } from './image-reference.js';
+import { WarmSandboxPool, kataWarmOperations } from './warm-sandbox-pool.js';
 
 interface Prepared {
+	warmSandboxId?: string;
+	executionClaimed?: boolean;
 	sandboxId: string; assignment: SandboxAssignment; directory: string; inputDirectory: string; outputDirectory: string;
 	tokenHash: Buffer; guestTokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
 	toolRequests: Array<{ id:string; tool:string; arguments:Record<string,unknown>; createdAt:string }>;
@@ -39,7 +42,13 @@ async function materializeGuestResolver(directory: string) {
 
 export class KataSandboxRuntime {
 	private readonly sandboxes = new Map<string, Prepared>();
-	constructor(private readonly configuration: SandboxBrokerConfiguration) {}
+	private readonly warmPool: WarmSandboxPool;
+	constructor(private readonly configuration: SandboxBrokerConfiguration) {
+		this.warmPool = new WarmSandboxPool(kataWarmOperations(configuration, () => {
+			process.stderr.write(`${JSON.stringify({ source: 'sandbox-warm-pool', status: 'readiness-failed' })}\n`);
+		}));
+	}
+	async drainWarmPool() { await this.warmPool.drain(); }
 	private ctr(arguments_: string[], timeout = 10_000) {
 		return spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, ...arguments_], { encoding: 'utf8', timeout });
 	}
@@ -145,11 +154,22 @@ export class KataSandboxRuntime {
 		const sandbox = this.authorized(sandboxId, token);
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before sandbox execution.');
 		if (sandbox.assignment.inputs.some((entry) => !sandbox.uploaded.has(entry.id))) throw new Error('Sandbox execution cannot start before every signed input is verified.');
+		if (sandbox.executionClaimed) throw new Error('Sandbox execution has already been claimed.');
+		sandbox.executionClaimed = true;
 		await this.emit(sandbox, 'execution.started', { profile: sandbox.assignment.profile, model: sandbox.assignment.modelPolicy.model });
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
 		const resolverFile = await materializeGuestResolver(sandbox.directory);
 		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
-		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--null-io', '--runtime', this.configuration.runtime, '--cni', '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
+		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes });
+		if (!this.sandboxes.has(sandboxId)) {
+			if (!this.removeContainer(warm.id)) throw new Error('Cancelled sandbox VM remains quarantined.');
+			throw new Error('Sandbox was destroyed while preparing its VM.');
+		}
+		sandbox.warmSandboxId = warm.id;
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired while preparing its VM.');
+		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed });
+		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--null-io', '--runtime', this.configuration.runtime,
+			'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${warm.id}`, '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
 			'--env', `TREESEED_SANDBOX_PROCESS_LIMIT=${sandbox.assignment.resources.processLimit}`, '--env', `TREESEED_SANDBOX_DISK_LIMIT=${sandbox.assignment.resources.diskBytes}`,
 			'--env', `TREESEED_SANDBOX_OUTPUT_LIMIT=${sandbox.assignment.resources.outputBytes}`,
@@ -231,7 +251,10 @@ export class KataSandboxRuntime {
 	}
 	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
 	async destroy(sandboxId: string, token: string) {
-		const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGKILL'); const verified = this.removeContainer(sandboxId);
+		const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGKILL');
+		const executionStopped = this.removeContainer(sandboxId);
+		const warmStopped = sandbox.warmSandboxId ? this.removeContainer(sandbox.warmSandboxId) : true;
+		const verified = executionStopped && warmStopped;
 		for(const waiter of sandbox.toolWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Sandbox was destroyed.'));} sandbox.toolWaiters.clear();
 		await this.emit(sandbox, 'sandbox.destroyed', { verified });
 		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }

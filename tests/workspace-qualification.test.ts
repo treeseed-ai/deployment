@@ -9,6 +9,14 @@ describe('workspace block qualification boundary', () => {
 			expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', [field]: '/untrusted' }).success).toBe(false);
 		}
 	});
+	it('joins only the selected warm sandbox while retaining a per-execution source mount', () => {
+		const args = qualificationArguments({ address: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes',
+			runtime: 'io.containerd.kata.v2', image: 'trusted@sha256:fixture', id: 'probe', device: '/dev/nbd0',
+			input: '/fixture/input', output: '/fixture/output', readOnly: true, warmSandboxId: 'probe-warm' });
+		expect(args).toContain('io.kubernetes.cri.container-type=container');
+		expect(args).toContain('io.kubernetes.cri.sandbox-id=probe-warm');
+		expect(supervisorOperationSchema.safeParse({ operation: 'sandbox.workspace.qualify', mode: 'reused' }).success).toBe(false);
+	});
 	it.each([true, false])('uses a block mount and separate credential-free, unprivileged guest for readOnly=%s', readOnly => {
 		const args = qualificationArguments({ address: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes',
 			runtime: 'io.containerd.kata.v2', image: 'trusted@sha256:fixture', id: 'probe', device: '/dev/nbd0',

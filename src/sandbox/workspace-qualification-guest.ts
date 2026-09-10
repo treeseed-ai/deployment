@@ -3,6 +3,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 // Fixed, credential-free fixture executed inside Kata, never on the host.
 try {
 const mode = process.argv[2];
+const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+if (mode === 'warm-ready') {
+	writeFileSync('/run/treeseed-output/warm.json', JSON.stringify({ bootId }));
+} else {
 if (mode !== 'read-only' && mode !== 'private-write') throw new Error('Invalid qualification mode.');
 const source = readFileSync('/workspace/project/source.txt', 'utf8');
 if (source !== 'treeseed-workspace-fixture-v1\n') throw new Error('Unexpected source image.');
@@ -13,7 +17,8 @@ catch (error) {
 	writeDenied = true;
 }
 if (writeDenied !== (mode === 'read-only')) throw new Error('Block write isolation failed.');
-writeFileSync('/run/treeseed-output/qualification.json', JSON.stringify({ mode, sourceVerified: true, writeDenied }));
+writeFileSync('/run/treeseed-output/qualification.json', JSON.stringify({ mode, bootId, sourceVerified: true, writeDenied }));
+}
 } catch (error) {
 	writeFileSync('/run/treeseed-output/qualification.json', JSON.stringify({ failed: true,
 		code: (error as NodeJS.ErrnoException).code ?? 'probe_failed', message: error instanceof Error ? error.message : 'Probe failed.' }));

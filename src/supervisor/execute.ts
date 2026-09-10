@@ -255,7 +255,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
 		case 'sandbox.status':
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
-		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration());
+		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
 		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);

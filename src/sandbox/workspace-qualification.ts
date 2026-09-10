@@ -21,13 +21,42 @@ const run: Runner = async (program, args) => (await exec(program, args, {
 export function qualificationArguments(options: {
 	address: string; namespace: string; runtime: string; image: string;
 	id: string; device: string; input: string; output: string; readOnly: boolean;
+	warmSandboxId?: string;
 }) {
 	return ['--address', options.address, '--namespace', options.namespace, 'run', '--rm', '--null-io',
 		'--runtime', options.runtime, '--cpus', '1', '--memory-limit', '536870912', '--user', '65532:65532',
+		...(options.warmSandboxId ? ['--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${options.warmSandboxId}`] : []),
 		'--mount', `type=bind,src=${options.device},dst=/workspace/project,options=${options.readOnly ? 'ro' : 'rw'}:nodev:nosuid`,
 		'--mount', `type=bind,src=${options.input},dst=/run/treeseed-probe,options=rbind:ro`,
 		'--mount', `type=bind,src=${options.output},dst=/run/treeseed-output,options=rbind:rw`,
 		options.image, options.id, 'node', '/run/treeseed-probe/guest.mjs', options.readOnly ? 'read-only' : 'private-write'];
+}
+
+async function removeProbeContainer(config: SandboxBrokerConfiguration, id: string) {
+	const ctr = ['--address', config.containerdAddress, '--namespace', config.namespace];
+	await run('/usr/bin/ctr', [...ctr, 'tasks', 'kill', '--signal', 'SIGKILL', id]).catch(() => undefined);
+	await run('/usr/bin/ctr', [...ctr, 'tasks', 'delete', '--force', id]).catch(() => undefined);
+	await run('/usr/bin/ctr', [...ctr, 'containers', 'delete', id]).catch(() => undefined);
+	if ((await run('/usr/bin/ctr', [...ctr, 'containers', 'list', '--quiet'])).split(/\s+/u).includes(id)) {
+		throw new Error('Workspace probe remains attached; retaining its storage fence.');
+	}
+}
+
+async function prepareWarmProbe(config: SandboxBrokerConfiguration, image: string, id: string, input: string, output: string) {
+	const ctr = ['--address', config.containerdAddress, '--namespace', config.namespace];
+	const warmId = `${id}-warm`;
+	await run('/usr/bin/ctr', [...ctr, 'run', '--detach', '--null-io', '--runtime', config.runtime,
+		'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', '1', '--memory-limit', '1073741824',
+		image, warmId, '/bin/sleep', '120']);
+	await run('/usr/bin/ctr', [...ctr, 'run', '--rm', '--null-io', '--runtime', config.runtime,
+		'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${warmId}`,
+		'--user', '65532:65532',
+		'--mount', `type=bind,src=${input},dst=/run/treeseed-probe,options=rbind:ro`,
+		'--mount', `type=bind,src=${output},dst=/run/treeseed-output,options=rbind:rw`,
+		image, `${id}-ready`, 'node', '/run/treeseed-probe/guest.mjs', 'warm-ready']);
+	const receipt = JSON.parse(await readFile(join(output, 'warm.json'), 'utf8')) as { bootId?: unknown };
+	if (typeof receipt.bootId !== 'string' || !/^[a-f0-9-]{36}$/u.test(receipt.bootId)) throw new Error('Warm sandbox did not produce a valid boot identity.');
+	return receipt.bootId;
 }
 
 async function vacantDevice() {
@@ -75,7 +104,7 @@ export async function recoverWorkspaceQualification(config: SandboxBrokerConfigu
 		throw new Error('Invalid workspace qualification recovery ownership.');
 	}
 	const containers = await run('/usr/bin/ctr', ['--address', config.containerdAddress, '--namespace', config.namespace, 'containers', 'list', '--quiet']);
-	if (containers.split(/\s+/u).includes(owner.id)) throw new Error('Workspace probe still has a container; recovery refuses to remove attached storage.');
+	if ([owner.id, `${owner.id}-ready`, `${owner.id}-warm`].some(id => containers.split(/\s+/u).includes(id))) throw new Error('Workspace probe still has a container; recovery refuses to remove attached storage.');
 	await disconnectOwnedDevice(owner.device, owner.directory);
 	await rm(owner.directory, { recursive: true });
 	await rm(fence, { recursive: true });
@@ -83,14 +112,14 @@ export async function recoverWorkspaceQualification(config: SandboxBrokerConfigu
 }
 
 /** Fixed local operator diagnostic: no caller-selected image, path, shell, source or credentials. */
-export async function qualifyWorkspaceStorage(config: SandboxBrokerConfiguration) {
+export async function qualifyWorkspaceStorage(config: SandboxBrokerConfiguration, mode: 'cold' | 'warm' = 'cold') {
 	if (qualificationRunning) throw new Error('Workspace qualification is already running.');
 	qualificationRunning = true;
-	try { return await runQualification(config); }
+	try { return await runQualification(config, mode); }
 	finally { qualificationRunning = false; }
 }
 
-async function runQualification(config: SandboxBrokerConfiguration) {
+async function runQualification(config: SandboxBrokerConfiguration, mode: 'cold' | 'warm') {
 	await mkdir(root, { recursive: true, mode: 0o700 });
 	// Cross-process exclusion; a crash deliberately leaves this fence for recovery, not reuse.
 	const fence = join(root, 'active');
@@ -100,6 +129,7 @@ async function runQualification(config: SandboxBrokerConfiguration) {
 	let device: string | undefined;
 	let attached = false;
 	let stopped = true;
+	let warmOwned = false;
 	const startedAt = Date.now();
 	const ctr = ['--address', config.containerdAddress, '--namespace', config.namespace];
 	try {
@@ -132,18 +162,23 @@ async function runQualification(config: SandboxBrokerConfiguration) {
 			attached = true; // A failed connect may still have partially attached the device.
 			await run('/usr/bin/qemu-nbd', ['--format=qcow2', '--fork', `--pid-file=${join(directory, 'nbd.pid')}`,
 				...(readOnly ? ['--read-only'] : []), `--connect=${device}`, overlay]);
+			let warmBootId: string | undefined;
+			if (mode === 'warm') { warmOwned = true; warmBootId = await prepareWarmProbe(config, image, id, input, output); }
+			const executionStartedAt = Date.now();
 			stopped = false;
 			await run('/usr/bin/ctr', qualificationArguments({ address: config.containerdAddress, namespace: config.namespace,
-				runtime: config.runtime, image, id, device, input, output, readOnly }));
+				runtime: config.runtime, image, id, device, input, output, readOnly, ...(mode === 'warm' ? { warmSandboxId: `${id}-warm` } : {}) }));
 			stopped = true;
 			const result = JSON.parse(await readFile(join(output, 'qualification.json'), 'utf8')) as Record<string, unknown>;
 			if (result.sourceVerified !== true || result.writeDenied !== readOnly) throw new Error('Guest workspace qualification failed.');
-			results.push(result);
+			if (warmBootId && result.bootId !== warmBootId) throw new Error('Execution did not attach to the virgin warm sandbox.');
+			results.push({ ...result, executionMs: Date.now() - executionStartedAt, ...(warmBootId ? { warmBootVerified: true } : {}) });
+			if (warmOwned) { await removeProbeContainer(config, `${id}-warm`); warmOwned = false; }
 			await disconnectOwnedDevice(device, directory); attached = false;
 			await rm(join(output, 'qualification.json'));
 		}
 		if (createHash('sha256').update(await readFile(base)).digest('hex') !== digest) throw new Error('Immutable workspace base changed.');
-		return { schemaVersion: 'treeseed.workspace-storage-qualification/v1', id, guestDigest: guest.digest,
+		return { schemaVersion: 'treeseed.workspace-storage-qualification/v1', id, mode, guestDigest: guest.digest,
 			results, baseUnchanged: true, hostFilesystemMounts: 0, elapsedMs: Date.now() - startedAt };
 	} catch (error) {
 		const guest = await readFile(join(directory, 'output', 'qualification.json'), 'utf8').catch(() => 'No guest receipt.');
@@ -156,6 +191,10 @@ async function runQualification(config: SandboxBrokerConfiguration) {
 			await run('/usr/bin/ctr', [...ctr, 'containers', 'delete', id]).catch(() => undefined);
 			const containers = await run('/usr/bin/ctr', [...ctr, 'containers', 'list', '--quiet']);
 			if (containers.split(/\s+/u).includes(id)) throw new Error('Workspace probe remains attached; resources are fenced for recovery.');
+		}
+		if (warmOwned) {
+			await removeProbeContainer(config, `${id}-ready`);
+			await removeProbeContainer(config, `${id}-warm`);
 		}
 		if (attached && device) await disconnectOwnedDevice(device, directory);
 		await rm(directory, { recursive: true, force: true });
