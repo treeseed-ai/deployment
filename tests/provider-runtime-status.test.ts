@@ -14,6 +14,18 @@ function fixture(extra: Record<string, unknown> = {}) {
 }
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 describe('bounded provider runtime observation', () => {
+	it('reports fixed idle reasons without reflecting arbitrary status or reason text', () => {
+		const root = fixture({ result: { results: [
+			{ status: 'idle', reason: 'no_assignment', assignment: 'never-output' },
+			{ status: 'idle', reason: 'local_capacity_exhausted' },
+			{ status: 'idle', reason: 'private-value' }, { status: 'private-status', reason: 'private-value' },
+		] } });
+		const status = providerRuntimeStatus(root, process.getuid!(), now).roles[0];
+		expect(status).toMatchObject({ observations: [
+			{ status: 'idle', reason: 'no_assignment' }, { status: 'idle', reason: 'local_capacity_exhausted' }, { status: 'idle', reason: null },
+		] });
+		expect(JSON.stringify(status)).not.toMatch(/private-value|private-status|never-output/u);
+	});
 	it('exposes freshness and failures but not assignment outputs or credential fields', () => {
 		const root = fixture({ result: { accessToken: 'never-output', outputs: ['never-output'], results: [{ status: 'error', error: 'authorization=private-token password=private-password Bearer private-bearer' }] } });
 		const result = providerRuntimeStatus(root, process.getuid!(), now);

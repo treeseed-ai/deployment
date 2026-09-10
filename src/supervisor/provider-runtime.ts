@@ -31,13 +31,20 @@ export function providerRuntimeStatus(root: string, owner = 65_532, now = Date.n
 			const result = record(value.result);
 			const connections = Array.isArray(result.connections) ? result.connections : [];
 			const results = Array.isArray(result.results) ? result.results : [];
+			const observations = results.slice(0, 32).flatMap(entry => {
+				const item = record(entry);
+				if (!['idle', 'running', 'completed', 'returned', 'error'].includes(String(item.status))) return [];
+				const reason = ['no_assignment', 'local_capacity_exhausted', 'assignment_adapter_unavailable', 'executor_unavailable'].includes(String(item.reason))
+					? String(item.reason) : null;
+				return [{ status: String(item.status), reason }];
+			});
 			const errors = [value.error, ...[...connections, ...results].slice(0, 32).map(entry => {
 				const item = record(entry);
 				return item.error ?? (item.ok === false || item.status === 'error' ? 'connection_reconciliation_failed' : undefined);
 			})].map(diagnostic).filter(Boolean);
 			if (result.ok === false && errors.length === 0) errors.push('runtime_operation_failed');
 			if (role === 'manager' && Array.isArray(result.connections) && connections.length === 0) errors.push('no_provider_connections');
-			return { role, observed: true, fresh, ok: fresh && value.ok === true && errors.length === 0, updatedAt: new Date(updated).toISOString(), errors };
+			return { role, observed: true, fresh, ok: fresh && value.ok === true && errors.length === 0, updatedAt: new Date(updated).toISOString(), errors, observations };
 		} catch (error) {
 			return { ...missing, reason: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'not_observed' : 'unsafe_or_invalid_record' };
 		} finally { if (fd !== undefined) closeSync(fd); }
