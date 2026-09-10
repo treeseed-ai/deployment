@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, closeSync, createReadStream, createWriteStream, fstatSync, openSync, readSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { type Readable, type Writable } from 'node:stream';
@@ -54,4 +54,19 @@ export async function inspectBackupStream(path: string, generation: number, key:
 	if (failure) throw failure;
 	if ([...selected].some(name => !(name in documents))) throw new Error('Backup metadata is incomplete.');
 	return { envelope, entries, configuration: documents['etc/treeseed/platform.json'], receipt: documents['var/lib/treeseed/manager/current-receipt.json'], components: documents['var/lib/treeseed/manager/active-components.json'] };
+}
+
+/** Hash one bounded regular member, but authenticate/drain the complete archive. */
+export async function archivedInputDigest(snapshot:string,generation:number,key:Buffer,member:string) {
+	let count=0,size=0,invalid=false;
+	const hash=createHash('sha256');
+	const parser=new Parser({strict:true,onReadEntry(entry){
+		if(entry.path!==member){entry.resume();return;}
+		count++;
+		if(entry.type!=='File' || entry.size>1048576 || count!==1){invalid=true;entry.resume();return;}
+		entry.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>1048576)invalid=true;else hash.update(chunk);});
+	}});
+	await decryptBackupStream(snapshot,generation,key,parser as unknown as Writable);
+	if(invalid || count!==1) throw new Error('Exact persistent input missing from authenticated recovery archive');
+	return hash.digest('hex');
 }
