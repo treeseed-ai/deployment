@@ -130,8 +130,8 @@ export async function browserFixture(root: string) {
         page.setDefaultTimeout(20_000);
         await page.goto(`${admin.base}/login`);
         phase = 'first-login-form';
-        assert.equal(await page.locator('.auth-brand__name').innerText(), 'TreeSeed');
         await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
+        assert.equal(await page.locator('.auth-brand__name').innerText(), 'TreeSeed');
         phase = 'theme-favicon';
         const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
         assert.ok(favicon);
