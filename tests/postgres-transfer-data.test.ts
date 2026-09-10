@@ -56,7 +56,7 @@ async function fixture() {
   const journal={stage:'fencing',intentDigest:plan.intentDigest,restoreGeneration:7,restoreDigest:selection.backupDigest,archiveDigest:archive.digest};
   f.journal.mockReturnValue({active:()=>journal});
   f.write.mockResolvedValue(archive);f.restore.mockImplementation(async(_root,_digest,_key,_archive,open)=>{await open();target.destination.empty=false;});
-  const data=managedPostgresTransferData(selection,plan);
+  const data=managedPostgresTransferData(selection,plan,()=>f.source());
   return {source,target,networks,selection,plan,archive,journal,data,producer,consumer,keys,identity,fingerprint};
 }
 it('enforces durable phases before running privileged mutations or opening key custody',async()=>{
@@ -77,7 +77,7 @@ it('exports through existing backup custody only after source isolation',async()
   v.journal.stage='fencing';await v.data.fence();v.journal.stage='export';expect(await v.data.export()).toEqual(v.archive);
   expect(f.export.mock.calls[0]?.[0]).toMatchObject({container:v.source.source.container,username:'source_owner',database:'old_api'});
   expect(v.producer.disconnect).toHaveBeenCalled();expect(v.keys.every(key=>key.every(value=>value===0))).toBe(true);
-  expect(f.reader).toHaveBeenCalledTimes(1);
+  expect(f.source).toHaveBeenCalled();
 });
 it('restores under the restricted migrator, closes it and verifies copied data with both sides fenced',async()=>{
   const v=await fixture();await v.data.fence();v.journal.stage='export';await v.data.export();v.journal.stage='restore';await v.data.restore(v.archive);

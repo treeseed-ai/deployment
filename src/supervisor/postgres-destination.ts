@@ -19,6 +19,7 @@ const stateSchema=z.object({id:z.string().regex(/^[a-f0-9]{64}$/u),image:z.strin
  */
 export async function inspectManagedPostgresDestination(selections:Array<{componentId:string;release:string}>,
   requirementId:string, importing=false) {
+  let stage = 'selection';
   try {
     if(process.getuid?.()!==0)throw new Error();
     const host=loadHostConfiguration(), releases=selections.map(item=>installedComponentRelease(item.componentId,item.release));
@@ -31,16 +32,23 @@ export async function inspectManagedPostgresDestination(selections:Array<{compon
     if(!allocation || !component || !server || !image || server.runtimeDigest!==deploymentDigest(server.runtime) ||
       component.runtimeDigest!==deploymentDigest(component.runtime) ||
       !server.runtime.services.some(item=>item.composeService==='postgres'))throw new Error();
+    stage = 'container-selection';
     const ids=(await postgresDocker(['ps','--all','--quiet','--no-trunc','--filter',
       `label=com.docker.compose.project=${server.runtime.compose.projectName}`,'--filter','label=com.docker.compose.service=postgres'],10,true)).trim().split(/\s+/u);
     if(ids.length!==1 || !/^[a-f0-9]{64}$/u.test(ids[0]!))throw new Error();
     const container=ids[0]!, imageId=(await postgresDocker(['image','inspect','--format','{{.Id}}',`${image.repository}@${image.digest}`],10,true)).trim();
     const inspect=async()=>{
+      stage = 'container-image';
       const state=stateSchema.parse(JSON.parse(await postgresDocker(['inspect','--format',
         '{"id":{{json .Id}},"image":{{json .Image}},"running":{{json .State.Running}},"started":{{json .State.StartedAt}},"mounts":{{json .Mounts}}}',container],10,true)));
+      // Docker's mount array has no ordering contract. Retain every field, but
+      // canonicalize this set before exact custody hashes and replay checks.
+      if(new Set(state.mounts.map(mount=>mount.Destination)).size!==state.mounts.length)throw new Error();
+      state.mounts.sort((a,b)=>a.Destination.localeCompare(b.Destination));
       if(state.id!==container || state.image!==imageId)throw new Error();
       for(const [destination,source] of [['/var/lib/postgresql/data',`${componentStateRoot(host,'postgres')}/postgres`],
         ['/run/postgres/socket','/run/treeseed/postgres/socket']] as const) {
+        stage = destination === '/var/lib/postgresql/data' ? 'data-mount' : 'socket-mount';
         const mounts=state.mounts.filter(item=>item.Destination===destination || item.Destination.startsWith(`${destination}/`));
         if(mounts.length!==1 || mounts[0]?.Type!=='bind' || mounts[0]?.Source!==source ||
           mounts[0]?.Destination!==destination || realpathSync(source)!==source)throw new Error();
@@ -48,14 +56,19 @@ export async function inspectManagedPostgresDestination(selections:Array<{compon
       return state;
     };
     const before=await inspect();
+    stage = 'allocation-custody';
     const destination=await withLocalPostgresBootstrap('/run/treeseed/postgres/socket',allocation.database,
       session=>inspectPostgresTransferDestination(topology,requirementId,session,importing));
+    stage = 'cluster-readback';
     const cluster=(await postgresDocker(['exec',container,'env','-i','PATH=/usr/local/bin:/usr/bin:/bin','PGPASSFILE=/dev/null',
       'psql','-XqAt','--no-password','-h','/run/postgres/socket','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1',
       '-c','SELECT system_identifier::text FROM pg_control_system()'],10,true)).trim();
-    if(!/^[0-9]{1,20}$/u.test(cluster) || deploymentDigest({cluster})!==destination.clusterIdentity ||
-      deploymentDigest(before)!==deploymentDigest(await inspect()) || deploymentDigest(host)!==deploymentDigest(loadHostConfiguration()) ||
+    if(!/^[0-9]{1,20}$/u.test(cluster) || deploymentDigest({cluster})!==destination.clusterIdentity)throw new Error();
+    const after=await inspect(); stage='container-readback';
+    if(deploymentDigest(before)!==deploymentDigest(after))throw new Error();
+    stage='configuration-readback';
+    if(deploymentDigest(host)!==deploymentDigest(loadHostConfiguration()) ||
       deploymentDigest(releases)!==deploymentDigest(selections.map(item=>installedComponentRelease(item.componentId,item.release))))throw new Error();
     return {host,topology,component,container,destination,containerDigest:deploymentDigest(before)};
-  } catch {throw new Error('Managed PostgreSQL destination runtime custody is unavailable or changed; binding unchanged');}
+  } catch {throw Object.assign(new Error('Managed PostgreSQL destination runtime custody is unavailable or changed; binding unchanged'), { diagnostic: { stage } });}
 }

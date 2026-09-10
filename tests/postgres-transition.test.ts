@@ -4,10 +4,12 @@ import { component, host, hash } from './fixtures.js';
 import { requirePostgresTransition } from '../src/supervisor/postgres-transition.js';
 import type { PostgresTransferIntent } from '../src/postgres/transfer.js';
 
-const f=vi.hoisted(()=>({exists:vi.fn(),read:vi.fn(),journal:vi.fn()}));
+const f=vi.hoisted(()=>({exists:vi.fn(),read:vi.fn(),journal:vi.fn(),binding:vi.fn(),accepted:vi.fn(),writers:vi.fn()}));
 vi.mock('node:fs',async original=>({...await original<object>(),existsSync:f.exists,readFileSync:f.read}));
-vi.mock('../src/supervisor/postgres-transfer-guard.js',()=>({activePostgresTransferJournal:f.journal}));
-beforeEach(()=>vi.clearAllMocks());
+vi.mock('../src/supervisor/postgres-transfer-guard.js',()=>({activePostgresTransferJournal:f.journal,postgresTransferJournal:()=>({accepted:f.accepted})}));
+vi.mock('../src/supervisor/postgres-transition-custody.js',()=>({postgresTransitionStore:()=>({binding:f.binding}),privatePostgresState:()=>['var/lib/treeseed/components/api/postgres']}));
+vi.mock('../src/supervisor/backup-writers.js',()=>({assertNoBackupWriters:f.writers}));
+beforeEach(()=>{vi.clearAllMocks();f.binding.mockReturnValue(null);f.accepted.mockReturnValue(false);f.writers.mockImplementation(()=>undefined);});
 function fixture() {
   const configuration=host(), previous=component('api','stable','a'), next=component('api','stable','b');
   previous.images[0]!.repository='postgres';
@@ -52,6 +54,14 @@ it('fails closed on corrupt or duplicate active component records',()=>{
 it('allows only the exact internal verified activation phase',()=>{
   const fxt=fixture(); expect(()=>requirePostgresTransition(fxt.configuration,fxt.next,fxt.intent)).not.toThrow();
   fxt.journal.stage='restore'; expect(()=>requirePostgresTransition(fxt.configuration,fxt.next,fxt.intent)).toThrow('verified managed transfer');
+});
+it('allows accepted replay only with matching durable binding, accepted journal and stopped old writers',()=>{
+  const v=fixture();
+  f.binding.mockReturnValue({state:'accepted',sourceRuntimeDigest:v.previous.runtimeDigest,targetRuntimeDigest:v.next.runtimeDigest,
+    topologyDigest:deploymentDigest(v.configuration.postgres),intentDigest:deploymentDigest(v.intent)});
+  expect(v.run).toThrow(); f.accepted.mockReturnValue(true);expect(v.run).not.toThrow();
+  expect(f.writers).toHaveBeenCalledWith(['var/lib/treeseed/components/api/postgres']);
+  f.writers.mockImplementation(()=>{throw new Error('active writer');});expect(v.run).toThrow('active writer');
 });
 it.each(['topologyDigest','runtimeDigest','restorePointDigest','requirementId','installationId'] as const)('denies changed %s even with a matching transaction hash',field=>{
   const fxt=fixture(); fxt.intent[field]=hash('f'); fxt.journal.intentDigest=deploymentDigest(fxt.intent);

@@ -16,6 +16,14 @@ import { managedPostgresTransferSelectionSchema,managedPostgresTransferPlanSchem
 export async function planManagedPostgresTransfer(input:ManagedPostgresTransferSelection) {
   const selection=managedPostgresTransferSelectionSchema.parse(input);
   const source=await inspectRecoveryPostgresSource(selection.generation,selection.backupDigest,selection.componentId,selection.serviceId);
+  return planManagedPostgresTransferFromSource(selection, source);
+}
+
+/** Internal coordinator can supply its authenticated isolated-copy reader.
+ * Neither source objects nor callbacks are accepted by the supervisor wire. */
+export async function planManagedPostgresTransferFromSource(input:ManagedPostgresTransferSelection,
+  source:Awaited<ReturnType<typeof inspectRecoveryPostgresSource>>) {
+  const selection=managedPostgresTransferSelectionSchema.parse(input);
   const target=await inspectManagedPostgresDestination(selection.selections,selection.requirementId);
   if(target.component.componentId!==selection.componentId || !target.destination.empty ||
     target.component.runtime.postgresLifecycle?.length!==1 ||

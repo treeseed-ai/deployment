@@ -15,7 +15,7 @@ import { managedPostgresTransferPlanSchema,managedPostgresTransferSelectionSchem
   type ManagedPostgresTransferPlan,type ManagedPostgresTransferSelection } from '../postgres/managed-transfer-contract.js';
 import type { PostgresTransferArchive } from '../postgres/transfer.js';
 import { inspectManagedPostgresDestination } from './postgres-destination.js';
-import { createRecoveryPostgresSourceReader } from './postgres-source-backup.js';
+import type { PostgresTransferSourceReader } from './postgres-copy-reader.js';
 import { activePostgresTransferJournal } from './postgres-transfer-guard.js';
 import { postgresDocker } from './postgres-process.js';
 import { withApplicationBackupKey } from './backup.js';
@@ -25,11 +25,10 @@ import { readComponentCredential } from './component-sealed.js';
  * throughout. These are never caller-supplied callbacks or exposed independently
  * over the supervisor protocol. Every mutation requires the exact durable phase.
  */
-export function managedPostgresTransferData(input:ManagedPostgresTransferSelection,planned:ManagedPostgresTransferPlan) {
+export function managedPostgresTransferData(input:ManagedPostgresTransferSelection,planned:ManagedPostgresTransferPlan,readSource:PostgresTransferSourceReader) {
   const selection=managedPostgresTransferSelectionSchema.parse(input),plan=managedPostgresTransferPlanSchema.parse(planned);
   if(process.getuid?.()!==0 || plan.selectionDigest!==deploymentDigest(selection))throw new Error('Exact managed transfer custody required');
   const {intent}=plan;
-  let reader:ReturnType<typeof createRecoveryPostgresSourceReader>|undefined;
   const phase=(...allowed:string[])=>{
     const active=activePostgresTransferJournal()?.active();
     if(!active || active.intentDigest!==plan.intentDigest || active.restoreGeneration!==selection.generation ||
@@ -37,8 +36,7 @@ export function managedPostgresTransferData(input:ManagedPostgresTransferSelecti
     return active;
   };
   const source=async()=>{
-    reader??=createRecoveryPostgresSourceReader(selection.generation,selection.backupDigest,selection.componentId,selection.serviceId);
-    const value=await (await reader)();
+    const value=await readSource();
     if(deploymentDigest({inventory:value.source.inventoryDigest,storage:value.storageDigest,configuration:value.configurationDigest})!==intent.sourceInventoryDigest ||
       value.source.container!==plan.sourceNetworks.container)throw new Error('Source transfer custody changed');
     return value;

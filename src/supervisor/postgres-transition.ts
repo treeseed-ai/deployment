@@ -4,8 +4,10 @@ import { componentReleaseSchema, deploymentDigest, type ComponentRelease, type H
 import { z } from 'zod';
 import { paths } from '../core/paths.js';
 import { componentStateRoot } from './component.js';
-import { activePostgresTransferJournal } from './postgres-transfer-guard.js';
+import { activePostgresTransferJournal, postgresTransferJournal } from './postgres-transfer-guard.js';
 import type { PostgresTransferIntent } from '../postgres/transfer.js';
+import { postgresTransitionStore, privatePostgresState } from './postgres-transition-custody.js';
+import { assertNoBackupWriters } from './backup-writers.js';
 
 /** A new empty allocation must never silently replace an existing application
  * database. This is a transition gate, not another credential read path. The
@@ -34,6 +36,15 @@ export function requirePostgresTransition(host: HostConfiguration, component: Co
   });
   const retainedSource = !previous?.runtime.postgresLifecycle?.length && sourcePaths.some(path=>existsSync(path));
   if (!privateSource && !retainedSource) return;
+  if (!transferred && host.postgres && previous) {
+    const binding = postgresTransitionStore(host).binding(component.componentId);
+    if (binding?.state === 'accepted' && binding.sourceRuntimeDigest === previous.runtimeDigest &&
+      binding.targetRuntimeDigest === component.runtimeDigest && binding.topologyDigest === deploymentDigest(host.postgres) &&
+      postgresTransferJournal().accepted(binding.intentDigest)) {
+      assertNoBackupWriters(privatePostgresState(host, previous));
+      return;
+    }
+  }
   const journal = activePostgresTransferJournal()?.active();
   if (!transferred || !host.postgres || !journal || journal.stage !== 'activate' ||
     journal.intentDigest !== deploymentDigest(transferred) || journal.restoreDigest !== transferred.restorePointDigest ||

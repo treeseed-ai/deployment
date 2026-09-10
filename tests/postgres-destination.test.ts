@@ -55,3 +55,12 @@ it('rejects a restarted target after inspection',async()=>{
   const v=fixture();f.destination.mockImplementation(async()=>{v.state.started='later';return v.destination;});
   await expect(v.run()).rejects.toThrow('binding unchanged');
 });
+it('treats Docker mount ordering as a set without ignoring changed mount custody',async()=>{
+  const v=fixture(), read=f.docker.getMockImplementation()!;
+  f.docker.mockImplementation(async(args:string[])=>{
+    if(args[0]==='inspect')v.state.mounts.reverse();
+    return read(args);
+  });
+  const first=await v.run(),second=await v.run();
+  expect(first.containerDigest).toBe(second.containerDigest);
+});

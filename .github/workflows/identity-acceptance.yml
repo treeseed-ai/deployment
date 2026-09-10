@@ -1,10 +1,10 @@
 name: Identity compatibility
 on:
   pull_request:
-    paths: ['src/identity/**', 'src/postgres/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
+    paths: ['src/identity/**', 'src/postgres/**', 'src/supervisor/postgres*.ts', 'src/supervisor/backup*.ts', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
   push:
     branches: [staging, main]
-    paths: ['src/identity/**', 'src/postgres/**', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
+    paths: ['src/identity/**', 'src/postgres/**', 'src/supervisor/postgres*.ts', 'src/supervisor/backup*.ts', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
 permissions: { contents: read }
 concurrency:
   group: identity-acceptance-${{ github.event.pull_request.number || github.ref }}
@@ -47,6 +47,12 @@ jobs:
           retention-days: 14
           if-no-files-found: error
   postgres-bootstrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [fresh, bookworm, alpine]
+    env:
+      TREESEED_POSTGRES_TRANSFER_SOURCE: ${{ matrix.source }}
     # Host custody deliberately requires systemd >=259 (--refuse-null), matching
     # the supported Ubuntu 26.04 host, not the older browser-fixture runner.
     runs-on: ubuntu-26.04
@@ -57,11 +63,13 @@ jobs:
         with: { node-version: 24 }
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build
+      - name: Type-check privileged acceptance fixtures
+        run: npx tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext tests/identity-runtime/local-bootstrap.ts tests/identity-runtime/managed-transfer.ts
       - name: Verify protected local bootstrap without a host TCP port
-        run: sudo --preserve-env=GITHUB_ACTIONS "$(command -v node)" --import tsx tests/identity-runtime/local-bootstrap.ts > postgres-bootstrap-acceptance.json
+        run: sudo --preserve-env=GITHUB_ACTIONS,TREESEED_POSTGRES_TRANSFER_SOURCE "$(command -v node)" --import tsx tests/identity-runtime/local-bootstrap.ts > postgres-bootstrap-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: postgres-bootstrap-acceptance-${{ github.sha }}
+          name: postgres-bootstrap-acceptance-${{ matrix.source }}-${{ github.sha }}
           path: postgres-bootstrap-acceptance.json
           retention-days: 14
           if-no-files-found: error

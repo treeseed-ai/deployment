@@ -40,7 +40,7 @@ try {
   const service = managedPostgresService({ configurationRoot: options.runtimeRoot, stateRoot: options.stateRoot });
   const runtime = { ...service, container_name: name };
   writeFileSync(compose, JSON.stringify({ services: { postgres: runtime }, networks: { private: { internal: true, name: 'treeseed-postgres-private' } } }));
-  started = true; docker('compose', '-p', name, '-f', compose, 'up', '-d', '--wait');
+  started = true; docker('compose', '-p', 'treeseed-postgres', '-f', compose, 'up', '-d', '--wait');
   stage = 'ports';
   assert.ok(Object.values(JSON.parse(docker('inspect', '--format', '{{json .NetworkSettings.Ports}}', name))).every(value => value === null));
   const directory = join(options.runtimeRoot, 'socket');
@@ -105,7 +105,7 @@ try {
     systemd: execFileSync('/usr/bin/systemd-creds', ['--version'], { encoding: 'utf8' }).split('\n')[0] }));
   throw new Error('Disposable local PostgreSQL bootstrap acceptance failed');
 } finally {
-  if (started) docker('compose', '-p', name, '-f', compose, 'down', '--volumes');
+  if (started) docker('compose', '-p', 'treeseed-postgres', '-f', compose, 'down', '--volumes');
   for (const path of credentialFiles) rmSync(path, { force: true });
   rmSync('/run/treeseed/postgres', { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });

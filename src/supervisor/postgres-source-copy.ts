@@ -26,7 +26,7 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
   serviceId: string, docker: SourceDocker, run: (source: {
     container: string; database: string; username: string; major: 16 | 17;
     clusterIdentity: string; locale: z.infer<typeof postgresSourceDescriptorSchema>['locale'];
-    custodyDigest: string; revalidate: () => Promise<void>;
+    custodyDigest: string; imageDigest: string; revalidate: () => Promise<void>; stop: () => Promise<void>;
   }) => Promise<T>): Promise<T> {
   if (process.getuid?.() !== 0 || !staged.component.runtime.services.some(item => item.composeService === serviceId) ||
     realpathSync(staged.directory) !== staged.directory || realpathSync(staged.dataDirectory) !== staged.dataDirectory ||
@@ -39,6 +39,8 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
     `label=com.docker.compose.service=${serviceId}`], 10, true)).trim());
   const inspectOriginal = async () => {
     const value = observedSchema.parse(JSON.parse(await docker(['inspect', '--format', format, original], 10, true)));
+    if (new Set(value.mounts.map(mount => mount.Destination)).size !== value.mounts.length) throw new Error('Ambiguous retained source mounts');
+    value.mounts.sort((a, b) => a.Destination.localeCompare(b.Destination));
     const mounts = value.mounts.filter(item => item.Destination === '/var/lib/postgresql/data' || item.Destination.startsWith('/var/lib/postgresql/data/'));
     if (mounts.length !== 1 || mounts[0]!.Type !== 'bind' || mounts[0]!.Source !== `/${staged.member}` ||
       mounts[0]!.Destination !== '/var/lib/postgresql/data') throw new Error('Retained PostgreSQL source mount changed');
@@ -63,6 +65,8 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
   }
   const name = `treeseed-postgres-copy-${randomUUID()}`;
   let container: string | undefined;
+  let removed = false;
+  let stage = 'helper-start';
   try {
     container = id.parse((await docker(['run', '--detach', '--name', name, '--network', 'none', '--read-only',
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '128', '--memory', '2g',
@@ -73,6 +77,7 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
       '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777', '--entrypoint', 'postgres', pinnedImage,
       '-D', '/var/lib/postgresql/data', '-c', 'config_file=/run/treeseed-source/postgresql.conf'], 30, true)).trim());
     const database = observed.database.slice(12), username = observed.username.slice(14);
+    stage = 'helper-attestation';
     const query = async () => postgresSourceDescriptorSchema.parse(JSON.parse(await docker(['exec', container!, 'env', '-i',
       'PATH=/usr/local/bin:/usr/bin:/bin', 'PGPASSFILE=/dev/null', 'psql', '--no-password', '-XqAt', '-h', '/run/postgresql',
       '-U', username, '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', postgresSourceInventorySql], 15, true)));
@@ -87,15 +92,26 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
         throw new Error('PostgreSQL source copy identity changed');
     };
     await revalidate();
-    const value = await run({ container, database, username, major: staged.major, locale: before.locale,
+    stage = 'transfer-operation';
+    const stop = async () => { if (!removed) { await docker(['rm', '--force', container!], 30, false); removed = true; } };
+    const value = await run({ container, database, username, major: staged.major, locale: before.locale, imageDigest: image[0]!.digest, stop,
       clusterIdentity: deploymentDigest({ cluster: before.cluster }),
       custodyDigest: deploymentDigest({ backup: staged.backupDigest, member: staged.member, runtime: staged.component.runtimeDigest,
         image: pinnedImage, original, inventory: before }), revalidate });
-    await revalidate(); return value;
-  } catch { throw new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'); }
+    if (!removed) await revalidate();
+    else if (deploymentDigest(await inspectOriginal()) !== deploymentDigest(observed)) throw new Error('Original source changed');
+    return value;
+  } catch (error) {
+    // Preserve bounded code locations and phase, never driver messages, SQL,
+    // process output or credential values. Useful in privileged Actions too.
+    const locations = error instanceof Error ? [...(error.stack ?? '').matchAll(/\/(src\/[a-zA-Z0-9_./-]+\.[jt]s:\d+:\d+)/gu)].slice(0, 6).map(match => match[1]) : [];
+    const phase = error instanceof Error ? /PostgreSQL transfer failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
+    const causeStage = z.object({ stage: z.enum(['selection', 'container-selection', 'container-image', 'data-mount', 'socket-mount', 'allocation-custody', 'cluster-readback', 'container-readback', 'configuration-readback']) }).safeParse(error && typeof error === 'object' && 'diagnostic' in error ? error.diagnostic : undefined);
+    throw Object.assign(new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'), { diagnostic: { stage, phase, locations, causeStage: causeStage.success ? causeStage.data.stage : undefined } });
+  }
   finally {
     // A failed Docker command can still have created the exact random-name
     // helper. Remove only that helper; never prune or touch the original.
-    await docker(['rm', '--force', container ?? name], 30, false);
+    if (!removed) await docker(['rm', '--force', container ?? name], 30, false);
   }
 }

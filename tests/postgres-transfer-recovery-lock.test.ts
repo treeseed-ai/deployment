@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { executeBackupOperation } from '../src/supervisor/backup-operations.js';
+vi.mock('../src/supervisor/postgres-copy-cleanup.js', () => ({ cleanupPostgresSourceCopies: async () => undefined }));
 
 const f = vi.hoisted(() => ({ locked: false, active: vi.fn(), restored: vi.fn(), restore: vi.fn(), mark: vi.fn(), lock: vi.fn() }));
 vi.mock('../src/supervisor/postgres-transfer-guard.js', () => ({ postgresTransferJournal: () => ({ locked: f.lock, active: f.active, restored: f.restored }) }));

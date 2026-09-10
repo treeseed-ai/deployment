@@ -4,6 +4,7 @@ import type { CommandRunner } from './compose-runtime.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { beginDevelopmentBackup, finishDevelopmentBackup, developmentBackupDependencies, developmentBackupStatus, fenceDevelopmentBackup, markDevelopmentBackupRestored } from './development-backup.js';
 import { postgresTransferJournal } from './postgres-transfer-guard.js';
+import { cleanupPostgresSourceCopies } from './postgres-copy-cleanup.js';
 
 const command: CommandRunner = (executable, args) => {
   const result = spawnSync(executable, [...args], { encoding: 'utf8', timeout: 180_000, maxBuffer: 1_048_576,
@@ -29,6 +30,7 @@ export function executeBackupOperation(operation: SupervisorOperation) {
       return journal.locked(async () => {
         const active = journal.active();
         if (active && active.restoreGeneration !== operation.generation) throw new Error('Exact coordinated PostgreSQL restore point required');
+        await cleanupPostgresSourceCopies();
         const result = await restoreGenerationBackup(operation.generation, active?.restoreDigest.slice(7));
         markDevelopmentBackupRestored(deps);
         if (active) journal.restored(result.generation, result.sha256);

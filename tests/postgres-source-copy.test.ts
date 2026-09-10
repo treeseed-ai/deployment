@@ -15,7 +15,7 @@ function fixture() {
   release.runtimeDigest = deploymentDigest(release.runtime);
   const staged = { component: release, configuration: host(), member: 'var/lib/treeseed/components/api/postgres',
     directory: '/private/copy', dataDirectory: '/private/copy/var/lib/treeseed/components/api/postgres',
-    major: 16 as const, generation: 7, backupDigest: `sha256:${'b'.repeat(64)}` };
+    coveredState: ['var/lib/treeseed/components/api/postgres'], major: 16 as const, generation: 7, backupDigest: `sha256:${'b'.repeat(64)}` };
   const original = 'c'.repeat(64), helper = 'd'.repeat(64), imageId = `sha256:${'e'.repeat(64)}`;
   const observed = { image: 'postgres:16-bookworm', database: 'POSTGRES_DB=application', username: 'POSTGRES_USER=owner',
     mounts: [{ Type: 'bind', Source: `/${staged.member}`, Destination: '/var/lib/postgresql/data' }],
@@ -67,4 +67,13 @@ it('cleans the exact allocated name after an uncertain Docker start', async () =
   await expect(withPostgresSourceCopy(f.staged, 'database', f.docker, async () => undefined)).rejects.toThrow('retain coordinated recovery');
   const started = f.docker.mock.calls.find(([args]) => args[0] === 'run')![0];
   expect(f.docker.mock.calls.at(-1)![0]).toEqual(['rm', '--force', started[started.indexOf('--name') + 1]]);
+});
+it('retains safe transfer diagnostics without driver messages or secret values', async () => {
+  const f = fixture();
+  const error = await withPostgresSourceCopy(f.staged, 'database', f.docker, async () => {
+    throw new Error('synthetic-secret: failed SQL credential');
+  }).catch(error => error as Error & { diagnostic: { stage: string } });
+  expect(error.diagnostic.stage).toBe('transfer-operation');
+  expect(JSON.stringify(error)).not.toMatch(/synthetic-secret|failed SQL credential/u);
+  expect(error.message).not.toContain('synthetic-secret');
 });
