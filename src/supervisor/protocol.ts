@@ -5,6 +5,7 @@ import { developmentContainerSchema } from './development-container-contract.js'
 import { managedPostgresTransferSelectionSchema } from '../postgres/managed-transfer-contract.js';
 
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
+	z.object({ operation: z.literal('postgres.lifecycle.inspect'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), release: z.string().regex(/^[0-9][a-zA-Z0-9.+~-]{0,127}$/u) }).strict(),
 	z.object({ operation: z.literal('identity.clients.reconcile') }).strict(),
 	managedPostgresTransferSelectionSchema.extend({operation:z.literal('postgres.transfer.plan')}),
 	postgresTransitionSelectionSchema.innerType().extend({operation:z.literal('postgres.transfer.prepare'),planOnly:z.boolean().optional()}),
