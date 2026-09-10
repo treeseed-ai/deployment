@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { postgresStartupDiagnostic } from '../postgres/startup-diagnostic.js';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
@@ -174,7 +175,7 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 			const [service = '', state = '', health = '', exitCode = ''] = raw.split('\t');
 			if (!/^[a-z][a-z0-9.-]{0,127}$/u.test(service) || !/^[a-z]+$/u.test(state) || !/^(?:none|starting|healthy|unhealthy)$/u.test(health)) continue;
 			const code = Number(exitCode);
-			let diagnostic = componentId === 'agent' && health !== 'none'
+			let diagnostic: Record<string, unknown> | null = componentId === 'agent' && health !== 'none'
 				? agentHealthDiagnostic(command('/usr/bin/docker', ['inspect', '--format', '{{json .State.Health.Log}}', id], '')) : null;
 			if (componentId === 'agent' && health !== 'none' && !diagnostic) {
 				try {
@@ -185,6 +186,10 @@ function composeFailureDiagnostics(componentId: string, projectName: string, com
 			if (componentId === 'agent' && !diagnostic) {
 				try { diagnostic = agentCrashDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--tail', '8', id], '')); }
 				catch { /* raw logs are never emitted; retain the safe service summary */ }
+			}
+			if (componentId === 'postgres' && !diagnostic) {
+				try { diagnostic = postgresStartupDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--tail', '80', id], '')); }
+				catch { /* Never emit raw PostgreSQL logs, even when classification fails. */ }
 			}
 			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
 		} catch { /* retain any other safe service summaries */ }

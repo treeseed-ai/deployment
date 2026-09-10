@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { prepareManagedPostgresBootstrap } from '../../dist/src/postgres/bootstrap.js';
 import { managedPostgresService } from '../../dist/src/postgres/compose.js';
+import { postgresStartupDiagnostic } from '../../dist/src/postgres/startup-diagnostic.js';
 import { withLocalPostgresBootstrap } from '../../dist/src/postgres/connection.js';
 import { inspectPostgresAllocations, planPostgresAllocations, applyPostgresAllocations } from '../../dist/src/postgres/plan.js';
 import { ensurePostgresAllocationCredentials } from '../../dist/src/postgres/credentials.js';
@@ -36,7 +37,7 @@ try {
   prepareManagedPostgresBootstrap(options); // Real systemd-creds, not the unit-test stub.
   stage = 'compose';
   const service = managedPostgresService({ configurationRoot: options.runtimeRoot, stateRoot: options.stateRoot });
-  const runtime = { ...service, container_name: name, volumes: service.volumes.filter(volume => volume.target !== '/var/lib/postgresql/data'), tmpfs: ['/var/lib/postgresql/data'] };
+  const runtime = { ...service, container_name: name };
   writeFileSync(compose, JSON.stringify({ services: { postgres: runtime }, networks: { private: { internal: true, name: 'treeseed-postgres-private' } } }));
   started = true; docker('compose', '-p', name, '-f', compose, 'up', '-d', '--wait');
   stage = 'ports';
@@ -91,8 +92,13 @@ try {
   chmodSync(directory, 0o700);
   console.log(JSON.stringify({ ok: true, checks: [...apiIdentityChecks, 'real-os-bootstrap-custody', 'root-unix-bootstrap', 'no-host-tcp-port', 'socket-permission-denial', 'running-bootstrap-replay', 'allocation-os-credentials', 'credential-preserving-replay', 'scoped-runtime-login-disable', 'unrelated-bootstrap-session-preserved', 'interrupted-allocation-recovery', 'managed-component-activation', 'managed-component-noop'] }));
 } catch (error) {
+  let startup: ReturnType<typeof postgresStartupDiagnostic> = null;
+  try {
+    const logs = spawnSync('/usr/bin/docker', ['logs', '--tail', '80', name], { encoding: 'utf8', stdio: ['ignore','pipe','pipe'], timeout: 10000, maxBuffer: 65536 });
+    startup = postgresStartupDiagnostic(logs.stdout + logs.stderr);
+  } catch { /* Keep only safe diagnostic codes. */ }
   const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[a-zA-Z0-9_]{1,64}$/u.test(error.code) ? error.code : 'unavailable';
-  console.error(JSON.stringify({ stage, code, type: error instanceof Error ? error.name : 'unknown',
+  console.error(JSON.stringify({ stage, code, startup, type: error instanceof Error ? error.name : 'unknown',
     frames: error instanceof Error ? error.stack?.split('\n').slice(1).filter(line => /^\s+at /u.test(line)).slice(0, 8) : [],
     lifecycleStage: error instanceof Error ? /^PostgreSQL component activation failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined,
     systemd: execFileSync('/usr/bin/systemd-creds', ['--version'], { encoding: 'utf8' }).split('\n')[0] }));
