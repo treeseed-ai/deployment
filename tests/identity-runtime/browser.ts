@@ -134,14 +134,20 @@ export async function browserFixture(root: string) {
         const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
         assert.ok(favicon);
         assert.ok(favicon?.endsWith('/img/treeseed-logo.svg'));
-        const icon = await page.request.get(new URL(favicon, page.url()).href); assert.equal(icon.status(), 200);
+        phase = 'theme-favicon';
+        // Use the browser's explicitly pinned TLS context, not Playwright's
+        // separate API request client (which does not inherit Chromium pins).
+        assert.equal(await page.evaluate(async href => (await fetch(href, { credentials: 'omit' })).status, favicon), 200);
+        phase = 'theme-password-reset';
         await page.getByRole('link', { name: 'Forgot password?' }).click();
         await page.locator('input[name="username"]').waitFor();
         assert.match(await page.locator('#kc-page-title').innerText(), /Reset your password/);
         await page.goto(`${admin.base}/login`);
+        phase = 'theme-registration';
         await page.getByRole('link', { name: 'Create account' }).click();
         assert.match(await page.locator('#kc-page-title').innerText(), /Create your TreeSeed account/);
         await page.goto(`${admin.base}/login`);
+        phase = 'theme-responsive-layout';
         await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({ path: 'identity-auth-mobile.png', fullPage: true });
