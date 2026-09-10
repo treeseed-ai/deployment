@@ -25,8 +25,11 @@ export function managedIdentityClientPlan(host: HostConfiguration) {
       || componentCredential(host, key).provider !== 'systemd-credential') throw new Error('Independent OS-sealed workload key required');
     if (componentCredential(host, application.signingKeyReference).provider !== 'systemd-credential') throw new Error('OS-sealed browser key required');
     const environment = consumer.configuration.environment as Record<string, unknown>;
+    const apiConnection = consumer.connections.api;
+    const consumerResource = environment.TREESEED_API_BASE_URL ?? (apiConnection?.kind === 'local'
+      && apiConnection.componentId === 'api' && apiConnection.serviceId === 'api' && apiConnection.endpointId === 'http' ? resource : undefined);
     if (environment.TREESEED_SITE_URL !== new URL(application.redirectUri).origin
-      || environment.TREESEED_IDENTITY_ISSUER !== config.issuer || environment.TREESEED_API_BASE_URL !== config.resource)
+      || environment.TREESEED_IDENTITY_ISSUER !== config.issuer || consumerResource !== config.resource)
       throw new Error('Application and API Identity configuration disagree');
     return { ...application, componentId, workloadKeyReference: key,
       permissions: [BROWSER_SESSION_PERMISSION], workloadScopes: [BROWSER_SESSION_SCOPE] };

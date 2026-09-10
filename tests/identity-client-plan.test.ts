@@ -24,6 +24,13 @@ it('plans one distinct workload consumer with only browser-bridge authority', ()
     permissions: ['identity:sessions:manage'], workloadScopes: ['treeseed:identity:sessions'] });
 });
 
+it('derives the public resource from a manager-owned local API connection', () => {
+  const { configuration } = fixture();
+  delete (configuration.components.admin!.configuration.environment as Record<string, string>).TREESEED_API_BASE_URL;
+  configuration.components.admin!.connections.api = { kind: 'local', componentId: 'api', serviceId: 'api', endpointId: 'http' };
+  expect(managedIdentityClientPlan(configuration).resource).toBe('https://api.example');
+});
+
 it.each(['issuer', 'resource', 'disabled', 'consumer', 'ambiguous', 'key', 'cookie-origin'] as const)('rejects %s drift before enrollment', defect => {
   const { configuration, descriptor } = fixture();
   const consumer = configuration.components.admin!;

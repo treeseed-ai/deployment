@@ -125,6 +125,14 @@ export function managedConnectionEnvironment(host: HostConfiguration, component:
 		const identity = `${target.componentId}.${service.id}.${endpoint.id}`;
 		const alias = host.components[target.componentId]?.aliases[identity] ?? endpoint.defaultAlias;
 		values[`${prefix}_AUDIENCE`] = alias ? `https://${alias}` : values[`${prefix}_URL`]!;
+		if (component.componentId === 'admin' && dependency.id === 'api'
+			&& (selection.configuration.environment as Record<string, unknown> | undefined)?.TREESEED_IDENTITY_ISSUER) {
+			if (!alias) throw new Error('Identity-enabled Admin requires a public API authority');
+			values.TREESEED_API_BASE_URL = `https://${alias}`;
+			values.TREESEED_API_HOSTNAME = alias;
+			const issuer = (selection.configuration.environment as Record<string, string>).TREESEED_IDENTITY_ISSUER!;
+			values.TREESEED_IDENTITY_HOSTNAME = new URL(issuer).hostname;
+		}
 	}
 	return values;
 }

@@ -8,7 +8,7 @@ const scope={team:'host',project:'control-plane',environment:'bootstrap',purpose
 function write(path:string,value:string|Buffer){const temporary=`${path}.new`;writeFileSync(temporary,value,{mode:0o600});renameSync(temporary,path);}
 
 /** Called only by the privileged manager, never by downloaded application code. */
-export function prepareManagedOpenBao(stateRoot:string,runtimeRoot='/run/treeseed/openbao') {
+export function prepareManagedOpenBao(stateRoot:string,runtimeRoot='/run/treeseed/openbao',additionalClientCa='') {
   const os=new OsSecretCustody(join(stateRoot,'openbao-os'),false);
   mkdirSync(runtimeRoot,{recursive:true,mode:0o700});
   for(const name of ['server','bootstrap','client'])mkdirSync(join(runtimeRoot,name),{recursive:true,mode:0o700});
@@ -31,7 +31,7 @@ export function prepareManagedOpenBao(stateRoot:string,runtimeRoot='/run/treesee
   write(join(runtimeRoot,'bootstrap/custody.key'),Buffer.from(identity.custodyKey!,'base64'));
   write(join(runtimeRoot,'server/tls.key'),identity.tlsKey!);
   write(join(runtimeRoot,'server/ca.pem'),identity.certificate!);
-  write(join(runtimeRoot,'client/ca.pem'),identity.certificate!);
+  write(join(runtimeRoot,'client/ca.pem'),`${identity.certificate!}\n${additionalClientCa}`);
   write(join(runtimeRoot,'server/openbao.hcl'),managedOpenBaoConfiguration());
   return {configured:true,custody:'os',server:'openbao'};
 }
