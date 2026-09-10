@@ -35,5 +35,9 @@ export function managedIdentityClientPlan(host: HostConfiguration) {
       permissions: [BROWSER_SESSION_PERMISSION], workloadScopes: [BROWSER_SESSION_SCOPE] };
   });
   if (new Set(clients.map(item => item.workloadKeyReference)).size !== clients.length) throw new Error('Workload keys must be independent');
-  return { origin, issuer: config.issuer, resource, environment: host.postgres.environment, clients };
+  // The installed CLI is a public native client, not an application workload.
+  // Registration permits sign-in only; API-local user permissions remain final.
+  const nativeClient = { kind: 'native' as const, clientId: 'trsd', resource, scopes: config.scopes,
+    redirectUris: ['http://127.0.0.1/callback'], deviceAuthorization: true };
+  return { origin, issuer: config.issuer, resource, environment: host.postgres.environment, clients, nativeClient };
 }

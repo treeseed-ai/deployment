@@ -31,6 +31,12 @@ it('derives the public resource from a manager-owned local API connection', () =
   expect(managedIdentityClientPlan(configuration).resource).toBe('https://api.example');
 });
 
+it('registers the installed CLI as a public PKCE/device client with an exact loopback path', () => {
+  const { configuration, descriptor } = fixture();
+  expect(managedIdentityClientPlan(configuration).nativeClient).toEqual({ kind: 'native', clientId: 'trsd',
+    resource: descriptor.resource, scopes: descriptor.scopes, redirectUris: ['http://127.0.0.1/callback'], deviceAuthorization: true });
+});
+
 it.each(['issuer', 'resource', 'disabled', 'consumer', 'ambiguous', 'key', 'cookie-origin'] as const)('rejects %s drift before enrollment', defect => {
   const { configuration, descriptor } = fixture();
   const consumer = configuration.components.admin!;
