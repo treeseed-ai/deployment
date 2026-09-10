@@ -1,7 +1,19 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 describe('Debian and systemd contracts', () => {
+	it.each(['publish.yml', 'publish-lab.yml'])('uses environment-scoped Docker Hub username/password in %s', (filename) => {
+		const source = readFileSync(`.github/workflows/${filename}`, 'utf8');
+		const workflow = parse(source) as { jobs: { publish: { environment: string; steps: Array<{ uses?: string; with?: Record<string, string> }> } } };
+		const job = workflow.jobs.publish;
+		expect(job.environment).toBe(filename === 'publish-lab.yml' ? 'staging' : "${{ inputs.suite == 'stable' && 'production' || 'staging' }}");
+		const logins = job.steps.filter((step) => step.uses?.startsWith('docker/login-action@'));
+		expect(logins).toHaveLength(1);
+		expect(logins[0]?.with).toEqual({ username: '${{ vars.DOCKERHUB_USERNAME }}', password: '${{ secrets.DOCKERHUB_TOKEN }}' });
+		expect(source).not.toContain('TREESEED_DOCKERHUB_USERNAME');
+	});
+
 	it('revises the repackaged CLI for every immutable composition', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		expect(packaging).toContain("`${debianVersion(cliPayload.version).replace(/-1$/u, '-2')}+deployment${deploymentVersion.replace(/-1$/u, '')}`");
