@@ -88,8 +88,8 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
       ...(input.environment.TREESEED_IDENTITY_HOSTNAME?[`${input.environment.TREESEED_IDENTITY_HOSTNAME}:host-gateway`]:[])],
     ...(api?{ports:['127.0.0.1:3000:3000']}:{}),
     healthcheck:{test:['CMD','node','-e',`fetch('http://127.0.0.1:3000${api?'/v1/health/ready':'/readyz'}').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))`],interval:'2s',timeout:'2s',retries:60},
-    networks:{private:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:{}}}},
-    networks:{private:{external:true,name:'treeseed-api_private'},edge:{external:true,name:'treeseed-edge'},platform:{external:true,name:'treeseed-platform'}}};
+    networks:{private:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:{},postgres:{}}}},
+    networks:{private:{external:true,name:'treeseed-api_private'},edge:{external:true,name:'treeseed-edge'},platform:{external:true,name:'treeseed-platform'},postgres:{external:true,name:'treeseed-postgres-private'}}};
 }
 
 export function executeDevelopmentContainer(value:unknown,command:CommandRunner=dockerCommand) {
