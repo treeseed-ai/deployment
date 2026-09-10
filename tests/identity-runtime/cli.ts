@@ -55,15 +55,18 @@ export async function cliFixture(root:string) {
   return {
     resource,
     async verify(selectedIssuer:string,context:BrowserContext,expectedSubject:string,password:string) {
+      let phase='signing-key-discovery';
+      try {
       issuer=selectedIssuer;subject=expectedSubject;
       verify=createAccessTokenVerifier({issuer,audience:resource,profile:'keycloak',verificationKey:await discoverSigningKeys({issuer,transport:fetch}),
         resolvePrincipal:async identity=>identity.subject===subject ? {principalId:'preserved-local-user',kind:'human'} : null});
       const modulePath='@treeseed/cli/dist/cli/runtime.js';
+      phase='published-cli-module';
       const {runCommandLine}=await import(modulePath) as {runCommandLine(args:string[],context:{env:NodeJS.ProcessEnv;interactiveUi:boolean;write:(value:string,stream?:string)=>void;openExternal?:(url:string)=>Promise<boolean>}):Promise<number>};
       const output:string[]=[];
       const env={TREESEED_CONFIG_HOME:join(root,'cli-custody'),TREESEED_API_BASE_URL:resource};
+      phase='browser-page';
       const page=await context.newPage();page.setDefaultTimeout(20000);
-      let phase='browser-login';
       try {
         for (const device of [false,true]) {
         phase=device?'device-login':'browser-login';
@@ -98,6 +101,11 @@ export async function cliFixture(root:string) {
         return ['published-cli-pkce-sso','published-cli-device-pkce','cli-api-principal-mapping','cli-real-os-custody','cli-upstream-and-local-logout'];
       } catch { console.error(JSON.stringify({cliPhase:phase})); throw new Error('Published CLI acceptance failed'); }
       finally {await page.close();seenTokens.clear();}
+      } catch (error) {
+        console.error(JSON.stringify({ cliPhase: phase, errorName: error instanceof Error ? error.name : 'unknown',
+          errorCode: error instanceof Error && 'code' in error && typeof error.code === 'string' && /^ERR_[A-Z_]+$/u.test(error.code) ? error.code : undefined }));
+        throw new Error('Published CLI acceptance failed');
+      }
     },
     async close(){await new Promise<void>(resolve=>server.close(()=>resolve()));},
   };

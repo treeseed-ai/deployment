@@ -12,7 +12,8 @@ it('publishes an immutable Identity runtime with isolated migration and bootstra
   expect(bundle.component.runtimeDigest).toBe(deploymentDigest(bundle.component.runtime));
   const compose = JSON.parse(bundle.compose);
   expect(compose.services.identity.volumes.map((v: { source: string }) => v.source)).toEqual([
-    '/run/treeseed/identity/tls', '/run/treeseed/postgres-clients/identity/identity/runtime']);
+    '/run/treeseed/identity/tls', '/run/treeseed/identity/themes', '/run/treeseed/postgres-clients/identity/identity/runtime']);
+  expect(compose.services.identity.volumes.find((v: { target: string }) => v.target === '/opt/keycloak/themes')).toMatchObject({ read_only: true });
   expect(compose.services['identity-migration'].command).toContain('--import-realm');
   expect(compose.services.identity.command).not.toContain('--import-realm');
   expect(bundle.compose).not.toMatch(/reconcilerKey|"ports"/);

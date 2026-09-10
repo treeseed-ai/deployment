@@ -18,6 +18,7 @@ import { controlPlaneOperations } from '../../.fixtures/api/dist/api/control-pla
 import { OperationRegistry } from '../../.fixtures/api/dist/api/control-plane/catalog/operation-registry.js';
 import { planIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-plan.js';
 import { applyIdentityMappings } from '../../.fixtures/api/dist/api/auth/identity-mapping-transaction.js';
+import { enrollBrowserIdentity } from '../../.fixtures/api/dist/api/auth/identity/browser-enrollment.js';
 import { planIdentityWorkloads } from '../../.fixtures/api/dist/api/auth/identity/workload-plan.js';
 import { applyIdentityWorkloads } from '../../.fixtures/api/dist/api/auth/identity/workload-transaction.js';
 import type { startSharedDatabase } from './database.js';
@@ -95,7 +96,7 @@ export async function apiSessions(root: string) {
       phase = 'migrate';
       const migrator = shared.pool('api', 'migration', migration);
       try {
-        for (const sql of AUTH_SCHEMA_SQL.slice(0, 3)) await migrator.query(sql);
+        for (const sql of AUTH_SCHEMA_SQL.slice(0, 8)) await migrator.query(sql);
         for (const name of ['0019_identity_browser_sessions.sql','0020_identity_workloads.sql','0021_identity_login_transactions.sql'])
           await migrator.query(readFileSync(new URL(`../../.fixtures/api/drizzle/control-plane/${name}`, import.meta.url), 'utf8'));
       } finally { await migrator.end(); }
@@ -103,6 +104,16 @@ export async function apiSessions(root: string) {
       await shared.activateRuntime('api'); pool = shared.pool('api', 'runtime', runtime);
       phase = 'runtime-ddl-negative';
       await assert.rejects(pool.query('CREATE TABLE forbidden(id integer)'));
+      phase = 'browser-enrollment-concurrency';
+      const enrollmentIssuer = 'https://enrollment.example/realms/acceptance';
+      const profile = { identity: { issuer: enrollmentIssuer, subject: 'first' }, email: 'same@example.test', emailVerified: true };
+      const [first, repeated] = await Promise.all([enrollBrowserIdentity(database, enrollmentIssuer, profile), enrollBrowserIdentity(database, enrollmentIssuer, profile)]);
+      assert.equal(first.userId, repeated.userId);
+      assert.deepEqual([first.action, repeated.action].sort(), ['created', 'noop']);
+      const other = await enrollBrowserIdentity(database, enrollmentIssuer, { ...profile, identity: { issuer: enrollmentIssuer, subject: 'second' } });
+      assert.notEqual(other.userId, first.userId, 'matching emails never merge identities');
+      await pool.query("UPDATE users SET status='disabled' WHERE id=$1", [first.userId]);
+      await assert.rejects(enrollBrowserIdentity(database, enrollmentIssuer, profile));
       } catch (error) {
         const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
         console.error(JSON.stringify({ apiDatabasePhase: phase, sqlState: /^[0-9A-Z_]{5,80}$/u.test(code) ? code : null,

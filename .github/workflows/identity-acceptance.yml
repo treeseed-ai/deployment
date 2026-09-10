@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: treeseed-ai/api
-          ref: 2dd4988d2f2469b5ed37511f8a0424eb6014c286
+          ref: c440a479e3f50da1c47c3ac1d3f8f4081d11731f
           path: .fixtures/api
           persist-credentials: false
       - name: Build API independently for encrypted session acceptance
@@ -38,12 +38,19 @@ jobs:
       - name: Resolve disposable TLS names only on this ephemeral runner
         run: echo '127.0.0.1 sovereign.localhost central.localhost' | sudo tee -a /etc/hosts
       - run: npx tsc -p tests/identity-runtime/tsconfig.json
+      - name: Preflight the exact published CLI module before starting containers
+        working-directory: tests/identity-runtime
+        run: node --input-type=module -e 'const cli = await import("@treeseed/cli/dist/cli/runtime.js"); if (typeof cli.runCommandLine !== "function") throw new Error("Published CLI entrypoint missing");'
       - name: Verify published CLI and real OS custody with Keycloak
         run: sudo --preserve-env=GITHUB_ACTIONS,PLAYWRIGHT_BROWSERS_PATH "$(command -v node)" --import tsx tests/identity-runtime/verify.ts > identity-acceptance.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: identity-acceptance-${{ github.sha }}
-          path: identity-acceptance.json
+          path: |
+            identity-acceptance.json
+            identity-auth-desktop.png
+            identity-auth-mobile.png
           retention-days: 14
           if-no-files-found: error
   postgres-bootstrap:

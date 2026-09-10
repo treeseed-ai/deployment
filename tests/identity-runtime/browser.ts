@@ -130,6 +130,33 @@ export async function browserFixture(root: string) {
         page.setDefaultTimeout(20_000);
         await page.goto(`${admin.base}/login`);
         phase = 'first-login-form';
+        // Inspect native form navigation within one pending BFF authorization.
+        // Repeated /login calls create intentionally unconsumed PKCE records.
+        const authorizationUrl = page.url();
+        await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
+        assert.equal(await page.locator('.auth-brand__name').innerText(), 'TreeSeed');
+        phase = 'theme-favicon';
+        const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
+        assert.ok(favicon);
+        assert.ok(favicon?.endsWith('/img/treeseed-logo.svg'));
+        // Use the browser's explicitly pinned TLS context, not Playwright's
+        // separate API request client (which does not inherit Chromium pins).
+        assert.equal(await page.evaluate(async href => (await fetch(href, { credentials: 'omit' })).status, favicon), 200);
+        phase = 'theme-password-reset';
+        await page.getByRole('link', { name: 'Forgot password?' }).click();
+        await page.locator('input[name="username"]').waitFor();
+        assert.match(await page.locator('#kc-page-title').innerText(), /Reset your password/);
+        await page.goto(authorizationUrl);
+        phase = 'theme-registration';
+        await page.getByRole('link', { name: 'Create account' }).click();
+        assert.match(await page.locator('#kc-page-title').innerText(), /Create your TreeSeed account/);
+        await page.goto(authorizationUrl);
+        phase = 'theme-responsive-layout';
+        await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.screenshot({ path: 'identity-auth-mobile.png', fullPage: true });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+        await page.setViewportSize({ width: 1280, height: 720 });
         await page.locator('input[name="username"]').fill('acceptance-user');
         await page.locator('input[name="password"]').fill(password);
         await page.locator('input[name="login"],button[name="login"]').click();
@@ -159,6 +186,7 @@ export async function browserFixture(root: string) {
         const nativeChecks = await native.verify(issuer, context, first.subject);
         phase = 'published-cli-sso';
         const cliChecks = await cli.verify(issuer, context, first.subject, password);
+        phase = 'api-session-storage';
         const storageChecks = await api.verifyStorage(cookies.map(cookie => cookie.value));
         return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks, ...cliChecks, ...storageChecks];
       } catch { console.error(JSON.stringify({ browserPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Browser acceptance failed'); }

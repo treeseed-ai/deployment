@@ -18,6 +18,7 @@ export async function reconcileManagedIdentityClients() {
   const host = loadHostConfiguration(), plan = managedIdentityClientPlan(host);
   const stateRoot = componentStateRoot(host, 'identity');
   const registry = createManagedIdentityApplications({ stateRoot, publicUrl: plan.origin, environment: plan.environment,
+    ...(plan.loginPolicy ? { loginPolicy: plan.loginPolicy } : {}),
     transport: createIdentityTransport({ origin: plan.origin, ca: readFileSync(`${paths.tls}/ca.crt`, 'utf8'), hostname: '127.0.0.1', port: 443 }) });
   const results = [];
   await registry.ensure(plan.nativeClient);
@@ -28,6 +29,7 @@ export async function reconcileManagedIdentityClients() {
       return ensureApplicationCertificate({ stateRoot, environment: plan.environment, clientId: id, privateKey });
     };
     await registry.ensure({ kind: 'browser', clientId: client.clientId, resource: plan.resource, scopes: client.scopes,
+      profileClaims: true,
       redirectUris: [client.redirectUri], certificate: certificate(client.clientId, client.signingKeyReference) });
     const workload = await registry.ensure({ kind: 'workload', clientId: client.workloadPrincipalId, resource: plan.resource,
       scopes: client.workloadScopes, redirectUris: [], certificate: certificate(client.workloadPrincipalId, client.workloadKeyReference) });

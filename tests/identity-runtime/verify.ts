@@ -103,7 +103,8 @@ async function start(label: Label) {
     email: 'acceptance@example.test', firstName: 'Acceptance', lastName: 'Native', credentials: [importedPassword] });
   writeFileSync(bootstrapImport, JSON.stringify(bootstrapRealm));
   writeFileSync(join(directory, 'realm.json'), JSON.stringify({
-    realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60,
+    realm: 'acceptance', enabled: true, sslRequired: 'all', accessTokenLifespan: 60, loginTheme: 'treeseed',
+    registrationAllowed: true, resetPasswordAllowed: true,
     clientScopes: [...standardScopeDefinitions, ...cliScopeDefinitions, { name: BROWSER_SESSION_SCOPE, protocol: 'openid-connect',
       attributes: { 'include.in.token.scope': 'true' } }], defaultDefaultClientScopes: ['basic', 'profile', 'email'],
     users: [{ id: importedSubject, username: label === 'central' ? 'central-user' : 'acceptance-user', enabled: true, emailVerified: true, email: `${label}@example.test`, firstName: 'Acceptance', lastName: 'User',
@@ -135,7 +136,7 @@ async function start(label: Label) {
     return material.mount;
   };
   const allocationRoot = materialize('migration', migrationPassword);
-  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, database: { allocationRoot }, databasePhase: 'migration' });
+  const managed = managedIdentityServices({ publicUrl: base, configurationRoot: directory, themeRoot: join(managedBootstrap.runtimeRoot, 'themes'), database: { allocationRoot }, databasePhase: 'migration' });
   const services = {
     identity: { ...managed.identity, container_name: server,
       networks: { private: { aliases: [`${label}.localhost`] }, broker: { aliases: [`${label}.localhost`] } }, ports: [`127.0.0.1:${listenPort}:${listenPort}`],
@@ -195,6 +196,12 @@ async function start(label: Label) {
     await assert.rejects(createManagedIdentityApplications({ ...managedBootstrap, environment: 'production', transport: fetch }).ensure(application), /reconciliation failed/);
     assert.equal((await registry.ensure(application)).action, 'noop');
     checks.push(`${label}-${kind}-client-create-readback-noop`, `${label}-${kind}-client-drift-denied`);
+    if (kind === 'browser') {
+      const profiled = { ...application, profileClaims: true };
+      assert.equal((await registry.ensure(profiled)).action, 'update');
+      assert.equal((await registry.ensure(profiled)).action, 'noop');
+      checks.push(`${label}-browser-profile-claims-reconciled`);
+    }
     if (kind === 'workload') {
       stage = `provision-${label}-workload-exchange`;
       assert.equal(typeof created.subject, 'string');
