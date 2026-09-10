@@ -47,14 +47,36 @@ function checkedArchive(generation: number, root?: string) {
 	return { path, sha256 };
 }
 
-export async function inspectGenerationBackup(generation: number, options: { backupRoot?: string; key?: Buffer } = {}) {
+async function inspectGenerationBackupWithEntries(generation: number, options: { backupRoot?: string; key?: Buffer } = {}) {
 	const { path, sha256 } = checkedArchive(generation, options.backupRoot), key = loadKey(options.key);
 	try {
 		const { entries, ...state } = await inspectBackupStream(path, generation, key);
 		selectBackupConfiguration(state.configuration, state.receipt as {configurationDigest?: unknown});
 		const coverage = assertBackupEntries(state.configuration, state.components, entries);
-		return { generation, sha256, encrypted: true as const, ...state, coverage };
+		return { generation, sha256, encrypted: true as const, ...state, coverage, entries };
 	} finally { key.fill(0); }
+}
+export async function inspectGenerationBackup(generation: number, options: { backupRoot?: string; key?: Buffer } = {}) {
+	const { entries: _entries, ...inspection } = await inspectGenerationBackupWithEntries(generation, options);
+	return inspection;
+}
+
+/** Internal authenticated ciphertext snapshot. Consumers select only verified
+ * members and never reopen the replaceable source archive during extraction. */
+export async function withVerifiedGenerationBackup<T>(generation: number,
+	options: { backupRoot: string; key: Buffer; expectedSha256?: string },
+	run: (inspection: Awaited<ReturnType<typeof inspectGenerationBackupWithEntries>>, snapshot: string) => Promise<T>) {
+	const source = checkedArchive(generation, options.backupRoot);
+	const snapshotRoot = mkdtempSync(`${options.backupRoot}/restore-`);
+	const snapshot = archivePath(generation, snapshotRoot);
+	try {
+		copyFileSync(source.path, snapshot, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+		writeFileSync(`${snapshot}.sha256`, source.sha256, { mode: 0o600 });
+		const inspection = await inspectGenerationBackupWithEntries(generation, { backupRoot: snapshotRoot, key: options.key });
+		if (options.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(options.expectedSha256) || inspection.sha256 !== options.expectedSha256))
+			throw new Error('Coordinated recovery archive identity changed; live state unchanged.');
+		return await run(inspection, snapshot);
+	} finally { rmSync(snapshotRoot, { recursive: true, force: true }); }
 }
 export async function listGenerationBackups(options: { backupRoot?: string; key?: Buffer } = {}) {
 	const root = options.backupRoot ?? paths.backups; if (!existsSync(root)) return [];
@@ -96,14 +118,7 @@ export async function createGenerationBackup(generation: number) {
 export async function restoreVerifiedBackup(generation: number, options: { backupRoot: string; destinationRoot: string; key: Buffer; checkWriters: (members: string[]) => void; expectedSha256?: string }) {
 	// Inspect and extract the same private encrypted snapshot. Never stream newly
 	// opened, potentially replaced ciphertext into the live filesystem.
-	const source = checkedArchive(generation, options.backupRoot);
-	const snapshotRoot = mkdtempSync(`${options.backupRoot}/restore-`);
-	const path = archivePath(generation, snapshotRoot);
-	try {
-	copyFileSync(source.path, path, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
-	writeFileSync(`${path}.sha256`, source.sha256, { mode: 0o600 });
-	const inspected = await inspectGenerationBackup(generation, { backupRoot: snapshotRoot, key: options.key });
-	if (options.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(options.expectedSha256) || inspected.sha256 !== options.expectedSha256)) throw new Error('Coordinated recovery archive identity changed; live state unchanged.');
+	return withVerifiedGenerationBackup(generation, options, async (inspected, path) => {
 	options.checkWriters(inspected.coverage.stateDirectories);
 	return await withReplacedBackupState(options.destinationRoot, inspected.coverage.stateDirectories, async () => {
 	const sha256 = inspected.sha256;
@@ -118,7 +133,7 @@ export async function restoreVerifiedBackup(generation: number, options: { backu
 		return { generation, restored: true, sha256, encrypted: true as const };
 	} finally { child.kill(); key.fill(0); }
 	});
-	} finally { rmSync(snapshotRoot, { recursive: true, force: true }); }
+	});
 }
 export async function restoreGenerationBackup(generation: number, expectedSha256?: string) {
 	const key = loadKey();
