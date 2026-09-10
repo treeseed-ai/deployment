@@ -3,9 +3,9 @@ import { integrationReleaseSchema } from '@treeseed/sdk/deployment';
 import { describe, expect, it } from 'vitest';
 
 const expected = {
-	'ai-inference': ['8021c7e408e0c9233758e912465f3c41a11bb6979bafdadd700a330bff142fab', '23b3098dce0704fc2290f876a2ea21d2fec37e6bdf73df4ee23a8aebfeb1c5bd'],
-	'ai-training': ['d851f19d4d43126a76adb0e97e1c67e5d6d694fdfe047e317445dd0b13080c32', '33e300687adc7b3be1fec96b67a29094e2a96997c3a944d4cb4b02a7ba761455'],
-	'ai-lab': ['089d2f8a23b3195918f7e5e5720f33d8dbe4a4b5b1fe0e50f5726651dacf8c6c', 'd0248e8c2b053fe7555cfee88cce96426c5b39d324e17160b54ecc81a1e465ee'],
+	'ai-inference': ['6537a314a3d90147988d7393675bfc254bf5b5639f7e7ab57092ae88455da2e0', '101257f93e89f8cc6a1d9c65e11269990a06adc4733f4515c90a2527f929756c'],
+	'ai-training': ['9d293d087a7a38f2d80efc1f8fdd13e38849e78dcfa2fe986658b39c40161bfe', '440ac53d4f3b91dc443e4e5e7bdaa958c504c758661de7d73a0b63e8fd4294e8'],
+	'ai-lab': ['042dce565a244be9d7efac7f55e4acf7e3722ec7285e32495c40504cef9ef88c', '8211ec5612a84ae55eae066442fdbbe903fd822f9b6e6f6b60905b0fd02e49b5'],
 } as const;
 
 describe('TreeAI component custody', () => {
@@ -14,11 +14,11 @@ describe('TreeAI component custody', () => {
 		const selected = new Map(lock.components.map((component) => [component.componentId, component]));
 		for (const [componentId, [manifestSha256, composeSha256]] of Object.entries(expected)) {
 			const component = selected.get(componentId);
-			expect(component?.release).toBe('0.11.0~rc4-1');
+			expect(component?.release).toBe('0.11.0~rc24-1');
 			expect(component?.manifest.sha256).toBe(manifestSha256);
 			expect(component?.files).toHaveLength(1);
 			expect(component?.files[0]?.artifact.sha256).toBe(composeSha256);
-			expect(component?.manifest.url).toMatch(/^https:\/\/github\.com\/treeseed-ai\/ai\/releases\/download\/0\.11\.0-rc4\//u);
+			expect(component?.manifest.url).toMatch(/^https:\/\/github\.com\/treeseed-ai\/ai\/releases\/download\/0\.11\.0-rc24\//u);
 		}
 	});
 
