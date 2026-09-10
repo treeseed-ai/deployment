@@ -6,6 +6,7 @@ import { supervisorOperationSchema, type SupervisorOperation } from './protocol.
 import { paths } from '../core/paths.js';
 import { probeRunnerCustody, recoverRunnerCustody } from './runner-custody-probe.js';
 import { verifyAiStorage } from './ai/storage-verification.js';
+import { reconcileManagedIdentityClients } from './identity-clients.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
 import { writeEdgeHostNetwork } from '../edge/host-network.js';
@@ -270,6 +271,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'component.configure':
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
 			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
+		case 'identity.clients.reconcile': return reconcileManagedIdentityClients();
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
 		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };

@@ -22,11 +22,20 @@ it.each(['file', 'missing', 'path', 'disabled', 'digest', 'owner', 'descriptor']
   if (defect === 'path') configuration.secrets['acceptance-api-session']!.reference = '/unmanaged/credential';
   if (defect === 'disabled') configuration.components.api!.enabled = false;
   if (defect === 'digest') release.runtimeDigest = `sha256:${'f'.repeat(64)}`;
-  if (defect === 'owner') { release.runtime.postgresLifecycle![0]!.credentialOwner.uid = 0; release.runtimeDigest = deploymentDigest(release.runtime); }
+  if (defect === 'owner') { release.runtime.postgresLifecycle = []; release.runtimeDigest = deploymentDigest(release.runtime); }
   if (defect === 'descriptor') descriptor.applications[0]!.signingKeyReference = '../escape';
   const read = vi.fn();
   expect(() => apiIdentityMaterial(configuration, release, read)).toThrow();
   expect(read).not.toHaveBeenCalled();
+});
+
+it('preserves the exact published container identity, including the existing root API image', () => {
+  const { configuration, release } = apiIdentityFixture();
+  release.runtime.postgresLifecycle![0]!.credentialOwner = { uid: 0, gid: 0 };
+  release.runtimeDigest = deploymentDigest(release.runtime);
+  const material = apiIdentityMaterial(configuration, release, () => Buffer.alloc(43, 'a'));
+  expect(material.owner).toEqual({ uid: 0, gid: 0 });
+  material.clear();
 });
 
 it.each(['unavailable', 'invalid'] as const)('clears every resolved buffer on %s and redacts provider failures', defect => {
