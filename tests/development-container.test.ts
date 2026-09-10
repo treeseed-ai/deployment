@@ -64,6 +64,8 @@ it.each(['service','operations-runner'] as const)('mounts only API runtime datab
   expect(runtime.environment).not.toHaveProperty('TREESEED_DATABASE_URL');
   expect(runtime.extra_hosts).toContain('identity.example.localhost:host-gateway');
   expect(runtime.environment.NODE_EXTRA_CA_CERTS).toBe('/run/openbao-client/ca.pem');
+  expect(runtime.networks).toHaveProperty('postgres');
+  expect(renderDevelopmentContainer({...input,targetId}).networks.postgres).toEqual({external:true,name:'treeseed-postgres-private'});
 });
 it('allows group-readable source without changing state identity or enabling writes',()=>{
   const runtime=renderDevelopmentContainer({...input,targetId:'operations-runner',uid:0,gid:0,sourceGid:1000}).services.runtime;
