@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 
-export interface WarmShape { image: string; cpuCores: number; memoryBytes: number }
+export interface WarmShape { image: string; cpuCores: number; memoryBytes: number; network?: 'none' | 'relay' }
 interface Idle { key: string; resource: Promise<string> }
 export interface WarmOperations {
 	create(shape: WarmShape): Promise<string>;
@@ -18,7 +18,7 @@ export class WarmSandboxPool {
 	constructor(private readonly operations: WarmOperations, private readonly limit = 1) {
 		if (!Number.isSafeInteger(limit) || limit < 0 || limit > 4) throw new Error('Invalid warm sandbox pool limit.');
 	}
-	private key(shape: WarmShape) { return JSON.stringify([shape.image, shape.cpuCores, shape.memoryBytes]); }
+	private key(shape: WarmShape) { return JSON.stringify([shape.image, shape.cpuCores, shape.memoryBytes, shape.network ?? 'relay']); }
 	async acquire(shape: WarmShape) {
 		if (this.stopped) throw new Error('Warm sandbox admission is stopped.');
 		const index = this.idle.findIndex(entry => entry.key === this.key(shape));
@@ -64,7 +64,7 @@ export function kataWarmOperations(configuration: SandboxBrokerConfiguration, on
 	return { destroy, onFailure, create: async shape => {
 		const id = `sandbox-warm-${randomUUID()}`;
 		try {
-			await ctr(['run', '--detach', '--null-io', '--runtime', configuration.runtime, '--cni',
+			await ctr(['run', '--detach', '--null-io', '--runtime', configuration.runtime, ...(shape.network === 'none' ? [] : ['--cni']),
 				'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', String(shape.cpuCores),
 				'--memory-limit', String(shape.memoryBytes), '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 				shape.image, id, '/bin/sleep', 'infinity']);

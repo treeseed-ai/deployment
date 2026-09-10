@@ -12,9 +12,9 @@ import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { credentialInitializer, credentialRoot as registeredCredentialRoot } from './credential-initializers.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
+import { providerVolumeMapperName as mapperName } from './provider-volume-identity.js';
 
 const credentialRoot = registeredCredentialRoot;
-const mapperName = 'treeseed-provider-data';
 const credentialIds = ['application-credential-kek-v1', 'application-diagnostics-kek-v1', 'application-backup-kek-v1'] as const;
 
 export function providerSecuritySettings(configuration: HostConfiguration = loadHostConfiguration()) {

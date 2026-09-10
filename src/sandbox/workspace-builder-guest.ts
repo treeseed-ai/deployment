@@ -16,6 +16,13 @@ async function git(root: string, args: string[]) {
 }
 
 /** Runs in a disposable builder guest. Never execute repository scripts or mount its filesystem on the host. */
+export async function verifySourceWorkspace(root: string, commit: string) {
+	if (!exactCommit.test(commit) || await git(root, ['rev-parse', 'HEAD']) !== commit) throw new Error('Source image commit mismatch.');
+	await git(root, ['fsck', '--strict', '--no-reflogs']);
+	if (await git(root, ['status', '--porcelain', '--untracked-files=all'])) throw new Error('Source image verification found unexpected files.');
+	return { commit, tree: await git(root, ['rev-parse', 'HEAD^{tree}']), clean: true, objectClosure: true, sourceOnly: true };
+}
+
 export async function buildSourceWorkspace(input: { root: string; bundle: string; commit: string; parentCommit: string | null }) {
 	if (!exactCommit.test(input.commit) || (input.parentCommit !== null && !exactCommit.test(input.parentCommit))) throw new Error('Source build requires exact commits.');
 	await mkdir(input.root, { recursive: true });
@@ -30,20 +37,19 @@ export async function buildSourceWorkspace(input: { root: string; bundle: string
 	await git(input.root, ['bundle', 'verify', input.bundle]);
 	await git(input.root, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-recurse-submodules', input.bundle, 'refs/heads/treeseed-source']);
 	if (await git(input.root, ['rev-parse', 'FETCH_HEAD']) !== input.commit) throw new Error('Source bundle does not match its authorized commit.');
+	if (input.parentCommit) await git(input.root, ['merge-base', '--is-ancestor', input.parentCommit, input.commit]);
 	const modes = await git(input.root, ['ls-tree', '-r', input.commit]);
 	if (modes.split('\n').some(line => line.startsWith('160000 '))) throw new Error('Source requires separately authorized submodule materialization.');
 	await git(input.root, ['checkout', '--detach', '--force', input.commit]);
-	await git(input.root, ['fsck', '--strict', '--no-reflogs']);
-	if (await git(input.root, ['status', '--porcelain', '--untracked-files=all'])) throw new Error('Source image verification found unexpected files.');
-	return { commit: await git(input.root, ['rev-parse', 'HEAD']), tree: await git(input.root, ['rev-parse', 'HEAD^{tree}']),
-		clean: true, objectClosure: true, sourceOnly: true };
+	return verifySourceWorkspace(input.root, input.commit);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	try {
 		const input = JSON.parse(await readFile('/run/treeseed-builder/build.json', 'utf8')) as { commit: string; parentCommit: string | null };
-		const result = await buildSourceWorkspace({ root: '/workspace/project', bundle: '/run/treeseed-builder/source.bundle',
-			commit: input.commit, parentCommit: input.parentCommit });
+		const result = process.argv[2] === 'verify' ? await verifySourceWorkspace('/workspace/project', input.commit)
+			: await buildSourceWorkspace({ root: '/workspace/project', bundle: '/run/treeseed-builder/source.bundle',
+				commit: input.commit, parentCommit: input.parentCommit });
 		await writeFile('/run/treeseed-output/source-verification.json', JSON.stringify(result));
 	} catch (error) {
 		await writeFile('/run/treeseed-output/source-verification.json', JSON.stringify({ failed: true,
