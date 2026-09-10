@@ -60,6 +60,7 @@ it('blocks writer activation and manager replacement while permitting containmen
   for (const operation of ['compose.activate','component.configure','postgres.apply','configuration.replace','development.boot.resume','host.development.deactivate'])
     expect(() => guardPostgresTransferOperation({ operation } as SupervisorOperation, marker)).toThrow('holds');
   expect(() => guardPostgresTransferOperation({ operation: 'apt.install', packages: ['treeseed-manager=1.0.0'] }, marker)).toThrow('holds');
+  expect(() => guardPostgresTransferOperation({ operation: 'apt.install', packages: ['treeseed-postgres=1.0.0', 'treeseed-identity=1.0.0'] }, marker)).not.toThrow();
   for (const operation of ['compose.stop','postgres.transfer.status','backup.inspect','recovery.restore'])
     expect(() => guardPostgresTransferOperation({ operation } as SupervisorOperation, marker)).not.toThrow();
 });

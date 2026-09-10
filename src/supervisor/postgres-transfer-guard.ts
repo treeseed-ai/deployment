@@ -17,7 +17,7 @@ const containmentOperations = new Set([
  */
 export function guardPostgresTransferOperation(operation: SupervisorOperation, marker = postgresTransferHoldPath) {
   if (containmentOperations.has(operation.operation)) return;
-  if (operation.operation === 'apt.install' && operation.packages.every(name => /^treeseed-(?:component-[a-z0-9-]+|lab)=[0-9A-Za-z.+:~-]+$/u.test(name))) return;
+  if (operation.operation === 'apt.install' && operation.packages.every(name => /^treeseed-(?:component-[a-z0-9-]+|lab|postgres|identity)=[0-9A-Za-z.+:~-]+$/u.test(name))) return;
   assertPostgresTransferNotHeld(marker);
 }
 
