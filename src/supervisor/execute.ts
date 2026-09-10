@@ -343,7 +343,10 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			}
 		} finally { restoreSecrets(operation.componentId); } break;
 		case 'compose.status': {
-			return composeRuntimeStatus(operation, command);
+			const status = composeRuntimeStatus(operation, command);
+			return operation.projectName === 'treeseed-postgres'
+				? { ...status, diagnostics: composeFailureDiagnostics('postgres', operation.projectName, command, captureCommand) }
+				: status;
 		}
 		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;
 		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
