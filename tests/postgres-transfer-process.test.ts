@@ -16,8 +16,9 @@ it('exports only through fixed no-password local arguments with bounded process 
   const child = fixture(), result = startPostgresExport(selection);
   const [executable, args, options] = fake.spawn.mock.calls[0]!;
   expect(executable).toBe('/usr/bin/docker'); expect(options.shell).toBeUndefined();
-  expect(args).toContain('PGPASSWORD='); expect(args).toContain('PGPASSFILE=/dev/null');
-  expect(args.slice(args.indexOf(selection.container) + 1)).toEqual(['timeout','-s','TERM','-k','5','600',
+  expect(args).toContain('PGPASSFILE=/dev/null'); expect(args).not.toContain('PGSERVICE=');
+  expect(args.slice(0, 5)).toEqual(['exec','-i',selection.container,'env','-i']);
+  expect(args.slice(args.indexOf('timeout'))).toEqual(['timeout','-s','TERM','-k','5','600',
     'pg_dump','--format=custom','--no-tablespaces','--no-password','-h','/var/run/postgresql','-p','5432','-U','migration','-d','application']);
   expect(child.stdin.writableEnded).toBe(true); expect(result.applicationName.length).toBeLessThanOrEqual(63);
   child.emit('close', 0); await expect(result.completed).resolves.toBeUndefined();

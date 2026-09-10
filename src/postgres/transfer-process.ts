@@ -17,11 +17,12 @@ function start(selection: Selection, mode: 'export' | 'restore', owner?: string)
     ? ['pg_dump', '--format=custom', '--no-tablespaces', '--no-password', '-h', '/var/run/postgresql', '-p', '5432', '-U', selection.username, '-d', selection.database]
     : ['pg_restore', '--no-owner', '--no-acl', '--no-tablespaces', '--exit-on-error', '--single-transaction', '--no-password',
       '-h', '/run/postgres/socket', '-p', '5432', '-U', selection.username, '-d', selection.database, `--role=${owner}`];
-  const child = spawn('/usr/bin/docker', ['exec', '-i',
-    '--env', `PGAPPNAME=${applicationName}`, '--env', 'PGPASSWORD=', '--env', 'PGPASSFILE=/dev/null',
-    '--env', 'PGSERVICE=', '--env', 'PGSERVICEFILE=/dev/null',
-    '--env', `PGOPTIONS=-c statement_timeout=600000${mode === 'export' ? ' -c default_transaction_read_only=on' : ''}`,
-    selection.container, 'timeout', '-s', 'TERM', '-k', '5', '600', ...args], {
+  // Empty PGSERVICE still selects a libpq service. Clear the container's entire
+  // inherited environment, rather than overriding optional selectors to empty.
+  const child = spawn('/usr/bin/docker', ['exec', '-i', selection.container, 'env', '-i',
+    'PATH=/usr/local/bin:/usr/bin:/bin', 'LC_ALL=C', `PGAPPNAME=${applicationName}`, 'PGPASSFILE=/dev/null',
+    `PGOPTIONS=-c statement_timeout=600000${mode === 'export' ? ' -c default_transaction_read_only=on' : ''}`,
+    'timeout', '-s', 'TERM', '-k', '5', '600', ...args], {
     stdio: ['pipe','pipe','pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
   });
   child.stderr.resume();
