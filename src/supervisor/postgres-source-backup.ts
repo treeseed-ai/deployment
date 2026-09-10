@@ -66,7 +66,8 @@ export async function inspectRecoveryPostgresSource(generation: number, expected
       '-v','ON_ERROR_STOP=1','-c','SHOW data_directory'],10,true)).trim();
     if (dataDirectory !== '/var/lib/postgresql/data') throw new Error();
     return { source, username, backupGeneration: generation, backupDigest: expectedBackupDigest,
-      storageDigest: deploymentDigest({ sourcePath, dataDirectory }), configurationDigest: deploymentDigest(previous) };
+      storageDigest: deploymentDigest({ sourcePath, dataDirectory }), configurationDigest: deploymentDigest(previous),
+      coveredState: backup.coverage.stateDirectories };
   } catch { throw new Error('Recovery-bound PostgreSQL source custody is unavailable or changed; source unchanged'); }
 }
 
