@@ -16,8 +16,19 @@ import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
 import { recoverRunnerCustody } from './runner-custody-probe.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
+import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 
 const root='/run/treeseed/development-containers';
+
+export function developmentRuntimeOwner(host:HostConfiguration,component:ComponentRelease) {
+  const allocation=component.runtime.postgresLifecycle?.find(item=>item.requirementId==='api');
+  if(component.componentId!=='api'||!allocation||!host.postgres?.requirements.some(item=>item.id==='api'&&item.componentId==='api'&&item.enabled)
+    ||!host.postgres.allocations.some(item=>item.requirementId==='api')||!host.components.api?.configuration.identityRuntime)
+    throw new Error('Managed development requires the installed API database and Identity allocation.');
+  if(component.runtime.postgresLifecycle?.some(item=>item.credentialOwner.uid!==allocation.credentialOwner.uid||item.credentialOwner.gid!==allocation.credentialOwner.gid))
+    throw new Error('Managed development API custody identities disagree.');
+  return allocation.credentialOwner;
+}
 
 const dockerCommand:CommandRunner=(executable,args)=>{
   const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:180_000,maxBuffer:1_048_576,
@@ -61,12 +72,15 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
     labels:{'org.treeseed.development.session':input.sessionId,'org.treeseed.development.target':`api.${input.targetId}`},
     environment:{...input.environment,HOST:'0.0.0.0',PORT:'3000',TREESEED_DEVELOPMENT_SESSION_ID:input.sessionId,TREESEED_DEVELOPMENT_MODE:api?'live':'candidate',
+      TREESEED_DATABASE_URL_FILE:'/run/treeseed/postgres/api/url',
       TREESEED_OPENBAO_ADDRESS:'https://openbao:8200',TREESEED_OPENBAO_IDENTITY_FILE:'/run/openbao-client/identity.json',NODE_EXTRA_CA_CERTS:'/run/openbao-client/ca.pem',
       TREESEED_CAPACITY_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/credentials',TREESEED_DIAGNOSTICS_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/diagnostics',
       ...(api?{}:{TREESEED_PLATFORM_RUNNER_DATA_DIR:'/data/operations-runner',TREESEED_PUBLISHED_KNOWLEDGE_ROOT:'/data/published-knowledge'})},
     volumes:[{type:'bind',source:api?input.workspace:resolve(directory,'runtime'),target:api?input.workspace:'/app',read_only:true},
       {type:'bind',source:resolve(directory,'openbao'),target:'/run/openbao-client',read_only:true},
       {type:'bind',source:resolve(directory,'keys'),target:'/run/treeseed-keys',read_only:true},
+      {type:'bind',source:'/run/treeseed/postgres-clients/api/api/runtime',target:'/run/treeseed/postgres/api',read_only:true},
+      {type:'bind',source:'/run/treeseed/identity-clients/api',target:'/run/treeseed/identity/api',read_only:true},
       ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner'},
         {type:'bind',source:resolve(input.stateRoot,'published-knowledge'),target:'/data/published-knowledge'}])],
     tmpfs:['/tmp'],extra_hosts:['host.docker.internal:host-gateway'],
@@ -122,9 +136,19 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const aiStorageKeys=prepareAiStorageIdentities(host,'api');
   if(Object.keys(aiStorageKeys).length) environment.TREESEED_AI_STORAGE_PUBLIC_KEYS=JSON.stringify(aiStorageKeys);
   const source=developmentContainerSource(record);
-  // Stateful candidates retain the installed runtime identity. The source
-  // owner's identity is only appropriate for the stateless live API.
-  const identity=input.targetId==='operations-runner'?releasedRunnerIdentity(command):source;
+  // Both targets consume the installed API's file-scoped runtime credentials.
+  // Source ownership cannot grant a different OS identity access to custody.
+  const identity=developmentRuntimeOwner(host,component);
+  if(input.targetId==='operations-runner') {
+    const runner=releasedRunnerIdentity(command);
+    if(runner.uid!==identity.uid||runner.gid!==identity.gid)throw new Error('Managed development runner custody identity mismatch.');
+  }
+  for(const path of ['/run/treeseed/postgres-clients/api/api/runtime/url','/run/treeseed/identity-clients/api/runtime.json']) {
+    const stat=lstatSync(path);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||stat.uid!==identity.uid||stat.gid!==identity.gid||(stat.mode&0o7777)!==0o400)
+      throw new Error('Managed development runtime custody is unavailable.');
+  }
+  if(environment.TREESEED_DATABASE_URL)throw new Error('Managed development cannot use a legacy database URL alongside allocated file custody.');
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
   command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']);
   const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
