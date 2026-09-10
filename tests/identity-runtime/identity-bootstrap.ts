@@ -12,7 +12,9 @@ export function verifyIdentityBootstrap(root: string) {
     '-keyout', join(ca, 'key'), '-out', join(ca, 'cert')], { stdio: 'ignore' });
   const options = { stateRoot: join(root, '.treeseed/data/identity'), runtimeRoot: join(root, 'identity-runtime'), publicUrl: 'https://identity.example.test',
     environment: 'staging' as const, certificateAuthority: join(ca, 'cert'), certificateAuthorityKey: join(ca, 'key') };
-  assert.equal(prepareIdentityBootstrap(options).configured, true);
+  const previousUmask = process.umask(0o077);
+  try { assert.equal(prepareIdentityBootstrap(options).configured, true); } finally { process.umask(previousUmask); }
+  for (const path of ['tls', 'import']) assert.equal(lstatSync(join(options.runtimeRoot, path)).mode & 0o777, 0o755);
   const key = join(options.runtimeRoot, 'tls/key.pem'), before = readFileSync(key);
   assert.equal(lstatSync(key).uid, 1000); assert.equal(lstatSync(key).mode & 0o777, 0o400);
   const store = join(options.stateRoot, 'identity-os');
