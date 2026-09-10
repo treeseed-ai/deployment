@@ -32,9 +32,10 @@ it.each(['owned', 'roles', 'idle', 'memberships'])('rejects failed %s evidence b
   expect(queries.some(sql => sql.includes('PASSWORD'))).toBe(false);
 });
 it('creates trusted extensions as the database owner before restoring migration credentials', async () => {
-  const selected = structuredClone(topology);
-  selected.servers[0]!.extensions = ['pgcrypto'];
-  selected.requirements[0]!.extensions = ['pgcrypto'];
+  const selected = { ...topology,
+    servers: topology.servers.map(server => ({ ...server, extensions: ['pgcrypto'] })),
+    requirements: topology.requirements.map(requirement => ({ ...requirement, extensions: ['pgcrypto'] })),
+  };
   const queries: string[] = [];
   await activatePostgresAllocation(selected, 'api', 'migration', 'a'.repeat(64), { query: async (sql: string) => {
     queries.push(sql);
