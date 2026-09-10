@@ -9,6 +9,8 @@ import { prepareManagedOpenBao } from '../security/custody/managed-files.js';
 import { prepareManagedPostgresBootstrap } from '../postgres/bootstrap.js';
 import { prepareIdentityBootstrap } from '../identity/bootstrap.js';
 import { prepareApiIdentityBootstrap } from '../identity/api-bootstrap.js';
+import { managedIdentityClientPlan } from '../identity/client-plan.js';
+import { paths } from '../core/paths.js';
 import { componentCredential } from '../core/component-credential.js';
 import { readComponentCredential } from './component-sealed.js';
 import { componentRuntimeRoot, prepareEphemeralComponentInputs, usesSealedComponentCredentials } from './component-ephemeral.js';
@@ -264,7 +266,9 @@ export function configureComponent(componentId: string, release: string, connect
 	if (componentId === 'agent') { const historical = applicationKeys.filter((entry) => !entry.active).map((entry) => `${entry.version}:/run/credentials/credentials-v${entry.version}`).join(','); if (historical) connectionEnvironment.TREESEED_PROVIDER_CREDENTIAL_HISTORICAL_KEY_FILES = historical; }
 	for (const name of directories) mkdirSync(resolve(stateRoot, name), { recursive: true, mode: 0o700 });
 	if (componentId === 'api') {
-		prepareManagedOpenBao(stateRoot);
+		const identity = selection.configuration.identityRuntime === undefined ? undefined : managedIdentityClientPlan(host);
+		prepareManagedOpenBao(stateRoot, '/run/treeseed/openbao', identity ? readFileSync(`${paths.tls}/ca.crt`, 'utf8') : '');
+		if (identity) connectionEnvironment.TREESEED_IDENTITY_HOSTNAME = new URL(identity.issuer).hostname;
 		prepareApiIdentityBootstrap(host, installedRelease);
 	}
 	if (componentId === 'postgres') {

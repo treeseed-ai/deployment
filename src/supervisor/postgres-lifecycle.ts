@@ -22,6 +22,7 @@ import { aiModeActivationServices } from '../manager/ai-mode.js';
 import { requirePostgresTransition } from './postgres-transition.js';
 import type { PostgresTransferIntent } from '../postgres/transfer.js';
 import { postgresComponentRuntimeHealthy } from './postgres-runtime-health.js';
+import { prepareApiIdentityMigration, clearApiIdentityMigration } from './identity-api-migration.js';
 
 const active = new Set<string>();
 
@@ -89,12 +90,16 @@ export async function activateLocalPostgresComponent(componentId: string, select
       materialize: async (id, phase) => { unchanged(); materializePostgresClient(host, component, id, phase); },
       migrate: async migration => {
         unchanged();
+        await prepareApiIdentityMigration(host, component, backupGeneration);
         const command = migration.completion === 'exit-zero'
           ? ['up', '--no-deps', '--abort-on-container-exit', '--exit-code-from', migration.composeService, migration.composeService]
           : ['up', '--detach', '--no-deps', '--wait', '--wait-timeout', String(migration.timeoutSeconds), migration.composeService];
         await postgresDocker([...compose(), ...command], migration.timeoutSeconds + 5);
       },
-      clear: async (id, phase) => { clearPostgresClient(componentId, id, phase); },
+      clear: async (id, phase) => {
+        clearPostgresClient(componentId, id, phase);
+        if (phase === 'migration') clearApiIdentityMigration(component);
+      },
       disable: async id => { await session(id, connection => disablePostgresAllocation(topology, id, connection)); },
       startRuntime: async services => { unchanged(); await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...services], 190); },
       runtimeHealthy: async services => {

@@ -28,5 +28,11 @@ describe('development sandbox guest trust', () => {
 		configuration.components.admin = { enabled: true, track: 'development', aliases: {},
 			connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } }, configuration: {} } as any;
 		expect(managedConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({ TREESEED_API_BASE_URL: 'http://service:3000' });
+		configuration.components.admin!.configuration.environment = { TREESEED_IDENTITY_ISSUER: 'https://identity.example.localhost/realms/treeseed' };
+		configuration.components.api!.aliases['api.service.http'] = 'api.example.localhost';
+		expect(managedConnectionEnvironment(configuration, admin, [admin, api])).toMatchObject({
+			TREESEED_API_BASE_URL: 'https://api.example.localhost', TREESEED_API_HOSTNAME: 'api.example.localhost',
+			TREESEED_IDENTITY_HOSTNAME: 'identity.example.localhost',
+		});
 	});
 });
