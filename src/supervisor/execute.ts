@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { composeFailureDiagnostics } from './compose-diagnostics.js';
+import { migratePersistentComponentInput } from './component-input-migration.js';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
@@ -404,6 +405,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			atomicJson(paths.configuration, accepted, 0o640);
 			return { restored: true, generation: accepted.generation };
 		}
+		case 'component.inputs.migrate': return migratePersistentComponentInput(operation);
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
