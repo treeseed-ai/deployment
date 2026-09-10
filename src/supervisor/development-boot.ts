@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DevelopmentSessionStore, type ManagedDevelopmentSession } from '../manager/development-sessions.js';
+import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 
 type Command = (command: string, args: string[], input?: string) => unknown;
 const worker = '/usr/lib/treeseed/cli/dist/cli/development/boot-resume.js';
@@ -24,6 +25,7 @@ export function developmentBootCommand(record: ManagedDevelopmentSession, owner:
 
 /** Root only schedules a fixed installed worker; project commands execute as their owner. */
 export function resumeDevelopmentAtBoot(sessionId: string, command: Command) {
+	assertDevelopmentNotHeld();
 	const record = new DevelopmentSessionStore().load(sessionId);
 	if (record.session.status === 'stopped' || !record.session.targets.some(target => target.mode !== 'released')) return { ready: true };
 	if (!existsSync(worker)) throw new Error('Installed CLI lacks development boot recovery; update its managed payload.');

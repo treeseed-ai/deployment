@@ -111,6 +111,11 @@ export async function restoreManagedGeneration(generation: number) {
 	const currentHost = loadHostConfiguration(), currentComponents = loadActiveComponents(), currentReceipt = loadCurrentReceipt();
 	if (!currentReceipt) throw new Error('A current known-good receipt is required before manual recovery.');
 	const safetyGeneration = Date.now();
+	const held = await requestSupervisor<{ generation: number } | null>({ operation: 'development.backup.status' });
+	const holdGeneration = held?.generation ?? safetyGeneration;
+	const apiRuntimeDigest = target.components.find(component => component.componentId === 'api')?.runtimeDigest;
+	if (held) await requestSupervisor({ operation: 'development.backup.fence', generation: holdGeneration, apiRuntimeDigest });
+	else await requestSupervisor({ operation: 'development.backup.begin', generation: holdGeneration, apiRuntimeDigest });
 	// A raw database archive is recoverable only after its writers are stopped.
 	// If capture fails, resume the current generation; no usable safety image exists yet.
 	try {
@@ -118,6 +123,9 @@ export async function restoreManagedGeneration(generation: number) {
 		await requestSupervisor({ operation: 'backup.create', generation: safetyGeneration });
 	} catch (error) {
 		await activateRestoredGeneration(currentHost, currentComponents);
+		// A pre-existing interrupted hold may not yet have a verified restore;
+		// retain it instead of claiming its old runtime is safe to resume.
+		if (!held) await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
 		throw error;
 	}
 	recordEvent('recovery.restore-started', { generation, targetReceiptId: target.receipt.receiptId, safetyGeneration });
@@ -127,6 +135,7 @@ export async function restoreManagedGeneration(generation: number) {
 		await requestSupervisor({ operation: 'recovery.restore', generation });
 		await activateRestoredGeneration(target.configuration, target.components);
 		const receipt = persistRestoredReceipt(target.receipt, target.components);
+		await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
 		recordEvent('recovery.restore-complete', { generation, receiptId: receipt.receiptId, targetReceiptId: target.receipt.receiptId });
 		return { generation, restored: true, safetyGeneration, targetReceiptId: target.receipt.receiptId, receipt };
 	} catch (error) {
@@ -136,6 +145,7 @@ export async function restoreManagedGeneration(generation: number) {
 		const packages = packageSelections(currentReceipt);
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		await activateRestoredGeneration(currentHost, currentComponents);
+		await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
 		recordEvent('recovery.restore-rollback-complete', { generation, safetyGeneration, receiptId: currentReceipt.receiptId });
 		throw error;
 	}

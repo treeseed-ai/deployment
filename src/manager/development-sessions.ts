@@ -7,6 +7,7 @@ import {
 } from '@treeseed/sdk/development';
 import { atomicJson } from '../core/files.js';
 import { paths } from '../core/paths.js';
+import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import type { EdgeRoute } from '../edge/caddy.js';
 
 export interface ManagedDevelopmentSession {
@@ -132,6 +133,7 @@ export class DevelopmentSessionStore {
 	}
 
 	save(record: ManagedDevelopmentSession) {
+		assertDevelopmentNotHeld();
 		mkdirSync(this.#root, { recursive: true, mode: 0o700 });
 		atomicJson(recordPath(this.#root, record.session.sessionId), record, 0o600);
 		return record;

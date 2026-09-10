@@ -14,7 +14,7 @@ import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnviron
 import { providerRuntimeStatus } from './provider-runtime.js';
 import { executePostgresOperation } from './postgres-operations.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
-import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
+import { executeBackupOperation } from './backup-operations.js';
 import { backupConfiguration, preserveAcceptedConfiguration } from './backup-configuration.js';
 import { resetPlatformState } from './reset.js';
 import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
@@ -303,6 +303,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	sleep: (milliseconds: number) => void = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); }, now: () => number = Date.now) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
+	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
 	if (operation.operation === 'provider.runtime.status') return providerRuntimeStatus(componentStateRoot(loadHostConfiguration(), 'agent'));
 	switch (operation.operation) {
@@ -444,10 +445,6 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
-		case 'backup.create': return createGenerationBackup(operation.generation);
-		case 'backup.inspect': return inspectGenerationBackup(operation.generation);
-		case 'backup.list': return listGenerationBackups();
-		case 'recovery.restore': return restoreGenerationBackup(operation.generation);
 		case 'platform.reset': {
 			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });
 			// The supervisor performs deletion as root, but reconciliation and the

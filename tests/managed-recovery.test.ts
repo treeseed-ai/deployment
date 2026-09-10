@@ -30,6 +30,7 @@ vi.mock('../src/manager/reconcile.js', () => ({
 }));
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
 	state.operations.push(operation);
+	if (operation.operation === 'development.backup.status') return null;
 	if (operation.operation === 'backup.inspect') return state.target;
 	if (operation.operation === 'backup.create') {
 		if (state.lifecycle.length !== state.currentComponents.length || state.lifecycle.some(item => !item.startsWith('stop:'))) throw new Error('Backup attempted before all current writers stopped');
@@ -59,7 +60,7 @@ describe('complete managed generation recovery', () => {
 		state.operations = []; state.events = []; state.writes = []; state.lifecycle = []; state.activationFailure = false; state.backupFailure = true;
 		try {
 			await expect(restoreManagedGeneration(73)).rejects.toThrow('Safety backup failed');
-			expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect', 'backup.create', 'edge.apply']);
+			expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect', 'development.backup.status', 'development.backup.begin', 'backup.create', 'edge.apply', 'development.backup.finish']);
 			expect(state.lifecycle).toEqual(['stop:1.0.0', 'activate:1.0.0']);
 			expect(state.writes).toEqual([]);
 		} finally { state.backupFailure = false; }
@@ -78,7 +79,7 @@ describe('complete managed generation recovery', () => {
 		const restored = await restoreManagedGeneration(73);
 		expect(restored).toMatchObject({ generation: 73, restored: true, targetReceiptId: 'receipt-generation-73' });
 		expect(state.operations.map(({ operation }) => operation)).toEqual([
-			'backup.inspect', 'backup.create', 'apt.install', 'recovery.restore', 'edge.apply',
+			'backup.inspect', 'development.backup.status', 'development.backup.begin', 'backup.create', 'apt.install', 'recovery.restore', 'edge.apply', 'development.backup.finish',
 		]);
 		expect(state.operations.find(({ operation }) => operation === 'apt.install').packages).toEqual(['treeseed-component-api=1.0.0-1']);
 		expect(state.lifecycle).toEqual(['stop:2.0.0-1', 'activate:1.0.0-1']);
