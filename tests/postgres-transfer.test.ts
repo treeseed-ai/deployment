@@ -71,6 +71,15 @@ it.each(['writersFenced', 'verifyTransfer', 'bindingMatches', 'runtimeHealthy', 
   const { run, ports, calls } = fixture(); ports[port] = async () => false;
   await expect(run()).rejects.toThrow('PostgreSQL transfer failed'); expect(calls).not.toContain('record');
 });
+it('preserves the bounded activation phase without relaying nested driver text', async () => {
+  const { run, ports } = fixture();
+  ports.activateDestination = async () => { throw new Error('PostgreSQL component activation failed (schema-migration); secret-driver-payload'); };
+  const failure = await run().catch(error => error as Error & { diagnostic?: { lifecycleStage?: string } });
+  if (!(failure instanceof Error)) throw new Error('Expected transfer failure');
+  expect(failure.diagnostic?.lifecycleStage).toBe('schema-migration');
+  expect(JSON.stringify(failure)).not.toContain('secret-driver-payload');
+  expect(failure.message).not.toContain('secret-driver-payload');
+});
 it('rejects an encrypted archive from another exact intent', async () => {
   const { run, ports, calls } = fixture(); ports.exportEncrypted = async () => ({ digest: hash('f'), encrypted: true, intentDigest: hash('a') });
   await expect(run()).rejects.toThrow('encrypted-export'); expect(calls).not.toContain('restore');
