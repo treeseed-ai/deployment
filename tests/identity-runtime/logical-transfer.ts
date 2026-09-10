@@ -205,7 +205,10 @@ try {
   checks.push('cross-major-schema-content-owner-normalized-fingerprint');
   assert.equal(records(destination), before); assert.equal(records(source), before);
   assert.equal(sql(destination, 'application', "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='records'::regclass"), 'application_owner');
-  assert.equal(sql(destination, 'application', "SELECT has_table_privilege('application_runtime','records','SELECT')"), 'f');
+  // Real allocation activation installs bounded default grants before import;
+  // runtime authentication remains disabled until the lifecycle accepts it.
+  assert.equal(sql(destination, 'application', "SELECT has_table_privilege('application_runtime','records','SELECT')"), 't');
+  assert.equal(sql(destination, 'postgres', "SELECT rolcanlogin FROM pg_roles WHERE rolname='application_runtime'"), 'f');
   assert.equal(sql(destination, 'application', 'SELECT last_value FROM records_id_seq'), sql(source, 'application', 'SELECT last_value FROM records_id_seq'));
   assert.equal(sql(destination, 'application', 'SELECT count(*) FROM labels'), '2');
   assert.equal(sql(destination, 'application', "SELECT count(*) FROM pg_extension WHERE extname='pgcrypto'"), '1');
