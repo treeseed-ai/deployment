@@ -19,11 +19,13 @@ import { preparePostgresCredentials } from './postgres-credentials.js';
 import { postgresDocker } from './postgres-process.js';
 import { localPostgresTopology, reconcileLocalPostgres } from './postgres.js';
 import { aiModeActivationServices } from '../manager/ai-mode.js';
+import { requirePostgresTransition } from './postgres-transition.js';
+import type { PostgresTransferIntent } from '../postgres/transfer.js';
 
 const active = new Set<string>();
 
 /** Supervisor-only adapter: installed artifacts, fixed socket/custody, no caller commands. */
-export async function activateLocalPostgresComponent(componentId: string, selections: Array<{ componentId: string; release: string }>, backupGeneration?: number) {
+export async function activateLocalPostgresComponent(componentId: string, selections: Array<{ componentId: string; release: string }>, backupGeneration?: number, transferred?: PostgresTransferIntent) {
   if (active.has(componentId)) throw new Error('PostgreSQL component lifecycle is already active');
   active.add(componentId);
   try {
@@ -31,6 +33,7 @@ export async function activateLocalPostgresComponent(componentId: string, select
     const releases = selections.map(item => installedComponentRelease(item.componentId, item.release));
     const component = releases.find(item => item.componentId === componentId);
     if (!component) throw new Error('Selected PostgreSQL component missing');
+    requirePostgresTransition(host, component, transferred);
     const migrations = new Set(component.runtime.postgresLifecycle?.map(item => item.migration.composeService));
     const selection = () => aiModeActivationServices(component)?.filter(service => !migrations.has(service));
     const selectedRuntime = selection(), selectionDigest = deploymentDigest(selectedRuntime ?? null);

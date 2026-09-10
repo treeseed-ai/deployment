@@ -12,7 +12,7 @@ import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } 
 import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { providerRuntimeStatus } from './provider-runtime.js';
-import { executePostgresOperation } from './postgres-operations.js';
+import { executePostgresOperation, isPostgresOperation } from './postgres-operations.js';
 import { guardPostgresTransferOperation, activePostgresTransferJournal } from './postgres-transfer-guard.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
 import { executeBackupOperation } from './backup-operations.js';
@@ -305,6 +305,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	guardPostgresTransferOperation(operation);
+	if (isPostgresOperation(operation)) return executePostgresOperation(operation);
 	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
 	if (operation.operation === 'provider.runtime.status') return providerRuntimeStatus(componentStateRoot(loadHostConfiguration(), 'agent'));
@@ -341,11 +342,6 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'component.configure':
 			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
 			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
-		case 'postgres.source.inspect':
-		case 'postgres.source.fingerprint':
-		case 'postgres.plan':
-		case 'postgres.component.activate':
-		case 'postgres.apply': return executePostgresOperation(operation);
 		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
 		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
 		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
