@@ -18,6 +18,7 @@ import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
 import { quiescedBackup } from './quiesced-backup.js';
+import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
 import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 
@@ -305,6 +306,7 @@ export function runtimeRepairTargets<T extends { componentId: string }>(targets:
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
 	configurationComponentScope: readonly string[] = [], failurePolicy: 'rollback' | 'halt' = 'rollback') {
+	assertDevelopmentNotHeld();
 	failurePolicy = reconcileFailurePolicy(failurePolicy);
 	let host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
@@ -426,6 +428,9 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
 	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active).filter(impacted), {
+		prepare: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.begin', generation,
+			apiRuntimeDigest: effective.find(component => component.componentId === 'api')?.runtimeDigest }) : undefined,
+		resumeAfterFailure: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.finish', generation }) : undefined,
 		stop: stopComponent, start: component => activateComponent(loadHostConfiguration(), component, active),
 		rollbackConfiguration: async () => previous ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
 		capture: async () => {
@@ -461,6 +466,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			for (const component of componentActivationOrder(restoredHost, active)) await activateComponent(restoredHost, component, active);
 			const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 			if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
+			if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
 			recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		} catch (rollbackError) {
 			const originalMessage = error instanceof Error ? error.message : String(error), rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
@@ -469,6 +475,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		}
 		throw error;
 	}
+	if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
 	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: configurationScope.size && previous ? previous.catalogDigest : accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);

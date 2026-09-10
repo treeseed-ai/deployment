@@ -127,7 +127,7 @@ describe('isolated update fault qualification', () => {
 		state.activationFailure = new Error('isolated registry or health-gate failure');
 		await expect(reconcile('development')).rejects.toThrow('health-gate failure');
 		const operations = state.operations.map((item) => item.operation);
-		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.stop', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'compose.stop', 'recovery.restore', 'apt.install', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'edge.apply']);
+		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'development.backup.begin', 'compose.stop', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'compose.stop', 'recovery.restore', 'apt.install', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'edge.apply', 'development.backup.finish']);
 		expect(state.events.map((item) => item.type)).toContain('reconcile.rollback-complete');
 		state.operations = []; state.events = [];
 		const recovered = await reconcile('development');

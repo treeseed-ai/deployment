@@ -15,6 +15,7 @@ import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
 import { recoverRunnerCustody } from './runner-custody-probe.js';
+import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -76,7 +77,9 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
 }
 
 export function executeDevelopmentContainer(value:unknown,command:CommandRunner=dockerCommand) {
-  const input=developmentContainerSchema.parse(value),record=new DevelopmentSessionStore().load(input.sessionId);
+  const input=developmentContainerSchema.parse(value);
+  if(input.action!=='status')assertDevelopmentNotHeld();
+  const record=new DevelopmentSessionStore().load(input.sessionId);
   const selected=record.session.targets.find(t=>t.projectId==='api'&&t.targetId===input.targetId);
   if(!selected)throw new Error('Development container is outside the registered session.');
   const directory=resolve(root,input.sessionId,input.targetId),file=resolve(directory,'compose.json');

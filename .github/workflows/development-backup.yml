@@ -1,0 +1,29 @@
+name: Development backup lifecycle
+on:
+  pull_request:
+    paths: ['src/core/development-backup-hold.ts', 'src/manager/**', 'src/supervisor/**', 'tests/identity-runtime/development-backup.ts', '.github/workflows/development-backup.yml']
+  push:
+    branches: [staging, main]
+    paths: ['src/core/development-backup-hold.ts', 'src/manager/**', 'src/supervisor/**', 'tests/identity-runtime/development-backup.ts', '.github/workflows/development-backup.yml']
+permissions: { contents: read }
+jobs:
+  development-backup:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 24 }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      - name: Strictly typecheck the disposable fixture
+        run: npx tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext tests/identity-runtime/development-backup.ts
+      - name: Verify disposable writer lifecycle and encrypted state capture
+        run: node --import tsx tests/identity-runtime/development-backup.ts > development-backup-acceptance.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: development-backup-${{ github.sha }}
+          path: development-backup-acceptance.json
+          retention-days: 14
+          if-no-files-found: error
