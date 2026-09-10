@@ -130,6 +130,9 @@ export async function browserFixture(root: string) {
         page.setDefaultTimeout(20_000);
         await page.goto(`${admin.base}/login`);
         phase = 'first-login-form';
+        // Inspect native form navigation within one pending BFF authorization.
+        // Repeated /login calls create intentionally unconsumed PKCE records.
+        const authorizationUrl = page.url();
         await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
         assert.equal(await page.locator('.auth-brand__name').innerText(), 'TreeSeed');
         phase = 'theme-favicon';
@@ -143,11 +146,11 @@ export async function browserFixture(root: string) {
         await page.getByRole('link', { name: 'Forgot password?' }).click();
         await page.locator('input[name="username"]').waitFor();
         assert.match(await page.locator('#kc-page-title').innerText(), /Reset your password/);
-        await page.goto(`${admin.base}/login`);
+        await page.goto(authorizationUrl);
         phase = 'theme-registration';
         await page.getByRole('link', { name: 'Create account' }).click();
         assert.match(await page.locator('#kc-page-title').innerText(), /Create your TreeSeed account/);
-        await page.goto(`${admin.base}/login`);
+        await page.goto(authorizationUrl);
         phase = 'theme-responsive-layout';
         await page.screenshot({ path: 'identity-auth-desktop.png', fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
@@ -183,6 +186,7 @@ export async function browserFixture(root: string) {
         const nativeChecks = await native.verify(issuer, context, first.subject);
         phase = 'published-cli-sso';
         const cliChecks = await cli.verify(issuer, context, first.subject, password);
+        phase = 'api-session-storage';
         const storageChecks = await api.verifyStorage(cookies.map(cookie => cookie.value));
         return ['human-login-with-central-offline', 'two-client-sso', 'host-only-independent-sessions', 'no-browser-token-storage', ...nativeChecks, ...cliChecks, ...storageChecks];
       } catch { console.error(JSON.stringify({ browserPhase: phase, serverFailures: apps.map(app => app.failure() ?? null) })); throw new Error('Browser acceptance failed'); }
