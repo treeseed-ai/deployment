@@ -18,6 +18,7 @@ import { recoverRunnerCustody } from './runner-custody-probe.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 import { managedIdentityClientPlan } from '../identity/client-plan.js';
+import { developmentDiagnosticEvents } from './development-diagnostics.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -32,7 +33,7 @@ export function developmentRuntimeOwner(host:HostConfiguration,component:Compone
 }
 
 const dockerCommand:CommandRunner=(executable,args)=>{
-  const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:180_000,maxBuffer:1_048_576,
+  const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:args[0]==='logs'?10_000:180_000,maxBuffer:args[0]==='logs'?262_144:1_048_576,
     env:{PATH:'/usr/sbin:/usr/bin:/sbin:/bin'}});
   if(result.error||result.status!==0) {
     const text=(result.stderr??'')+'\n'+(result.stdout??'');
@@ -94,13 +95,20 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
 
 export function executeDevelopmentContainer(value:unknown,command:CommandRunner=dockerCommand) {
   const input=developmentContainerSchema.parse(value);
-  if(input.action!=='status')assertDevelopmentNotHeld();
+  if(input.action!=='status'&&input.action!=='logs')assertDevelopmentNotHeld();
   const record=new DevelopmentSessionStore().load(input.sessionId);
   const selected=record.session.targets.find(t=>t.projectId==='api'&&t.targetId===input.targetId);
   if(!selected)throw new Error('Development container is outside the registered session.');
   const directory=resolve(root,input.sessionId,input.targetId),file=resolve(directory,'compose.json');
   const handoff=resolve(directory,'released-runner.json');
   const compose=['compose','--project-name',`treeseed-${input.sessionId}-api-${input.targetId}`,'--file',file];
+  if(input.action==='logs') {
+    const name=`treeseed-${input.sessionId}-api-${input.targetId}`;
+    const inspected=JSON.parse(String(command('/usr/bin/docker',['inspect',name,'--format','{{json .Config.Labels}}'])));
+    if(inspected?.['org.treeseed.development.session']!==input.sessionId||inspected?.['org.treeseed.development.target']!==`api.${input.targetId}`)
+      throw new Error('Development log ownership does not match the session.');
+    return {events:developmentDiagnosticEvents(String(command('/usr/bin/docker',['logs','--tail','100','--since','15m',name])))};
+  }
   if(input.action==='stop') {
     if(!existsSync(file)){if(existsSync(directory))rmSync(directory,{recursive:true});return {stopped:true};}
     if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
