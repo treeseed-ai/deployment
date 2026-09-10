@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { componentReleaseSchema, deploymentDigest, type HostConfiguration, type ComponentRelease } from '@treeseed/sdk/deployment';
+import { componentReleaseSchema, deploymentDigest, postgresTransitionSelectionSchema, type HostConfiguration, type ComponentRelease } from '@treeseed/sdk/deployment';
 import { paths } from '../core/paths.js';
 import { loadHostConfiguration } from '../core/configuration.js';
-import { PostgresTransitionStore, postgresTransitionSelectionSchema } from '../postgres/transition-store.js';
+import { PostgresTransitionStore } from '../postgres/transition-store.js';
 import { componentStateRoot } from './component.js';
 import { postgresTransferJournal } from './postgres-transfer-guard.js';
 import { requiredBackupState } from './backup-coverage.js';
@@ -25,7 +25,7 @@ export function previousPostgresComponent(componentId: string) {
   if (values.length > 1 || values.some(value => deploymentDigest(value.runtime) !== value.runtimeDigest)) throw new Error('Previous PostgreSQL custody changed');
   return values[0];
 }
-export async function prepareLocalPostgresTransition(input: unknown) {
+export async function prepareLocalPostgresTransition(input: unknown, planOnly = false) {
   const selection = postgresTransitionSelectionSchema.parse(input), journal = postgresTransferJournal();
   return journal.locked(async () => {
     if (journal.active()) throw new Error('Interrupted PostgreSQL transfer requires recovery');
@@ -33,6 +33,8 @@ export async function prepareLocalPostgresTransition(input: unknown) {
     if (!previous || previous.runtime.postgresLifecycle?.length || previous.runtimeDigest !== selection.sourceRuntimeDigest ||
       previous.runtimeDigest === selection.targetRuntimeDigest || !previous.runtime.stateVolumes.some(item => item.id === 'postgres' && item.backup === 'required'))
       throw new Error('Exact existing private PostgreSQL source required');
+    if (!host.components.postgres?.enabled) throw new Error('Managed PostgreSQL foundation required');
+    if (planOnly) return { action: 'planned' as const, selectionDigest: deploymentDigest(selection) };
     return postgresTransitionStore(host).prepare(selection);
   });
 }

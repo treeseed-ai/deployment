@@ -1,13 +1,12 @@
-import { hostConfigurationSchema } from '@treeseed/sdk/deployment';
+import { hostConfigurationSchema, postgresTransitionSelectionSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { hostDevelopmentActivationSchema } from './host-development.js';
 import { developmentContainerSchema } from './development-container-contract.js';
 import { managedPostgresTransferSelectionSchema } from '../postgres/managed-transfer-contract.js';
-import { postgresTransitionSelectionSchema } from '../postgres/transition-store.js';
 
 const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	managedPostgresTransferSelectionSchema.extend({operation:z.literal('postgres.transfer.plan')}),
-	postgresTransitionSelectionSchema.extend({operation:z.literal('postgres.transfer.prepare')}),
+	postgresTransitionSelectionSchema.innerType().extend({operation:z.literal('postgres.transfer.prepare'),planOnly:z.boolean().optional()}),
 	z.object({ operation: z.literal('postgres.source.recovery.inspect'), generation: z.number().int().positive().safe(), backupDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), serviceId: z.string().regex(/^[a-z][a-z0-9.-]{0,127}$/u), inventoryDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u).optional() }).strict(),
 	z.object({ operation: z.literal('postgres.transfer.status') }).strict(),
 	z.object({ operation: z.literal('postgres.source.fingerprint'), componentId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), release: z.string().regex(/^[0-9][a-zA-Z0-9.+~-]{0,127}$/u), serviceId: z.string().regex(/^[a-z][a-z0-9.-]{0,127}$/u), inventoryDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u) }).strict(),
@@ -97,6 +96,11 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('pki.enroll'), clientId: z.string().regex(/^client-[a-z0-9-]{8,64}$/u) }).strict(),
 ]);
 
-export const supervisorOperationSchema = supervisorOperationUnion;
+export const supervisorOperationSchema = supervisorOperationUnion.superRefine((value, context) => {
+	if (value.operation !== 'postgres.transfer.prepare') return;
+	const { operation: _operation, planOnly: _planOnly, ...selection } = value;
+	const parsed = postgresTransitionSelectionSchema.safeParse(selection);
+	if (!parsed.success) for (const issue of parsed.error.issues) context.addIssue(issue);
+});
 
 export type SupervisorOperation = z.infer<typeof supervisorOperationSchema>;

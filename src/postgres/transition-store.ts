@@ -2,17 +2,10 @@ import { closeSync, constants, fsyncSync, fstatSync, mkdirSync, openSync, readFi
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { deploymentDigest } from '@treeseed/sdk/deployment';
+import { deploymentDigest, postgresTransitionSelectionSchema, type PostgresTransitionSelection } from '@treeseed/sdk/deployment';
 import { LocalSecretCustody } from '../security/custody/local.js';
 
 const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/u), id = z.string().regex(/^[a-z][a-z0-9.-]{0,127}$/u);
-/** An exact operator selection, not a human approval gate. Prepared before
- * application replacement; no database names, paths, SQL or credentials. */
-export const postgresTransitionSelectionSchema = z.object({
-  componentId: id, sourceRuntimeDigest: digest, targetRuntimeDigest: digest,
-  topologyDigest: digest, configurationDigest: digest, allowLocaleConversion: z.boolean(),
-}).strict();
-export type PostgresTransitionSelection = z.infer<typeof postgresTransitionSelectionSchema>;
 const bindingSchema = z.object({
   componentId: id, requirementId: id, sourceRuntimeDigest: digest, targetRuntimeDigest: digest,
   topologyDigest: digest, planDigest: digest, intentDigest: digest,
