@@ -3,7 +3,7 @@ import type { SupervisorOperation } from './protocol.js';
 import type { CommandRunner } from './compose-runtime.js';
 import { createGenerationBackup, inspectGenerationBackup, listGenerationBackups, restoreGenerationBackup } from './backup.js';
 import { beginDevelopmentBackup, finishDevelopmentBackup, developmentBackupDependencies, developmentBackupStatus, fenceDevelopmentBackup, markDevelopmentBackupRestored } from './development-backup.js';
-import { activePostgresTransferJournal } from './postgres-transfer-guard.js';
+import { postgresTransferJournal } from './postgres-transfer-guard.js';
 
 const command: CommandRunner = (executable, args) => {
   const result = spawnSync(executable, [...args], { encoding: 'utf8', timeout: 180_000, maxBuffer: 1_048_576,
@@ -23,11 +23,15 @@ export function executeBackupOperation(operation: SupervisorOperation) {
     case 'backup.inspect': return inspectGenerationBackup(operation.generation);
     case 'backup.list': return listGenerationBackups();
     case 'recovery.restore': {
-      const journal = activePostgresTransferJournal(), active = journal?.active();
-      if (active && active.restoreGeneration !== operation.generation) throw new Error('Exact coordinated PostgreSQL restore point required');
-      return restoreGenerationBackup(operation.generation, active?.restoreDigest.slice(7)).then(result => {
+      const journal = postgresTransferJournal();
+      // A recovery request must not replace state while a transfer is still
+      // importing or activating. Re-read the pin after acquiring its OS lock.
+      return journal.locked(async () => {
+        const active = journal.active();
+        if (active && active.restoreGeneration !== operation.generation) throw new Error('Exact coordinated PostgreSQL restore point required');
+        const result = await restoreGenerationBackup(operation.generation, active?.restoreDigest.slice(7));
         markDevelopmentBackupRestored(deps);
-        journal?.restored(result.generation, result.sha256);
+        if (active) journal.restored(result.generation, result.sha256);
         return result;
       });
     }
