@@ -107,7 +107,8 @@ export async function withPostgresSourceCopy<T>(staged: Awaited<ReturnType<typeo
     const locations = error instanceof Error ? [...(error.stack ?? '').matchAll(/\/(src\/[a-zA-Z0-9_./-]+\.[jt]s:\d+:\d+)/gu)].slice(0, 6).map(match => match[1]) : [];
     const phase = error instanceof Error ? /PostgreSQL transfer failed \(([a-z-]+)\)/u.exec(error.message)?.[1] : undefined;
     const causeStage = z.object({ stage: z.enum(['selection', 'container-selection', 'container-image', 'data-mount', 'socket-mount', 'allocation-custody', 'cluster-readback', 'container-readback', 'configuration-readback']) }).safeParse(error && typeof error === 'object' && 'diagnostic' in error ? error.diagnostic : undefined);
-    throw Object.assign(new Error('Isolated PostgreSQL source copy failed; retain coordinated recovery'), { diagnostic: { stage, phase, locations, causeStage: causeStage.success ? causeStage.data.stage : undefined } });
+    const diagnostic = { stage, phase, locations, causeStage: causeStage.success ? causeStage.data.stage : undefined };
+    throw Object.assign(new Error(`Isolated PostgreSQL source copy failed; retain coordinated recovery; diagnostic=${JSON.stringify(diagnostic)}`), { diagnostic });
   }
   finally {
     // A failed Docker command can still have created the exact random-name
