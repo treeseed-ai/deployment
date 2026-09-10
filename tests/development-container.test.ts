@@ -1,6 +1,18 @@
 import {expect,it} from 'vitest';
-import {developmentContainerSchema,renderDevelopmentContainer,developmentStartupCode} from '../src/supervisor/development-container.js';
+import {developmentContainerSchema,renderDevelopmentContainer,developmentStartupCode,developmentRuntimeOwner} from '../src/supervisor/development-container.js';
+import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
+it('requires the installed API allocation and consistent credential owner',()=>{
+  const owner={uid:10001,gid:10001};
+  const host={components:{api:{configuration:{identityRuntime:{}}}},postgres:{requirements:[{id:'api',componentId:'api',enabled:true}],allocations:[{requirementId:'api'}]}} as unknown as HostConfiguration;
+  const release={componentId:'api',runtime:{postgresLifecycle:[{requirementId:'api',credentialOwner:owner}]}} as unknown as ComponentRelease;
+  expect(developmentRuntimeOwner(host,release)).toEqual(owner);
+  expect(()=>developmentRuntimeOwner({...host,postgres:undefined},release)).toThrow('allocation');
+  expect(()=>developmentRuntimeOwner({...host,components:{}},release)).toThrow('allocation');
+  expect(()=>developmentRuntimeOwner(host,{...release,componentId:'identity'})).toThrow('allocation');
+  expect(()=>developmentRuntimeOwner(host,{...release,runtime:{...release.runtime,postgresLifecycle:[]}})).toThrow('allocation');
+  expect(()=>developmentRuntimeOwner(host,{...release,runtime:{...release.runtime,postgresLifecycle:[...release.runtime.postgresLifecycle!,{...release.runtime.postgresLifecycle![0]!,requirementId:'other',credentialOwner:{uid:0,gid:0}}]}})).toThrow('identities disagree');
+});
 it('classifies fixed permission boundaries without exposing paths or values',()=>{
   for(const [path,code] of [['/data/operations-runner/file','RUNNER_STATE_PERMISSION'],
     ['/data/published-knowledge/file','KNOWLEDGE_STATE_PERMISSION'],
@@ -41,6 +53,17 @@ it('does not publish a runner port and confines its writable state',()=>{
   expect(runtime.entrypoint.join(' ')).toContain('process.on(s,()=>c.kill(s))');
   expect(runtime.volumes.filter(v=>!v.read_only).map(v=>v.source)).toEqual([
     '/var/lib/treeseed/components/api/operations-runner','/var/lib/treeseed/components/api/published-knowledge']);
+});
+it.each(['service','operations-runner'] as const)('mounts only API runtime database and Identity custody for %s',targetId=>{
+  const runtime=renderDevelopmentContainer({...input,targetId,environment:{TREESEED_IDENTITY_HOSTNAME:'identity.example.localhost'}}).services.runtime;
+  expect(runtime.environment.TREESEED_DATABASE_URL_FILE).toBe('/run/treeseed/postgres/api/url');
+  expect(runtime.volumes).toContainEqual({type:'bind',source:'/run/treeseed/postgres-clients/api/api/runtime',target:'/run/treeseed/postgres/api',read_only:true});
+  expect(runtime.volumes).toContainEqual({type:'bind',source:'/run/treeseed/identity-clients/api',target:'/run/treeseed/identity/api',read_only:true});
+  expect(JSON.stringify(runtime.volumes)).not.toContain('/migration');
+  expect(JSON.stringify(runtime.volumes)).not.toContain('/postgres-clients/identity');
+  expect(runtime.environment).not.toHaveProperty('TREESEED_DATABASE_URL');
+  expect(runtime.extra_hosts).toContain('identity.example.localhost:host-gateway');
+  expect(runtime.environment.NODE_EXTRA_CA_CERTS).toBe('/run/openbao-client/ca.pem');
 });
 it('allows group-readable source without changing state identity or enabling writes',()=>{
   const runtime=renderDevelopmentContainer({...input,targetId:'operations-runner',uid:0,gid:0,sourceGid:1000}).services.runtime;
