@@ -45,8 +45,9 @@ export async function reconcileCliSessionPolicy(options: {
     if (!matches(await request(''), desiredRealm)) throw new Error('CLI parent session policy read-back differs');
   }
   if (!matches(client.attributes, desiredAttributes)) {
-    // PUT a partial client representation; never change scopes, keys or redirects.
-    await request(path, 'PUT', { attributes: { ...client.attributes, ...desiredAttributes } }); action = 'updated';
+    // Keycloak derives web origins from redirects when an update omits them.
+    // Preserve the verified representation, not just the attributes being changed.
+    await request(path, 'PUT', { ...client, attributes: { ...client.attributes, ...desiredAttributes } }); action = 'updated';
   }
   const actual = await request(path);
   if (actual.clientId !== 'trsd' || !matches(actual.attributes ?? {}, desiredAttributes)) throw new Error('CLI client session policy read-back differs');

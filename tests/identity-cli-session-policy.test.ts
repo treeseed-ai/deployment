@@ -4,14 +4,14 @@ import { reconcileCliSessionPolicy } from '../src/identity/cli-session-policy.js
 function fixture(overrides: Record<string, unknown> = {}) {
   let realm = { ssoSessionIdleTimeout: 1800, ssoSessionMaxLifespan: 36000, clientSessionIdleTimeout: 0, clientSessionMaxLifespan: 0,
     unrelated: 'keep', ...overrides };
-  let client = { clientId: 'trsd', publicClient: true, enabled: true, redirectUris: ['http://127.0.0.1/callback'],
+  let client = { clientId: 'trsd', publicClient: true, enabled: true, webOrigins: [] as string[], redirectUris: ['http://127.0.0.1/callback'],
     attributes: { 'treeseed.managed-by': 'treeseed-deployment', 'pkce.code.challenge.method': 'S256', 'access.token.lifespan': '300' } };
   const transport = vi.fn(async (url: string, init: RequestInit) => {
     expect(init.redirect).toBe('error');
     const isClient = url.endsWith('/clients/client-id');
     if (init.method === 'PUT') {
       const body = JSON.parse(String(init.body));
-      if (isClient) client = { ...client, ...body }; else realm = { ...realm, ...body };
+      if (isClient) client = { ...client, ...body, webOrigins: body.webOrigins ?? ['http://127.0.0.1'] }; else realm = { ...realm, ...body };
       return new Response(null, { status: 204 });
     }
     return Response.json(isClient ? client : realm);
@@ -25,6 +25,7 @@ it('extends CLI to 24h, retains five-minute tokens and other client limits, and 
   expect(f.realm()).toMatchObject({ ssoSessionIdleTimeout: 86400, ssoSessionMaxLifespan: 86400, clientSessionIdleTimeout: 1800, clientSessionMaxLifespan: 36000, unrelated: 'keep' });
   expect(f.client()).toMatchObject({ redirectUris: ['http://127.0.0.1/callback'], attributes: { 'pkce.code.challenge.method': 'S256', 'client.session.idle.timeout': '86400', 'client.session.max.lifespan': '86400' } });
   expect(await reconcileCliSessionPolicy(f.input)).toMatchObject({ action: 'noop' });
+  expect(f.client().webOrigins).toEqual([]);
   expect(f.transport.mock.calls.filter(([, init]) => init.method === 'PUT')).toHaveLength(2);
 });
 it('does not shorten preexisting SSO policy or change explicit other-client defaults', async () => {
