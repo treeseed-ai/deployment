@@ -6,9 +6,15 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const exactCommit = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
+export function sourceBuilderGitArgs(root: string, args: string[]) {
+	// Detached maintenance can outlive fetch and race fsck or immutable publication.
+	// Override repository settings too: parent images are not maintenance authority.
+	return ['-c', 'core.hooksPath=/dev/null', '-c', 'protocol.ext.allow=never',
+		'-c', 'core.autocrlf=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
+		'-c', 'gc.autoDetach=false', '-C', root, ...args];
+}
 async function git(root: string, args: string[]) {
-	return (await exec('/usr/bin/git', ['-c', 'core.hooksPath=/dev/null', '-c', 'protocol.ext.allow=never',
-		'-c', 'core.autocrlf=false', '-C', root, ...args], {
+	return (await exec('/usr/bin/git', sourceBuilderGitArgs(root, args), {
 		encoding: 'utf8', timeout: 120_000, maxBuffer: 1_048_576,
 		env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp', GIT_CONFIG_NOSYSTEM: '1',
 			GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
