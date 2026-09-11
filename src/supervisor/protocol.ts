@@ -48,6 +48,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('sandbox.workspace.qualify'), mode: z.enum(['cold', 'warm', 'hold']).default('cold') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.source.qualify') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.cache.qualify') }).strict(),
+	z.object({ operation: z.literal('sandbox.workspace.cache.collect') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.status') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.build.recover') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.qualification.recover') }).strict(),

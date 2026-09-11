@@ -148,6 +148,18 @@ export class WorkspaceCatalog {
 			this.db.prepare("UPDATE workspace_images SET state='deleting' WHERE id=?").run(id); return true;
 		});
 	}
+	/** Maintenance must separately fence the broker and preserve all overlay disks. */
+	collectionState() {
+		return {
+			activeLeases: Number(this.db.prepare("SELECT count(*) AS n FROM workspace_leases WHERE state!='released'").get()!.n),
+			builds: Number(this.db.prepare("SELECT count(*) AS n FROM workspace_images WHERE state='building'").get()!.n),
+			leaves: this.db.prepare(`SELECT id,state FROM workspace_images image
+				WHERE state IN ('ready','failed','missing','deleting')
+				AND NOT EXISTS (SELECT 1 FROM workspace_images child WHERE child.parent_id=image.id)
+				AND NOT EXISTS (SELECT 1 FROM workspace_leases lease WHERE lease.image_id=image.id AND lease.state!='released')
+				ORDER BY id LIMIT 32`).all() as { id: string; state: string }[],
+		};
+	}
 	finishDeletion(id: string) {
 		return this.transaction(() => {
 			if (this.image(id)?.state !== 'deleting') throw new Error('Workspace deletion is not owned.');
