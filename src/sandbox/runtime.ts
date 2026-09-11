@@ -137,7 +137,13 @@ export class KataSandboxRuntime {
 		const source = sandbox.source ??= await (sandbox.sourceInitialization ??= this.sourceStore.create(sandboxId, sandbox.assignment));
 		if (sandbox.closing || !this.sandboxes.has(sandboxId)) { await source.stop(); throw new Error('Sandbox source initialization was cancelled.'); }
 		if (operation === 'prepare') return source.prepare(value);
-		if (operation === 'attach') { await source.attach(value); return source.status(); }
+		if (operation === 'attach') {
+			const attached = await source.attach(value), path = resolve(sandbox.inputDirectory, 'source.json');
+			await writeFile(path, `${JSON.stringify({ source: attached.authorization.source, mode: attached.authorization.mode,
+				publication: attached.authorization.publication, leaseId: attached.leaseId })}\n`, { mode: 0o400 });
+			await chown(path, 65_532, 65_532);
+			return source.status();
+		}
 		if (operation === 'renew') return source.renew(value);
 		return source.status();
 	}
