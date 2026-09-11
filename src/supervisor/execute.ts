@@ -28,6 +28,7 @@ import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandb
 import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
 import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
 import { workspaceStatus } from '../sandbox/workspace-status.js';
+import { collectWorkspaceCache } from '../sandbox/workspace-collection.js';
 import { recoverWorkspaceBuilds } from '../sandbox/workspace-build-recovery.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
@@ -275,6 +276,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
 		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.cache.qualify': return qualifySourceCacheQuota();
+		case 'sandbox.workspace.cache.collect': return collectWorkspaceCache(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.status': return workspaceStatus();
 		case 'sandbox.workspace.build.recover': return recoverWorkspaceBuilds(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());

@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.304",
+  "version": "0.1.0-rc.305",
   "private": true,
   "treeseed": {
     "hostRuntimeAssets": [
