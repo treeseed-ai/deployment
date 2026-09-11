@@ -15,6 +15,7 @@ import type { AssignmentSource } from './assignment-source.js';
 import { z } from 'zod';
 
 interface Prepared {
+  lastLeaseRenewal?: { issued: number; expiresAt: string };
   closing?: boolean;
   source?: AssignmentSource;
   sourceInitialization?: Promise<AssignmentSource>;
@@ -303,7 +304,13 @@ export class KataSandboxRuntime {
 	renewLease(sandboxId: string, token: string, renewal: SandboxLeaseRenewal) {
 		const sandbox = this.authorized(sandboxId, token), next = Date.parse(renewal.leaseExpiresAt), issued = Date.parse(renewal.issuedAt);
 		if (renewal.sandboxId !== sandboxId || renewal.assignmentId !== sandbox.assignment.assignmentId || renewal.providerId !== sandbox.assignment.providerId || renewal.teamId !== sandbox.assignment.teamId) throw new Error('Sandbox lease renewal correlation mismatch.');
-		if (Math.abs(Date.now() - issued) > 60_000 || next <= Date.now() || next > Date.now() + 3_600_000 || next <= Date.parse(sandbox.assignment.leaseExpiresAt)) throw new Error('Sandbox lease renewal time window is invalid.');
+		const now = Date.now();
+		if (!Number.isFinite(issued) || !Number.isFinite(next) || Math.abs(now - issued) > 60_000 || next <= now || next > now + 3_600_000 || Date.parse(sandbox.assignment.leaseExpiresAt) <= now) throw new Error('Sandbox lease renewal time window is invalid.');
+		const previous = sandbox.lastLeaseRenewal;
+		if (previous && (issued < previous.issued || (issued === previous.issued && renewal.leaseExpiresAt !== previous.expiresAt))) throw new Error('Sandbox lease renewal replay is invalid.');
+		// A fresh API renewal may retain or shorten expiry at the assignment hard deadline.
+		// Authenticity is checked at the server boundary; expiry growth is not authority.
+		sandbox.lastLeaseRenewal = { issued, expiresAt: renewal.leaseExpiresAt };
 		sandbox.assignment.leaseExpiresAt = renewal.leaseExpiresAt; return { sandboxId, leaseExpiresAt: renewal.leaseExpiresAt };
 	}
 	collect(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); if (!sandbox.result) throw new Error('Sandbox outputs are not ready.'); return sandbox.result; }
