@@ -22,28 +22,10 @@ import { quiescedBackup } from './quiesced-backup.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
 import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
+import { activateWithRoutes } from './routed-activation.js';
+import { hostSecurityActivationBlockers, type HostSecurityActivationStatus } from './security-activation.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
-
-export interface HostSecurityActivationStatus {
-	backingExists: boolean;
-	mapperOpen: boolean;
-	mounted: boolean;
-	credentialKeksReady: boolean;
-	recoveryBundleVerified: boolean;
-	sandboxSocketReady: boolean;
-}
-
-export function hostSecurityActivationBlockers(
-	required: boolean,
-	status: HostSecurityActivationStatus,
-) {
-	if (!required) return [];
-	return (Object.entries(status) as Array<[keyof HostSecurityActivationStatus, boolean]>)
-		.filter(([, ready]) => !ready)
-		.map(([name]) => name)
-		.sort();
-}
 
 export function sandboxGuestTrustDigest(
 	releasedDigest: string | undefined,
@@ -455,15 +437,15 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	try {
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
-		for (const component of activationOrder) {
-			if (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)) await activateComponent(host, component, effective, snapshotRequired ? generation : undefined);
-			else if (snapshotRequired) await activateComponent(host, component, effective, generation);
-		}
-		await reconcileAiModeSelection(host, effective);
-		for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
-			|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
-		if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
-		if (routes.length && !await edgeReadiness(subjectAlternativeNames(routes))) throw new Error('Managed edge TLS readiness failed after activation.');
+		await activateWithRoutes(routes, async () => {
+			for (const component of activationOrder) {
+				if (snapshotRequired || configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId))
+					await activateComponent(host, component, effective, snapshotRequired ? generation : undefined);
+			}
+			await reconcileAiModeSelection(host, effective);
+			for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
+				|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
+		});
 	} catch (error) {
 		recordEvent(failurePolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of componentStopOrder(host, effective).filter(impacted)) {
@@ -475,9 +457,10 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
 		try {
 			const restoredHost = loadHostConfiguration();
-			for (const component of componentActivationOrder(restoredHost, active)) await activateComponent(restoredHost, component, active);
 			const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
-			if (previousRoutes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(previousRoutes), aliases: subjectAlternativeNames(previousRoutes) });
+			await activateWithRoutes(previousRoutes, async () => {
+				for (const component of componentActivationOrder(restoredHost, active)) await activateComponent(restoredHost, component, active);
+			});
 			if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
 			recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
 		} catch (rollbackError) {
