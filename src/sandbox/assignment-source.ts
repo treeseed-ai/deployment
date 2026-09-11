@@ -3,6 +3,7 @@ import { sourceWorkspaceResponseSchema, type SandboxAssignment, type SourceWorks
 import { createSourceCredentialRecipient, openSourceCredential } from '../security/services/source-credential-delivery.js';
 import { sourceWorkspaceId, type WorkspaceCatalog } from './workspace-catalog.js';
 import type { WorkspaceDisk } from './workspace-block-store.js';
+import { sourceFailureCode } from './source-diagnostics.js';
 
 type Owner = Pick<SandboxAssignment, 'assignmentId' | 'providerId' | 'teamId' | 'projectId' | 'attempt'>;
 type State = 'awaiting-authority' | 'building' | 'ready' | 'attaching' | 'attached' | 'failed' | 'stopped';
@@ -67,9 +68,9 @@ export class AssignmentSource {
         await this.persist();
         if (!this.stopped) await this.operations.build(response, this.recipient.privateKey, this.virtualBytes);
         if (!this.stopped) this.state = 'ready';
-      } catch {
+      } catch (error) {
         // Backend failures may contain transport details. Only bounded diagnostic codes leave this boundary.
-        if (!this.stopped) { this.state = 'failed'; this.failure = 'source_preparation_failed'; }
+        if (!this.stopped) { this.state = 'failed'; this.failure = sourceFailureCode(error); }
       } finally { await this.persist(); }
     })();
     // A journal failure must remain observable, not become an unhandled rejection.

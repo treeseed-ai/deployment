@@ -27,6 +27,8 @@ import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandbox/workspace-qualification.js';
 import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
 import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
+import { workspaceStatus } from '../sandbox/workspace-status.js';
+import { recoverWorkspaceBuilds } from '../sandbox/workspace-build-recovery.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
@@ -245,6 +247,19 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	switch (operation.operation) {
 		case 'postgres.transfer.status': return activePostgresTransferJournal()?.active() ?? null;
 		case 'supervisor.ping': return { ready: true };
+		case 'provider.runtime.reconcile': return (async () => {
+			const { loadActiveComponents } = await import('../manager/current-state.js');
+			const { componentActivationInputs, composeFiles } = await import('../manager/reconcile.js');
+			const host = loadHostConfiguration(), releases = loadActiveComponents();
+			const component = releases.find(value => value.componentId === 'agent');
+			if (!component || !host.components.agent?.enabled) throw new Error('No enabled accepted Agent release.');
+			const inputs = componentActivationInputs(host, component, releases);
+			configureComponent('agent', component.release, inputs.connectionEnvironment, inputs.secretFileIds,
+				inputs.optionalSecretEnvironment, component.images.find(value => value.role === 'sandbox-guest')?.digest);
+			await executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent',
+				files: composeFiles(component), projectName: component.runtime.compose.projectName, waitTimeoutSeconds: 180 }, command, restoreSecrets, captureCommand, sleep, now);
+			return { componentId: 'agent', release: component.release, configured: true };
+		})();
 		case 'custody.runner.probe': return probeRunnerCustody();
 		case 'custody.runner.recover': return recoverRunnerCustody();
 		case 'security.plan': return providerSecurityPlan();
@@ -260,6 +275,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
 		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.cache.qualify': return qualifySourceCacheQuota();
+		case 'sandbox.workspace.status': return workspaceStatus();
+		case 'sandbox.workspace.build.recover': return recoverWorkspaceBuilds(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);

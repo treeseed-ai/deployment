@@ -96,9 +96,11 @@ export async function detachWorkspaceDisk(disk: WorkspaceDisk, guestStopped: boo
 	if (!await absent(pidPath)) {
 		const thread = (await readFile(pidPath, 'utf8')).trim(), pid = (await readFile(join(disk.directory, 'nbd.pid'), 'utf8')).trim();
 		if (!/^[1-9][0-9]*$/u.test(thread) || !/^[1-9][0-9]*$/u.test(pid)
+			|| await run('/usr/bin/systemctl', ['show', disk.unit, '--property=MainPID', '--value']) !== pid
 			|| (await readFile(`/proc/${thread}/status`, 'utf8')).match(/^Tgid:\s+([0-9]+)$/mu)?.[1] !== pid
 			|| !(await readFile(`/proc/${pid}/cmdline`, 'utf8')).split('\0').includes(join(disk.directory, 'work.qcow2'))) throw new Error('Workspace NBD process ownership changed.');
-		await run('/usr/bin/qemu-nbd', ['--disconnect', disk.device]);
+		// The broker deliberately has no raw NBD device access. The independently
+		// owned unit closes its transport on stop; never widen broker device policy.
 	}
 	const state = await run('/usr/bin/systemctl', ['show', disk.unit, '--property=ActiveState', '--value']);
 	if (!['inactive', 'failed'].includes(state)) await run('/usr/bin/systemctl', ['stop', disk.unit]);
