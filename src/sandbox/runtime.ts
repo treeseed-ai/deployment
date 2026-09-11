@@ -181,7 +181,7 @@ export class KataSandboxRuntime {
 		if(!sandbox.assignment.network.allowedServices.includes('treedx-relay')||sandbox.assignment.treeDxHandleIds.length===0) throw new Error('Assignment does not authorize TreeDX tools.');
 		if(Date.parse(sandbox.assignment.leaseExpiresAt)<=Date.now()) throw new Error('Assignment TreeDX authority expired.');
 		const tool=String(request.tool??''), arguments_=request.arguments&&typeof request.arguments==='object'&&!Array.isArray(request.arguments)?request.arguments as Record<string,unknown>:{};
-		if(!['treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths'].includes(tool)) throw new Error('TreeDX tool is not supported.');
+		if(!['treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths','treeseed_publish_review'].includes(tool)) throw new Error('TreeDX tool is not supported.');
 		const id=randomUUID(), createdAt=new Date().toISOString(); sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt}); await this.emit(sandbox,'tool.requested',{requestId:id,tool});
 		return new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
 	}
