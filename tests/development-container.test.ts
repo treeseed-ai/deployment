@@ -1,7 +1,19 @@
 import {expect,it} from 'vitest';
-import {developmentContainerSchema,renderDevelopmentContainer,developmentStartupCode,developmentRuntimeOwner} from '../src/supervisor/development-container.js';
+import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
+import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
+it('restarts from the immutable local runtime without a registry dependency',()=>{
+  const calls:string[][]=[];
+  expect(resolveDevelopmentRuntimeImage((_command,args)=>{calls.push([...args]);return input.image;})).toBe(input.image);
+  expect(calls).toHaveLength(1);expect(calls[0]?.[0]).toBe('image');
+});
+it('pulls only when no local runtime exists and rejects non-immutable image results',()=>{
+  const calls:string[][]=[];
+  expect(resolveDevelopmentRuntimeImage((_command,args)=>{calls.push([...args]);if(calls.length===1)throw new Error('missing');return input.image;})).toBe(input.image);
+  expect(calls.map(args=>args[0])).toEqual(['image','pull','image']);
+  expect(()=>resolveDevelopmentRuntimeImage(()=> 'mutable:tag')).toThrow('identity');
+});
 it('requires the installed API allocation and consistent credential owner',()=>{
   const owner={uid:10001,gid:10001};
   const host={components:{api:{configuration:{identityRuntime:{}}}},postgres:{requirements:[{id:'api',componentId:'api',enabled:true}],allocations:[{requirementId:'api'}]}} as unknown as HostConfiguration;

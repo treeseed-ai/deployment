@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { developmentDiagnosticEvents } from '../src/supervisor/development-diagnostics.js';
+import { developmentDiagnosticEvents, developmentStartupCode } from '../src/supervisor/development-diagnostics.js';
 import { developmentContainerSchema } from '../src/supervisor/development-container-contract.js';
 
 it('returns bounded structured error metadata without messages, SQL or credentials', () => {
@@ -15,4 +15,15 @@ it('diagnostic requests retain fixed registered target scope with no arbitrary l
   expect(developmentContainerSchema.parse(input)).toEqual(input);
   for (const extra of [{ path: '/etc/credentials' }, { container: 'unrelated' }, { targetId: 'postgres' }, { sessionId: '../escape' }])
     expect(() => developmentContainerSchema.parse({ ...input, ...extra })).toThrow();
+});
+
+it('reports startup failures even when Node cannot start structured application logging', () => {
+  expect(developmentDiagnosticEvents("SyntaxError: module '/private/path' does not provide an export named secretValue"))
+    .toEqual([{event:'development.startup-error',code:'EXPORT_MISSING'}]);
+});
+
+it('classifies structured startup phases without forwarding cause text', () => {
+  const event = { event: 'operation.internal-error', operationId: 'api.startup.entrypoint', code: 'MIGRATIONS_FAILED', message: 'private SQL and password' };
+  expect(developmentStartupCode(JSON.stringify(event))).toBe('API_ENTRYPOINT_MIGRATIONS_FAILED');
+  expect(developmentStartupCode(JSON.stringify({ ...event, code: 'unsafe secret value' }))).toBe('');
 });

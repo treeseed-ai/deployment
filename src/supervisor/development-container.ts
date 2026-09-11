@@ -18,7 +18,7 @@ import { recoverRunnerCustody } from './runner-custody-probe.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 import { managedIdentityClientPlan } from '../identity/client-plan.js';
-import { developmentDiagnosticEvents } from './development-diagnostics.js';
+import { developmentDiagnosticEvents, developmentStartupCode } from './development-diagnostics.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -41,7 +41,8 @@ const dockerCommand:CommandRunner=(executable,args)=>{
       /network .*not.*found|network .*does not exist/i.test(text)?'network_missing':
       /bind source path does not exist/i.test(text)?'mount_missing':
       /invalid mount/i.test(text)?'mount_invalid':/validating|Additional property/i.test(text)?'configuration_invalid':
-      /unhealthy|exited/i.test(text)?'application_unhealthy':/permission denied/i.test(text)?'permission_denied':'docker_failed';
+      /unhealthy|not healthy|exited/i.test(text)?'application_unhealthy':/permission denied/i.test(text)?'permission_denied':
+      args[0]==='pull'?'image_pull_failed':args[0]==='image'?'image_inspect_failed':args[0]==='compose'?'compose_failed':'docker_failed';
     throw new Error(`Managed development ${reason} (exit ${result.status ?? 'timeout'}).`);
   }
   return result.stdout + (args[0]==='logs' ? result.stderr : '');
@@ -161,8 +162,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   }
   if(environment.TREESEED_DATABASE_URL)throw new Error('Managed development cannot use a legacy database URL alongside allocated file custody.');
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
-  command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']);
-  const image=String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
+  const image=resolveDevelopmentRuntimeImage(command);
   const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
   if(input.targetId==='operations-runner') {
@@ -201,15 +201,12 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   return {started:true};
 }
 
-/** Only fixed diagnostic codes cross the operator boundary, never raw logs. */
-export function developmentStartupCode(log:string):string {
-  if (/\bEACCES\b/.test(log)) {
-    for (const [path, code] of [['/data/operations-runner', 'RUNNER_STATE_PERMISSION'],
-      ['/data/published-knowledge', 'KNOWLEDGE_STATE_PERMISSION'],
-      ['/run/openbao-client', 'CUSTODY_PERMISSION'], ['/run/treeseed-keys', 'KEY_PERMISSION']] as const) {
-      if (log.split('\n').some(line => /\bEACCES\b/.test(line) && line.includes(path))) return code;
-    }
-  }
-  return log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??
-    (/does not provide an export named/.test(log)?'EXPORT_MISSING':/SyntaxError/.test(log)?'SYNTAX_ERROR':/duplicate key|already exists/.test(log)?'DATABASE_CONFLICT':/permission denied/.test(log)?'DATABASE_PERMISSION':/relation .*does not exist/.test(log)?'DATABASE_RELATION_MISSING':'');
+/** Reuse an existing trusted local runtime image; unrelated registry availability must not block a restart. */
+export function resolveDevelopmentRuntimeImage(command:CommandRunner) {
+  const inspect=()=>String(command('/usr/bin/docker',['image','inspect','node:24-bookworm-slim','--format','{{.Id}}'])).trim();
+  let image:string;
+  try { image=inspect(); }
+  catch { command('/usr/bin/docker',['pull','--quiet','node:24-bookworm-slim']); image=inspect(); }
+  if(!/^sha256:[a-f0-9]{64}$/u.test(image))throw new Error('Managed development runtime image identity is invalid.');
+  return image;
 }
