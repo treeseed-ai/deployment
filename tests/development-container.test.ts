@@ -49,6 +49,8 @@ it('uses immutable image, read-only source, fixed networks and no privileged/soc
   expect(runtime.image).toBe(input.image);expect(runtime.read_only).toBe(true);
   expect(runtime.user).toBe('1000:1000');
   expect(runtime.cap_drop).toEqual(['ALL']);expect(runtime.security_opt).toEqual(['no-new-privileges:true']);
+  expect(runtime.networks.private).toEqual({aliases:['api','api-live']});
+  expect(runtime.networks.platform).toEqual({aliases:['api','api-live']});
   expect(runtime.volumes[0]).toMatchObject({source:input.workspace,read_only:true});
   expect(JSON.stringify(spec)).not.toContain('docker.sock');expect(runtime.ports).toEqual(['127.0.0.1:3000:3000']);
   expect(runtime.entrypoint.join(' ')).not.toContain('setTimeout');

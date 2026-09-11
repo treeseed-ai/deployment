@@ -16,6 +16,7 @@ import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
 import { recoverRunnerCustody } from './runner-custody-probe.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
+import { stopReleasedApi, restoreReleasedApi } from './development-api-handoff.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 import { managedIdentityClientPlan } from '../identity/client-plan.js';
 import { developmentDiagnosticEvents, developmentStartupCode } from './development-diagnostics.js';
@@ -90,7 +91,7 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
       ...(input.environment.TREESEED_IDENTITY_HOSTNAME?[`${input.environment.TREESEED_IDENTITY_HOSTNAME}:host-gateway`]:[])],
     ...(api?{ports:['127.0.0.1:3000:3000']}:{}),
     healthcheck:{test:['CMD','node','-e',`fetch('http://127.0.0.1:3000${api?'/v1/health/ready':'/readyz'}').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))`],interval:'2s',timeout:'2s',retries:60},
-    networks:{private:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:{},postgres:{}}}},
+    networks:{private:api?{aliases:['api','api-live']}:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:api?{aliases:['api','api-live']}:{},postgres:{}}}},
     networks:{private:{external:true,name:'treeseed-api_private'},edge:{external:true,name:'treeseed-edge'},platform:{external:true,name:'treeseed-platform'},postgres:{external:true,name:'treeseed-postgres-private'}}};
 }
 
@@ -102,6 +103,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   if(!selected)throw new Error('Development container is outside the registered session.');
   const directory=resolve(root,input.sessionId,input.targetId),file=resolve(directory,'compose.json');
   const handoff=resolve(directory,'released-runner.json');
+  const apiHandoff=resolve(directory,'released-api.json');
   const compose=['compose','--project-name',`treeseed-${input.sessionId}-api-${input.targetId}`,'--file',file];
   if(input.action==='logs') {
     const name=`treeseed-${input.sessionId}-api-${input.targetId}`;
@@ -115,6 +117,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
     command('/usr/bin/docker',[...compose,'down','--timeout','30']);
     if(input.targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
+    if(input.targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
     rmSync(directory,{recursive:true});return {stopped:true};
   }
   if(input.action==='status')return {registered:existsSync(file),state:existsSync(file)?command('/usr/bin/docker',[...compose,'ps','--format','json']):null};
@@ -183,7 +186,10 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     drained=drainReleasedRunner(command);
     if(drained)atomicJson(handoff,{restore:true},0o600);
   }
-  try { command('/usr/bin/docker',[...compose,'up','--detach','--wait','--wait-timeout','120','runtime']); }
+  try {
+    if(input.targetId==='service')stopReleasedApi(command,()=>atomicJson(apiHandoff,{restore:true},0o600));
+    command('/usr/bin/docker',[...compose,'up','--detach','--wait','--wait-timeout','120','runtime']);
+  }
   catch(error) {
     let code='';
     try { const log=String(command('/usr/bin/docker',['logs','--tail','50',`treeseed-${input.sessionId}-api-${input.targetId}`]));
@@ -193,6 +199,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
       if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
       command('/usr/bin/docker',[...compose,'down','--timeout','30']);
       if(drained||existsSync(handoff))restoreReleasedRunner(command);
+      if(input.targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
       rmSync(directory,{recursive:true});
     }catch{/* Retain the root-owned spec and handoff marker for an idempotent cleanup retry. */}
     if(code)throw new Error(`Managed development application startup failed (${code}).`);
