@@ -21,7 +21,8 @@ export async function reconcileManagedIdentityClients() {
     ...(plan.loginPolicy ? { loginPolicy: plan.loginPolicy } : {}),
     transport: createIdentityTransport({ origin: plan.origin, ca: readFileSync(`${paths.tls}/ca.crt`, 'utf8'), hostname: '127.0.0.1', port: 443 }) });
   const results = [];
-  await registry.ensure(plan.nativeClient);
+  const native = await registry.ensure(plan.nativeClient);
+  if (!('sessionPolicy' in native)) throw new Error('Managed CLI session policy was not verified');
   for (const client of plan.clients) {
     const certificate = (id: string, reference: string) => {
       const privateKey = ensureComponentCredential(host, reference,
@@ -38,5 +39,5 @@ export async function reconcileManagedIdentityClients() {
       clientId: client.workloadPrincipalId, displayName: `${client.componentId} browser session bridge`,
       permissions: client.permissions, scopes: client.workloadScopes, action: workload.action });
   }
-  return { configured: true, workloads: results };
+  return { configured: true, cliSession: native.sessionPolicy, workloads: results };
 }

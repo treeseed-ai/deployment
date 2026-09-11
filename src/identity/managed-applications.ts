@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createKeycloakApplicationRegistry, createWorkloadCredentials, discoverSigningKeys, type KeycloakApplication } from '@treeseed/identity';
 import { OsSecretCustody } from '../security/custody/os.js';
 import { reconcileIdentityLoginPolicy, type IdentityLoginPolicy } from './login-policy.js';
+import { reconcileCliSessionPolicy } from './cli-session-policy.js';
 
 /** Deployment-only registration through the already provisioned asymmetric
  * reconciler. No human/admin password, operational vault or bootstrap creation.
@@ -20,6 +21,7 @@ export function createManagedIdentityApplications(options: {
   return {
     async ensure(application: KeycloakApplication) {
       let encoded: Buffer | undefined;
+      let stage = 'custody';
       try {
         const root = join(options.stateRoot, 'identity-os');
         if (!existsSync(join(root, 'custody.cred'))) throw new Error();
@@ -35,6 +37,7 @@ export function createManagedIdentityApplications(options: {
         encoded = privateKey.export({ type: 'pkcs8', format: 'der' });
         const signingKey = await webcrypto.subtle.importKey('pkcs8', encoded,
           { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+        stage = 'workload-authentication';
         const verificationKey = await discoverSigningKeys({ issuer, transport: options.transport });
         const credentials = await createWorkloadCredentials({ issuer, clientId: 'treeseed-identity-reconciler', privateKey: signingKey as CryptoKey,
           resources: [resource], verificationKey, profile: 'keycloak', transport: options.transport,
@@ -42,13 +45,22 @@ export function createManagedIdentityApplications(options: {
         const registry = createKeycloakApplicationRegistry({ issuer, transport: options.transport,
           credentials: { token: async input => (await credentials.credentials(input)).accessToken } });
         if (options.loginPolicy) {
+          stage = 'login-policy';
           if (options.loginPolicy.mailTransport === 'local-mailpit' && options.environment !== 'staging') throw new Error();
           const access = await credentials.credentials({ resource, scopes: [] });
           await reconcileIdentityLoginPolicy({ resource, transport: options.transport, token: access.accessToken, policy: options.loginPolicy });
         }
+        stage = 'client-registration';
         const result = await registry.ensure(application, application.profileClaims
           ? { expectedCurrent: { ...application, profileClaims: false } } : undefined);
+        if (application.kind === 'native' && application.clientId === 'trsd') {
+          stage = 'cli-session-policy';
+          const access = await credentials.credentials({ resource, scopes: [] });
+          const sessionPolicy = await reconcileCliSessionPolicy({ resource, clientId: result.id, token: access.accessToken, transport: options.transport });
+          return { ...result, subject: null, sessionPolicy };
+        }
         if (application.kind !== 'workload') return { ...result, subject: null };
+        stage = 'workload-subject';
         if (!/^[A-Za-z0-9-]{1,128}$/u.test(result.id)) throw new Error();
         const token = await credentials.credentials({ resource, scopes: [] });
         const response = await options.transport(`${resource}/clients/${encodeURIComponent(result.id)}/service-account-user`, {
@@ -64,7 +76,10 @@ export function createManagedIdentityApplications(options: {
         const user = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         if (typeof user.id !== 'string' || !/^[A-Za-z0-9-]{1,128}$/u.test(user.id) || user.enabled !== true) throw new Error();
         return { ...result, subject: user.id as string };
-      } catch { throw new Error('Managed Identity application reconciliation failed; verify custody and authoritative client configuration'); }
+      } catch (error) {
+        const drift = error instanceof Error && /^Identity application drift in [A-Za-z]+ requires a reconciliation plan$/.test(error.message) ? `; ${error.message}` : '';
+        throw new Error(`Managed Identity application reconciliation failed; verify custody and authoritative client configuration [${stage}]${drift}`);
+      }
       finally { encoded?.fill(0); }
     },
   };
