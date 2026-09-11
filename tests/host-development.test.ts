@@ -84,5 +84,10 @@ describe('host development bridge contracts', () => {
 		const input = { generationId: 'dev-1788100000000-deadbeef', worktree, packageSha256: exact('package.json').sha256, files: ['package.json', 'dist/src/bin/api.js', 'dist/src/bin/sandbox-broker.js', 'dist/src/bin/supervisor.js', 'dist/src/bin/reconcile.js', 'dist/src/bin/host-development-switch.js'].map(exact) };
 		activateHostDevelopment(input, () => undefined, { host, systemd });
 		expect(hostDevelopmentStatus(host).guestImageDigest).toBe(digest);
+		switchHostDevelopment('activate', input.generationId, () => undefined, { host, systemd,
+			network: { cni: resolve(fixture, 'cni/20-treeseed-sandboxes.conflist'), nft: resolve(fixture, 'sandbox/network.nft') } });
+		const brokerDropIn = readFileSync(resolve(systemd, 'treeseed-sandbox-broker.service.d/90-treeseed-host-development.conf'), 'utf8');
+		expect(brokerDropIn).toContain('ReadWritePaths=/var/lib/treeseed/agent\n');
+		expect(readFileSync(new URL('../systemd/treeseed-sandbox-broker.service', import.meta.url), 'utf8')).toMatch(/^ReadWritePaths=.*\/var\/lib\/treeseed\/agent$/mu);
 	});
 });

@@ -83,7 +83,8 @@ function dropIn(unit: typeof units[number], generationRoot: string, systemdRoot:
 	const command = reconcileUnits.includes(unit as typeof reconcileUnits[number])
 		? `/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock /usr/lib/treeseed/runtime/bin/node ${executable}${arguments_}`
 		: `/usr/lib/treeseed/runtime/bin/node ${executable}`;
-	writeFileSync(temporary, `[Service]\nExecStart=\nExecStart=${command}\n`, { mode: 0o644 });
+	const sourceStorage = unit === 'treeseed-sandbox-broker.service' ? 'ReadWritePaths=/var/lib/treeseed/agent\n' : '';
+	writeFileSync(temporary, `[Service]\nExecStart=\nExecStart=${command}\n${sourceStorage}`, { mode: 0o644 });
 	renameSync(temporary, target);
 }
 
