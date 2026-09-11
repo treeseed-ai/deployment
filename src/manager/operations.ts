@@ -11,13 +11,14 @@ import type { ClientEnrollment } from '../supervisor/pki.js';
 import { createPlan } from './plan.js';
 import { configurationPlan } from './configuration-preflight.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, reconcileDevelopmentPeers, refreshAvailableCatalogs, rollbackRoutes } from './reconcile.js';
+import { activateWithRoutes } from './routed-activation.js';
 import { reconcileFailurePolicy, serializedReconcile } from './serialized-reconcile.js';
 import { serializedSecurityInitialize, serializedSecurityOperation } from './serialized-security.js';
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
-import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
+import { subjectAlternativeNames } from '../edge/caddy.js';
 import { hostDoctor } from './doctor.js';
 import { inspectRecoveryBackup, listRecoveryBackups } from './recovery.js';
 import { serializedRecovery } from './serialized-recovery.js';
@@ -95,8 +96,7 @@ async function applyDevelopmentRoutes(store: DevelopmentSessionStore) {
 	// or awaiting a matching overlay publication.
 	const host = loadHostConfiguration(), releases = loadActiveComponents();
 	const routes = store.activeRoutes(rollbackRoutes(host, releases));
-	await reconcileDevelopmentPeers(host, releases, store);
-	if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+	await activateWithRoutes(routes, () => reconcileDevelopmentPeers(host, releases, store));
 	return routes;
 }
 

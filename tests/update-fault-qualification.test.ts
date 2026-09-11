@@ -30,6 +30,7 @@ vi.mock('node:fs', async (importOriginal) => {
 	return { ...actual, existsSync: (path: import('node:fs').PathLike) => String(path).startsWith('/etc/apt/sources.list.d/treeseed-deployment-') || actual.existsSync(path) };
 });
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.host }));
+vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
 vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => state.edgeReady }));
 vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager`, cli: `${state.root}/cli` } }));
 vi.mock('../src/catalog/load.js', () => ({ loadCatalog: (path: string) => path.endsWith('stable.json') ? state.stable : state.development }));
@@ -127,7 +128,7 @@ describe('isolated update fault qualification', () => {
 		state.activationFailure = new Error('isolated registry or health-gate failure');
 		await expect(reconcile('development')).rejects.toThrow('health-gate failure');
 		const operations = state.operations.map((item) => item.operation);
-		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'development.backup.begin', 'compose.stop', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'compose.stop', 'recovery.restore', 'apt.install', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'edge.apply', 'development.backup.finish']);
+		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'development.backup.begin', 'compose.stop', 'compose.stop', 'backup.create', 'apt.install', 'edge.apply', 'component.configure', 'compose.activate', 'compose.stop', 'compose.stop', 'recovery.restore', 'apt.install', 'edge.apply', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'development.backup.finish']);
 		expect(state.events.map((item) => item.type)).toContain('reconcile.rollback-complete');
 		state.operations = []; state.events = [];
 		const recovered = await reconcile('development');

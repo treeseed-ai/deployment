@@ -9,7 +9,7 @@ import {
 import { atomicJson } from '../core/files.js';
 import { recordEvent } from '../core/events.js';
 import { paths } from '../core/paths.js';
-import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
+import { activateWithRoutes } from './routed-activation.js';
 import { requestSupervisor } from '../supervisor/client.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
@@ -53,14 +53,10 @@ function packageSelections(receipt: HostReceipt) {
 		.map(({ name, version }) => `${name}=${version}`);
 }
 
-async function applyRoutes(host: HostConfiguration, components: ComponentRelease[]) {
-	const routes = rollbackRoutes(host, components);
-	if (routes.length) await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
-}
-
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
-	await applyRoutes(host, components);
+	await activateWithRoutes(rollbackRoutes(host, components), async () => {
+		for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
+	});
 }
 
 async function stopGeneration(host: HostConfiguration, components: ComponentRelease[]) {

@@ -3,10 +3,11 @@ import { request as httpsRequest } from 'node:https';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore, loopbackLookup } from '../src/manager/development-sessions.js';
 
 const roots: string[] = [];
+vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function runtime(project = 'admin', target = 'web', dependency?: { id: string; target: string; reaction: string }, edgeHost?: string) {
