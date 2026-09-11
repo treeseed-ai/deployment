@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createKeycloakApplicationRegistry, createWorkloadCredentials, discoverSigningKeys, type KeycloakApplication } from '@treeseed/identity';
 import { OsSecretCustody } from '../security/custody/os.js';
 import { reconcileIdentityLoginPolicy, type IdentityLoginPolicy } from './login-policy.js';
+import { reconcileCliSessionPolicy } from './cli-session-policy.js';
 
 /** Deployment-only registration through the already provisioned asymmetric
  * reconciler. No human/admin password, operational vault or bootstrap creation.
@@ -48,6 +49,11 @@ export function createManagedIdentityApplications(options: {
         }
         const result = await registry.ensure(application, application.profileClaims
           ? { expectedCurrent: { ...application, profileClaims: false } } : undefined);
+        if (application.kind === 'native' && application.clientId === 'trsd') {
+          const access = await credentials.credentials({ resource, scopes: [] });
+          const sessionPolicy = await reconcileCliSessionPolicy({ resource, clientId: result.id, token: access.accessToken, transport: options.transport });
+          return { ...result, subject: null, sessionPolicy };
+        }
         if (application.kind !== 'workload') return { ...result, subject: null };
         if (!/^[A-Za-z0-9-]{1,128}$/u.test(result.id)) throw new Error();
         const token = await credentials.credentials({ resource, scopes: [] });
