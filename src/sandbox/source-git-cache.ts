@@ -6,6 +6,7 @@ import { sourceWorkspaceAuthorizationSchema, type SourceWorkspaceAuthorization }
 import { initializeWorkspaceStorage, workspaceStorageRoot } from './workspace-block-store.js';
 import { runSourceGit, type SourceGitCredential } from './source-git-transport.js';
 import { withSourceCacheVolume } from './source-cache-volume.js';
+import { recoverSourceCacheFence } from './source-cache-recovery.js';
 
 interface Repository { owner: string; name: string; cloneUrl: string }
 export interface SourceGitCacheDependencies {
@@ -49,6 +50,7 @@ export async function acquireSourceBundle(input: {
   for (const directory of [root, bundles, cache]) await privateDirectory(directory);
   // An abandoned lock stays fenced until manager recovery proves its job has stopped. No timeout-based stealing.
   const lock = join(cache, 'acquisition.lock');
+  if (dependencies === production) await recoverSourceCacheFence(cache);
   try { await mkdir(lock, { mode: 0o700 }); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Source acquisition is already owned or awaiting recovery.'); throw error; }
   const jobId = randomUUID();

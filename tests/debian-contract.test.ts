@@ -59,7 +59,7 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging).toContain("resolve(stage, 'usr/share/treeseed/credential-initializers')");
 		expect(JSON.parse(readFileSync('credential-initializers/treeseed.codex.json', 'utf8'))).toMatchObject({ schemaVersion: 'treeseed.host-credential-initializer/v1', id: 'treeseed.codex' });
 		expect(brokerUnit).not.toContain('model-provider-auth');
-		expect(brokerUnit).toContain('RuntimeDirectoryPreserve=restart');
+		expect(brokerUnit).toContain('RuntimeDirectoryPreserve=yes');
 	});
 
 	it('bootstraps component configuration before an upgraded manager activates it', () => {
