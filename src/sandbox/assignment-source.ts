@@ -28,6 +28,7 @@ export class AssignmentSource {
   private stopped = false;
   private pending?: Promise<void>;
   private failure?: string;
+  private predecessor: string | null = null;
   constructor(private readonly owner: Owner, private readonly virtualBytes: number, private readonly operations: AssignmentSourceOperations) {
     if (!Number.isSafeInteger(virtualBytes) || virtualBytes < 67_108_864 || virtualBytes > 137_438_953_472) throw new Error('Invalid assignment source disk limit.');
   }
@@ -37,6 +38,8 @@ export class AssignmentSource {
       ...(this.leaseId ? { leaseId: this.leaseId, expiresAt: this.authority?.expiresAt } : {}),
       ...(this.failure ? { error: this.failure } : {}) };
   }
+  predecessorId() { return this.predecessor; }
+  authorizeTransfer(value: unknown) { return this.validate(value); }
   private validate(value: unknown) {
     if (this.stopped) throw new Error('Assignment source is stopped.');
     const response = sourceWorkspaceResponseSchema.parse(value), authorization = response.authorization;
@@ -48,7 +51,7 @@ export class AssignmentSource {
     opened.token = ''; opened.username = '';
     if (this.authority && (sourceWorkspaceId(this.authority.source) !== sourceWorkspaceId(authorization.source)
       || this.authority.credentialBindingId !== authorization.credentialBindingId || this.authority.mode !== authorization.mode
-      || this.authority.publication !== authorization.publication)) throw new Error('Source authorization changed the pinned assignment scope.');
+      || this.authority.publication !== authorization.publication || this.predecessor !== (response.sourceBundle?.artifactId ?? null))) throw new Error('Source authorization changed the pinned assignment scope.');
     return response;
   }
   /** Returns immediately. Long Git and VM operations must never occupy a broker HTTP request. */
@@ -57,6 +60,7 @@ export class AssignmentSource {
     if (this.state === 'building' || this.state === 'ready' || this.state === 'attached') return this.status();
     if (this.state !== 'awaiting-authority') throw new Error('Source preparation requires recovery after failure.');
     this.authority = response.authorization;
+    this.predecessor = response.sourceBundle?.artifactId ?? null;
     this.state = 'building';
     this.pending = (async () => {
       try {

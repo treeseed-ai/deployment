@@ -1,6 +1,6 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.299",
+  "version": "0.1.0-rc.300",
   "private": true,
   "treeseed": {
     "hostRuntimeAssets": [
@@ -98,7 +98,7 @@
   },
   "dependencies": {
     "@treeseed/identity": "0.1.0-rc.23",
-    "@treeseed/sdk": "0.13.0-rc.113",
+    "@treeseed/sdk": "0.13.0-rc.115",
     "pg": "8.22.0",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
