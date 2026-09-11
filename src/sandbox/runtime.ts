@@ -10,8 +10,13 @@ import type { SandboxBrokerConfiguration } from './protocol.js';
 import type { SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider/sandbox';
 import { containerdImageReference } from './image-reference.js';
 import { WarmSandboxPool, kataWarmOperations } from './warm-sandbox-pool.js';
+import { AssignmentSourceStore } from './assignment-source-store.js';
+import type { AssignmentSource } from './assignment-source.js';
 
 interface Prepared {
+  closing?: boolean;
+  source?: AssignmentSource;
+  sourceInitialization?: Promise<AssignmentSource>;
 	warmSandboxId?: string;
 	executionClaimed?: boolean;
 	sandboxId: string; assignment: SandboxAssignment; directory: string; inputDirectory: string; outputDirectory: string;
@@ -43,7 +48,9 @@ async function materializeGuestResolver(directory: string) {
 export class KataSandboxRuntime {
 	private readonly sandboxes = new Map<string, Prepared>();
 	private readonly warmPool: WarmSandboxPool;
+	private readonly sourceStore: AssignmentSourceStore;
 	constructor(private readonly configuration: SandboxBrokerConfiguration) {
+		this.sourceStore = new AssignmentSourceStore(configuration);
 		this.warmPool = new WarmSandboxPool(kataWarmOperations(configuration, () => {
 			process.stderr.write(`${JSON.stringify({ source: 'sandbox-warm-pool', status: 'readiness-failed' })}\n`);
 		}));
@@ -110,15 +117,35 @@ export class KataSandboxRuntime {
 		return { sandboxId, operationToken: token, requiredInputs: assignment.inputs.map(({ id, bytes, digest }) => ({ id, bytes, digest })) };
 	}
 
-	private authorized(sandboxId: string, token: string) {
+	private authorized(sandboxId: string, token: string, allowClosing = false) {
 		const sandbox = this.sandboxes.get(sandboxId); if (!sandbox) throw new Error('Sandbox does not exist.');
 		const actual = hash(token); if (!token || actual.length !== sandbox.tokenHash.length || !timingSafeEqual(actual, sandbox.tokenHash)) throw new Error('Sandbox operation token is invalid.');
+		if (sandbox.closing && !allowClosing) throw new Error('Sandbox teardown is in progress.');
 		return sandbox;
 	}
 	private authorizedGuest(sandboxId:string,token:string) {
 		const sandbox=this.sandboxes.get(sandboxId); if(!sandbox) throw new Error('Sandbox does not exist.');
 		const actual=hash(token); if(!token||actual.length!==sandbox.guestTokenHash.length||!timingSafeEqual(actual,sandbox.guestTokenHash)) throw new Error('Sandbox guest relay token is invalid.');
 		return sandbox;
+	}
+
+	/** Only the host operation token reaches this path; the guest has a different relay token. */
+	async sourceOperation(sandboxId: string, token: string, operation: 'status' | 'prepare' | 'attach' | 'renew', value?: unknown) {
+		const sandbox = this.authorized(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before source operation.');
+		if (sandbox.executionClaimed && operation !== 'renew' && operation !== 'status') throw new Error('Executed sandbox source cannot be replaced.');
+		const source = sandbox.source ??= await (sandbox.sourceInitialization ??= this.sourceStore.create(sandboxId, sandbox.assignment));
+		if (sandbox.closing || !this.sandboxes.has(sandboxId)) { await source.stop(); throw new Error('Sandbox source initialization was cancelled.'); }
+		if (operation === 'prepare') return source.prepare(value);
+		if (operation === 'attach') {
+			const attached = await source.attach(value), path = resolve(sandbox.inputDirectory, 'source.json');
+			await writeFile(path, `${JSON.stringify({ source: attached.authorization.source, mode: attached.authorization.mode,
+				publication: attached.authorization.publication, leaseId: attached.leaseId })}\n`, { mode: 0o400 });
+			await chown(path, 65_532, 65_532);
+			return source.status();
+		}
+		if (operation === 'renew') return source.renew(value);
+		return source.status();
 	}
 
 	async requestTreeDxTool(sandboxId:string,token:string,value:unknown) {
@@ -155,19 +182,25 @@ export class KataSandboxRuntime {
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before sandbox execution.');
 		if (sandbox.assignment.inputs.some((entry) => !sandbox.uploaded.has(entry.id))) throw new Error('Sandbox execution cannot start before every signed input is verified.');
 		if (sandbox.executionClaimed) throw new Error('Sandbox execution has already been claimed.');
+		const source = sandbox.source?.attachment();
 		sandbox.executionClaimed = true;
 		await this.emit(sandbox, 'execution.started', { profile: sandbox.assignment.profile, model: sandbox.assignment.modelPolicy.model });
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
 		const resolverFile = await materializeGuestResolver(sandbox.directory);
 		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
 		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes });
-		if (!this.sandboxes.has(sandboxId)) {
+		if (sandbox.closing || !this.sandboxes.has(sandboxId)) {
 			if (!this.removeContainer(warm.id)) throw new Error('Cancelled sandbox VM remains quarantined.');
 			throw new Error('Sandbox was destroyed while preparing its VM.');
 		}
 		sandbox.warmSandboxId = warm.id;
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired while preparing its VM.');
 		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed });
+		if (source) {
+			sandbox.source!.attachment();
+			await this.emit(sandbox, 'execution.progress', { stage: 'source.attached', source: source.authorization.source,
+				mode: source.authorization.mode, publication: source.authorization.publication, leaseId: source.leaseId });
+		}
 		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--null-io', '--runtime', this.configuration.runtime,
 			'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${warm.id}`, '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
@@ -175,6 +208,7 @@ export class KataSandboxRuntime {
 			'--env', `TREESEED_SANDBOX_OUTPUT_LIMIT=${sandbox.assignment.resources.outputBytes}`,
 			'--env', 'NODE_OPTIONS=--import=/run/treeseed-assignment/startup-monitor.mjs',
 			'--mount', `type=tmpfs,src=tmpfs,dst=/workspace,options=size=${sandbox.assignment.resources.diskBytes}:mode=0770:uid=65532:gid=65532`,
+			...(source ? ['--mount', `type=bind,src=${source.disk.device},dst=/workspace/project,options=rw:nodev:nosuid`] : []),
 			'--mount', `type=bind,src=${resolverFile},dst=/etc/resolv.conf,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.inputDirectory},dst=/run/treeseed-assignment,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
@@ -187,8 +221,10 @@ export class KataSandboxRuntime {
 		}).catch(() => undefined); }, 500);
 		const executionDeadline = Date.now() + sandbox.assignment.resources.durationSeconds * 1_000; let timeout: ReturnType<typeof setTimeout>;
 		const enforceDeadline = () => {
-			const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt)) - Date.now();
-			if (remaining <= 1) { child.kill('SIGKILL'); return; }
+			let sourceDeadline = Infinity;
+			if (sandbox.source) { try { sourceDeadline = Date.parse(sandbox.source.attachment().authorization.expiresAt); } catch { sourceDeadline = 0; } }
+			const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt), sourceDeadline) - Date.now();
+			if (remaining <= 1) { this.ctr(['tasks', 'kill', '--signal', 'SIGKILL', sandboxId]); child.kill('SIGKILL'); return; }
 			// Re-read the mutable lease when this timer fires. A renewal received while
 			// the guest is running must extend the lease boundary without extending the
 			// assignment's immutable execution-duration limit.
@@ -251,12 +287,14 @@ export class KataSandboxRuntime {
 	}
 	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
 	async destroy(sandboxId: string, token: string) {
-		const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGKILL');
+		const sandbox = this.authorized(sandboxId, token, true); sandbox.closing = true; sandbox.child?.kill('SIGKILL');
 		const executionStopped = this.removeContainer(sandboxId);
 		const warmStopped = sandbox.warmSandboxId ? this.removeContainer(sandbox.warmSandboxId) : true;
 		const verified = executionStopped && warmStopped;
+		const source = sandbox.source ?? await sandbox.sourceInitialization;
+		const sourceTeardown = source ? await this.sourceStore.finish(sandboxId, source, sandbox.result, verified) : null;
 		for(const waiter of sandbox.toolWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Sandbox was destroyed.'));} sandbox.toolWaiters.clear();
-		await this.emit(sandbox, 'sandbox.destroyed', { verified });
+		await this.emit(sandbox, 'sandbox.destroyed', { verified, sourceTeardown });
 		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }
 		return { sandboxId, destroyed: verified, teardown: { verified, completedAt: new Date().toISOString() }, events: sandbox.events };
 	}
