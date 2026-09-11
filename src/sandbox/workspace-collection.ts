@@ -67,27 +67,45 @@ export async function collectLeafBatch(catalog: WorkspaceCatalog, remove: (id: s
   return removed;
 }
 
+interface CollectionOperations {
+  idle(): Promise<void>;
+  state(): Promise<string>;
+  stop(): Promise<void>;
+  start(): Promise<void>;
+  disks(): Promise<string[]>;
+  collect(): Promise<{ removed: string[]; remainingLeaves: number }>;
+}
+
+export async function runFencedCollection(operations: CollectionOperations) {
+  await operations.idle();
+  const state = await operations.state();
+  if (!['active', 'inactive', 'failed'].includes(state)) throw new Error('Sandbox broker is transitioning.');
+  try {
+    if (state === 'active') await operations.stop();
+    await operations.idle();
+    const retainedDisks = await operations.disks();
+    if (retainedDisks.length) return { removed: [], retainedDisks, reason: 'overlay_custody_retained', hostFilesystemMounts: 0 };
+    return { ...await operations.collect(), retainedDisks: [], hostFilesystemMounts: 0 };
+  } finally { if (state === 'active') await operations.start(); }
+}
+
 /** Fixed serialized operator maintenance, not a timer or an assignment-path eviction. */
 export async function collectWorkspaceCache(configuration: SandboxBrokerConfiguration) {
   await initializeWorkspaceStorage();
   const catalog = new WorkspaceCatalog(join(workspaceStorageRoot, 'catalog.db'));
   const broker = 'treeseed-sandbox-broker.service';
-  let restart = false;
   const idle = async () => {
     const snapshot = catalog.collectionState();
     assertCollectionIdle(await run('/usr/bin/ctr', ['--address', configuration.containerdAddress,
       '--namespace', configuration.namespace, 'tasks', 'list', '--quiet']), snapshot.activeLeases, snapshot.builds, await unfinishedJobs());
   };
   try {
-    await idle();
-    const state = await run('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value']);
-    if (!['active', 'inactive', 'failed'].includes(state)) throw new Error('Sandbox broker is transitioning.');
-    restart = state === 'active';
-    if (restart) await run('/usr/bin/systemctl', ['stop', broker]);
-    await idle();
-    // Even a detached unclassified disk may contain work or reference a base: preserve all ancestry.
-    const retainedDisks = await entries('leases');
-    if (retainedDisks.length) return { removed: [], retainedDisks, reason: 'overlay_custody_retained', hostFilesystemMounts: 0 };
+    return await runFencedCollection({ idle,
+      state: () => run('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value']),
+      stop: async () => { await run('/usr/bin/systemctl', ['stop', broker]); },
+      start: async () => { await run('/usr/bin/systemctl', ['start', broker]); },
+      // Even a detached unclassified disk may contain work or reference a base: preserve all ancestry.
+      disks: () => entries('leases'), collect: async () => {
     await privateDirectory(join(workspaceStorageRoot, 'images'));
     const removed = await collectLeafBatch(catalog, async id => {
       const path = workspaceImagePath(id);
@@ -99,9 +117,7 @@ export async function collectWorkspaceCache(configuration: SandboxBrokerConfigur
       const directory = await open(join(workspaceStorageRoot, 'images'), 'r');
       try { await directory.sync(); } finally { await directory.close(); }
     });
-    return { removed, retainedDisks: [], remainingLeaves: catalog.collectionState().leaves.length, hostFilesystemMounts: 0 };
-  } finally {
-    catalog.close();
-    if (restart) await run('/usr/bin/systemctl', ['start', broker]);
-  }
+    return { removed, remainingLeaves: catalog.collectionState().leaves.length };
+    } });
+  } finally { catalog.close(); }
 }

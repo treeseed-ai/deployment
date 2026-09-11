@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
-import { assertCollectionIdle, assertImageCustody, collectLeafBatch } from '../src/sandbox/workspace-collection.js';
+import { assertCollectionIdle, assertImageCustody, collectLeafBatch, runFencedCollection } from '../src/sandbox/workspace-collection.js';
 import type { SourceWorkspaceKey } from '@treeseed/sdk/capacity-provider/sandbox';
 
 const source: SourceWorkspaceKey = { controlPlaneId: 'api', teamId: 'team', projectId: 'project', repositoryId: 'repo',
@@ -12,6 +12,26 @@ function publish(catalog: WorkspaceCatalog, commit = source.commit, parent: stri
 }
 
 describe('fenced source collection', () => {
+  const operations = () => ({ idle: vi.fn(async () => {}), state: vi.fn(async () => 'active'), stop: vi.fn(async () => {}),
+    start: vi.fn(async () => {}), disks: vi.fn(async (): Promise<string[]> => []), collect: vi.fn(async () => ({ removed: ['base'], remainingLeaves: 0 })) });
+  it('preserves detached and unclassified overlays and restores the broker', async () => {
+    const ops = operations(); ops.disks.mockResolvedValue(['unclassified']);
+    expect(await runFencedCollection(ops)).toMatchObject({ removed: [], retainedDisks: ['unclassified'], reason: 'overlay_custody_retained' });
+    expect(ops.idle).toHaveBeenCalledTimes(2);
+    expect(ops.collect).not.toHaveBeenCalled(); expect(ops.stop).toHaveBeenCalledOnce(); expect(ops.start).toHaveBeenCalledOnce();
+  });
+  it('rechecks custody after stopping and restarts on changed ownership', async () => {
+    const ops = operations(); ops.idle.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('new lease'));
+    await expect(runFencedCollection(ops)).rejects.toThrow('new lease');
+    expect(ops.collect).not.toHaveBeenCalled(); expect(ops.start).toHaveBeenCalledOnce();
+  });
+  it('restores service on collection failure but preserves originally stopped services', async () => {
+    const ops = operations(); ops.collect.mockRejectedValue(new Error('unlink failed'));
+    await expect(runFencedCollection(ops)).rejects.toThrow('unlink failed'); expect(ops.start).toHaveBeenCalledOnce();
+    const stopped = operations(); stopped.state.mockResolvedValue('inactive');
+    expect(await runFencedCollection(stopped)).toMatchObject({ removed: ['base'] });
+    expect(stopped.start).not.toHaveBeenCalled(); expect(stopped.stop).not.toHaveBeenCalled();
+  });
   it('rejects active guests, leases, builds and preparations including invalid counts', () => {
     expect(() => assertCollectionIdle('', 0, 0, 0)).not.toThrow();
     for (const counts of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [NaN, 0, 0]]) {
