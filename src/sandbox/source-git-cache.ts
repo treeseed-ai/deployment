@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { chmod, link, lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
+import { constants, createReadStream } from 'node:fs';
+import { chmod, copyFile, link, lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sourceWorkspaceAuthorizationSchema, type SourceWorkspaceAuthorization } from '@treeseed/sdk/capacity-provider/sandbox';
 import { initializeWorkspaceStorage, workspaceStorageRoot } from './workspace-block-store.js';
 import { runSourceGit, type SourceGitCredential } from './source-git-transport.js';
+import { withSourceCacheVolume } from './source-cache-volume.js';
 
 interface Repository { owner: string; name: string; cloneUrl: string }
 export interface SourceGitCacheDependencies {
@@ -12,8 +13,9 @@ export interface SourceGitCacheDependencies {
   initialize(): Promise<void>;
   run: typeof runSourceGit;
   now(): Date;
+  volume: typeof withSourceCacheVolume;
 }
-const production: SourceGitCacheDependencies = { root: workspaceStorageRoot, initialize: initializeWorkspaceStorage, run: runSourceGit, now: () => new Date() };
+const production: SourceGitCacheDependencies = { root: workspaceStorageRoot, initialize: initializeWorkspaceStorage, run: runSourceGit, now: () => new Date(), volume: withSourceCacheVolume };
 
 function current(authorization: SourceWorkspaceAuthorization, now: Date) {
   if (Date.parse(authorization.issuedAt) > now.getTime() || Date.parse(authorization.expiresAt) <= now.getTime()) throw new Error('Source acquisition authority expired.');
@@ -49,10 +51,12 @@ export async function acquireSourceBundle(input: {
   const lock = join(cache, 'acquisition.lock');
   try { await mkdir(lock, { mode: 0o700 }); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Source acquisition is already owned or awaiting recovery.'); throw error; }
-  const jobId = randomUUID(), temporary = join(lock, `${jobId}.bundle`), git = join(cache, 'repository.git');
+  const jobId = randomUUID();
   let completed = false;
   try {
     await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId, assignmentId: authorization.assignmentId, authorizationId: authorization.id, pid: process.pid }), { mode: 0o600, flag: 'wx' });
+    const result = await dependencies.volume(cache, input.maxBundleBytes, async volume => {
+    const temporary = join(volume, `${jobId}.bundle`), git = join(volume, 'repository.git');
     await privateDirectory(git);
     await dependencies.run(git, ['init', '--bare', '--template=']);
     // The manager never accepts a remote config or filesystem from an execution guest.
@@ -65,8 +69,9 @@ export async function acquireSourceBundle(input: {
     const info = await lstat(temporary);
     if (!info.isFile() || info.size < 1 || info.size > input.maxBundleBytes) throw new Error('Source bundle exceeds the admitted transfer limit.');
     const sha256 = await digest(temporary), path = join(bundles, `${sha256}.bundle`);
-    await chmod(temporary, 0o400);
-    try { await link(temporary, path); }
+    const staged = join(lock, `${jobId}.verified`);
+    await copyFile(temporary, staged, constants.COPYFILE_EXCL); await chmod(staged, 0o400);
+    try { await link(staged, path); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const existing = await lstat(path);
@@ -75,8 +80,10 @@ export async function acquireSourceBundle(input: {
     const handle = await open(path, 'r'); try { await handle.sync(); } finally { await handle.close(); }
     const directory = await open(bundles, 'r'); try { await directory.sync(); } finally { await directory.close(); }
     current(authorization, dependencies.now());
-    completed = true;
+    await rm(temporary);
     return { cacheId, bundleDigest: `sha256:${sha256}`, bytes: info.size, commit: source.commit };
+    });
+    completed = true; return result;
   } finally {
     // Failed or interrupted Git may have descendants still writing. Recovery, not elapsed time, releases this fence.
     if (completed) await rm(lock, { recursive: true });

@@ -52,6 +52,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:direct
+      - name: Verify kernel-enforced trusted source cache quota
+        run: sudo --preserve-env=TREESEED_PRIVILEGED_CACHE_TESTS "$(command -v node)" node_modules/vitest/vitest.mjs run tests/source-cache-volume.integration.test.ts
+        env:
+          TREESEED_PRIVILEGED_CACHE_TESTS: '1'
       - run: npm run verify:deb
         env:
           TREESEED_APT_SUITE: development
