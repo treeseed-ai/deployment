@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { verifySourceCandidate } from '../src/sandbox/workspace-candidate-guest.js';
+import { buildSourceWorkspace } from '../src/sandbox/workspace-builder-guest.js';
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'treeseed-candidate-test-')), root = join(directory, 'project'); mkdirSync(root);
@@ -18,7 +19,9 @@ describe('independent source candidate verifier', () => {
   it('verifies ancestry, committed work and a portable history bundle', async () => {
     const f = fixture(); try {
       const result = await verifySourceCandidate(f.input); expect(result).toMatchObject({ commit: f.input.commit, baseCommit: f.input.baseCommit, objectClosure: true, ancestry: true, clean: true });
-      expect(f.git(['bundle', 'list-heads', f.input.output])).toBe(`${f.input.commit} refs/heads/treeseed-candidate`);
+      expect(f.git(['bundle', 'list-heads', f.input.output])).toBe(`${f.input.commit} refs/heads/treeseed-source`);
+      const rebuilt = await buildSourceWorkspace({ root: join(f.directory, 'review'), bundle: f.input.output, commit: f.input.commit, parentCommit: null });
+      expect(rebuilt).toMatchObject({ commit: f.input.commit, clean: true, objectClosure: true });
     } finally { f.cleanup(); }
   });
   it('never executes guest repository configuration during verification', async () => {

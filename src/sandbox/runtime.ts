@@ -12,6 +12,7 @@ import { containerdImageReference } from './image-reference.js';
 import { WarmSandboxPool, kataWarmOperations } from './warm-sandbox-pool.js';
 import { AssignmentSourceStore } from './assignment-source-store.js';
 import type { AssignmentSource } from './assignment-source.js';
+import { z } from 'zod';
 
 interface Prepared {
   closing?: boolean;
@@ -130,13 +131,17 @@ export class KataSandboxRuntime {
 	}
 
 	/** Only the host operation token reaches this path; the guest has a different relay token. */
-	async sourceOperation(sandboxId: string, token: string, operation: 'status' | 'prepare' | 'attach' | 'renew', value?: unknown) {
+	async sourceOperation(sandboxId: string, token: string, operation: 'status' | 'prepare' | 'attach' | 'renew' | 'chunk', value?: unknown) {
 		const sandbox = this.authorized(sandboxId, token);
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before source operation.');
 		if (sandbox.executionClaimed && operation !== 'renew' && operation !== 'status') throw new Error('Executed sandbox source cannot be replaced.');
 		const source = sandbox.source ??= await (sandbox.sourceInitialization ??= this.sourceStore.create(sandboxId, sandbox.assignment));
 		if (sandbox.closing || !this.sandboxes.has(sandboxId)) { await source.stop(); throw new Error('Sandbox source initialization was cancelled.'); }
 		if (operation === 'prepare') return source.prepare(value);
+		if (operation === 'chunk') {
+			const input = z.object({ authority: z.unknown(), chunk: z.unknown() }).strict().parse(value);
+			return this.sourceStore.importChunk(sandboxId, source, input.authority, input.chunk);
+		}
 		if (operation === 'attach') {
 			const attached = await source.attach(value), path = resolve(sandbox.inputDirectory, 'source.json');
 			await writeFile(path, `${JSON.stringify({ source: attached.authorization.source, mode: attached.authorization.mode,
@@ -146,6 +151,29 @@ export class KataSandboxRuntime {
 		}
 		if (operation === 'renew') return source.renew(value);
 		return source.status();
+	}
+
+	async candidateOperation(sandboxId: string, token: string, operation: 'start' | 'status' | 'chunk' | 'accept', value?: unknown) {
+		const sandbox = this.authorized(sandboxId, token), source = sandbox.source;
+		if (!source || !sandbox.result || sandbox.result.status !== 'completed' || Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Candidate export requires a completed execution and current assignment lease.');
+		if (operation === 'start') {
+			const input = z.object({ commit: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u), authority: z.unknown() }).strict().parse(value);
+			await source.renew(input.authority);
+			this.authorized(sandboxId, token);
+			const stopped = this.removeContainer(sandboxId) && (!sandbox.warmSandboxId || this.removeContainer(sandbox.warmSandboxId));
+			if (!stopped) throw new Error('Execution teardown is uncertain; retain candidate storage.');
+			return this.sourceStore.startCandidate(sandboxId, source, sandbox.assignment, input.commit, source.predecessorId(), true);
+		}
+		const job = this.sourceStore.candidate(sandboxId);
+		if (operation === 'accept') {
+			const input = z.object({ authority: z.unknown(), receipt: z.unknown() }).strict().parse(value);
+			await source.renew(input.authority);
+			this.authorized(sandboxId, token);
+			return { accepted: true, receipt: await job.accept(input.receipt) };
+		}
+		source.attachment();
+		if (operation === 'chunk') return job.chunk(z.object({ index: z.number().int().min(0).max(1023) }).strict().parse(value).index);
+		return job.status();
 	}
 
 	async requestTreeDxTool(sandboxId:string,token:string,value:unknown) {

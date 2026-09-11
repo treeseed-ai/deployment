@@ -34,10 +34,14 @@ export function startSandboxBroker() {
 				return respond(response, 201, await runtime.prepare(assignment));
 			}
 			const input = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/inputs\/([a-z][a-z0-9._-]{0,127})$/u);
-			const source = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/source\/(status|prepare|attach|renew)$/u);
+			const candidate = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/candidate\/(start|status|chunk|accept)$/u);
+			if (candidate?.[1] && candidate[2] === 'status' && request.method === 'GET') return respond(response, 200, await runtime.candidateOperation(candidate[1], token(request), 'status'));
+			if (candidate?.[1] && ['start', 'chunk', 'accept'].includes(candidate[2] ?? '') && request.method === 'POST') return respond(response, candidate[2] === 'start' ? 202 : 200,
+				await runtime.candidateOperation(candidate[1], token(request), candidate[2] as 'start' | 'chunk' | 'accept', await body(request)));
+			const source = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/source\/(status|prepare|attach|renew|chunk)$/u);
 			if (source?.[1] && source[2] === 'status' && request.method === 'GET') return respond(response, 200, await runtime.sourceOperation(source[1], token(request), 'status'));
-			if (source?.[1] && ['prepare', 'attach', 'renew'].includes(source[2] ?? '') && request.method === 'POST') {
-				return respond(response, source[2] === 'prepare' ? 202 : 200, await runtime.sourceOperation(source[1], token(request), source[2] as 'prepare' | 'attach' | 'renew', await body(request)));
+			if (source?.[1] && ['prepare', 'attach', 'renew', 'chunk'].includes(source[2] ?? '') && request.method === 'POST') {
+				return respond(response, source[2] === 'prepare' ? 202 : 200, await runtime.sourceOperation(source[1], token(request), source[2] as 'prepare' | 'attach' | 'renew' | 'chunk', await body(request)));
 			}
 			if (request.method === 'PUT' && input?.[1] && input[2]) return respond(response, 200, await runtime.upload(input[1], input[2], token(request), request));
 			const artifact = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/artifacts\/([a-z][a-z0-9._-]{0,127})$/u);
