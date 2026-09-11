@@ -26,6 +26,7 @@ import { initializeProviderCredential, initializeProviderSecurity, providerSecur
 import { inspectSandboxHost } from '../sandbox/doctor.js';
 import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandbox/workspace-qualification.js';
 import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
+import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
@@ -258,6 +259,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
 		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());
+		case 'sandbox.workspace.cache.qualify': return qualifySourceCacheQuota();
 		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);

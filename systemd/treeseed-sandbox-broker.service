@@ -26,6 +26,8 @@ ReadWritePaths=/run/treeseed/sandbox /var/lib/treeseed/sandboxes /var/lib/cni /r
 DevicePolicy=closed
 DeviceAllow=/dev/kvm rw
 DeviceAllow=/dev/net/tun rw
+DeviceAllow=/dev/loop-control rw
+DeviceAllow=block-loop rw
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]

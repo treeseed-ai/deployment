@@ -8,6 +8,7 @@ import { acquireSourceBundle, type SourceGitCacheDependencies } from '../src/san
 import { runSourceGit, sourceGitCommand } from '../src/sandbox/source-git-transport.js';
 
 const roots: string[] = [];
+const volume: SourceGitCacheDependencies['volume'] = async (cache, _limit, action) => action(cache);
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const now = new Date('2026-09-10T23:00:00.000Z');
 const authorization: SourceWorkspaceAuthorization = {
@@ -31,7 +32,7 @@ describe('trusted source acquisition', () => {
   });
 
   it('rejects noncanonical repository, expired authorization, and invalid quota before storage access', async () => {
-    const dependencies = { root: '/unused', initialize: vi.fn(), run: vi.fn(), now: () => now };
+    const dependencies = { root: '/unused', initialize: vi.fn(), run: vi.fn(), now: () => now, volume };
     for (const candidate of [
       { ...input, repository: { ...input.repository, cloneUrl: 'http://169.254.169.254/' } },
       { ...input, authorization: { ...authorization, issuedAt: '2026-09-09T00:00:00Z', expiresAt: '2026-09-10T00:00:00Z' } },
@@ -49,7 +50,7 @@ describe('trusted source acquisition', () => {
     await writeFile(join(fixture, 'source.ts'), 'export const value = 2;\n'); git(['commit', '-qam', 'next']); const commit = git(['rev-parse', 'HEAD']);
     const fetches = vi.fn();
     const dependencies: SourceGitCacheDependencies = {
-      root, initialize: async () => {}, now: () => now,
+      root, initialize: async () => {}, now: () => now, volume,
       run: async (repository, args, credential) => {
         if (args[0] === 'fetch') {
           fetches(credential);
@@ -75,7 +76,7 @@ describe('trusted source acquisition', () => {
 
   it('leaves an uncertain acquisition fenced rather than stealing or deleting its work', async () => {
     const root = await mkdtemp(join(tmpdir(), 'treeseed-source-cache-test-')); roots.push(root);
-    const dependencies = { root, initialize: async () => {}, now: () => now, run: vi.fn(async () => { throw new Error('uncertain child'); }) };
+    const dependencies = { root, initialize: async () => {}, now: () => now, volume, run: vi.fn(async () => { throw new Error('uncertain child'); }) };
     await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('uncertain child');
     await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('awaiting recovery');
     expect(dependencies.run).toHaveBeenCalledTimes(1);
