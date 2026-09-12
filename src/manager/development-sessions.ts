@@ -192,6 +192,22 @@ export class DevelopmentSessionStore {
 		return this.save(record);
 	}
 
+	attachManaged(sessionId: string, projectId: string, targetId: string, baseRoutes: readonly EdgeRoute[]) {
+		const record = this.load(sessionId);
+		const selected = record.session.targets.find((entry) => entry.projectId === projectId && entry.targetId === targetId);
+		const target = record.runtimes.find((runtime) => runtime.project.id === projectId)?.targets.find((entry) => entry.id === targetId);
+		if (!selected || !target || selected.mode === 'released') throw new Error(`Target ${targetKey(projectId, targetId)} is not selected for a development overlay.`);
+		if (target.executionCustody !== 'manager') throw new Error('Only manager-custody targets may adopt managed component routes.');
+		record.routes = record.routes.filter((route) => targetKey(route.projectId, route.targetId) !== targetKey(projectId, targetId));
+		for (const endpoint of target.endpoints.filter((entry) => entry.visibility === 'host')) {
+			const route = baseRoutes.find((entry) => entry.alias === endpoint.canonicalAlias);
+			if (!route) throw new Error(`Managed development route ${endpoint.canonicalAlias} is unavailable.`);
+			record.routes.push({ ...route, projectId, targetId });
+		}
+		selected.health = 'ready'; selected.generation += 1;
+		return this.save(record);
+	}
+
 	markReady(sessionId: string, projectId: string, targetId: string) {
 		const record = this.load(sessionId);
 		const selected = record.session.targets.find((entry) => entry.projectId === projectId && entry.targetId === targetId);

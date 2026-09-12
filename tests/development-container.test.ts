@@ -37,6 +37,8 @@ it('classifies fixed permission boundaries without exposing paths or values',()=
     ['/run/treeseed-keys/credentials','KEY_PERMISSION']] as const)
     expect(developmentStartupCode(`EACCES: permission denied, open '${path}' secret-value`)).toBe(code);
   expect(developmentStartupCode('EACCES: unknown private path')).toBe('EACCES');
+  expect(developmentStartupCode("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'tsx' imported from /workspace/app.ts")).toBe('TSX_MODULE_MISSING');
+  expect(developmentStartupCode("Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@treeseed/sdk' imported from /workspace/app.ts")).toBe('SDK_MODULE_MISSING');
 });
 it('projects startup failures to fixed codes without reflecting sensitive log content',()=>{
   for(const [log,code] of [['does not provide an export named secret-value','EXPORT_MISSING'],['SyntaxError: secret-value','SYNTAX_ERROR'],['relation secret-value does not exist','DATABASE_RELATION_MISSING'],['permission denied secret-value','DATABASE_PERMISSION'],['duplicate key secret-value','DATABASE_CONFLICT'],['ERR_MODULE_NOT_FOUND secret-value','ERR_MODULE_NOT_FOUND'],['secret-value','']] as const)expect(developmentStartupCode(log)).toBe(code);

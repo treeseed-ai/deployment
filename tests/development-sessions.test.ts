@@ -98,6 +98,17 @@ describe('development session manager', () => {
 		expect(sessions.activeRoutes([])[0]?.upstream).toBe('http://admin-live:4322');
 	});
 
+	it('adopts installed component routes only for manager-custody source containers', () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		const managed = runtime('treedx', 'service');
+		Object.assign(managed.targets[0]!, { kind: 'rebuild-restart', executionCustody: 'manager' });
+		const selected = session(now); selected.repositories[0]!.projectId = 'treedx'; selected.targets[0] = { projectId: 'treedx', targetId: 'service', mode: 'candidate', generation: 0, health: 'pending' };
+		sessions.start(selected, [managed]);
+		const result = sessions.attachManaged('session-1', 'treedx', 'service', [{ alias: 'treedx.treeseed.localhost', upstream: 'http://treedx:4000', authentication: 'application' }]);
+		expect(result.routes).toEqual([{ alias: 'treedx.treeseed.localhost', upstream: 'http://treedx:4000', authentication: 'application', projectId: 'treedx', targetId: 'service' }]);
+		expect(result.session.targets[0]).toMatchObject({ health: 'ready', generation: 1 });
+	});
+
 	it('rejects an unsafe development edge host', async () => {
 		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
 		sessions.start(session(now), [runtime('admin', 'web', undefined, '127.0.0.1')]);

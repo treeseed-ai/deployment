@@ -37,6 +37,16 @@ export function developmentStartupCode(log:string):string {
       if (log.split('\n').some(line => /\bEACCES\b/.test(line) && line.includes(path))) return code;
     }
   }
+  if (/\b(?:ERR_)?MODULE_NOT_FOUND\b/u.test(log)) {
+    for (const [pattern, code] of [
+      [/['"]tsx['"]/u, 'TSX_MODULE_MISSING'],
+      [/['"]@treeseed\/sdk(?:\/[^'"]*)?['"]/u, 'SDK_MODULE_MISSING'],
+      [/['"]@treeseed\/deployment(?:\/[^'"]*)?['"]/u, 'DEPLOYMENT_MODULE_MISSING'],
+      [/['"]@treeseed\/identity(?:\/[^'"]*)?['"]/u, 'IDENTITY_MODULE_MISSING'],
+      [/['"]yaml['"]/u, 'YAML_MODULE_MISSING'],
+      [/['"]zod['"]/u, 'ZOD_MODULE_MISSING'],
+    ] as const) if (pattern.test(log)) return code;
+  }
   return log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??
     (/does not provide an export named/.test(log)?'EXPORT_MISSING':/SyntaxError/.test(log)?'SYNTAX_ERROR':/duplicate key|already exists/.test(log)?'DATABASE_CONFLICT':/permission denied/.test(log)?'DATABASE_PERMISSION':/relation .*does not exist/.test(log)?'DATABASE_RELATION_MISSING':'');
 }
