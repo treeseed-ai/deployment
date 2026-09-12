@@ -52,5 +52,6 @@ export function recoverDevelopmentPauseOwners(activeSessionIds: readonly string[
 }
 
 export function trackPaused(track: 'stable' | 'development') {
-	return loadUpdateState()[`${track}Paused`];
+	const current = loadUpdateState();
+	return current[`${track}Paused`] || current.developmentPauseOwners.length > 0;
 }

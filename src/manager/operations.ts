@@ -222,8 +222,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.session.start': {
 			if (!context.local) throw new Error('Development sessions may be started only through the protected local manager socket.');
 			const payload = z.object({ session: z.unknown(), runtimes: z.array(z.unknown()).min(1) }).strict().parse(developmentPayload(request));
-			const started = new DevelopmentSessionStore().start(payload.session, payload.runtimes);
-			noteDevelopmentPauseOwner(started.session.sessionId, true);
+			const started = new DevelopmentSessionStore().start(payload.session, payload.runtimes); noteDevelopmentPauseOwner(started.session.sessionId, started.session.targets.some((target) => target.mode !== 'released'));
 			return started;
 		}
 		case 'local.dev.session.stop': {
@@ -271,15 +270,16 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.use': {
 			if (!context.local) throw new Error('Development targets may be attached only through the protected local manager socket.');
 			const payload = z.object({ sessionId: z.string().min(1), projectId: z.string().min(1), targetId: z.string().min(1), mode: z.enum(['released', 'candidate', 'live']), port: z.number().int().positive().max(65_535).optional() }).strict().parse(developmentPayload(request));
-			const store = new DevelopmentSessionStore(); const record = store.setMode(payload.sessionId, payload.projectId, payload.targetId, payload.mode);
+			const store = new DevelopmentSessionStore(); const record = store.setMode(payload.sessionId, payload.projectId, payload.targetId, payload.mode); noteDevelopmentPauseOwner(payload.sessionId, record.session.targets.some((entry) => entry.mode !== 'released'));
 			const target = record.runtimes.find((runtime) => runtime.project.id === payload.projectId)?.targets.find((entry) => entry.id === payload.targetId);
 			if (payload.mode !== 'released' && payload.port) await store.attach(payload.sessionId, payload.projectId, payload.targetId, payload.port);
 			if (payload.mode !== 'released' && !payload.port && target && usesManagerDevelopmentCustody(target)) store.attachManaged(payload.sessionId, payload.projectId, payload.targetId, rollbackRoutes(loadHostConfiguration(), loadActiveComponents()));
 			else if (payload.mode !== 'released' && !payload.port) store.markReady(payload.sessionId, payload.projectId, payload.targetId);
 			await applyDevelopmentRoutes(store);
 			if (payload.mode !== 'released' && payload.port && !await store.verifyRouted(payload.sessionId, payload.projectId, payload.targetId)) {
-				store.setMode(payload.sessionId, payload.projectId, payload.targetId, 'released'); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; this target was restored to its released route.');
-			}
+				const restored = store.setMode(payload.sessionId, payload.projectId, payload.targetId, 'released');
+				noteDevelopmentPauseOwner(payload.sessionId, restored.session.targets.some((entry) => entry.mode !== 'released'));
+				await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; this target was restored to its released route.'); }
 			return store.load(payload.sessionId);
 		}
 		case 'local.dev.rebuild': {
