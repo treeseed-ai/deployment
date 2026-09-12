@@ -52,6 +52,14 @@ describe('development session manager', () => {
 		expect(attempts).toBe(3);
 	});
 
+	it('restoring one degraded target keeps the development session active', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		const record = sessions.start(session(now), [runtime()]);
+		record.session.status = 'degraded'; record.session.targets[0]!.health = 'degraded'; sessions.save(record);
+		const restored = sessions.setMode('session-1', 'admin', 'web', 'released');
+		expect(restored.session.status).toBe('active'); expect(restored.session.targets[0]!.health).toBe('ready');
+	});
+
 	it('returns an address list when the HTTPS client requests all lookup results', async () => {
 		const server = createServer((socket) => socket.destroy());
 		await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
@@ -101,7 +109,7 @@ describe('development session manager', () => {
 	it('adopts installed component routes only for manager-custody source containers', () => {
 		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
 		const managed = runtime('treedx', 'service');
-		Object.assign(managed.targets[0]!, { kind: 'rebuild-restart', executionCustody: 'manager' });
+		Object.assign(managed.targets[0]!, { kind: 'rebuild-restart', operations: { start: { command: 'manager-runtime', args: [], environment: {}, timeoutSeconds: 30 } } });
 		const selected = session(now); selected.repositories[0]!.projectId = 'treedx'; selected.targets[0] = { projectId: 'treedx', targetId: 'service', mode: 'candidate', generation: 0, health: 'pending' };
 		sessions.start(selected, [managed]);
 		const result = sessions.attachManaged('session-1', 'treedx', 'service', [{ alias: 'treedx.treeseed.localhost', upstream: 'http://treedx:4000', authentication: 'application' }]);

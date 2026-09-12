@@ -75,6 +75,9 @@ function defaultRoutedHealth(alias: string, path: string) {
 }
 
 function targetKey(projectId: string, targetId: string) { return `${projectId}.${targetId}`; }
+export function usesManagerDevelopmentCustody(target: DevelopmentTarget) {
+	return (target as DevelopmentTarget & { executionCustody?: string }).executionCustody === 'manager' || target.operations.start?.command === 'manager-runtime';
+}
 
 function developmentEdgeHost(target: DevelopmentTarget) {
 	const declared = target.operations.start?.environment.TREESEED_DEVELOPMENT_EDGE_HOST;
@@ -175,6 +178,7 @@ export class DevelopmentSessionStore {
 			}
 		}
 		target.mode = mode; target.health = mode === 'released' ? 'ready' : 'pending';
+		if (record.session.status !== 'stopped') record.session.status = record.session.targets.some((entry) => entry.health === 'degraded') ? 'degraded' : 'active';
 		return this.save(record);
 	}
 
@@ -197,7 +201,7 @@ export class DevelopmentSessionStore {
 		const selected = record.session.targets.find((entry) => entry.projectId === projectId && entry.targetId === targetId);
 		const target = record.runtimes.find((runtime) => runtime.project.id === projectId)?.targets.find((entry) => entry.id === targetId);
 		if (!selected || !target || selected.mode === 'released') throw new Error(`Target ${targetKey(projectId, targetId)} is not selected for a development overlay.`);
-		if (target.executionCustody !== 'manager') throw new Error('Only manager-custody targets may adopt managed component routes.');
+		if (!usesManagerDevelopmentCustody(target)) throw new Error('Only manager-custody targets may adopt managed component routes.');
 		record.routes = record.routes.filter((route) => targetKey(route.projectId, route.targetId) !== targetKey(projectId, targetId));
 		for (const endpoint of target.endpoints.filter((entry) => entry.visibility === 'host')) {
 			const route = baseRoutes.find((entry) => entry.alias === endpoint.canonicalAlias);

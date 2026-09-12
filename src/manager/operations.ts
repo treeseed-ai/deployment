@@ -17,7 +17,7 @@ import { serializedSecurityInitialize, serializedSecurityOperation } from './ser
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
-import { affectedDevelopmentClosure, DevelopmentSessionStore } from './development-sessions.js';
+import { affectedDevelopmentClosure, DevelopmentSessionStore, usesManagerDevelopmentCustody } from './development-sessions.js';
 import { subjectAlternativeNames } from '../edge/caddy.js';
 import { hostDoctor } from './doctor.js';
 import { inspectRecoveryBackup, listRecoveryBackups } from './recovery.js';
@@ -274,11 +274,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const store = new DevelopmentSessionStore(); const record = store.setMode(payload.sessionId, payload.projectId, payload.targetId, payload.mode);
 			const target = record.runtimes.find((runtime) => runtime.project.id === payload.projectId)?.targets.find((entry) => entry.id === payload.targetId);
 			if (payload.mode !== 'released' && payload.port) await store.attach(payload.sessionId, payload.projectId, payload.targetId, payload.port);
-			if (payload.mode !== 'released' && !payload.port && target?.executionCustody === 'manager') store.attachManaged(payload.sessionId, payload.projectId, payload.targetId, rollbackRoutes(loadHostConfiguration(), loadActiveComponents()));
+			if (payload.mode !== 'released' && !payload.port && target && usesManagerDevelopmentCustody(target)) store.attachManaged(payload.sessionId, payload.projectId, payload.targetId, rollbackRoutes(loadHostConfiguration(), loadActiveComponents()));
 			else if (payload.mode !== 'released' && !payload.port) store.markReady(payload.sessionId, payload.projectId, payload.targetId);
 			await applyDevelopmentRoutes(store);
 			if (payload.mode !== 'released' && payload.port && !await store.verifyRouted(payload.sessionId, payload.projectId, payload.targetId)) {
-				store.stop(payload.sessionId); noteDevelopmentPauseOwner(payload.sessionId, false); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; released routes were restored.');
+				store.setMode(payload.sessionId, payload.projectId, payload.targetId, 'released'); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; this target was restored to its released route.');
 			}
 			return store.load(payload.sessionId);
 		}
