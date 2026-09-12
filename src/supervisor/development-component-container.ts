@@ -6,6 +6,7 @@ import { loadActiveComponents } from '../manager/current-state.js';
 import { composeFiles } from '../manager/reconcile.js';
 import { componentComposeArguments, composeProjectContainerIds, type CommandRunner } from './compose-runtime.js';
 import { developmentDiagnosticEvents } from './development-diagnostics.js';
+import { waitForStartingActivation } from './activation-wait.js';
 
 type ManagedProject = 'treedx' | 'ai';
 type ManagedTarget = 'service' | 'ai-inference' | 'ai-training' | 'ai-lab';
@@ -16,6 +17,7 @@ interface ImageBuild { role: string; services: string[]; dockerfile: string; tar
 interface Recipe { componentId: string; projectId: ManagedProject; targetId: ManagedTarget; builds: (worktree: string) => ImageBuild[] }
 
 const root = '/run/treeseed/development-containers';
+const oneShotServices = new Set(['inference-gpu-state-init', 'inference-migrations', 'training-gpu-state-init', 'training-migrations', 'lab-state-init', 'open-webui-action-init']);
 const aiServices: Record<Exclude<ManagedTarget, 'service'>, Record<string, string[]>> = {
 	'ai-inference': {
 		'inference-api': ['inference-api', 'inference-gpu-state-init'], 'inference-manager': ['inference-manager'], 'inference-vllm': ['inference-vllm'],
@@ -112,9 +114,23 @@ function failureEvidence(command: CommandRunner, projectName: string, input: Inp
 	return {
 		schemaVersion: 'treeseed.development-component-failure/v1',
 		target: `${input.projectId}.${input.targetId}`,
-		instances: instances.map(({ service, running, health }) => ({ service, running, health })),
+		instances: instances.map(({ service, image, running, health }) => ({ service, running, health, imageMatches: images.get(service) === image })),
 		events,
 	};
+}
+
+function waitForManagedReadiness(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
+	const expected = [...images.keys()].filter((service) => !oneShotServices.has(service));
+	const inspect = () => {
+		const current = new Map(observed(command, projectName, input, false, images).map((item) => [item.service, item]));
+		return expected.map((service) => {
+			const item = current.get(service);
+			return item ? { service, state: item.running ? 'running' : 'exited', health: item.health }
+				: { service, state: 'running', health: 'starting' };
+		});
+	};
+	return waitForStartingActivation(inspect(), expected, inspect, Date.now() + 600_000,
+		(milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds), Date.now);
 }
 
 /** Build and switch only fixed, installed TreeSeed component recipes; no caller-supplied Docker option crosses this boundary. */
@@ -150,7 +166,11 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 	const images = buildImages(command, input, worktree, selectedRecipe.builds(worktree));
 	atomicJson(override, renderManagedComponentOverride(input, images), 0o600);
 	rmSync(failure, { force: true });
-	try { command('/usr/bin/docker', [...candidate, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']); }
+	try {
+		command('/usr/bin/docker', [...candidate, 'up', '--detach', '--remove-orphans', '--force-recreate']);
+		if (!waitForManagedReadiness(command, component.runtime.compose.projectName, input, images).ready)
+			throw new Error('Managed development application did not become ready.');
+	}
 	catch (error) {
 		const evidence = failureEvidence(command, component.runtime.compose.projectName, input, images);
 		atomicJson(failure, evidence, 0o600);
@@ -159,7 +179,7 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 			rmSync(override, { force: true });
 		} catch { /* retain recovery state */ }
 		const codes = evidence.events.flatMap((event) => event && typeof event === 'object' && 'code' in event && typeof event.code === 'string' ? [event.code] : []);
-		const services = evidence.instances.filter((item) => !item.running || item.health === 'unhealthy').map((item) => item.service);
+		const services = evidence.instances.filter((item) => !item.running || item.health === 'unhealthy' || !item.imageMatches).map((item) => item.service);
 		const detail = [...new Set([...services, ...codes])].slice(0, 8).join(',');
 		throw new Error(`${error instanceof Error ? error.message : 'Managed development activation failed.'}${detail ? ` Diagnostics: ${detail}.` : ''}`);
 	}

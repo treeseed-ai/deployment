@@ -37,7 +37,8 @@ export function developmentRuntimeOwner(host:HostConfiguration,component:Compone
 
 const dockerCommand:CommandRunner=(executable,args)=>{
   const build = args[0] === 'build' || args[0] === 'buildx';
-  const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:args[0]==='logs'?10_000:build?7_200_000:180_000,maxBuffer:args[0]==='logs'?262_144:build?16_777_216:1_048_576,
+	const activationWait = args[0] === 'compose' && args.includes('--wait-timeout');
+	const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:args[0]==='logs'?10_000:build?7_200_000:activationWait?660_000:180_000,maxBuffer:args[0]==='logs'?262_144:build?16_777_216:1_048_576,
     env:{PATH:'/usr/sbin:/usr/bin:/sbin:/bin'}});
   if(result.error||result.status!==0) {
     const text=(result.stderr??'')+'\n'+(result.stdout??'');
