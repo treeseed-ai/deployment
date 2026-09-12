@@ -106,7 +106,7 @@ function observed(command: CommandRunner, projectName: string, input: Input, run
 function failureEvidence(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
 	const instances = observed(command, projectName, input, false, images);
 	const events = instances.flatMap((item) => {
-		try { return developmentDiagnosticEvents(String(command('/usr/bin/docker', ['logs', '--tail', '100', item.id]))); }
+		try { return developmentDiagnosticEvents(String(command('/usr/bin/docker', ['logs', '--tail', '100', item.id]))).map((event) => ({ ...event, service: item.service })); }
 		catch { return []; }
 	});
 	return {
