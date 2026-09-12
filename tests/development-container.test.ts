@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
 import {activeAgentClaims,renderAgentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
-import {renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
+import {managedPersistentServices,renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
 it('restarts from the immutable local runtime without a registry dependency',()=>{
@@ -59,6 +59,11 @@ it('renders only manager-resolved immutable images into component overrides',()=
 	const spec=renderManagedComponentOverride({sessionId:'dev-example',projectId:'ai',targetId:'ai-inference',action:'start'},new Map([['inference-api',image]]));
 	expect(spec.services['inference-api']).toEqual({image,labels:{'org.treeseed.development.session':'dev-example','org.treeseed.development.target':'ai.ai-inference'}});
 	expect(JSON.stringify(spec)).not.toContain('docker.sock');
+});
+it('excludes successful one-shot services from managed development readiness',()=>{
+	expect(managedPersistentServices(['inference-api','inference-gpu-state-init','inference-migrations','inference-manager','inference-api']))
+		.toEqual(['inference-api','inference-manager']);
+	expect(managedPersistentServices(['lab-state-init','open-webui-action-init'])).toEqual([]);
 });
 it('renders a fixed Agent overlay with read-only candidate code and no privileged surface',()=>{
 	const spec=renderAgentDevelopmentOverride({sessionId:'dev-example',runtimeRoot:'/run/treeseed/development-containers/dev-example/agent/provider/runtime'});
