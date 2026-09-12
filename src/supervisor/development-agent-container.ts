@@ -130,7 +130,8 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
 		const states = services.map((service) => containerState(command, service));
-		return { registered: true, state: states.map(({ name, running, labels }) => ({ name, running, sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'] })) };
+		const instances = states.map(({ name, running, labels }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'] }));
+		return { registered: true, instances, ready: instances.every((item) => item.running) };
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { if (existsSync(directory)) rmSync(directory, { recursive: true }); return { stopped: true }; }
