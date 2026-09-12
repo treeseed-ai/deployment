@@ -20,6 +20,7 @@ import { stopReleasedApi, restoreReleasedApi } from './development-api-handoff.j
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 import { managedIdentityClientPlan } from '../identity/client-plan.js';
 import { developmentDiagnosticEvents, developmentStartupCode } from './development-diagnostics.js';
+import { executeAgentDevelopmentContainer } from './development-agent-container.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -97,11 +98,14 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
 
 export function executeDevelopmentContainer(value:unknown,command:CommandRunner=dockerCommand) {
   const input=developmentContainerSchema.parse(value);
+  if (input.projectId === 'agent') return executeAgentDevelopmentContainer({sessionId:input.sessionId,projectId:'agent',targetId:input.targetId,action:input.action}, command);
+	if (input.targetId !== 'service' && input.targetId !== 'operations-runner') throw new Error('Managed API development target is invalid.');
+	const targetId=input.targetId;
   if(input.action!=='status'&&input.action!=='logs')assertDevelopmentNotHeld();
   const record=new DevelopmentSessionStore().load(input.sessionId);
-  const selected=record.session.targets.find(t=>t.projectId==='api'&&t.targetId===input.targetId);
+  const selected=record.session.targets.find(t=>t.projectId==='api'&&t.targetId===targetId);
   if(!selected)throw new Error('Development container is outside the registered session.');
-  const directory=resolve(root,input.sessionId,input.targetId),file=resolve(directory,'compose.json');
+  const directory=resolve(root,input.sessionId,targetId),file=resolve(directory,'compose.json');
   const handoff=resolve(directory,'released-runner.json');
   const apiHandoff=resolve(directory,'released-api.json');
   const compose=['compose','--project-name',`treeseed-${input.sessionId}-api-${input.targetId}`,'--file',file];
@@ -114,17 +118,17 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   }
   if(input.action==='stop') {
     if(!existsSync(file)){if(existsSync(directory))rmSync(directory,{recursive:true});return {stopped:true};}
-    if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
+  if(targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
     command('/usr/bin/docker',[...compose,'down','--timeout','30']);
-    if(input.targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
-    if(input.targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
+    if(targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
+    if(targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
     rmSync(directory,{recursive:true});return {stopped:true};
   }
   if(input.action==='status')return {registered:existsSync(file),state:existsSync(file)?command('/usr/bin/docker',[...compose,'ps','--format','json']):null};
   if(record.session.status!=='active')throw new Error('Development session is not active.');
   const host=loadHostConfiguration(),releases=loadActiveComponents(),component=releases.find(r=>r.componentId==='api');
   if(!component)throw new Error('Installed API foundation is required for development.');
-  const target=record.runtimes.find(r=>r.project.id==='api')?.targets.find(t=>t.id===input.targetId);
+  const target=record.runtimes.find(r=>r.project.id==='api')?.targets.find(t=>t.id===targetId);
   if(!target)throw new Error('API development target contract is missing.');
   // Development holds the API release, not its managed custody prerequisites.
   // Reconstruct /run from encrypted persistent custody before mounting clients.
@@ -144,7 +148,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   });
   // A released Node runner may have auto-started before /run trust existed.
   // A stopped runner belongs to an explicit development handoff and stays stopped.
-  if(input.targetId==='service') recoverRunnerCustody();
+  if(targetId==='service') recoverRunnerCustody();
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
   const aiStorageKeys=prepareAiStorageIdentities(host,'api');
@@ -154,7 +158,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Source ownership cannot grant a different OS identity access to custody.
   const identity=developmentRuntimeOwner(host,component);
   environment.TREESEED_IDENTITY_HOSTNAME=new URL(managedIdentityClientPlan(host).issuer).hostname;
-  if(input.targetId==='operations-runner') {
+  if(targetId==='operations-runner') {
     const runner=releasedRunnerIdentity(command);
     if(runner.uid!==identity.uid||runner.gid!==identity.gid)throw new Error('Managed development runner custody identity mismatch.');
   }
@@ -166,9 +170,9 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   if(environment.TREESEED_DATABASE_URL)throw new Error('Managed development cannot use a legacy database URL alongside allocated file custody.');
   // Resolve once; Docker runs the immutable ID, not a mutable tag from the checkout.
   const image=resolveDevelopmentRuntimeImage(command);
-  const spec=renderDevelopmentContainer({...input,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,stateRoot:componentStateRoot(host,'api')});
+  const spec=renderDevelopmentContainer({sessionId:input.sessionId,targetId,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
-  if(input.targetId==='operations-runner') {
+  if(targetId==='operations-runner') {
     // Refuse to overwrite an existing candidate snapshot. Cleanup must finish first.
     const receipt=copyDevelopmentRuntime({worktree:source.worktree,workspace:source.workspace,
       destination:resolve(directory,'runtime'),sourceUid:source.uid});
@@ -182,12 +186,12 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   }
   atomicJson(file,spec,0o600);
   let drained=false;
-  if(input.targetId==='operations-runner') {
+  if(targetId==='operations-runner') {
     drained=drainReleasedRunner(command);
     if(drained)atomicJson(handoff,{restore:true},0o600);
   }
   try {
-    if(input.targetId==='service')stopReleasedApi(command,()=>atomicJson(apiHandoff,{restore:true},0o600));
+    if(targetId==='service')stopReleasedApi(command,()=>atomicJson(apiHandoff,{restore:true},0o600));
     command('/usr/bin/docker',[...compose,'up','--detach','--wait','--wait-timeout','120','runtime']);
   }
   catch(error) {
@@ -196,10 +200,10 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
       code=developmentStartupCode(log);
     } catch {/* Diagnostics never prevent cleanup. */}
     try{
-      if(input.targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
+      if(targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
       command('/usr/bin/docker',[...compose,'down','--timeout','30']);
       if(drained||existsSync(handoff))restoreReleasedRunner(command);
-      if(input.targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
+      if(targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
       rmSync(directory,{recursive:true});
     }catch{/* Retain the root-owned spec and handoff marker for an idempotent cleanup retry. */}
     if(code)throw new Error(`Managed development application startup failed (${code}).`);

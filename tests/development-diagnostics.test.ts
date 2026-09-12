@@ -11,7 +11,7 @@ it('returns bounded structured error metadata without messages, SQL or credentia
 });
 
 it('diagnostic requests retain fixed registered target scope with no arbitrary log paths', () => {
-  const input = { operation: 'development.container', sessionId: 'dev-test', targetId: 'service', action: 'logs' };
+  const input = { operation: 'development.container', sessionId: 'dev-test', projectId: 'api', targetId: 'service', action: 'logs' };
   expect(developmentContainerSchema.parse(input)).toEqual(input);
   for (const extra of [{ path: '/etc/credentials' }, { container: 'unrelated' }, { targetId: 'postgres' }, { sessionId: '../escape' }])
     expect(() => developmentContainerSchema.parse({ ...input, ...extra })).toThrow();
