@@ -3,7 +3,12 @@ import { chmodSync, constants, closeSync, fstatSync, linkSync, mkdirSync, openSy
 import { dirname, relative, resolve, sep } from 'node:path';
 
 /** Copy code only. No source-owned command executes in the supervisor. */
-export function copyDevelopmentRuntime(input: { worktree: string; workspace: string; destination: string; sourceUid: number }) {
+export interface DevelopmentRuntimeRoot {
+	source: string;
+	target: string;
+}
+
+export function copyDevelopmentRuntime(input: { worktree: string; workspace: string; destination: string; sourceUid: number; roots?: DevelopmentRuntimeRoot[] }) {
   const workspace = realpathSync(input.workspace);
   const destination = resolve(input.destination);
   const digest = createHash('sha256');
@@ -68,8 +73,12 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
     } finally { closeSync(fd); }
   };
   try {
-    for (const name of ['package.json', 'dist', 'node_modules', 'drizzle'])
-      copy(resolve(input.worktree, name), resolve(destination, name), new Set());
+    const roots = input.roots ?? ['package.json', 'dist', 'node_modules', 'drizzle'].map((name) => ({ source: name, target: name }));
+    for (const root of roots) {
+      if (!root.source || !root.target || root.target.startsWith('/') || root.target.split(/[\\/]/u).includes('..'))
+        throw new Error('Candidate runtime root is invalid.');
+      copy(resolve(input.worktree, root.source), resolve(destination, root.target), new Set());
+    }
   } catch (error) {
     // Only our freshly-created private candidate is removed; never source data.
     rmSync(destination, { recursive: true, force: true });

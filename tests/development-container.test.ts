@@ -1,6 +1,10 @@
 import {expect,it} from 'vitest';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
+import {activeAgentClaims,renderAgentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
 it('restarts from the immutable local runtime without a registry dependency',()=>{
@@ -37,12 +41,34 @@ it('projects startup failures to fixed codes without reflecting sensitive log co
   for(const [log,code] of [['does not provide an export named secret-value','EXPORT_MISSING'],['SyntaxError: secret-value','SYNTAX_ERROR'],['relation secret-value does not exist','DATABASE_RELATION_MISSING'],['permission denied secret-value','DATABASE_PERMISSION'],['duplicate key secret-value','DATABASE_CONFLICT'],['ERR_MODULE_NOT_FOUND secret-value','ERR_MODULE_NOT_FOUND'],['secret-value','']] as const)expect(developmentStartupCode(log)).toBe(code);
 });
 it('rejects privileged options and arbitrary targets at the supervisor boundary',()=>{
-  const request={operation:'development.container',sessionId:input.sessionId,targetId:'service',action:'start'};
+	const request={operation:'development.container',sessionId:input.sessionId,projectId:'api',targetId:'service',action:'start'};
   expect(developmentContainerSchema.parse(request)).toEqual(request);
   for(const extra of [{command:'sh'},{composeFile:'/tmp/untrusted'},{environment:{LD_PRELOAD:'bad'}},{mounts:['/:/host']},{privileged:true}])
     expect(()=>developmentContainerSchema.parse({...request,...extra})).toThrow();
   expect(()=>developmentContainerSchema.parse({...request,sessionId:'../../etc'})).toThrow();
-  expect(()=>developmentContainerSchema.parse({...request,targetId:'arbitrary'})).toThrow();
+	expect(()=>developmentContainerSchema.parse({...request,targetId:'arbitrary'})).toThrow();
+	expect(developmentContainerSchema.parse({...request,projectId:'agent',targetId:'provider'})).toMatchObject({projectId:'agent',targetId:'provider'});
+});
+it('renders a fixed Agent overlay with read-only candidate code and no privileged surface',()=>{
+	const spec=renderAgentDevelopmentOverride({sessionId:'dev-example',runtimeRoot:'/run/treeseed/development-containers/dev-example/agent/provider/runtime'});
+	for(const service of Object.values(spec.services)) {
+		expect(service.restart).toBe('no');
+		expect(service.labels).toEqual({'org.treeseed.development.session':'dev-example','org.treeseed.development.target':'agent.provider'});
+		expect(service.volumes.map(volume=>volume.target)).toEqual(['/app/dist','/app/package.json','/app/node_modules']);
+		expect(service.volumes.every(volume=>volume.read_only)).toBe(true);
+	}
+	expect(JSON.stringify(spec)).not.toContain('docker.sock');
+});
+it('allows polling handoff but blocks active and recoverable Agent claims',()=>{
+	const root=mkdtempSync(resolve(tmpdir(),'treeseed-agent-development-'));
+	try {
+		mkdirSync(resolve(root,'runtime'));
+		const write=(claims:unknown[])=>writeFileSync(resolve(root,'runtime','capacity-state.json'),JSON.stringify({schemaVersion:1,claims}));
+		write([{id:'poll',status:'polling'}]);expect(activeAgentClaims(root)).toEqual([]);
+		write([{id:'ready',status:'ready'},{id:'running',status:'running'},{id:'recovery',status:'recovery'}]);
+		expect(activeAgentClaims(root).map(claim=>claim.id)).toEqual(['ready','running','recovery']);
+		write([{id:'bad',status:'unknown'}]);expect(()=>activeAgentClaims(root)).toThrow('claim is invalid');
+	} finally {rmSync(root,{recursive:true,force:true});}
 });
 it('uses immutable image, read-only source, fixed networks and no privileged/socket access',()=>{
   const spec=renderDevelopmentContainer(input),runtime=spec.services.runtime;

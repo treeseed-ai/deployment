@@ -245,8 +245,8 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.dev.container': {
 			if (!context.local) throw new Error('Development containers require the protected local manager socket.');
-			const payload = z.object({sessionId:z.string().regex(/^dev-[a-z0-9-]{1,64}$/),projectId:z.literal('api'),targetId:z.enum(['service','operations-runner']),action:z.enum(['start','stop','status','logs'])}).strict().parse(developmentPayload(request));
-			return requestSupervisor({operation:'development.container',sessionId:payload.sessionId,targetId:payload.targetId,action:payload.action});
+			const payload = z.object({sessionId:z.string().regex(/^dev-[a-z0-9-]{1,64}$/),projectId:z.enum(['api','agent']),targetId:z.enum(['service','operations-runner','provider']),action:z.enum(['start','stop','status','logs'])}).strict().parse(developmentPayload(request));
+			return requestSupervisor({operation:'development.container',...payload});
 		}
 		case 'local.dev.environment': {
 			if (!context.local) throw new Error('Development runtime environment is available only through the protected local manager socket.');
