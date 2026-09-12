@@ -92,20 +92,21 @@ export function renderManagedComponentOverride(input: Input, images: Map<string,
 	return { services: Object.fromEntries([...images].map(([service, image]) => [service, { image, labels }])) };
 }
 
-function observed(command: CommandRunner, projectName: string, input: Input, runningOnly = true) {
+function observed(command: CommandRunner, projectName: string, input: Input, runningOnly = true, expectedImages?: ReadonlyMap<string, string>) {
 	const ids = composeProjectContainerIds(projectName, command, runningOnly);
 	return ids.map((id) => {
 		const value = String(command('/usr/bin/docker', ['inspect', id, '--format',
-			'{"service":{{json (index .Config.Labels "com.docker.compose.service")}},"sessionId":{{json (index .Config.Labels "org.treeseed.development.session")}},"target":{{json (index .Config.Labels "org.treeseed.development.target")}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}']));
-		return { id, ...JSON.parse(value) } as { id: string; service: string; sessionId?: string; target?: string; running: boolean; health: string };
+			'{"service":{{json (index .Config.Labels "com.docker.compose.service")}},"sessionId":{{json (index .Config.Labels "org.treeseed.development.session")}},"target":{{json (index .Config.Labels "org.treeseed.development.target")}},"image":{{json .Image}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}']));
+		return { id, ...JSON.parse(value) } as { id: string; service: string; sessionId?: string; target?: string; image: string; running: boolean; health: string };
 	})
-		.filter((item: { sessionId?: string; target?: string }) => item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`);
+		.filter((item) => (item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`)
+			|| expectedImages?.get(item.service) === item.image);
 }
 
-function failureEvidence(command: CommandRunner, projectName: string, input: Input) {
-	const instances = observed(command, projectName, input, false);
+function failureEvidence(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
+	const instances = observed(command, projectName, input, false, images);
 	const events = instances.flatMap((item) => {
-		try { return developmentDiagnosticEvents(String(command('/usr/bin/docker', ['logs', '--tail', '100', item.id]))); }
+		try { return developmentDiagnosticEvents(String(command('/usr/bin/docker', ['logs', '--tail', '100', item.id]))).map((event) => ({ ...event, service: item.service })); }
 		catch { return []; }
 	});
 	return {
@@ -151,7 +152,7 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 	rmSync(failure, { force: true });
 	try { command('/usr/bin/docker', [...candidate, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']); }
 	catch (error) {
-		const evidence = failureEvidence(command, component.runtime.compose.projectName, input);
+		const evidence = failureEvidence(command, component.runtime.compose.projectName, input, images);
 		atomicJson(failure, evidence, 0o600);
 		try {
 			command('/usr/bin/docker', [...compose, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']);
