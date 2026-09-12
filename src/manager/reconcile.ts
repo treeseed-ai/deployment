@@ -302,6 +302,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	let host = loadHostConfiguration();
 	const previous = loadCurrentReceipt();
 	const configurationScope = new Set(configurationComponentScope);
+	const developmentSessions = new DevelopmentSessionStore();
+	const activeDevelopmentSessions = developmentSessions.list();
+	const heldSessionIds = activeDevelopmentSessions
+		.filter((record) => record.session.targets.some((target) => target.mode !== 'released'))
+		.map((record) => record.session.sessionId);
+	recoverDevelopmentPauseOwners(heldSessionIds);
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
 		return previous;
@@ -334,11 +340,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		recordEvent('update.metadata-current', { track, eligible: false, catalogDigest: stable.catalogDigest });
 		return previous;
 	}
-	const developmentSessions = new DevelopmentSessionStore();
-	const activeDevelopmentSessions = developmentSessions.list();
 	// User-owned recovery must be scheduled even when an unrelated AI runtime fails.
 	const bootRecovery = await Promise.allSettled(activeDevelopmentSessions.map(record => requestSupervisor<{ ready: boolean }>({ operation: 'development.boot.resume', sessionId: record.session.sessionId })));
-	recoverDevelopmentPauseOwners(activeDevelopmentSessions.map((record) => record.session.sessionId));
 	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
 	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
 	const effectiveCandidates = previous ? accepted.components.map((component) => {

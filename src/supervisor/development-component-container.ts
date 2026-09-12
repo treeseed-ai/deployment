@@ -5,6 +5,7 @@ import { DevelopmentSessionStore } from '../manager/development-sessions.js';
 import { loadActiveComponents } from '../manager/current-state.js';
 import { composeFiles } from '../manager/reconcile.js';
 import { componentComposeArguments, composeProjectContainerIds, type CommandRunner } from './compose-runtime.js';
+import { developmentDiagnosticEvents } from './development-diagnostics.js';
 
 type ManagedProject = 'treedx' | 'ai';
 type ManagedTarget = 'service' | 'ai-inference' | 'ai-training' | 'ai-lab';
@@ -91,14 +92,28 @@ export function renderManagedComponentOverride(input: Input, images: Map<string,
 	return { services: Object.fromEntries([...images].map(([service, image]) => [service, { image, labels }])) };
 }
 
-function observed(command: CommandRunner, projectName: string, input: Input) {
-	const ids = composeProjectContainerIds(projectName, command, true);
+function observed(command: CommandRunner, projectName: string, input: Input, runningOnly = true) {
+	const ids = composeProjectContainerIds(projectName, command, runningOnly);
 	return ids.map((id) => {
 		const value = String(command('/usr/bin/docker', ['inspect', id, '--format',
 			'{"service":{{json (index .Config.Labels "com.docker.compose.service")}},"sessionId":{{json (index .Config.Labels "org.treeseed.development.session")}},"target":{{json (index .Config.Labels "org.treeseed.development.target")}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}']));
 		return { id, ...JSON.parse(value) } as { id: string; service: string; sessionId?: string; target?: string; running: boolean; health: string };
 	})
 		.filter((item: { sessionId?: string; target?: string }) => item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`);
+}
+
+function failureEvidence(command: CommandRunner, projectName: string, input: Input) {
+	const instances = observed(command, projectName, input, false);
+	const events = instances.flatMap((item) => {
+		try { return developmentDiagnosticEvents(String(command('/usr/bin/docker', ['logs', '--tail', '100', item.id]))); }
+		catch { return []; }
+	});
+	return {
+		schemaVersion: 'treeseed.development-component-failure/v1',
+		target: `${input.projectId}.${input.targetId}`,
+		instances: instances.map(({ service, running, health }) => ({ service, running, health })),
+		events,
+	};
 }
 
 /** Build and switch only fixed, installed TreeSeed component recipes; no caller-supplied Docker option crosses this boundary. */
@@ -109,11 +124,16 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 	const component = loadActiveComponents().find((entry) => entry.componentId === selectedRecipe.componentId);
 	if (!component) throw new Error('Installed component foundation is required for managed development.');
 	const directory = resolve(root, input.sessionId, input.projectId, input.targetId), override = resolve(directory, 'compose.json');
+	const failure = resolve(directory, 'failure.json');
 	const compose = ['compose', ...componentComposeArguments(component.componentId, composeFiles(component)), '--project-name', component.runtime.compose.projectName];
 	const candidate = [...compose.slice(0, -2), '--file', override, ...compose.slice(-2)];
-	if (input.action === 'logs') return { events: observed(command, component.runtime.compose.projectName, input).map((item) => ({
+	if (input.action === 'logs') {
+		const live = observed(command, component.runtime.compose.projectName, input).map((item) => ({
 		service: item.service, output: String(command('/usr/bin/docker', ['logs', '--tail', '100', '--since', '15m', item.id])),
-	})) };
+		}));
+		const retained = existsSync(failure) ? JSON.parse(readFileSync(failure, 'utf8')) as { events?: unknown[]; instances?: unknown[] } : undefined;
+		return { events: retained?.events ?? [], instances: retained?.instances ?? [], logs: live };
+	}
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
 		const instances = observed(command, component.runtime.compose.projectName, input);
@@ -128,10 +148,19 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	const images = buildImages(command, input, worktree, selectedRecipe.builds(worktree));
 	atomicJson(override, renderManagedComponentOverride(input, images), 0o600);
+	rmSync(failure, { force: true });
 	try { command('/usr/bin/docker', [...candidate, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']); }
 	catch (error) {
-		try { command('/usr/bin/docker', [...compose, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']); rmSync(directory, { recursive: true }); } catch { /* retain recovery state */ }
-		throw error;
+		const evidence = failureEvidence(command, component.runtime.compose.projectName, input);
+		atomicJson(failure, evidence, 0o600);
+		try {
+			command('/usr/bin/docker', [...compose, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']);
+			rmSync(override, { force: true });
+		} catch { /* retain recovery state */ }
+		const codes = evidence.events.flatMap((event) => event && typeof event === 'object' && 'code' in event && typeof event.code === 'string' ? [event.code] : []);
+		const services = evidence.instances.filter((item) => !item.running || item.health === 'unhealthy').map((item) => item.service);
+		const detail = [...new Set([...services, ...codes])].slice(0, 8).join(',');
+		throw new Error(`${error instanceof Error ? error.message : 'Managed development activation failed.'}${detail ? ` Diagnostics: ${detail}.` : ''}`);
 	}
 	return { started: true, images: Object.fromEntries(images) };
 }

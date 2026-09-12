@@ -13,13 +13,15 @@ describe('development update pause ownership', () => {
 	it('keeps explicit user pauses independent from session component holds', () => {
 		noteDevelopmentPauseOwner('session-1', true);
 		expect(loadUpdateState().developmentPauseOwners).toEqual(['session-1']);
-		expect(trackPaused('development')).toBe(false);
+		expect(trackPaused('development')).toBe(true);
+		expect(trackPaused('stable')).toBe(true);
 		updatePaused('development', true);
 		noteDevelopmentPauseOwner('session-1', false);
 		expect(trackPaused('development')).toBe(true);
 		expect(loadUpdateState().developmentPauseOwners).toEqual([]);
 		updatePaused('development', false);
 		expect(trackPaused('development')).toBe(false);
+		expect(trackPaused('stable')).toBe(false);
 	});
 
 	it('recovers ownership left by sessions that are no longer active', () => {
