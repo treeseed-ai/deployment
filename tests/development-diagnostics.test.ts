@@ -22,6 +22,19 @@ it('reports startup failures even when Node cannot start structured application 
     .toEqual([{event:'development.startup-error',code:'EXPORT_MISSING'}]);
 });
 
+it('classifies AI runtime package failures without forwarding module paths', () => {
+	for (const [name, code] of [['@ai-platform/common', 'AI_COMMON_MODULE_MISSING'], ['@hono/node-server', 'HONO_SERVER_MODULE_MISSING'],
+		['hono', 'HONO_MODULE_MISSING'], ['pg', 'POSTGRES_MODULE_MISSING'], ['@aws-sdk/client-s3', 'S3_MODULE_MISSING']] as const)
+		expect(developmentStartupCode(`Error [ERR_MODULE_NOT_FOUND]: Cannot find package '${name}' imported from /app/main.js`)).toBe(code);
+});
+
+it('exposes only a bounded public package name for missing-package diagnostics', () => {
+	expect(developmentDiagnosticEvents("Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@ai-platform/common' imported from /app/main.js"))
+		.toEqual([{ event: 'development.startup-error', code: 'AI_COMMON_MODULE_MISSING', package: '@ai-platform/common' }]);
+	expect(developmentDiagnosticEvents("Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/app/private/path.js' imported from /app/main.js"))
+		.toEqual([{ event: 'development.startup-error', code: 'ERR_MODULE_NOT_FOUND', moduleScope: 'application', module: 'private/path.js' }]);
+});
+
 it('classifies structured startup phases without forwarding cause text', () => {
   const event = { event: 'operation.internal-error', operationId: 'api.startup.entrypoint', code: 'MIGRATIONS_FAILED', message: 'private SQL and password' };
   expect(developmentStartupCode(JSON.stringify(event))).toBe('API_ENTRYPOINT_MIGRATIONS_FAILED');

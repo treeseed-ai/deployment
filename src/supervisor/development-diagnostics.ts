@@ -14,11 +14,24 @@ export function developmentDiagnosticEvents(output: string) {
     } catch { return []; }
   });
   const code=developmentStartupCode(output);
-  if(code)events.push({event:'development.startup-error',code});
+	if(code) {
+		const event: Record<string, string> = {event:'development.startup-error',code};
+		const packageName = output.match(/Cannot find package ['"](@?[A-Za-z0-9_-]+(?:\/[A-Za-z0-9._-]+)?)['"]/u)?.[1];
+		if (packageName && !packageName.includes('..')) event.package = packageName;
+		else {
+			const modulePath = output.match(/Cannot find module ['"](?:file:\/\/)?(\/app\/[A-Za-z0-9@._+\/-]+)['"]/u)?.[1];
+			if (modulePath) {
+				event.moduleScope = 'application';
+				const relative = modulePath.slice('/app/'.length);
+				if (!relative.includes('..') && relative.length <= 192) event.module = relative;
+			}
+		}
+		events.push(event);
+	}
   return events;
 }
 
-/** Fixed classifications only; module paths, SQL and raw application values never leave the supervisor. */
+/** Fixed classifications only; only bounded /app-relative public source paths may accompany a module failure. */
 export function developmentStartupCode(log:string):string {
   for(const line of log.split('\n').slice(-200).reverse()) {
     try {
@@ -43,6 +56,11 @@ export function developmentStartupCode(log:string):string {
       [/['"]@treeseed\/sdk(?:\/[^'"]*)?['"]/u, 'SDK_MODULE_MISSING'],
       [/['"]@treeseed\/deployment(?:\/[^'"]*)?['"]/u, 'DEPLOYMENT_MODULE_MISSING'],
       [/['"]@treeseed\/identity(?:\/[^'"]*)?['"]/u, 'IDENTITY_MODULE_MISSING'],
+	  [/['"]@ai-platform\/common['"]/u, 'AI_COMMON_MODULE_MISSING'],
+	  [/['"]@hono\/node-server['"]/u, 'HONO_SERVER_MODULE_MISSING'],
+	  [/['"]hono(?:\/[^'"]*)?['"]/u, 'HONO_MODULE_MISSING'],
+	  [/['"]pg['"]/u, 'POSTGRES_MODULE_MISSING'],
+	  [/['"]@aws-sdk\/client-s3['"]/u, 'S3_MODULE_MISSING'],
       [/['"]yaml['"]/u, 'YAML_MODULE_MISSING'],
       [/['"]zod['"]/u, 'ZOD_MODULE_MISSING'],
     ] as const) if (pattern.test(log)) return code;
