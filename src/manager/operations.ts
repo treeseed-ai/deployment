@@ -274,9 +274,8 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const store = new DevelopmentSessionStore(); const record = store.setMode(payload.sessionId, payload.projectId, payload.targetId, payload.mode);
 			const target = record.runtimes.find((runtime) => runtime.project.id === payload.projectId)?.targets.find((entry) => entry.id === payload.targetId);
 			if (payload.mode !== 'released' && payload.port) await store.attach(payload.sessionId, payload.projectId, payload.targetId, payload.port);
-			if (payload.mode !== 'released' && !payload.port && target?.executionCustody === 'manager') {
-				const host = loadHostConfiguration(); store.attachManaged(payload.sessionId, payload.projectId, payload.targetId, rollbackRoutes(host, loadActiveComponents()));
-			} else if (payload.mode !== 'released' && !payload.port) store.markReady(payload.sessionId, payload.projectId, payload.targetId);
+			if (payload.mode !== 'released' && !payload.port && target?.executionCustody === 'manager') store.attachManaged(payload.sessionId, payload.projectId, payload.targetId, rollbackRoutes(loadHostConfiguration(), loadActiveComponents()));
+			else if (payload.mode !== 'released' && !payload.port) store.markReady(payload.sessionId, payload.projectId, payload.targetId);
 			await applyDevelopmentRoutes(store);
 			if (payload.mode !== 'released' && payload.port && !await store.verifyRouted(payload.sessionId, payload.projectId, payload.targetId)) {
 				store.stop(payload.sessionId); noteDevelopmentPauseOwner(payload.sessionId, false); await applyDevelopmentRoutes(store); throw new Error('Canonical development route readiness failed; released routes were restored.');
