@@ -21,6 +21,7 @@ import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployme
 import { managedIdentityClientPlan } from '../identity/client-plan.js';
 import { developmentDiagnosticEvents, developmentStartupCode } from './development-diagnostics.js';
 import { executeAgentDevelopmentContainer } from './development-agent-container.js';
+import { executeManagedComponentDevelopment } from './development-component-container.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -35,7 +36,8 @@ export function developmentRuntimeOwner(host:HostConfiguration,component:Compone
 }
 
 const dockerCommand:CommandRunner=(executable,args)=>{
-  const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:args[0]==='logs'?10_000:180_000,maxBuffer:args[0]==='logs'?262_144:1_048_576,
+  const build = args[0] === 'build' || args[0] === 'buildx';
+  const result=spawnSync(executable,[...args],{encoding:'utf8',timeout:args[0]==='logs'?10_000:build?7_200_000:180_000,maxBuffer:args[0]==='logs'?262_144:build?16_777_216:1_048_576,
     env:{PATH:'/usr/sbin:/usr/bin:/sbin:/bin'}});
   if(result.error||result.status!==0) {
     const text=(result.stderr??'')+'\n'+(result.stdout??'');
@@ -99,6 +101,7 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
 export function executeDevelopmentContainer(value:unknown,command:CommandRunner=dockerCommand) {
   const input=developmentContainerSchema.parse(value);
   if (input.projectId === 'agent') return executeAgentDevelopmentContainer({sessionId:input.sessionId,projectId:'agent',targetId:input.targetId,action:input.action}, command);
+	if (input.projectId === 'treedx' || input.projectId === 'ai') return executeManagedComponentDevelopment({ sessionId: input.sessionId, projectId: input.projectId, targetId: input.targetId as 'service' | 'ai-inference' | 'ai-training' | 'ai-lab', action: input.action }, command);
 	if (input.targetId !== 'service' && input.targetId !== 'operations-runner') throw new Error('Managed API development target is invalid.');
 	const targetId=input.targetId;
   if(input.action!=='status'&&input.action!=='logs')assertDevelopmentNotHeld();

@@ -5,6 +5,7 @@ import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
 import {activeAgentClaims,renderAgentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
+import {renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
 it('restarts from the immutable local runtime without a registry dependency',()=>{
@@ -48,6 +49,14 @@ it('rejects privileged options and arbitrary targets at the supervisor boundary'
   expect(()=>developmentContainerSchema.parse({...request,sessionId:'../../etc'})).toThrow();
 	expect(()=>developmentContainerSchema.parse({...request,targetId:'arbitrary'})).toThrow();
 	expect(developmentContainerSchema.parse({...request,projectId:'agent',targetId:'provider'})).toMatchObject({projectId:'agent',targetId:'provider'});
+	expect(developmentContainerSchema.parse({...request,projectId:'treedx',targetId:'service'})).toMatchObject({projectId:'treedx'});
+	expect(developmentContainerSchema.parse({...request,projectId:'ai',targetId:'ai-inference'})).toMatchObject({projectId:'ai'});
+});
+it('renders only manager-resolved immutable images into component overrides',()=>{
+	const image=`sha256:${'b'.repeat(64)}`;
+	const spec=renderManagedComponentOverride({sessionId:'dev-example',projectId:'ai',targetId:'ai-inference',action:'start'},new Map([['inference-api',image]]));
+	expect(spec.services['inference-api']).toEqual({image,labels:{'org.treeseed.development.session':'dev-example','org.treeseed.development.target':'ai.ai-inference'}});
+	expect(JSON.stringify(spec)).not.toContain('docker.sock');
 });
 it('renders a fixed Agent overlay with read-only candidate code and no privileged surface',()=>{
 	const spec=renderAgentDevelopmentOverride({sessionId:'dev-example',runtimeRoot:'/run/treeseed/development-containers/dev-example/agent/provider/runtime'});
