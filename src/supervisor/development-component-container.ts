@@ -18,6 +18,10 @@ interface Recipe { componentId: string; projectId: ManagedProject; targetId: Man
 
 const root = '/run/treeseed/development-containers';
 const oneShotServices = new Set(['inference-gpu-state-init', 'inference-migrations', 'training-gpu-state-init', 'training-migrations', 'lab-state-init', 'open-webui-action-init']);
+
+export function managedPersistentServices(services: readonly string[]) {
+	return [...new Set(services)].filter((service) => !oneShotServices.has(service));
+}
 const aiServices: Record<Exclude<ManagedTarget, 'service'>, Record<string, string[]>> = {
 	'ai-inference': {
 		'inference-api': ['inference-api', 'inference-gpu-state-init'], 'inference-manager': ['inference-manager'], 'inference-vllm': ['inference-vllm'],
@@ -94,13 +98,17 @@ export function renderManagedComponentOverride(input: Input, images: Map<string,
 	return { services: Object.fromEntries([...images].map(([service, image]) => [service, { image, labels }])) };
 }
 
-function observed(command: CommandRunner, projectName: string, input: Input, runningOnly = true, expectedImages?: ReadonlyMap<string, string>) {
+function projectInstances(command: CommandRunner, projectName: string, runningOnly = true) {
 	const ids = composeProjectContainerIds(projectName, command, runningOnly);
 	return ids.map((id) => {
 		const value = String(command('/usr/bin/docker', ['inspect', id, '--format',
 			'{"service":{{json (index .Config.Labels "com.docker.compose.service")}},"sessionId":{{json (index .Config.Labels "org.treeseed.development.session")}},"target":{{json (index .Config.Labels "org.treeseed.development.target")}},"image":{{json .Image}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}']));
 		return { id, ...JSON.parse(value) } as { id: string; service: string; sessionId?: string; target?: string; image: string; running: boolean; health: string };
-	})
+	});
+}
+
+function observed(command: CommandRunner, projectName: string, input: Input, runningOnly = true, expectedImages?: ReadonlyMap<string, string>) {
+	return projectInstances(command, projectName, runningOnly)
 		.filter((item) => (item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`)
 			|| expectedImages?.get(item.service) === item.image);
 }
@@ -120,9 +128,23 @@ function failureEvidence(command: CommandRunner, projectName: string, input: Inp
 }
 
 function waitForManagedReadiness(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
-	const expected = [...images.keys()].filter((service) => !oneShotServices.has(service));
+	const expected = managedPersistentServices([...images.keys()]);
 	const inspect = () => {
 		const current = new Map(observed(command, projectName, input, false, images).map((item) => [item.service, item]));
+		return expected.map((service) => {
+			const item = current.get(service);
+			return item ? { service, state: item.running ? 'running' : 'exited', health: item.health }
+				: { service, state: 'running', health: 'starting' };
+		});
+	};
+	return waitForStartingActivation(inspect(), expected, inspect, Date.now() + 600_000,
+		(milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds), Date.now);
+}
+
+function waitForReleasedReadiness(command: CommandRunner, projectName: string, services: readonly string[]) {
+	const expected = managedPersistentServices(services);
+	const inspect = () => {
+		const current = new Map(projectInstances(command, projectName, false).map((item) => [item.service, item]));
 		return expected.map((service) => {
 			const item = current.get(service);
 			return item ? { service, state: item.running ? 'running' : 'exited', health: item.health }
@@ -158,7 +180,10 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { rmSync(directory, { recursive: true, force: true }); return { stopped: true }; }
-		command('/usr/bin/docker', [...compose, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', '600', '--force-recreate']);
+		command('/usr/bin/docker', [...compose, 'up', '--detach', '--remove-orphans', '--force-recreate']);
+		if (!waitForReleasedReadiness(command, component.runtime.compose.projectName,
+			component.runtime.services.map((service) => service.composeService)).ready)
+			throw new Error('Managed development released application did not become ready.');
 		rmSync(directory, { recursive: true }); return { stopped: true };
 	}
 	const { worktree } = source(input.sessionId, input.projectId);
