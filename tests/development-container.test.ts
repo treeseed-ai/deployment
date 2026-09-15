@@ -6,12 +6,32 @@ import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntime
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
 import {activeAgentClaims,renderAgentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
 import {managedPersistentServices,renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
+import {parseDevelopmentMigrationInventory} from '../src/supervisor/development-postgres-migration.js';
+import {managedContainerDevelopmentConnectionEnvironment} from '../src/manager/reconcile.js';
 import type { ComponentRelease, HostConfiguration } from '@treeseed/sdk/deployment';
+import {component,host} from './fixtures.js';
 const input={sessionId:'dev-example',targetId:'service' as const,worktree:'/workspace/packages/api',workspace:'/workspace/packages',uid:1000,gid:1000,environment:{},image:`sha256:${'a'.repeat(64)}`,leaseSeconds:60,stateRoot:'/var/lib/treeseed/components/api'};
+it('routes the Agent control-plane capability to its runtime variable',()=>{
+	const configuration=host(),agent=component('agent','development','a'),api=component('api','stable','b');
+	agent.runtime.dependencies=[{id:'api',capability:'control-plane-api',locality:'either',optional:false}];
+	configuration.components.agent={enabled:true,track:'development',aliases:{},connections:{api:{kind:'local',componentId:'api',serviceId:api.runtime.services[0]!.id,endpointId:api.runtime.services[0]!.endpoints[0]!.id}},configuration:{}} as any;
+	const endpoint=api.runtime.services[0]!.endpoints[0]!,alias=endpoint.defaultAlias!;
+	configuration.components.api!.aliases={[`api.${api.runtime.services[0]!.id}.${endpoint.id}`]:alias};
+	const environment=managedContainerDevelopmentConnectionEnvironment(configuration,agent,[agent,api],[{alias,upstream:'http://api-live:3000',authentication:'application',projectId:'api',targetId:'service'}]);
+	expect(environment.TREESEED_CONTROL_PLANE_URL).toBe('http://api-live:3000');
+	expect(environment.TREESEED_SERVER_PROFILE_LOCAL_URL).toBe('http://api-live:3000');
+});
 it('restarts from the immutable local runtime without a registry dependency',()=>{
   const calls:string[][]=[];
   expect(resolveDevelopmentRuntimeImage((_command,args)=>{calls.push([...args]);return input.image;})).toBe(input.image);
   expect(calls).toHaveLength(1);expect(calls[0]?.[0]).toBe('image');
+});
+it('accepts only safe migration filenames in development migration receipts',()=>{
+  const receipt=JSON.stringify({schemaVersion:'treeseed.database-migration-inventory/v1',pending:[],unexpected:['0022_retired.sql']});
+  expect(parseDevelopmentMigrationInventory(`build output\n${receipt}\n`)).toEqual({pending:[],unexpected:['0022_retired.sql'],schema:{}});
+	const schemaReceipt=JSON.stringify({schemaVersion:'treeseed.database-migration-inventory/v1',pending:[],unexpected:[],schema:{execution_edges:['from_node_id','to_node_id']}});
+	expect(parseDevelopmentMigrationInventory(schemaReceipt).schema).toEqual({execution_edges:['from_node_id','to_node_id']});
+  expect(()=>parseDevelopmentMigrationInventory(JSON.stringify({schemaVersion:'treeseed.database-migration-inventory/v1',pending:[],unexpected:['../../secret']}))).toThrow('valid migration inventory');
 });
 it('pulls only when no local runtime exists and rejects non-immutable image results',()=>{
   const calls:string[][]=[];
@@ -51,6 +71,7 @@ it('rejects privileged options and arbitrary targets at the supervisor boundary'
   expect(()=>developmentContainerSchema.parse({...request,sessionId:'../../etc'})).toThrow();
 	expect(()=>developmentContainerSchema.parse({...request,targetId:'arbitrary'})).toThrow();
 	expect(developmentContainerSchema.parse({...request,projectId:'agent',targetId:'provider'})).toMatchObject({projectId:'agent',targetId:'provider'});
+	expect(developmentContainerSchema.parse({...request,projectId:'agent',targetId:'sandbox'})).toMatchObject({projectId:'agent',targetId:'sandbox'});
 	expect(developmentContainerSchema.parse({...request,projectId:'treedx',targetId:'service'})).toMatchObject({projectId:'treedx'});
 	expect(developmentContainerSchema.parse({...request,projectId:'ai',targetId:'ai-inference'})).toMatchObject({projectId:'ai'});
 });
@@ -65,13 +86,17 @@ it('excludes successful one-shot services from managed development readiness',()
 		.toEqual(['inference-api','inference-manager']);
 	expect(managedPersistentServices(['lab-state-init','open-webui-action-init'])).toEqual([]);
 });
-it('renders a fixed Agent overlay with read-only candidate code and no privileged surface',()=>{
-	const spec=renderAgentDevelopmentOverride({sessionId:'dev-example',runtimeRoot:'/run/treeseed/development-containers/dev-example/agent/provider/runtime'});
+it('renders a fixed Agent overlay with read-only candidate code, live peer routes, and no privileged surface',()=>{
+	const digest=`sha256:${'c'.repeat(64)}`;
+	const spec=renderAgentDevelopmentOverride({sessionId:'dev-example',runtimeRoot:'/run/treeseed/development-containers/dev-example/agent/provider/runtime',sourceClosureDigest:digest,environment:{TREESEED_CONTROL_PLANE_URL:'http://api-live:3000'},sandboxGuestDigest:digest});
 	for(const service of Object.values(spec.services)) {
 		expect(service.restart).toBe('no');
 		expect(service.labels).toEqual({'org.treeseed.development.session':'dev-example','org.treeseed.development.target':'agent.provider'});
 		expect(service.volumes.map(volume=>volume.target)).toEqual(['/app/dist','/app/package.json','/app/node_modules']);
 		expect(service.volumes.every(volume=>volume.read_only)).toBe(true);
+		expect(service.environment.TREESEED_CONTROL_PLANE_URL).toBe('http://api-live:3000');
+		expect(service.environment.TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST).toBe(digest);
+		expect(service.environment.TREESEED_PROVIDER_SOURCE_CLOSURE_DIGEST).toBe(digest);
 	}
 	expect(JSON.stringify(spec)).not.toContain('docker.sock');
 });

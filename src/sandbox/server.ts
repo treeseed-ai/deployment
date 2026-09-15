@@ -19,6 +19,24 @@ const token = (request: IncomingMessage) => String(request.headers.authorization
 // Codex subscription transport uses ChatGPT plus OpenAI's first-party response
 // transport hosts. Keep this deliberately narrower than general egress.
 export const allowedSubscriptionProxyHost = (host: string) => ['openai.com', 'chatgpt.com', 'oaiusercontent.com'].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+export const allowedPackageRegistryHost = (host: string) => host === 'registry.npmjs.org';
+export const assignmentProxyService = (host: string) => allowedPackageRegistryHost(host) ? 'package-registry' as const
+	: allowedSubscriptionProxyHost(host) ? 'codex-subscription' as const : null;
+
+function boundedProxyLogger() {
+	const windows = new Map<string, { started: number; emitted: number; suppressed: number }>();
+	return (value: Record<string, unknown>) => {
+		const key = `${String(value.source)}:${String(value.status)}:${String(value.host ?? '')}:${String(value.reason ?? '')}`;
+		const now = Date.now(), prior = windows.get(key);
+		if (!prior || now - prior.started >= 10_000) {
+			process.stderr.write(`${JSON.stringify({ ...value, ...(prior?.suppressed ? { suppressed: prior.suppressed } : {}) })}\n`);
+			windows.set(key, { started: now, emitted: 1, suppressed: 0 });
+		} else if (prior.emitted < 3) {
+			prior.emitted += 1; process.stderr.write(`${JSON.stringify(value)}\n`);
+		} else prior.suppressed += 1;
+		if (windows.size > 256) for (const [candidate, window] of windows) if (now - window.started >= 60_000) windows.delete(candidate);
+	};
+}
 
 export function startSandboxBroker() {
 	if (process.getuid?.() !== 0) throw new Error('TreeSeed sandbox broker must run as root.');
@@ -34,14 +52,15 @@ export function startSandboxBroker() {
 				return respond(response, 201, await runtime.prepare(assignment));
 			}
 			const input = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/inputs\/([a-z][a-z0-9._-]{0,127})$/u);
-			const candidate = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/candidate\/(start|status|chunk|accept)$/u);
-			if (candidate?.[1] && candidate[2] === 'status' && request.method === 'GET') return respond(response, 200, await runtime.candidateOperation(candidate[1], token(request), 'status'));
-			if (candidate?.[1] && ['start', 'chunk', 'accept'].includes(candidate[2] ?? '') && request.method === 'POST') return respond(response, candidate[2] === 'start' ? 202 : 200,
-				await runtime.candidateOperation(candidate[1], token(request), candidate[2] as 'start' | 'chunk' | 'accept', await body(request)));
-			const source = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/source\/(status|prepare|attach|renew|chunk)$/u);
+			const candidate = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/source-publication\/(start|status)$/u);
+			if (candidate?.[1] && candidate[2] === 'start' && request.method === 'POST') return respond(response, 202,
+				await runtime.sourcePublicationOperation(candidate[1], token(request), 'start', await body(request)));
+			if (candidate?.[1] && candidate[2] === 'status' && request.method === 'GET') return respond(response, 200,
+				await runtime.sourcePublicationOperation(candidate[1], token(request), 'status'));
+			const source = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/source\/(status|prepare|attach|renew)$/u);
 			if (source?.[1] && source[2] === 'status' && request.method === 'GET') return respond(response, 200, await runtime.sourceOperation(source[1], token(request), 'status'));
-			if (source?.[1] && ['prepare', 'attach', 'renew', 'chunk'].includes(source[2] ?? '') && request.method === 'POST') {
-				return respond(response, source[2] === 'prepare' ? 202 : 200, await runtime.sourceOperation(source[1], token(request), source[2] as 'prepare' | 'attach' | 'renew' | 'chunk', await body(request)));
+			if (source?.[1] && ['prepare', 'attach', 'renew'].includes(source[2] ?? '') && request.method === 'POST') {
+				return respond(response, source[2] === 'prepare' ? 202 : 200, await runtime.sourceOperation(source[1], token(request), source[2] as 'prepare' | 'attach' | 'renew', await body(request)));
 			}
 			if (request.method === 'PUT' && input?.[1] && input[2]) return respond(response, 200, await runtime.upload(input[1], input[2], token(request), request));
 			const artifact = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/artifacts\/([a-z][a-z0-9._-]{0,127})$/u);
@@ -83,19 +102,22 @@ export function startSandboxBroker() {
 	});
 	relay.listen(configuration.relay.port, configuration.relay.listenHost);
 	const subscriptionProxy = createServer();
+	const proxyLog = boundedProxyLogger();
 	subscriptionProxy.on('connect', (request, client, head) => {
 		let requestedHost = '';
 		try {
 			const target = new URL(`https://${request.url ?? ''}`), host = target.hostname, port = Number(target.port || 443); requestedHost = /^[a-z0-9.-]{1,253}$/u.test(host) ? host : '';
-			if (port !== 443 || !allowedSubscriptionProxyHost(host)) throw new Error('Subscription proxy target is not authorized.');
+			const service = assignmentProxyService(host);
+			if (port !== 443 || !service) throw new Error('Assignment proxy target is not authorized.');
 			const authorization = String(request.headers['proxy-authorization'] ?? '');
 			const decoded = authorization.startsWith('Basic ') ? Buffer.from(authorization.slice(6), 'base64').toString('utf8') : '';
 			const separator = decoded.indexOf(':'), sandboxId = separator > 0 ? decoded.slice(0, separator) : '', operationToken = separator > 0 ? decoded.slice(separator + 1) : '';
-			runtime.authorizeSubscriptionProxy(sandboxId, operationToken);
-			process.stderr.write(`${JSON.stringify({ source: 'sandbox-subscription-proxy', status: 'accepted', host })}\n`);
+			if (service === 'package-registry') runtime.authorizePackageRegistryProxy(sandboxId, operationToken);
+			else runtime.authorizeSubscriptionProxy(sandboxId, operationToken);
+			proxyLog({ source: 'sandbox-assignment-proxy', status: 'accepted', host });
 			const upstream = connect(port, host, () => { client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (head.length) upstream.write(head); upstream.pipe(client); client.pipe(upstream); });
 			upstream.once('error', () => client.destroy()); client.once('error', () => upstream.destroy());
-		} catch (error) { process.stderr.write(`${JSON.stringify({ source: 'sandbox-subscription-proxy', status: 'denied', ...(requestedHost ? { host: requestedHost } : {}), reason: error instanceof Error ? error.message : 'invalid_request', authorizationPresent: Boolean(request.headers['proxy-authorization']) })}\n`); client.end('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="TreeSeed assignment"\r\nConnection: close\r\n\r\n'); }
+		} catch (error) { proxyLog({ source: 'sandbox-assignment-proxy', status: 'denied', ...(requestedHost ? { host: requestedHost } : {}), reason: error instanceof Error ? error.message : 'invalid_request', authorizationPresent: Boolean(request.headers['proxy-authorization']) }); client.end('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="TreeSeed assignment"\r\nConnection: close\r\n\r\n'); }
 	});
 	subscriptionProxy.listen(configuration.relay.port + 1, configuration.relay.listenHost);
 	return server;

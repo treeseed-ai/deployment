@@ -150,9 +150,10 @@ export function managedContainerDevelopmentConnectionEnvironment(host: HostConfi
 	for (const route of routes) {
 		if (!route.projectId) continue;
 		const prefix = `TREESEED_${route.projectId.replaceAll('-', '_').toUpperCase()}`;
-		values[`${prefix}_URL`] = route.upstream;
+		const upstream = /^[a-z][a-z0-9+.-]*:\/\//iu.test(route.upstream) ? route.upstream : `http://${route.upstream}`;
+		values[`${prefix}_URL`] = upstream;
 		if (route.projectId === 'treedx') {
-			const hostname = new URL(route.upstream).hostname;
+			const hostname = new URL(upstream).hostname;
 			values.TREESEED_LOCAL_TREEDX_HOSTS = [values.TREESEED_LOCAL_TREEDX_HOSTS, hostname]
 				.filter((candidate): candidate is string => Boolean(candidate))
 				.join(',');
@@ -168,6 +169,10 @@ export function managedContainerDevelopmentConnectionEnvironment(host: HostConfi
 		const prefix = `TREESEED_${dependency.id.replaceAll('-', '_').toUpperCase()}`;
 		values[`${prefix}_URL`] = route.upstream;
 		if (component.componentId === 'admin' && dependency.id === 'api') values.TREESEED_API_BASE_URL = route.upstream;
+		if (component.componentId === 'agent' && dependency.capability === 'control-plane-api') {
+			values.TREESEED_CONTROL_PLANE_URL = route.upstream;
+			values.TREESEED_SERVER_PROFILE_LOCAL_URL = route.upstream;
+		}
 	}
 	return values;
 }

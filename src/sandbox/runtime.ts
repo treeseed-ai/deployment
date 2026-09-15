@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
-import { appendFile, chmod, chown, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, chown, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import type { IncomingMessage } from 'node:http';
@@ -32,6 +32,19 @@ export const authorizedGuestImage = (configured: SandboxBrokerConfiguration['gue
 	return configured.some((entry) => containerdImageReference(entry.image, entry.digest) === requested && entry.profiles.includes(assignment.profile));
 };
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest();
+export function validateSubscriptionCredential(next: Buffer, current?: Buffer) {
+	if (next.byteLength === 0 || next.byteLength > 1_048_576) throw new Error('Codex subscription authentication exceeds the broker limit.');
+	const parse = (value: Buffer) => {
+		const record = JSON.parse(value.toString('utf8')) as Record<string, unknown>;
+		const tokens = record.tokens && typeof record.tokens === 'object' && !Array.isArray(record.tokens) ? record.tokens as Record<string, unknown> : null;
+		if (record.auth_mode !== 'chatgpt' || !tokens || !['access_token', 'refresh_token', 'account_id'].every((key) => typeof tokens[key] === 'string' && String(tokens[key]).length > 0))
+			throw new Error('Codex subscription authentication is invalid.');
+		return { record, accountId: String(tokens.account_id) };
+	};
+	const parsed = parse(next);
+	if (current && parse(current).accountId !== parsed.accountId) throw new Error('Updated Codex subscription authentication changed account identity.');
+	return parsed.record;
+}
 
 async function materializeGuestResolver(directory: string) {
 	const candidates = ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'];
@@ -49,6 +62,7 @@ async function materializeGuestResolver(directory: string) {
 
 export class KataSandboxRuntime {
 	private readonly sandboxes = new Map<string, Prepared>();
+	private activeSubscriptionSandboxId: string | null = null;
 	private readonly warmPool: WarmSandboxPool;
 	private readonly sourceStore: AssignmentSourceStore;
 	constructor(private readonly configuration: SandboxBrokerConfiguration) {
@@ -107,11 +121,6 @@ export class KataSandboxRuntime {
 		// Compiled Deployment instrumentation, not caller-supplied executable input.
 		await writeFile(resolve(inputDirectory, 'startup-monitor.mjs'), await readFile(new URL('./guest-startup-monitor.js', import.meta.url)), { mode: 0o400, flag: 'wx' });
 		brokerFiles.push('startup-monitor.mjs');
-		if (modelGateway?.authenticationMode === 'codex-subscription') {
-			const authentication = await readFile(modelGateway.credentialFile);
-			if (authentication.byteLength > 1_048_576) throw new Error('Codex subscription authentication exceeds the broker limit.');
-			await writeFile(resolve(inputDirectory, 'codex-auth.json'), authentication, { mode: 0o400, flag: 'wx' }); brokerFiles.push('codex-auth.json');
-		}
 		for (const name of brokerFiles) await chown(resolve(inputDirectory, name), 65_532, 65_532);
 		const sandbox: Prepared = { sandboxId, assignment, directory, inputDirectory, outputDirectory, tokenHash: hash(token), guestTokenHash: hash(guestToken), uploaded: new Set(), events: [], toolRequests: [], toolWaiters: new Map() };
 		this.sandboxes.set(sandboxId, sandbox); await this.emit(sandbox, 'sandbox.created', { profile: assignment.profile, guestImageDigest: assignment.guestImageDigest });
@@ -132,17 +141,13 @@ export class KataSandboxRuntime {
 	}
 
 	/** Only the host operation token reaches this path; the guest has a different relay token. */
-	async sourceOperation(sandboxId: string, token: string, operation: 'status' | 'prepare' | 'attach' | 'renew' | 'chunk', value?: unknown) {
+	async sourceOperation(sandboxId: string, token: string, operation: 'status' | 'prepare' | 'attach' | 'renew', value?: unknown) {
 		const sandbox = this.authorized(sandboxId, token);
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before source operation.');
 		if (sandbox.executionClaimed && operation !== 'renew' && operation !== 'status') throw new Error('Executed sandbox source cannot be replaced.');
 		const source = sandbox.source ??= await (sandbox.sourceInitialization ??= this.sourceStore.create(sandboxId, sandbox.assignment));
 		if (sandbox.closing || !this.sandboxes.has(sandboxId)) { await source.stop(); throw new Error('Sandbox source initialization was cancelled.'); }
 		if (operation === 'prepare') return source.prepare(value);
-		if (operation === 'chunk') {
-			const input = z.object({ authority: z.unknown(), chunk: z.unknown() }).strict().parse(value);
-			return this.sourceStore.importChunk(sandboxId, source, input.authority, input.chunk);
-		}
 		if (operation === 'attach') {
 			const attached = await source.attach(value), path = resolve(sandbox.inputDirectory, 'source.json');
 			await writeFile(path, `${JSON.stringify({ source: attached.authorization.source, mode: attached.authorization.mode,
@@ -154,7 +159,7 @@ export class KataSandboxRuntime {
 		return source.status();
 	}
 
-	async candidateOperation(sandboxId: string, token: string, operation: 'start' | 'status' | 'chunk' | 'accept', value?: unknown) {
+	async sourcePublicationOperation(sandboxId: string, token: string, operation: 'start' | 'status', value?: unknown) {
 		const sandbox = this.authorized(sandboxId, token), source = sandbox.source;
 		if (!source || !sandbox.result || sandbox.result.status !== 'completed' || Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Candidate export requires a completed execution and current assignment lease.');
 		if (operation === 'start') {
@@ -163,17 +168,10 @@ export class KataSandboxRuntime {
 			this.authorized(sandboxId, token);
 			const stopped = this.removeContainer(sandboxId) && (!sandbox.warmSandboxId || this.removeContainer(sandbox.warmSandboxId));
 			if (!stopped) throw new Error('Execution teardown is uncertain; retain candidate storage.');
-			return this.sourceStore.startCandidate(sandboxId, source, sandbox.assignment, input.commit, source.predecessorId(), true);
+			return this.sourceStore.startPublication(sandboxId, source, sandbox.assignment, input.authority, input.commit, true);
 		}
-		const job = this.sourceStore.candidate(sandboxId);
-		if (operation === 'accept') {
-			const input = z.object({ authority: z.unknown(), receipt: z.unknown() }).strict().parse(value);
-			await source.renew(input.authority);
-			this.authorized(sandboxId, token);
-			return { accepted: true, receipt: await job.accept(input.receipt) };
-		}
+		const job = this.sourceStore.publication(sandboxId);
 		source.attachment();
-		if (operation === 'chunk') return job.chunk(z.object({ index: z.number().int().min(0).max(1023) }).strict().parse(value).index);
 		return job.status();
 	}
 
@@ -182,7 +180,7 @@ export class KataSandboxRuntime {
 		if(!sandbox.assignment.network.allowedServices.includes('treedx-relay')||sandbox.assignment.treeDxHandleIds.length===0) throw new Error('Assignment does not authorize TreeDX tools.');
 		if(Date.parse(sandbox.assignment.leaseExpiresAt)<=Date.now()) throw new Error('Assignment TreeDX authority expired.');
 		const tool=String(request.tool??''), arguments_=request.arguments&&typeof request.arguments==='object'&&!Array.isArray(request.arguments)?request.arguments as Record<string,unknown>:{};
-		if(!['treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths','treeseed_publish_review'].includes(tool)) throw new Error('TreeDX tool is not supported.');
+		if(!['treeseed_time_status','treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths','treeseed_publish_review','treeseed_publish_proposal','treeseed_publish_execution_plan'].includes(tool)) throw new Error('Assignment tool is not supported.');
 		const id=randomUUID(), createdAt=new Date().toISOString(); sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt}); await this.emit(sandbox,'tool.requested',{requestId:id,tool});
 		return new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
 	}
@@ -241,6 +239,18 @@ export class KataSandboxRuntime {
 			'--mount', `type=bind,src=${resolverFile},dst=/etc/resolv.conf,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.inputDirectory},dst=/run/treeseed-assignment,options=rbind:ro`,
 			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
+		const subscriptionCredential = this.configuration.modelGateway?.authenticationMode === 'codex-subscription'
+			? this.configuration.modelGateway.credentialFile : null;
+		if (subscriptionCredential) {
+			if (this.activeSubscriptionSandboxId) throw new Error('Codex subscription execution is already active on this provider.');
+			this.activeSubscriptionSandboxId = sandboxId;
+			try {
+				const authentication = await readFile(subscriptionCredential);
+				validateSubscriptionCredential(authentication);
+				const path = resolve(sandbox.inputDirectory, 'codex-auth.json');
+				await writeFile(path, authentication, { mode: 0o400, flag: 'wx' }); await chown(path, 65_532, 65_532);
+			} catch (error) { this.activeSubscriptionSandboxId = null; throw error; }
+		}
 		const child = spawn('/usr/bin/ctr', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); sandbox.child = child;
 		let stderr = ''; child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 16_384) stderr += chunk.toString('utf8'); });
 		let lastProgress = '';
@@ -259,7 +269,20 @@ export class KataSandboxRuntime {
 			// assignment's immutable execution-duration limit.
 			timeout = setTimeout(enforceDeadline, remaining);
 		}; enforceDeadline();
-		const exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); }); clearTimeout(timeout!); clearInterval(progressTimer); delete sandbox.child;
+		let exitCode: number | null;
+		try {
+			exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); });
+			if (subscriptionCredential) {
+				const nextPath = resolve(sandbox.outputDirectory, 'codex-auth.json');
+				const next = await readFile(nextPath), current = await readFile(subscriptionCredential);
+				validateSubscriptionCredential(next, current);
+				const temporary = `${subscriptionCredential}.${process.pid}.${Date.now()}.new`;
+				await writeFile(temporary, next, { mode: 0o600, flag: 'wx' }); await chmod(temporary, 0o600); await rename(temporary, subscriptionCredential);
+			}
+		} finally {
+			if (this.activeSubscriptionSandboxId === sandboxId) this.activeSubscriptionSandboxId = null;
+			clearTimeout(timeout!); clearInterval(progressTimer); delete sandbox.child;
+		}
 		if (exitCode !== 0) {
 			const failureContent = await readFile(resolve(sandbox.outputDirectory, 'failure.json'), 'utf8').catch(() => '');
 			const failureDigest = `sha256:${createHash('sha256').update(failureContent).digest('hex')}`;
@@ -299,6 +322,12 @@ export class KataSandboxRuntime {
 		const sandbox = this.authorizedGuest(sandboxId, token);
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment subscription proxy authority expired.');
 		if (this.configuration.modelGateway?.authenticationMode !== 'codex-subscription' || !sandbox.assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription proxy access.');
+		return true;
+	}
+	authorizePackageRegistryProxy(sandboxId: string, token: string) {
+		const sandbox = this.authorizedGuest(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment package-registry authority expired.');
+		if (!sandbox.assignment.network.allowedServices.includes('package-registry')) throw new Error('Assignment does not authorize package-registry access.');
 		return true;
 	}
 	renewLease(sandboxId: string, token: string, renewal: SandboxLeaseRenewal) {

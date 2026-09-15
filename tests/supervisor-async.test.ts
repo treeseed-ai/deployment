@@ -1,7 +1,7 @@
 import { createConnection, createServer } from 'node:net';
 import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { supervisorConnectionHandler } from '../src/supervisor/server.js';
+import { isSafeDevelopmentError, supervisorConnectionHandler } from '../src/supervisor/server.js';
 import { recoverAiWithoutBlockingManagement } from '../src/manager/api.js';
 
 async function exchange(execute: (input: unknown) => unknown) {
@@ -20,6 +20,10 @@ async function exchange(execute: (input: unknown) => unknown) {
 }
 
 describe('supervisor asynchronous completion', () => {
+	it('permits only bounded development diagnostics including numeric inventory counts', () => {
+		expect(isSafeDevelopmentError('Managed development application startup failed (API_ENTRYPOINT_MIG_PENDING_2_UNEXPECTED_1).')).toBe(true);
+		expect(isSafeDevelopmentError('Managed development application startup failed (private detail).')).toBe(false);
+	});
 	it('keeps management available when AI startup recovery fails', async () => {
 		const events: unknown[] = [];
 		await expect(recoverAiWithoutBlockingManagement(async () => { throw new Error('private runtime detail'); }, (name, details) => { events.push({ name, details }); })).resolves.toBeUndefined();

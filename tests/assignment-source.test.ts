@@ -77,7 +77,7 @@ describe('assignment source authority and job lifecycle', () => {
     const { controller, response, operations } = fixture();
     controller.prepare(response()); await vi.waitFor(() => expect(controller.status().state).toBe('ready'));
     for (const next of [{ ...authority, source: { ...authority.source, commit: 'b'.repeat(40) } }, { ...authority, credentialBindingId: 'other' },
-      { ...authority, mode: 'work' as const, publication: 'candidate-only' as const }]) {
+      { ...authority, mode: 'work' as const, publication: 'assignment-branch' as const }]) {
       await expect(controller.attach(response(next))).rejects.toThrow('pinned');
     }
     expect(operations.createDisk).not.toHaveBeenCalled();

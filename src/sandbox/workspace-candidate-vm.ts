@@ -32,7 +32,7 @@ export function candidateVmVerifier(configuration: SandboxBrokerConfiguration): 
     const ctr = async (args: string[]) => (await exec('/usr/bin/ctr', ['--address', configuration.containerdAddress,
       '--namespace', configuration.namespace, ...args], { encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536,
       env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } })).stdout;
-    let attached: WorkspaceDisk | undefined, vm: string | undefined, child: string | undefined, stopped = false;
+    let attached: WorkspaceDisk | undefined, vm: string | undefined, child: string | undefined, stopped = false, executionError: unknown;
     try {
       attached = await attachWorkspaceDisk(input.disk, true);
       vm = await operations.create({ image, cpuCores: 1, memoryBytes: 1_073_741_824, network: 'none' });
@@ -44,6 +44,8 @@ export function candidateVmVerifier(configuration: SandboxBrokerConfiguration): 
         '--mount', `type=bind,src=${incoming},dst=/run/treeseed-verifier,options=rbind:ro`,
         '--mount', `type=bind,src=${outgoing},dst=/run/treeseed-output,options=rbind:rw`,
         image, child, 'node', '/run/treeseed-verifier/verifier.mjs']);
+    } catch (error) {
+      executionError = error;
     } finally {
       if (vm) {
         await operations.destroy(vm);
@@ -59,9 +61,12 @@ export function candidateVmVerifier(configuration: SandboxBrokerConfiguration): 
       if (attached && stopped) await detachWorkspaceDisk(attached, true);
     }
     const receiptPath = join(outgoing, 'candidate-verification.json');
-    const details = await lstat(receiptPath);
+    const details = await lstat(receiptPath).catch(() => { throw executionError ?? new Error('Candidate verifier omitted its receipt.'); });
     if (!details.isFile() || details.size > 8192 || await realpath(receiptPath) !== receiptPath) throw new Error('Invalid candidate verification receipt.');
-    const verification = JSON.parse(await readFile(receiptPath, 'utf8')) as CandidateVerification;
+    const parsed = JSON.parse(await readFile(receiptPath, 'utf8')) as CandidateVerification | { failed: true; reason?: string };
+    if ('failed' in parsed) throw new Error(`Candidate verifier rejected source: ${parsed.reason ?? 'unspecified verifier failure'}`);
+    if (executionError) throw executionError;
+    const verification = parsed;
     const bundlePath = join(outgoing, 'source.bundle');
     const handle = await open(bundlePath, constants.O_RDONLY | constants.O_NOFOLLOW);
     const hash = createHash('sha256');

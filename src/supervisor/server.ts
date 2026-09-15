@@ -26,7 +26,7 @@ export function supervisorConnectionHandler(execute: (input: unknown) => unknown
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				event('supervisor.operation-failed', { operation, message });
-				const safeDevelopmentError = operation === 'development.container' && /^Managed development (?:application startup failed \([A-Z_]+\)|[a-z_]+ \(exit (?:[0-9]+|timeout)\))\.$/.test(message);
+				const safeDevelopmentError = operation === 'development.container' && isSafeDevelopmentError(message);
 				const operatorMessage = safeDevelopmentError || operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
 				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation, ...(operatorMessage ? { message: operatorMessage } : {}) })}\n`);
 			}
@@ -45,4 +45,7 @@ export function startSupervisor() {
 	const server = createSupervisorServer();
 	server.listen(paths.socket, () => chmodSync(paths.socket, 0o660));
 	return server;
+}
+export function isSafeDevelopmentError(message: string) {
+	return /^Managed development (?:application startup failed \([A-Z0-9_]+\)|[a-z_]+ \(exit (?:[0-9]+|timeout)\))\.$/.test(message);
 }

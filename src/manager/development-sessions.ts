@@ -23,6 +23,11 @@ export interface DevelopmentSessionDependencies {
 	routedHealth: (alias: string, path: string) => Promise<boolean>;
 }
 
+export function hasRegisteredDevelopmentTarget(record: ManagedDevelopmentSession, projectId: string, targetId: string) {
+	return record.session.status === 'active'
+		&& record.session.targets.some((target) => target.projectId === projectId && target.targetId === targetId);
+}
+
 const defaultNow = () => new Date();
 
 async function defaultDirectHealth(target: DevelopmentTarget, port: number) {
@@ -155,6 +160,23 @@ export class DevelopmentSessionStore {
 		const requested = new Set(session.leases.map((lease) => `${lease.kind}:${lease.resource}`));
 		for (const active of this.list()) for (const lease of active.session.leases) if (requested.has(`${lease.kind}:${lease.resource}`)) throw new Error(`Development lease conflict for ${lease.resource}.`);
 		return this.save({ session: { ...session, status: 'active' }, runtimes, routes: [], candidates: [] });
+	}
+
+	refreshRuntimes(sessionId: string, runtimeInputs: unknown[]) {
+		const record = this.load(sessionId);
+		const runtimes = runtimeInputs.map((runtime) => developmentRuntimeSchema.parse(runtime));
+		const repositories = new Map(record.session.repositories.map((entry) => [entry.projectId, entry.repository]));
+		if (runtimes.length !== record.runtimes.length || runtimes.some((runtime) => repositories.get(runtime.project.id) !== runtime.project.repository))
+			throw new Error('Development runtime refresh must preserve the registered project inventory and repositories.');
+		const next = new Set(runtimes.flatMap((runtime) => runtime.targets.map((target) => targetKey(runtime.project.id, target.id))));
+		for (const selected of record.session.targets) if (!next.has(targetKey(selected.projectId, selected.targetId)) && selected.mode !== 'released')
+			throw new Error(`Active development target ${targetKey(selected.projectId, selected.targetId)} cannot be removed by a runtime refresh.`);
+		record.session.targets = record.session.targets.filter((selected) => next.has(targetKey(selected.projectId, selected.targetId)));
+		const existing = new Set(record.session.targets.map((selected) => targetKey(selected.projectId, selected.targetId)));
+		for (const runtime of runtimes) for (const target of runtime.targets) if (!existing.has(targetKey(runtime.project.id, target.id)))
+			record.session.targets.push({ projectId: runtime.project.id, targetId: target.id, mode: 'released', generation: 0, health: 'ready' });
+		record.runtimes = runtimes;
+		return this.save(record);
 	}
 
 	setMode(sessionId: string, projectId: string, targetId: string, mode: DevelopmentSession['targets'][number]['mode']) {

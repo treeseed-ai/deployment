@@ -26,6 +26,8 @@ export async function verifySourceWorkspace(root: string, commit: string) {
 	if (!exactCommit.test(commit) || await git(root, ['rev-parse', 'HEAD']) !== commit) throw new Error('Source image commit mismatch.');
 	await git(root, ['fsck', '--strict', '--no-reflogs']);
 	if (await git(root, ['status', '--porcelain', '--untracked-files=all'])) throw new Error('Source image verification found unexpected files.');
+	const submodules = await git(root, ['submodule', 'status', '--recursive']);
+	if (submodules && submodules.split('\n').some(line => !line.startsWith('-'))) throw new Error('Source image contains materialized submodule content.');
 	return { commit, tree: await git(root, ['rev-parse', 'HEAD^{tree}']), clean: true, objectClosure: true, sourceOnly: true };
 }
 
@@ -44,9 +46,7 @@ export async function buildSourceWorkspace(input: { root: string; bundle: string
 	await git(input.root, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-recurse-submodules', input.bundle, 'refs/heads/treeseed-source']);
 	if (await git(input.root, ['rev-parse', 'FETCH_HEAD']) !== input.commit) throw new Error('Source bundle does not match its authorized commit.');
 	if (input.parentCommit) await git(input.root, ['merge-base', '--is-ancestor', input.parentCommit, input.commit]);
-	const modes = await git(input.root, ['ls-tree', '-r', input.commit]);
-	if (modes.split('\n').some(line => line.startsWith('160000 '))) throw new Error('Source requires separately authorized submodule materialization.');
-	await git(input.root, ['checkout', '--detach', '--force', input.commit]);
+	await git(input.root, ['checkout', '--detach', '--force', '--no-recurse-submodules', input.commit]);
 	return verifySourceWorkspace(input.root, input.commit);
 }
 

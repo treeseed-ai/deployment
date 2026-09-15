@@ -13,7 +13,7 @@ describe('source credential host delivery', () => {
 		expect(JSON.stringify(delivery)).not.toContain(secret.token);
 		expect(openSourceCredential({ authorization, delivery, privateKey: recipient.privateKey }, now)).toEqual(secret);
 		for (const changed of [{ ...authorization, providerId: 'other' }, { ...authorization, assignmentId: 'other' },
-			{ ...authorization, source: { ...authorization.source, teamId: 'other' } }, { ...authorization, publication: 'candidate-only' as const, mode: 'work' as const }]) {
+			{ ...authorization, source: { ...authorization.source, teamId: 'other' } }, { ...authorization, publication: 'assignment-branch' as const, mode: 'work' as const }]) {
 			expect(() => openSourceCredential({ authorization: changed, delivery, privateKey: recipient.privateKey }, now)).toThrow();
 		}
 		expect(() => openSourceCredential({ authorization, delivery, privateKey: createSourceCredentialRecipient().privateKey }, now)).toThrow();

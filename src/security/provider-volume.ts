@@ -13,9 +13,11 @@ import { containerdImageReference } from '../sandbox/image-reference.js';
 import { credentialInitializer, credentialRoot as registeredCredentialRoot } from './credential-initializers.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
 import { providerVolumeMapperName as mapperName } from './provider-volume-identity.js';
+import { hostDevelopmentStatus } from '../supervisor/host-development.js';
 
 const credentialRoot = registeredCredentialRoot;
 const credentialIds = ['application-credential-kek-v1', 'application-diagnostics-kek-v1', 'application-backup-kek-v1'] as const;
+const subscriptionCredentialPath = '/var/lib/treeseed/agent/execution-credentials/codex-auth.json';
 
 export function providerSecuritySettings(configuration: HostConfiguration = loadHostConfiguration()) {
 	const security = configuration.security;
@@ -67,25 +69,42 @@ export function verifyProviderSecurity(command: CommandRunner) {
 
 type SandboxCredentialActivation = { authenticationMode: 'api-key' | 'codex-subscription'; credentialId: string };
 
+export function selectedSandboxGuestImages(
+	profiles: ReturnType<typeof providerSecuritySettings>['security']['sandbox']['profiles'],
+	development: Pick<ReturnType<typeof hostDevelopmentStatus>, 'status' | 'guestImageDigest'>,
+) {
+	const developmentDigest = (development.status === 'active' || development.status === 'activating') ? development.guestImageDigest : null;
+	return [...new Map(profiles.map((profile) => {
+		const digest = developmentDigest ?? profile.guestImageDigest;
+		return [`${profile.guestImage}@${digest}`, { image: profile.guestImage, digest,
+			profiles: profiles.filter((candidate) => candidate.guestImage === profile.guestImage).map((candidate) => candidate.id) }];
+	})).values()];
+}
+
 function configureBrokerCredential(activation: SandboxCredentialActivation | undefined) {
 	const dropInRoot = '/etc/systemd/system/treeseed-sandbox-broker.service.d', dropIn = `${dropInRoot}/20-execution-provider-credential.conf`;
 	mkdirSync(dropInRoot, { recursive: true, mode: 0o755 });
-	if (!activation) { rmSync(dropIn, { force: true }); return; }
+	if (!activation || activation.authenticationMode === 'codex-subscription') { rmSync(dropIn, { force: true }); return; }
 	writeFileSync(dropIn, `[Service]\nLoadCredentialEncrypted=${activation.credentialId}:${credentialRoot}/${activation.credentialId}.cred\n`, { mode: 0o644 });
 }
 
 function completeProviderSecurity(value: ReturnType<typeof providerSecuritySettings>, command: CommandRunner, activation?: SandboxCredentialActivation) {
-	const guestImages = [...new Map(value.security.sandbox.profiles.map((profile) => [`${profile.guestImage}@${profile.guestImageDigest}`, { image: profile.guestImage, digest: profile.guestImageDigest,
-		profiles: value.security.sandbox.profiles.filter((candidate) => candidate.guestImage === profile.guestImage && candidate.guestImageDigest === profile.guestImageDigest).map((candidate) => candidate.id) }])).values()];
+	const development = hostDevelopmentStatus();
+	const guestImages = selectedSandboxGuestImages(value.security.sandbox.profiles, development);
 	mkdirSync('/etc/treeseed/sandbox', { recursive: true, mode: 0o750 }); mkdirSync('/etc/cni/net.d', { recursive: true, mode: 0o755 });
 	if (!existsSync('/etc/treeseed/sandbox/relay.crt') || !existsSync(`${credentialRoot}/sandbox-relay-tls-key.cred`)) throw new Error('Sandbox completion requires the sealed relay credential from provider-volume initialization.');
 	if (!existsSync('/etc/treeseed/sandbox/providers.json')) writeFileSync('/etc/treeseed/sandbox/providers.json', `${JSON.stringify({ schemaVersion: 1, providers: {} })}\n`, { mode: 0o640, flag: 'wx' });
 	ensureSandboxNetwork(command);
-	const modelGateway = activation ? { upstreamBaseUrl: value.security.sandbox.modelGateway.upstreamBaseUrl, authenticationMode: activation.authenticationMode, credentialFile: `/run/credentials/${activation.credentialId}`, allowedProviders: [value.security.sandbox.modelGateway.provider], allowedModels: value.security.sandbox.modelGateway.allowedModels } : undefined;
+	const modelGateway = activation ? { upstreamBaseUrl: value.security.sandbox.modelGateway.upstreamBaseUrl, authenticationMode: activation.authenticationMode,
+		credentialFile: activation.authenticationMode === 'codex-subscription' ? subscriptionCredentialPath : `/run/credentials/${activation.credentialId}`,
+		allowedProviders: [value.security.sandbox.modelGateway.provider], allowedModels: value.security.sandbox.modelGateway.allowedModels } : undefined;
 	writeFileSync('/etc/treeseed/sandbox/broker.json', `${JSON.stringify({ socketPath: value.security.sandbox.brokerSocket, containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
 		relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' },
 		...(modelGateway ? { modelGateway } : {}), guestImages })}\n`, { mode: 0o640 });
-	for (const image of guestImages) command('/usr/bin/ctr', ['--address', '/run/containerd/containerd.sock', '--namespace', 'treeseed-sandboxes', 'images', 'pull', '--platform', 'linux/amd64', containerdImageReference(image.image, image.digest)]);
+	for (const image of guestImages) {
+		if (image.digest === development.guestImageDigest && (development.status === 'active' || development.status === 'activating')) continue;
+		command('/usr/bin/ctr', ['--address', '/run/containerd/containerd.sock', '--namespace', 'treeseed-sandboxes', 'images', 'pull', '--platform', 'linux/amd64', containerdImageReference(image.image, image.digest)]);
+	}
 	configureBrokerCredential(activation); command('/usr/bin/systemctl', ['daemon-reload']);
 	command('/usr/bin/systemctl', ['restart', 'treeseed-provider-volume.service']); command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
 	const verified = verifyProviderSecurity(command); let sandbox = inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
@@ -192,6 +211,12 @@ export function initializeProviderCredential(initializerId: string, sourceId: st
 	const registeredMode = initializer.activation.authenticationModes[sourceId];
 	if (!registeredMode) throw new Error(`Credential source ${sourceId} has no registered activation mode.`);
 	const authenticationMode = registeredMode === 'subscription-file' ? 'codex-subscription' : 'api-key';
+	if (authenticationMode === 'codex-subscription') {
+		const directory = dirname(subscriptionCredentialPath), temporary = `${subscriptionCredentialPath}.${process.pid}.new`;
+		mkdirSync(directory, { recursive: true, mode: 0o700 });
+		writeFileSync(temporary, secret, { mode: 0o600, flag: 'wx' });
+		renameSync(temporary, subscriptionCredentialPath); chmodSync(subscriptionCredentialPath, 0o600);
+	}
 	const result = completeProviderSecurity(providerSecuritySettings(), command, { authenticationMode, credentialId: initializer.credentialId });
 	return { initializerId, sourceId, credentialId: initializer.credentialId, configured: true, sandboxReady: result.receipt.sandbox.brokerReady };
 }

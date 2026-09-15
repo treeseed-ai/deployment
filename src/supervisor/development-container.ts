@@ -101,7 +101,10 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
 
 export function executeDevelopmentContainer(value:unknown,command:CommandRunner=dockerCommand) {
   const input=developmentContainerSchema.parse(value);
-  if (input.projectId === 'agent') return executeAgentDevelopmentContainer({sessionId:input.sessionId,projectId:'agent',targetId:input.targetId,action:input.action}, command);
+  if (input.projectId === 'agent') {
+	if (input.targetId !== 'provider' && input.targetId !== 'sandbox') throw new Error('Managed Agent development target is invalid.');
+	return executeAgentDevelopmentContainer({sessionId:input.sessionId,projectId:'agent',targetId:input.targetId,action:input.action}, command);
+  }
 	if (input.projectId === 'treedx' || input.projectId === 'ai') return executeManagedComponentDevelopment({ sessionId: input.sessionId, projectId: input.projectId, targetId: input.targetId as 'service' | 'ai-inference' | 'ai-training' | 'ai-lab', action: input.action }, command);
 	if (input.targetId !== 'service' && input.targetId !== 'operations-runner') throw new Error('Managed API development target is invalid.');
 	const targetId=input.targetId;
@@ -196,7 +199,9 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   }
   try {
     if(targetId==='service')stopReleasedApi(command,()=>atomicJson(apiHandoff,{restore:true},0o600));
-    command('/usr/bin/docker',[...compose,'up','--detach','--wait','--wait-timeout','120','runtime']);
+    // A rebuild must restart the Node process so changed workspace dependencies
+    // cannot remain cached behind otherwise-identical Compose configuration.
+    command('/usr/bin/docker',[...compose,'up','--detach','--force-recreate','--wait','--wait-timeout','120','runtime']);
   }
   catch(error) {
     let code='';

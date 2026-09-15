@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const marker = resolve('dist/.treeseed-build-complete.json');
@@ -12,6 +12,8 @@ const result = spawnSync('npm', ['run', 'build'], {
 });
 if (result.status !== 0) process.exitCode = result.status ?? 1;
 else {
+	rmSync(resolve('dist/infrastructure'), { recursive: true, force: true });
+	cpSync(resolve('infrastructure'), resolve('dist/infrastructure'), { recursive: true });
 	mkdirSync(dirname(marker), { recursive: true });
 	writeFileSync(temporary, `${JSON.stringify({ completedAt: new Date().toISOString() })}\n`);
 	renameSync(temporary, marker);

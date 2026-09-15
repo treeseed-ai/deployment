@@ -10,6 +10,7 @@ export * from './infrastructure/opentofu/index.js';
 export * from './manager/plan.js';
 export * from './manager/api.js';
 export * from './manager/operations.js';
+export * from './manager/catalog-summary.js';
 export * from './manager/development-sessions.js';
 export * from './manager/reconcile.js';
 export * from './manager/security-activation.js';

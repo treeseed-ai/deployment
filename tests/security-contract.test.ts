@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecoveryBundle, verifyRecoveryBundle } from '../src/security/recovery-bundle.js';
-import { providerSecuritySettings } from '../src/security/provider-volume.js';
+import { providerSecuritySettings, selectedSandboxGuestImages } from '../src/security/provider-volume.js';
 import { verifySandboxAssignment, verifySandboxLeaseRenewal } from '../src/sandbox/trust.js';
 import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
@@ -13,17 +13,41 @@ import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 import { serializedSecurityInitializeArguments, type SerializedSecurityOperation } from '../src/manager/serialized-security.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
 import { credentialInitializerStatus, loadCredentialInitializers } from '../src/security/credential-initializers.js';
-import { safeContainerId } from '../src/sandbox/runtime.js';
+import { safeContainerId, validateSubscriptionCredential } from '../src/sandbox/runtime.js';
 import { bindSandboxGuestImageDigest, configuredSandboxGuestImageDigests } from '../src/supervisor/component.js';
 import { bindSandboxGuestTrust, importDevelopmentSandboxGuest } from '../src/supervisor/execute.js';
 import { authorizedGuestImage } from '../src/sandbox/runtime.js';
-import { allowedSubscriptionProxyHost } from '../src/sandbox/server.js';
+import { allowedPackageRegistryHost, allowedSubscriptionProxyHost, assignmentProxyService } from '../src/sandbox/server.js';
 import { sandboxCniConfiguration, sandboxNetworkRules } from '../src/sandbox/network.js';
 
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
+	it('preserves the active development guest trust while credentials are reconfigured', () => {
+		const released = `sha256:${'a'.repeat(64)}`, development = `sha256:${'b'.repeat(64)}`;
+		const profiles = [
+			{ id: 'read', guestImage: 'treeseed/sandbox-codex', guestImageDigest: released },
+			{ id: 'work', guestImage: 'treeseed/sandbox-codex', guestImageDigest: released },
+		] as Parameters<typeof selectedSandboxGuestImages>[0];
+		expect(selectedSandboxGuestImages(profiles, { status: 'active', guestImageDigest: development })).toEqual([
+			{ image: 'treeseed/sandbox-codex', digest: development, profiles: ['read', 'work'] },
+		]);
+		expect(selectedSandboxGuestImages(profiles, { status: 'installed', guestImageDigest: development })).toEqual([
+			{ image: 'treeseed/sandbox-codex', digest: released, profiles: ['read', 'work'] },
+		]);
+	});
+
+	it('accepts rotated subscription credentials only for the same account', () => {
+		const credential = (accountId: string, refreshToken: string) => Buffer.from(JSON.stringify({ auth_mode: 'chatgpt', tokens: {
+			account_id: accountId, access_token: 'access-token', refresh_token: refreshToken,
+		} }));
+		const current = credential('account-one', 'refresh-one'), rotated = credential('account-one', 'refresh-two');
+		expect(validateSubscriptionCredential(rotated, current)).toMatchObject({ auth_mode: 'chatgpt' });
+		expect(() => validateSubscriptionCredential(credential('account-two', 'refresh-three'), current)).toThrow(/changed account identity/u);
+		expect(() => validateSubscriptionCredential(Buffer.from('{}'))).toThrow(/invalid/u);
+	});
+
 	it('authorizes equivalent Docker Hub guest image names without weakening digest or profile checks', () => {
 		const digest = `sha256:${'a'.repeat(64)}`;
 		const configured = [{ image: 'docker.io/treeseed/sandbox-codex', digest, profiles: ['read'] }];
@@ -38,6 +62,12 @@ describe('host security contracts', () => {
 		expect(allowedSubscriptionProxyHost('sdmntprcentralus.oaiusercontent.com')).toBe(true);
 		expect(allowedSubscriptionProxyHost('openai.com.attacker.invalid')).toBe(false);
 		expect(allowedSubscriptionProxyHost('github.com')).toBe(false);
+		expect(allowedPackageRegistryHost('registry.npmjs.org')).toBe(true);
+		expect(allowedPackageRegistryHost('npmjs.org')).toBe(false);
+		expect(allowedPackageRegistryHost('registry.npmjs.org.attacker.invalid')).toBe(false);
+		expect(assignmentProxyService('registry.npmjs.org')).toBe('package-registry');
+		expect(assignmentProxyService('chatgpt.com')).toBe('codex-subscription');
+		expect(assignmentProxyService('example.com')).toBeNull();
 	});
 
 	it('routes guests only to the host bridge without public masquerading', () => {

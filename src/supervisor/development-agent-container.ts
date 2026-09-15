@@ -1,13 +1,15 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
 import { DevelopmentSessionStore, type ManagedDevelopmentSession } from '../manager/development-sessions.js';
 import { loadActiveComponents } from '../manager/current-state.js';
-import { composeFiles } from '../manager/reconcile.js';
+import { composeFiles, managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
 import { componentStateRoot } from './component.js';
 import { componentComposeArguments, type CommandRunner } from './compose-runtime.js';
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
+import { bindExistingSandboxGuestTrust, configuredSandboxGuestDigest, importSandboxGuestArchive } from './sandbox-guest-import.js';
+import { recordHostDevelopmentGuestImage } from './host-development.js';
 
 const root = '/run/treeseed/development-containers';
 const projectName = 'treeseed-agent';
@@ -16,7 +18,7 @@ const services = ['manager', 'runner'] as const;
 interface AgentDevelopmentInput {
 	sessionId: string;
 	projectId: 'agent';
-	targetId: string;
+	targetId: 'provider' | 'sandbox';
 	action: 'start' | 'stop' | 'status' | 'logs';
 }
 
@@ -34,8 +36,9 @@ function sourceFor(record: ManagedDevelopmentSession) {
 	return { worktree, workspace, uid: stat.uid };
 }
 
-export function renderAgentDevelopmentOverride(input: { sessionId: string; runtimeRoot: string }) {
+export function renderAgentDevelopmentOverride(input: { sessionId: string; runtimeRoot: string; sourceClosureDigest: string; environment?: Record<string, string>; sandboxGuestDigest?: string }) {
 	if (!/^dev-[a-z0-9-]{1,64}$/u.test(input.sessionId)) throw new Error('Invalid Agent development session.');
+	if (!/^sha256:[a-f0-9]{64}$/u.test(input.sourceClosureDigest)) throw new Error('Invalid Agent development source closure digest.');
 	const labels = {
 		'org.treeseed.development.session': input.sessionId,
 		'org.treeseed.development.target': 'agent.provider',
@@ -45,10 +48,14 @@ export function renderAgentDevelopmentOverride(input: { sessionId: string; runti
 		{ type: 'bind', source: resolve(input.runtimeRoot, 'package.json'), target: '/app/package.json', read_only: true },
 		{ type: 'bind', source: resolve(input.runtimeRoot, 'node_modules'), target: '/app/node_modules', read_only: true },
 	];
+	const environment: Record<string, string> = { ...input.environment,
+		...(input.sandboxGuestDigest ? { TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST: input.sandboxGuestDigest } : {}),
+		TREESEED_PROVIDER_SOURCE_CLOSURE_DIGEST: input.sourceClosureDigest,
+		TREESEED_DEVELOPMENT_SESSION_ID: input.sessionId, TREESEED_DEVELOPMENT_MODE: 'candidate' };
 	const service = {
 		restart: 'no',
 		labels,
-		environment: { TREESEED_DEVELOPMENT_SESSION_ID: input.sessionId, TREESEED_DEVELOPMENT_MODE: 'candidate' },
+		environment,
 		volumes,
 	};
 	return { services: { manager: service, runner: service } };
@@ -71,10 +78,14 @@ export function activeAgentClaims(stateRoot: string) {
 function containerState(command: CommandRunner, service: typeof services[number]) {
 	const name = `${projectName}-${service}-1`;
 	const value = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format',
-		'{"labels":{{json .Config.Labels}},"running":{{json .State.Running}}}'])));
+		'{"labels":{{json .Config.Labels}},"running":{{json .State.Running}},"environment":{{json .Config.Env}}}'])));
 	if (value.labels?.['com.docker.compose.project'] !== projectName || value.labels?.['com.docker.compose.service'] !== service || typeof value.running !== 'boolean')
 		throw new Error('Agent container ownership does not match the managed component.');
-	return { name, running: value.running as boolean, labels: value.labels as Record<string, string> };
+	const environment: unknown[] = Array.isArray(value.environment) ? value.environment : [];
+	const connectionEnvironment = Object.fromEntries(environment
+		.map(String).map((entry: string) => entry.split(/=(.*)/su, 2) as [string, string])
+		.filter(([key]) => ['TREESEED_CONTROL_PLANE_URL', 'TREESEED_SERVER_PROFILE_LOCAL_URL', 'TREESEED_API_URL'].includes(key)));
+	return { name, running: value.running as boolean, labels: value.labels as Record<string, string>, connectionEnvironment };
 }
 
 function stopService(command: CommandRunner, service: typeof services[number]) {
@@ -101,12 +112,87 @@ function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManage
 	stopService(command, 'runner');
 }
 
+interface SandboxDevelopmentReceipt {
+	schemaVersion: 1;
+	sessionId: string;
+	priorDigest: string;
+	digest: string;
+	image: string;
+}
+
+function sandboxReceipt(path: string) {
+	if (!existsSync(path)) return null;
+	const value = JSON.parse(readFileSync(path, 'utf8')) as SandboxDevelopmentReceipt;
+	if (value.schemaVersion !== 1 || !/^dev-[a-z0-9-]{1,64}$/u.test(value.sessionId)
+		|| !/^sha256:[a-f0-9]{64}$/u.test(value.priorDigest) || !/^sha256:[a-f0-9]{64}$/u.test(value.digest)
+		|| value.image !== 'treeseed/sandbox-codex:local') throw new Error('Managed sandbox development receipt is invalid.');
+	return value;
+}
+
+function executeSandboxDevelopment(input: AgentDevelopmentInput, record: ManagedDevelopmentSession, command: CommandRunner) {
+	const directory = resolve(root, input.sessionId, 'agent', 'sandbox');
+	const archive = resolve(directory, 'sandbox-codex.tar');
+	const receiptPath = resolve(directory, 'receipt.json');
+	const receipt = sandboxReceipt(receiptPath);
+	if (input.action === 'logs') return { events: receipt ? [{ service: 'sandbox-guest', output: JSON.stringify(receipt) }] : [] };
+	if (input.action === 'status') {
+		if (!receipt) return { registered: false, state: null };
+		const activeDigest = configuredSandboxGuestDigest();
+		return { registered: true, ready: activeDigest === receipt.digest, digest: receipt.digest, activeDigest };
+	}
+	if (input.action === 'stop') {
+		if (receipt) {
+			const active = activeAgentClaims(componentStateRoot(loadHostConfiguration(), 'agent'));
+			if (active.length) throw new Error(`Managed sandbox development cannot restore guest trust while ${active.length} assignment claim(s) are active or recoverable.`);
+			bindExistingSandboxGuestTrust(receipt.priorDigest, command); recordHostDevelopmentGuestImage(receipt.priorDigest);
+		}
+		rmSync(directory, { recursive: true, force: true });
+		if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
+			executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start' }, command);
+		return { stopped: true };
+	}
+	if (record.session.status !== 'active') throw new Error('Development session is not active.');
+	const stateRoot = componentStateRoot(loadHostConfiguration(), 'agent');
+	const active = activeAgentClaims(stateRoot);
+	if (active.length) throw new Error(`Managed sandbox development cannot replace guest trust while ${active.length} assignment claim(s) are active or recoverable.`);
+	const source = sourceFor(record).worktree;
+	for (const path of ['Dockerfile', 'Dockerfile.sandbox-codex', 'dist/sandbox/guest.js', '.treeseed/docker/runtime/shared/node_modules']) {
+		if (!existsSync(resolve(source, path))) throw new Error(`Managed sandbox development input ${path} is unavailable.`);
+	}
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	const lockPath = resolve(directory, 'rebuild.lock');
+	let lock: number;
+	try { lock = openSync(lockPath, 'wx', 0o600); }
+	catch { throw new Error('Managed sandbox development rebuild is already active.'); }
+	try {
+		const priorDigest = receipt?.priorDigest ?? configuredSandboxGuestDigest();
+		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile'), '--target', 'sandbox-base', '--tag', 'treeseed/sandbox-base:local', source]);
+		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile.sandbox-codex'), '--build-arg', 'SANDBOX_BASE=treeseed/sandbox-base:local', '--tag', 'treeseed/sandbox-codex:local', source]);
+		command('/usr/bin/docker', ['image', 'save', '--output', archive, 'treeseed/sandbox-codex:local']);
+		const metadata = lstatSync(archive);
+		if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0)
+			throw new Error('Managed sandbox archive failed bounded supervisor custody validation.');
+		const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command);
+		const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
+		atomicJson(receiptPath, next, 0o600);
+		recordHostDevelopmentGuestImage(next.digest);
+		if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
+			executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start' }, command);
+		return { started: true, ...next };
+	} finally {
+		closeSync(lock!);
+		rmSync(lockPath, { force: true });
+		rmSync(archive, { force: true });
+	}
+}
+
 /** Fixed Agent provider handoff. No source command, image, mount, or Compose option crosses this boundary. */
 export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, command: CommandRunner) {
-	if (input.targetId !== 'provider') throw new Error('Managed Agent development target is invalid.');
+	if (input.targetId !== 'provider' && input.targetId !== 'sandbox') throw new Error('Managed Agent development target is invalid.');
 	const record = new DevelopmentSessionStore().load(input.sessionId);
-	if (!record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider'))
+	if (!record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === input.targetId))
 		throw new Error('Development container is outside the registered session.');
+	if (input.targetId === 'sandbox') return executeSandboxDevelopment(input, record, command);
 	const directory = resolve(root, input.sessionId, 'agent', 'provider');
 	const runtimeRoot = resolve(directory, 'runtime');
 	const override = resolve(directory, 'compose.json');
@@ -130,7 +216,7 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
 		const states = services.map((service) => containerState(command, service));
-		const instances = states.map(({ name, running, labels }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'] }));
+		const instances = states.map(({ name, running, labels, connectionEnvironment }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'], connectionEnvironment }));
 		return { registered: true, instances, ready: instances.every((item) => item.running) };
 	}
 	if (input.action === 'stop') {
@@ -161,7 +247,9 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 		],
 	});
 	atomicJson(resolve(directory, 'runtime-receipt.json'), receipt, 0o600);
-	atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot }), 0o600);
+	const host = loadHostConfiguration();
+	const environment = managedContainerDevelopmentConnectionEnvironment(host, component, releases, record.routes);
+	atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: configuredSandboxGuestDigest() }), 0o600);
 	atomicJson(handoff, { restore: true }, 0o600);
 	stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
 	try {

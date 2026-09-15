@@ -7,7 +7,7 @@ function fixture() {
   const authorization: SourceWorkspaceAuthorization = { schemaVersion: 'treeseed.source-workspace-authorization/v1', id: 'grant',
     providerId: 'provider', assignmentId: 'assignment', attempt: 1,
     source: { controlPlaneId: 'control', teamId: 'team', projectId: 'project', repositoryId: 'repository', commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' },
-    mode: 'work', publication: 'candidate-only', credentialBindingId: 'binding', issuedAt: now.toISOString(), expiresAt: new Date(+now + 60_000).toISOString() };
+    mode: 'work', publication: 'assignment-branch', credentialBindingId: 'binding', issuedAt: now.toISOString(), expiresAt: new Date(+now + 60_000).toISOString() };
   const input = { leaseId: 'lease', authorization, disk: { id: 'disk', directory: '/private/disk', image: '/private/disk/work.qcow2', device: '/dev/nbd0', unit: 'owned.service' },
     commit: 'b'.repeat(40), maxBytes: 4096, executionStopped: true };
   const result = { verification: { baseCommit: authorization.source.commit, commit: input.commit, bytes: 1024,
