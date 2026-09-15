@@ -26,9 +26,13 @@ export class WorkspaceCatalog {
 			CREATE TABLE IF NOT EXISTS workspace_leases (
 				id TEXT PRIMARY KEY, image_id TEXT NOT NULL REFERENCES workspace_images(id), authorization_id TEXT NOT NULL,
 				provider_id TEXT NOT NULL, assignment_id TEXT NOT NULL, attempt INTEGER NOT NULL, mode TEXT NOT NULL,
-				publication TEXT NOT NULL, state TEXT NOT NULL, expires_at TEXT NOT NULL, result_artifact_id TEXT,
+				acquisition TEXT NOT NULL, publication TEXT NOT NULL, state TEXT NOT NULL, expires_at TEXT NOT NULL, result_artifact_id TEXT,
 				UNIQUE(provider_id, assignment_id, attempt)
 			);`);
+		const leaseColumns = this.db.prepare('PRAGMA table_info(workspace_leases)').all() as { name: string }[];
+		if (!leaseColumns.some(column => column.name === 'acquisition')) {
+			this.db.exec("ALTER TABLE workspace_leases ADD COLUMN acquisition TEXT NOT NULL DEFAULT 'upstream-authorized'");
+		}
 	}
 	close() { this.db.close(); }
 	private transaction<T>(run: () => T): T {
@@ -48,7 +52,8 @@ export class WorkspaceCatalog {
 			if (!prior || prior.state !== 'active' || Date.parse(String(prior.expires_at)) <= now.getTime()
 				|| prior.image_id !== sourceWorkspaceId(authorization.source) || prior.provider_id !== authorization.providerId
 				|| prior.assignment_id !== authorization.assignmentId || prior.attempt !== authorization.attempt
-				|| prior.mode !== authorization.mode || prior.publication !== authorization.publication) throw new Error('Workspace renewal changed authority or targets an expired lease.');
+				|| prior.mode !== authorization.mode || prior.acquisition !== authorization.acquisition
+				|| prior.publication !== authorization.publication) throw new Error('Workspace renewal changed authority or targets an expired lease.');
 			if (Date.parse(authorization.expiresAt) < Date.parse(String(prior.expires_at))) throw new Error('Workspace renewal cannot shorten an active lease.');
 			this.db.prepare('UPDATE workspace_leases SET authorization_id=?,expires_at=? WHERE id=?')
 				.run(authorization.id, authorization.expiresAt, leaseId);
@@ -57,7 +62,7 @@ export class WorkspaceCatalog {
 	/** Filesystem writes never imply source publication permission. Check again before candidate acceptance. */
 	assertCandidateAuthority(leaseId: string, authorizationId: string, now = new Date()) {
 		const lease = this.db.prepare('SELECT * FROM workspace_leases WHERE id=?').get(leaseId);
-		if (!lease || lease.state !== 'active' || lease.mode !== 'work' || lease.publication !== 'assignment-branch'
+		if (!lease || lease.state !== 'active' || lease.mode !== 'work' || !['assignment-branch', 'simulation-branch'].includes(String(lease.publication))
 			|| lease.authorization_id !== authorizationId || Date.parse(String(lease.expires_at)) <= now.getTime()) {
 			throw new Error('Workspace has no current candidate publication authority.');
 		}
@@ -114,13 +119,15 @@ export class WorkspaceCatalog {
 				.get(authorization.providerId, authorization.assignmentId, authorization.attempt);
 			if (prior) {
 				if (prior.state !== 'active' || Date.parse(String(prior.expires_at)) <= now.getTime() || prior.authorization_id !== authorization.id || prior.image_id !== image.id
-					|| prior.mode !== authorization.mode || prior.publication !== authorization.publication) throw new Error('Workspace lease replay does not match active custody.');
+					|| prior.mode !== authorization.mode || prior.acquisition !== authorization.acquisition
+					|| prior.publication !== authorization.publication) throw new Error('Workspace lease replay does not match active custody.');
 				return { id: String(prior.id), imageId: image.id, noop: true };
 			}
 			const id = randomUUID();
-			this.db.prepare(`INSERT INTO workspace_leases(id,image_id,authorization_id,provider_id,assignment_id,attempt,mode,publication,state,expires_at)
-				VALUES(?,?,?,?,?,?,?,?,'active',?)`).run(id, image.id, authorization.id, authorization.providerId,
-				authorization.assignmentId, authorization.attempt, authorization.mode, authorization.publication, authorization.expiresAt);
+			this.db.prepare(`INSERT INTO workspace_leases(id,image_id,authorization_id,provider_id,assignment_id,attempt,mode,acquisition,publication,state,expires_at)
+				VALUES(?,?,?,?,?,?,?,?,?,'active',?)`).run(id, image.id, authorization.id, authorization.providerId,
+				authorization.assignmentId, authorization.attempt, authorization.mode, authorization.acquisition,
+				authorization.publication, authorization.expiresAt);
 			return { id, imageId: image.id, noop: false };
 		});
 	}

@@ -5,7 +5,7 @@ const now = new Date('2026-01-01T00:01:00Z');
 const authorization: SourceWorkspaceAuthorization = { schemaVersion: 'treeseed.source-workspace-authorization/v1',
 	id: 'source-authority', providerId: 'provider', assignmentId: 'assignment', attempt: 1,
 	source: { controlPlaneId: 'api', teamId: 'team', projectId: 'project', repositoryId: 'repo', commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' },
-	mode: 'analysis', publication: 'denied', credentialBindingId: 'binding', issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T00:02:00Z' };
+	mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied', credentialBindingId: 'binding', issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T00:02:00Z' };
 describe('source credential host delivery', () => {
 	it('only opens at the exact recipient and authorization scope, never exposing plaintext in its envelope', () => {
 		const recipient = createSourceCredentialRecipient(), secret = { username: 'fixture', token: 'synthetic-test-token' };

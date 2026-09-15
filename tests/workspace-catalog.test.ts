@@ -9,7 +9,7 @@ const source: SourceWorkspaceKey = { controlPlaneId: 'control-plane', teamId: 't
 	commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' };
 const now = new Date('2026-01-01T00:01:00Z');
 const authority = (key = source): SourceWorkspaceAuthorization => ({ schemaVersion: 'treeseed.source-workspace-authorization/v1',
-	id: 'authority', providerId: 'provider', assignmentId: 'assignment', attempt: 1, source: key, mode: 'work', publication: 'denied',
+	id: 'authority', providerId: 'provider', assignmentId: 'assignment', attempt: 1, source: key, mode: 'work', acquisition: 'upstream-authorized', publication: 'denied',
 	credentialBindingId: 'binding', issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T00:10:00Z' });
 function publish(catalog: WorkspaceCatalog, key = source, parent: string | null = null) {
 	const id = catalog.ensure(key).id, { jobId } = catalog.claimBuild(id, parent);
@@ -25,7 +25,7 @@ describe('durable source workspace catalog', () => {
 			publish(catalog);
 			const analysis = catalog.lease({ ...authority(), mode: 'analysis' }, now);
 			expect(() => catalog.assertCandidateAuthority(analysis.id, 'authority', now)).toThrow('publication');
-			const work = catalog.lease({ ...authority(), assignmentId: 'work', publication: 'assignment-branch' }, now);
+			const work = catalog.lease({ ...authority(), assignmentId: 'work', publication: 'assignment-branch', publicationRef: 'treeseed/assignments/work/1' }, now);
 			expect(() => catalog.assertCandidateAuthority(work.id, 'authority', now)).not.toThrow();
 			expect(() => catalog.assertCandidateAuthority(work.id, 'different', now)).toThrow('publication');
 			expect(() => catalog.assertCandidateAuthority(work.id, 'authority', new Date('2026-01-01T00:11:00Z'))).toThrow('publication');
@@ -36,7 +36,7 @@ describe('durable source workspace catalog', () => {
 		try {
 			publish(catalog); const lease = catalog.lease(authority(), now);
 			const renewed = { ...authority(), id: 'renewed', expiresAt: '2026-01-01T00:20:00Z' };
-			expect(() => catalog.renew(lease.id, { ...renewed, publication: 'assignment-branch' }, now)).toThrow('authority');
+			expect(() => catalog.renew(lease.id, { ...renewed, publication: 'assignment-branch', publicationRef: 'treeseed/assignments/assignment/1' }, now)).toThrow('authority');
 			catalog.renew(lease.id, renewed, now);
 			expect(catalog.lease(renewed, now).id).toBe(lease.id);
 			expect(() => catalog.lease({ ...renewed, expiresAt: '2026-01-01T00:40:00Z' }, new Date('2026-01-01T00:21:00Z'))).toThrow('replay');

@@ -76,7 +76,7 @@ describe('fenced source collection', () => {
       catalog.publish(id, build.jobId, { commit: source.commit, bytes: 4096, digest: `sha256:${'d'.repeat(64)}`,
         clean: true, filesystemVerified: true, builderStopped: true });
       catalog.lease({ schemaVersion: 'treeseed.source-workspace-authorization/v1', id: 'authority', providerId: 'provider',
-        assignmentId: 'assignment', attempt: 1, source, mode: 'analysis', publication: 'denied', credentialBindingId: 'binding',
+        assignmentId: 'assignment', attempt: 1, source, mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied', credentialBindingId: 'binding',
         issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T01:00:00Z' }, new Date('2026-01-01T00:01:00Z'));
       await expect(collectLeafBatch(catalog, remove)).rejects.toThrow('leases');
       catalog.quarantineExpired(new Date('2026-01-01T02:00:00Z'));

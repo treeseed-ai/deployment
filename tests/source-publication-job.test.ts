@@ -10,7 +10,8 @@ function fixture() {
 		assignmentId: 'assignment', attempt: 1,
 		source: { controlPlaneId: 'control', teamId: 'team', projectId: 'project', repositoryId: 'treeseed-ai/sdk',
 			commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' },
-		mode: 'work', publication: 'assignment-branch', credentialBindingId: 'binding',
+		mode: 'work', acquisition: 'upstream-authorized', publication: 'assignment-branch',
+		publicationRef: 'treeseed/assignments/assignment/1', credentialBindingId: 'binding',
 		issuedAt: now.toISOString(), expiresAt: new Date(+now + 60_000).toISOString(),
 	};
 	const disk = { id: 'disk', directory: '/private', image: '/private/work.qcow2', device: '/dev/nbd0', unit: 'owned.service' };
