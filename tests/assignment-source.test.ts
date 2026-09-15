@@ -9,7 +9,7 @@ const now = new Date('2026-09-10T00:00:00.000Z');
 const authority: SourceWorkspaceAuthorization = { schemaVersion: 'treeseed.source-workspace-authorization/v1', id: 'authorization',
   providerId: owner.providerId, assignmentId: owner.assignmentId, attempt: 1,
   source: { controlPlaneId: 'control', teamId: 'team', projectId: 'project', repositoryId: 'repo', commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' },
-  mode: 'analysis', publication: 'denied', credentialBindingId: 'binding', issuedAt: now.toISOString(), expiresAt: new Date(+now + 60_000).toISOString() };
+  mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied', credentialBindingId: 'binding', issuedAt: now.toISOString(), expiresAt: new Date(+now + 60_000).toISOString() };
 const catalogs: WorkspaceCatalog[] = [];
 afterEach(() => { for (const catalog of catalogs.splice(0)) catalog.close(); });
 function fixture() {
@@ -77,7 +77,7 @@ describe('assignment source authority and job lifecycle', () => {
     const { controller, response, operations } = fixture();
     controller.prepare(response()); await vi.waitFor(() => expect(controller.status().state).toBe('ready'));
     for (const next of [{ ...authority, source: { ...authority.source, commit: 'b'.repeat(40) } }, { ...authority, credentialBindingId: 'other' },
-      { ...authority, mode: 'work' as const, publication: 'assignment-branch' as const }]) {
+      { ...authority, mode: 'work' as const, publication: 'assignment-branch' as const, publicationRef: 'treeseed/assignments/assignment/1' }]) {
       await expect(controller.attach(response(next))).rejects.toThrow('pinned');
     }
     expect(operations.createDisk).not.toHaveBeenCalled();

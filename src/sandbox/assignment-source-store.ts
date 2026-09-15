@@ -66,14 +66,16 @@ export class AssignmentSourceStore {
       journal: value => durableJson(join(workspaceStorageRoot, 'jobs'), `${sandboxId}.json`, value),
       build: (response, privateKey, virtualBytes) => this.queue.run(async () => {
         // Queue residence consumes credential lifetime. Always recheck before touching the cache.
-        const credential = openSourceCredential({ authorization: response.authorization, delivery: response.credential, privateKey });
+        const credential = response.credential
+          ? openSourceCredential({ authorization: response.authorization, delivery: response.credential, privateKey })
+          : undefined;
         try {
           const image = catalog.image(sourceWorkspaceId(response.authorization.source));
           if (image?.state === 'ready') return;
           const bundle = await acquireSourceBundle({ authorization: response.authorization, repository: response.repository,
-            credential, maxBundleBytes: Math.min(virtualBytes, 8_589_934_592) });
+            ...(credential ? { credential } : {}), maxBundleBytes: Math.min(virtualBytes, 8_589_934_592) });
           await buildWorkspaceImage(this.configuration, catalog, { source: response.authorization.source, bundleDigest: bundle.bundleDigest, virtualBytes });
-        } finally { credential.token = ''; credential.username = ''; }
+        } finally { if (credential) { credential.token = ''; credential.username = ''; } }
       }),
     });
   }
@@ -95,7 +97,7 @@ export class AssignmentSourceStore {
       publish: async (bundlePath) => {
         const publication = source.publicationCredential(authority);
         return publishVerifiedSourceBranch({ assignmentId: assignment.assignmentId, attempt: assignment.attempt,
-          commit, bundlePath, ...publication });
+          commit, bundlePath, response: publication.response, ...(publication.credential ? { credential: publication.credential } : {}) });
       },
       detachExecution: async disk => {
         if (!this.executionDetached.has(sandboxId)) { await detachWorkspaceDisk(disk, true); this.executionDetached.add(sandboxId); }

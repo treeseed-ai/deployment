@@ -7,6 +7,7 @@ import { initializeWorkspaceStorage, workspaceStorageRoot } from './workspace-bl
 import { runSourceGit, type SourceGitCredential } from './source-git-transport.js';
 import { withSourceCacheVolume } from './source-cache-volume.js';
 import { recoverSourceCacheFence } from './source-cache-recovery.js';
+import { simulationSourceRepository } from './simulation-source-repository.js';
 
 interface Repository { owner: string; name: string; cloneUrl: string }
 export interface SourceGitCacheDependencies {
@@ -34,11 +35,13 @@ async function digest(path: string) {
 
 /** Caller must reauthorize through API/Vault before EVERY acquisition, including an existing local object. */
 export async function acquireSourceBundle(input: {
-  authorization: SourceWorkspaceAuthorization; repository: Repository; credential: SourceGitCredential;
+  authorization: SourceWorkspaceAuthorization; repository: Repository; credential?: SourceGitCredential;
   maxBundleBytes: number;
 }, dependencies: SourceGitCacheDependencies = production) {
   const authorization = sourceWorkspaceAuthorizationSchema.parse(input.authorization), repository = input.repository;
   current(authorization, dependencies.now());
+	if (authorization.acquisition === 'upstream-authorized' && !input.credential) throw new Error('Authorized source acquisition requires its sealed credential.');
+	if (authorization.acquisition !== 'upstream-authorized' && input.credential) throw new Error('Credential supplied to a credential-free source acquisition.');
   if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,99}$/u.test(repository.owner) || !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/u.test(repository.name)
     || repository.cloneUrl !== `https://github.com/${repository.owner}/${repository.name}.git`) throw new Error('Invalid canonical source repository.');
   if (!Number.isSafeInteger(input.maxBundleBytes) || input.maxBundleBytes < 1 || input.maxBundleBytes > 8_589_934_592) throw new Error('Invalid source bundle limit.');
@@ -58,16 +61,30 @@ export async function acquireSourceBundle(input: {
   try {
     await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId, assignmentId: authorization.assignmentId, authorizationId: authorization.id, pid: process.pid }), { mode: 0o600, flag: 'wx' });
     const result = await dependencies.volume(cache, input.maxBundleBytes, async volume => {
-    const temporary = join(volume, `${jobId}.bundle`), git = join(volume, 'repository.git');
-    await privateDirectory(git);
-    await dependencies.run(git, ['init', '--bare', '--template=']);
-    // The manager never accepts a remote config or filesystem from an execution guest.
-    await dependencies.run(git, ['fetch', '--no-tags', '--no-recurse-submodules', repository.cloneUrl, source.commit], input.credential);
-    current(authorization, dependencies.now());
-    if (await dependencies.run(git, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']) !== source.commit) throw new Error('Fetched source differs from the authorized exact revision.');
-    await dependencies.run(git, ['fsck', '--strict', '--no-reflogs', source.commit]);
-    await dependencies.run(git, ['update-ref', 'refs/heads/treeseed-source', source.commit]);
-    await dependencies.run(git, ['bundle', 'create', temporary, 'refs/heads/treeseed-source']);
+    const temporary = join(volume, `${jobId}.bundle`);
+		if (authorization.acquisition === 'simulation-local') {
+			const git = simulationSourceRepository(dependencies.root, source);
+			const info = await lstat(git);
+			if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || await realpath(git) !== git) {
+				throw new Error('Simulation source repository escaped manager custody.');
+			}
+			if (await dependencies.run(git, ['rev-parse', '--verify', `${source.commit}^{commit}`]) !== source.commit) {
+				throw new Error('Simulation source commit is not present in manager custody.');
+			}
+			await dependencies.run(git, ['fsck', '--strict', '--no-reflogs', source.commit]);
+			await dependencies.run(git, ['bundle', 'create', temporary, '--all']);
+		} else {
+			const git = join(volume, 'repository.git');
+			await privateDirectory(git);
+			await dependencies.run(git, ['init', '--bare', '--template=']);
+			// The manager never accepts a remote config or filesystem from an execution guest.
+			await dependencies.run(git, ['fetch', '--no-tags', '--no-recurse-submodules', repository.cloneUrl, source.commit], input.credential);
+			current(authorization, dependencies.now());
+			if (await dependencies.run(git, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']) !== source.commit) throw new Error('Fetched source differs from the authorized exact revision.');
+			await dependencies.run(git, ['fsck', '--strict', '--no-reflogs', source.commit]);
+			await dependencies.run(git, ['update-ref', 'refs/heads/treeseed-source', source.commit]);
+			await dependencies.run(git, ['bundle', 'create', temporary, 'refs/heads/treeseed-source']);
+		}
     const info = await lstat(temporary);
     if (!info.isFile() || info.size < 1 || info.size > input.maxBundleBytes) throw new Error('Source bundle exceeds the admitted transfer limit.');
     const sha256 = await digest(temporary), path = join(bundles, `${sha256}.bundle`);

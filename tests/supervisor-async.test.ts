@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { isSafeDevelopmentError, supervisorConnectionHandler } from '../src/supervisor/server.js';
 import { recoverAiWithoutBlockingManagement } from '../src/manager/api.js';
 
-async function exchange(execute: (input: unknown) => unknown) {
+async function exchange(execute: (input: unknown) => unknown, operation = 'backup.list') {
 	const events: string[] = [];
 	const server = createServer({ allowHalfOpen: true }, supervisorConnectionHandler(execute, (name) => { events.push(name); }));
 	server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -13,7 +13,7 @@ async function exchange(execute: (input: unknown) => unknown) {
 	let output = ''; client.setEncoding('utf8'); client.on('data', chunk => { output += chunk; });
 	try {
 		await once(client, 'connect');
-		client.end(JSON.stringify({ operation: 'backup.list' }));
+		client.end(JSON.stringify({ operation }));
 		await once(client, 'end');
 		return { response: JSON.parse(output), events };
 	} finally { client.destroy(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
@@ -22,7 +22,12 @@ async function exchange(execute: (input: unknown) => unknown) {
 describe('supervisor asynchronous completion', () => {
 	it('permits only bounded development diagnostics including numeric inventory counts', () => {
 		expect(isSafeDevelopmentError('Managed development application startup failed (API_ENTRYPOINT_MIG_PENDING_2_UNEXPECTED_1).')).toBe(true);
+		expect(isSafeDevelopmentError('Managed development diagnostic failed (DATABASE_INVALID_JSON).')).toBe(true);
 		expect(isSafeDevelopmentError('Managed development application startup failed (private detail).')).toBe(false);
+	});
+	it('returns a fixed migration diagnostic while retaining private output', async () => {
+		const result = await exchange(() => { throw new Error('Managed development diagnostic failed (DATABASE_INVALID_JSON).'); }, 'development.postgres.migrate');
+		expect(result.response).toEqual({ ok: false, error: 'operation_failed', operation: 'development.postgres.migrate', message: 'Managed development diagnostic failed (DATABASE_INVALID_JSON).' });
 	});
 	it('keeps management available when AI startup recovery fails', async () => {
 		const events: unknown[] = [];

@@ -5,7 +5,7 @@ on:
   push:
     branches: [staging, main]
     paths: ['src/core/development-backup-hold.ts', 'src/manager/**', 'src/supervisor/**', 'tests/identity-runtime/development-backup.ts', '.github/workflows/development-backup.yml']
-permissions: { contents: read }
+permissions: { contents: read, actions: read }
 jobs:
   development-backup:
     runs-on: ubuntu-26.04
@@ -15,6 +15,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: { node-version: 24 }
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@b466f942eba5bc9008d0f1085cce3a76ef0d42cd
+        with:
+          github-token: ${{ github.token }}
       - run: npm run build
       - name: Strictly typecheck the disposable fixture
         run: npx tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext tests/identity-runtime/development-backup.ts

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SourceWorkspaceAuthorization } from '@treeseed/sdk/capacity-provider/sandbox';
 import { acquireSourceBundle, type SourceGitCacheDependencies } from '../src/sandbox/source-git-cache.js';
 import { runSourceGit, sourceGitCommand } from '../src/sandbox/source-git-transport.js';
+import { simulationSourceRepository } from '../src/sandbox/simulation-source-repository.js';
 
 const roots: string[] = [];
 const volume: SourceGitCacheDependencies['volume'] = async (cache, _limit, action) => action(cache);
@@ -14,7 +15,7 @@ const now = new Date('2026-09-10T23:00:00.000Z');
 const authorization: SourceWorkspaceAuthorization = {
   schemaVersion: 'treeseed.source-workspace-authorization/v1', id: 'authority', providerId: 'provider', assignmentId: 'assignment', attempt: 1,
   source: { controlPlaneId: 'control-plane', teamId: 'team', projectId: 'project', repositoryId: 'repository', commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' },
-  mode: 'analysis', publication: 'denied', credentialBindingId: 'binding', issuedAt: now.toISOString(), expiresAt: '2026-09-11T00:00:00.000Z',
+  mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied', credentialBindingId: 'binding', issuedAt: now.toISOString(), expiresAt: '2026-09-11T00:00:00.000Z',
 };
 const input = { authorization, repository: { owner: 'example', name: 'project', cloneUrl: 'https://github.com/example/project.git' }, credential: { username: 'x-access-token', token: 'synthetic-source-token' }, maxBundleBytes: 1_048_576 };
 
@@ -73,6 +74,29 @@ describe('trusted source acquisition', () => {
     await expect(acquireSourceBundle(request, { ...dependencies, now: () => new Date('2026-09-12T00:00:00Z') })).rejects.toThrow('expired');
     expect(fetches).toHaveBeenCalledTimes(2);
   });
+
+	it('acquires an exact predecessor commit from manager-owned simulation custody without a credential', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'treeseed-source-cache-test-')); roots.push(root);
+		const fixture = join(root, 'fixture'); await mkdir(fixture);
+		const git = (args: string[]) => execFileSync('/usr/bin/git', ['-C', fixture, ...args], { encoding: 'utf8',
+			env: { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'Fixture',
+				GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' } }).trim();
+		git(['init', '-q', '--template=']); await writeFile(join(fixture, 'source.ts'), 'export const value = 1;\n');
+		git(['add', '.']); git(['commit', '-qm', 'candidate']); const commit = git(['rev-parse', 'HEAD']);
+		const { credentialBindingId: _binding, ...credentialFree } = authorization;
+		const localAuthorization: SourceWorkspaceAuthorization = { ...credentialFree,
+			source: { ...authorization.source, commit }, mode: 'work', acquisition: 'simulation-local', publication: 'simulation-branch',
+			publicationRef: 'treeseed/simulation/campaign/workday/assignment' };
+		const localRepository = simulationSourceRepository(root, localAuthorization.source);
+		await mkdir(localRepository, { recursive: true, mode: 0o700 });
+		execFileSync('/usr/bin/git', ['--git-dir', localRepository, 'init', '--bare', '--template=']);
+		execFileSync('/usr/bin/git', ['--git-dir', localRepository, '-c', 'protocol.file.allow=always', 'fetch', fixture, commit]);
+		execFileSync('/usr/bin/git', ['--git-dir', localRepository, 'update-ref', `refs/heads/${localAuthorization.publicationRef}`, commit]);
+		const result = await acquireSourceBundle({ authorization: localAuthorization,
+			repository: input.repository, maxBundleBytes: input.maxBundleBytes },
+			{ root, initialize: async () => {}, now: () => now, volume, run: runSourceGit });
+		expect(result).toMatchObject({ commit, bytes: expect.any(Number), bundleDigest: expect.stringMatching(/^sha256:/u) });
+	});
 
   it('leaves an uncertain acquisition fenced rather than stealing or deleting its work', async () => {
     const root = await mkdtemp(join(tmpdir(), 'treeseed-source-cache-test-')); roots.push(root);

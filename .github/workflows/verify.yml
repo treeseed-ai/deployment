@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deployment-verify-${{ github.event.pull_request.number || github.ref }}
@@ -22,6 +23,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@b466f942eba5bc9008d0f1085cce3a76ef0d42cd
+        with:
+          github-token: ${{ github.token }}
       - name: Fetch digest-pinned disposable OpenBao
         shell: bash
         run: |
@@ -51,6 +55,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@b466f942eba5bc9008d0f1085cce3a76ef0d42cd
+        with:
+          github-token: ${{ github.token }}
       - run: npm run verify:direct
       - name: Verify kernel-enforced trusted source cache quota
         run: sudo --preserve-env=TREESEED_PRIVILEGED_CACHE_TESTS "$(command -v node)" node_modules/vitest/vitest.mjs run tests/source-cache-volume.integration.test.ts
@@ -79,6 +86,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@b466f942eba5bc9008d0f1085cce3a76ef0d42cd
+        with:
+          github-token: ${{ github.token }}
       - name: Verify current and legacy uninstall on disposable VM
         run: sudo --preserve-env=GITHUB_ACTIONS,TREESEED_UNINSTALL_DISPOSABLE_VM "$(command -v node)" --import tsx scripts/verify-uninstall-vm.ts | tee uninstall-vm.json
         env:

@@ -68,3 +68,18 @@ export function developmentStartupCode(log:string):string {
   return log.match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|EACCES|ECONNREFUSED|ENOTFOUND)\b/)?.[1]??
     (/does not provide an export named/.test(log)?'EXPORT_MISSING':/SyntaxError/.test(log)?'SYNTAX_ERROR':/duplicate key|already exists/.test(log)?'DATABASE_CONFLICT':/permission denied/.test(log)?'DATABASE_PERMISSION':/relation .*does not exist/.test(log)?'DATABASE_RELATION_MISSING':'');
 }
+
+/** Classify captured command failures without forwarding output that may contain custody data. */
+export function boundedDiagnosticFailureCode(output: string, executable: string, arguments_: readonly string[]) {
+  if (/invalid input syntax for type json|invalid json/iu.test(output)) return 'DATABASE_INVALID_JSON';
+  if (/permission denied/iu.test(output)) return 'PERMISSION_DENIED';
+  if (/relation .* does not exist/iu.test(output)) return 'DATABASE_RELATION_MISSING';
+  if (/constraint .* (?:already exists|is violated)|duplicate key/iu.test(output)) return 'DATABASE_CONFLICT';
+  if (/syntax error/iu.test(output)) return 'SYNTAX_ERROR';
+  if (/Cannot find (?:package|module)|(?:ERR_)?MODULE_NOT_FOUND/iu.test(output)) return 'MODULE_NOT_FOUND';
+  if (/no space left on device/iu.test(output)) return 'STORAGE_EXHAUSTED';
+  if (/connection refused|ECONNREFUSED/iu.test(output)) return 'CONNECTION_REFUSED';
+  if (/timeout|timed out/iu.test(output)) return 'TIMEOUT';
+  if (executable === '/usr/bin/docker' && arguments_[0] === 'run') return 'CONTAINER_FAILED';
+  return 'COMMAND_FAILED';
+}

@@ -44,9 +44,11 @@ export class AssignmentSource {
     if (authorization.assignmentId !== this.owner.assignmentId || authorization.providerId !== this.owner.providerId
       || authorization.source.teamId !== this.owner.teamId || authorization.source.projectId !== this.owner.projectId
       || authorization.attempt !== this.owner.attempt) throw new Error('Source authorization does not match the signed assignment.');
-    const opened = openSourceCredential({ authorization, delivery: response.credential, privateKey: this.recipient.privateKey }, this.operations.now());
-    // Authenticate the sealed delivery even on a cache hit or renewal. Never retain plaintext.
-    opened.token = ''; opened.username = '';
+    if (response.credential) {
+      const opened = openSourceCredential({ authorization, delivery: response.credential, privateKey: this.recipient.privateKey }, this.operations.now());
+      // Authenticate the sealed delivery even on a cache hit or renewal. Never retain plaintext.
+      opened.token = ''; opened.username = '';
+    }
     if (this.authority && (sourceWorkspaceId(this.authority.source) !== sourceWorkspaceId(authorization.source)
       || this.authority.credentialBindingId !== authorization.credentialBindingId || this.authority.mode !== authorization.mode
       || this.authority.publication !== authorization.publication)) throw new Error('Source authorization changed the pinned assignment scope.');
@@ -55,9 +57,9 @@ export class AssignmentSource {
   publicationCredential(value: unknown) {
     const response = this.validate(value);
     if (this.state !== 'attached' || response.authorization.mode !== 'work'
-      || response.authorization.publication !== 'assignment-branch') throw new Error('Source publication authority is unavailable.');
-    return { response, credential: openSourceCredential({ authorization: response.authorization,
-      delivery: response.credential, privateKey: this.recipient.privateKey }, this.operations.now()) };
+      || !['assignment-branch', 'simulation-branch'].includes(response.authorization.publication)) throw new Error('Source publication authority is unavailable.');
+    return { response, credential: response.credential ? openSourceCredential({ authorization: response.authorization,
+      delivery: response.credential, privateKey: this.recipient.privateKey }, this.operations.now()) : undefined };
   }
   /** Returns immediately. Long Git and VM operations must never occupy a broker HTTP request. */
   prepare(value: unknown) {
