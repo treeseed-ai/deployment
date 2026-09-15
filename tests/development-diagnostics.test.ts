@@ -1,6 +1,11 @@
 import { expect, it } from 'vitest';
-import { developmentDiagnosticEvents, developmentStartupCode } from '../src/supervisor/development-diagnostics.js';
+import { boundedDiagnosticFailureCode, developmentDiagnosticEvents, developmentStartupCode } from '../src/supervisor/development-diagnostics.js';
 import { developmentContainerSchema } from '../src/supervisor/development-container-contract.js';
+
+it('classifies migration failures without exposing captured output', () => {
+	expect(boundedDiagnosticFailureCode('invalid input syntax for type json: secret-value', '/usr/bin/docker', ['run'])).toBe('DATABASE_INVALID_JSON');
+	expect(boundedDiagnosticFailureCode('private failure', '/usr/bin/docker', ['run'])).toBe('CONTAINER_FAILED');
+});
 
 it('returns bounded structured error metadata without messages, SQL or credentials', () => {
   const event = { event: 'operation.internal-error', operationId: 'communications.send', requestId: 'req-1', code: '53300', name: 'error',

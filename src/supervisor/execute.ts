@@ -45,6 +45,7 @@ import { executeProviderEnvironmentOperation } from '../security/provider-enviro
 import { initializeHostConfiguration } from './configuration-initialize.js';
 import { componentComposeArguments, composeProjectContainerIds, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
 import { importSandboxGuestArchive } from './sandbox-guest-import.js';
+import { boundedDiagnosticFailureCode } from './development-diagnostics.js';
 
 export type { CommandRunner } from './compose-runtime.js';
 
@@ -58,7 +59,10 @@ const capture: CommandRunner = (executable, arguments_, input) => {
 		stdio: ['pipe', 'pipe', 'pipe'], input, encoding: 'utf8', maxBuffer: 65_536,
 		env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' },
 	});
-	if (result.error || result.status !== 0) throw new Error('Bounded diagnostic command failed.');
+	if (result.error || result.status !== 0) {
+		const code = boundedDiagnosticFailureCode(`${result.stderr ?? ''}\n${result.stdout ?? ''}`, executable, arguments_);
+		throw new Error(`Managed development diagnostic failed (${code}).`);
+	}
 	return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 };
 
