@@ -9,16 +9,16 @@ function fixture() {
 }
 
 describe('assignment review relay', () => {
-  it('forwards only through the authenticated guest queue and returns the host receipt', async () => {
+  it.each(['treeseed_publish_review', 'treeseed_publish_proposal', 'treeseed_publish_execution_plan'])('forwards %s only through the authenticated guest queue and returns the host receipt', async tool => {
     const { sandbox, runtime } = fixture();
     const pending = KataSandboxRuntime.prototype.requestTreeDxTool.call(runtime, 'sandbox', 'guest-token', {
-      tool: 'treeseed_publish_review', arguments: { kind: 'concern', title: 'Review', body: 'Evidence' },
+      tool, arguments: { kind: 'concern', title: 'Review', body: 'Evidence' },
     });
     await Promise.resolve();
     expect(sandbox.toolRequests).toHaveLength(1);
     const request = sandbox.toolRequests[0];
     if (!request) throw new Error('Expected queued review request');
-    expect(request.tool).toBe('treeseed_publish_review');
+    expect(request.tool).toBe(tool);
     await KataSandboxRuntime.prototype.completeToolRequest.call(runtime, 'sandbox', 'host-token', String(request.id), { result: { receiptId: 'verified' } });
     await expect(pending).resolves.toEqual({ receiptId: 'verified' });
     expect(sandbox.toolWaiters.size).toBe(0);

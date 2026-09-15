@@ -55,7 +55,7 @@ development:
       kind: package-watch
       platforms: [linux-amd64, linux-arm64, darwin-arm64, darwin-amd64]
       runtimeRequirements: [node>=22]
-      sourceRoots: [src, scripts/development, package.json, tsconfig.json]
+      sourceRoots: [src, infrastructure, scripts/development, package.json, tsconfig.json]
       ignoredPaths: [dist, node_modules]
       operations:
         watch: { command: node, args: [--watch-path=src, --watch-path=package.json, --import, tsx, scripts/development/build-watch.ts], environment: {}, timeoutSeconds: 86400 }

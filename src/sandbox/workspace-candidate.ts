@@ -25,8 +25,8 @@ export async function verifyWorkspaceCandidate(input: {
 }, operations: CandidateOperations) {
   const authority = input.authorization;
   const assertAuthority = () => {
-    if (authority.mode !== 'work' || authority.publication !== 'candidate-only'
-      || Date.parse(authority.expiresAt) <= operations.now().getTime()) throw new Error('Candidate export requires current work publication authority.');
+    if (authority.mode !== 'work' || authority.publication !== 'assignment-branch'
+      || Date.parse(authority.expiresAt) <= operations.now().getTime()) throw new Error('Source publication requires current work authority.');
   };
   assertAuthority();
   if (!input.executionStopped) throw new Error('Candidate verification requires verified execution VM teardown.');

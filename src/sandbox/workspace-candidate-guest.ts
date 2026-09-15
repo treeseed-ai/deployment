@@ -44,7 +44,7 @@ export async function verifySourceCandidate(input: { root: string; baseCommit: s
   const git = async (args: string[]) => (await exec('/usr/bin/git', gitArgs(args), {
     encoding: 'utf8', timeout: 120_000, maxBuffer: 1_048_576,
     env: environment,
-  })).stdout.trim();
+  })).stdout.replace(/\n$/u, '');
   try {
     await git(['init', '--bare', '--template=']);
     await writeFile(join(clean, 'objects/info/alternates'), `${objects}\n`);
@@ -56,7 +56,16 @@ export async function verifySourceCandidate(input: { root: string; baseCommit: s
     await git(['update-ref', 'refs/heads/treeseed-source', input.commit]);
     await git(['symbolic-ref', 'HEAD', 'refs/heads/treeseed-source']);
     await git(['read-tree', input.commit]);
-    if (await git(['status', '--porcelain', '--untracked-files=all'])) throw new Error('Candidate workspace has uncommitted changes.');
+    const workspaceStatus = await git(['status', '--porcelain', '--untracked-files=all']);
+    if (workspaceStatus) {
+      const entries = workspaceStatus.split('\n').slice(0, 20);
+      const paths = entries.map(line => line.length >= 4 ? line.slice(3) : line).join(', ');
+      const firstPath = entries[0] && entries[0].length >= 4 ? entries[0].slice(3) : '';
+      const detail = firstPath
+        ? await git(['diff-files', '--raw', '--', firstPath]).catch(() => '')
+        : '';
+      throw new Error(`Candidate workspace has uncommitted changes: ${paths}${detail ? `; ${detail}` : ''}`);
+    }
     // One named commit history only: never export guest branches, refs, hooks, configuration or credentials.
     await writeBoundedBundle(gitArgs(['bundle', 'create', '-', 'refs/heads/treeseed-source']), input.output, input.maxBytes);
     const file = await lstat(input.output);
@@ -72,8 +81,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const input = JSON.parse(await readFile('/run/treeseed-verifier/candidate.json', 'utf8')) as { baseCommit: string; commit: string; maxBytes: number };
     const receipt = await verifySourceCandidate({ ...input, root: '/workspace/project', output: '/run/treeseed-output/source.bundle', scratch: '/tmp' });
     await writeFile('/run/treeseed-output/candidate-verification.json', JSON.stringify(receipt));
-  } catch {
-    await writeFile('/run/treeseed-output/candidate-verification.json', JSON.stringify({ failed: true }));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.split('\n', 1)[0]!.slice(0, 512) : 'Unknown verifier failure.';
+    await writeFile('/run/treeseed-output/candidate-verification.json', JSON.stringify({ failed: true, reason }));
     process.exitCode = 1;
   }
 }

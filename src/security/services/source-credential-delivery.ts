@@ -3,7 +3,7 @@ import { sourceWorkspaceAuthorizationSchema, type SourceWorkspaceAuthorization }
 
 const prefix = Buffer.from('302a300506032b656e032100', 'hex');
 const purpose = 'treeseed.source-credential-delivery/v1';
-interface Credential { username: string; token: string }
+export interface Credential { username: string; token: string }
 interface Delivery {
 	schemaVersion: typeof purpose; id: string; authorizationId: string;
 	algorithm: 'x25519-hkdf-sha256-chacha20-poly1305'; ephemeralPublicKey: string;

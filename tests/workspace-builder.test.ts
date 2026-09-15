@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -49,5 +49,18 @@ describe('source-only guest workspace builder', () => {
 			writeFileSync(join(target, 'unexpected.txt'), 'unpublished work');
 			await expect(buildSourceWorkspace({ root: target, bundle, commit: latest, parentCommit: latest })).rejects.toThrow('not clean');
 		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+	it('keeps declared submodules unmaterialized without rejecting the parent source', async () => {
+		const directory=mkdtempSync(join(tmpdir(),'treeseed-source-submodule-')),child=join(directory,'child'),source=join(directory,'source'),target=join(directory,'workspace'),bundle=join(directory,'source.bundle');
+		const environment={PATH:'/usr/bin:/bin',HOME:directory,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_AUTHOR_NAME:'Workspace Fixture',GIT_AUTHOR_EMAIL:'fixture@example.invalid',GIT_COMMITTER_NAME:'Workspace Fixture',GIT_COMMITTER_EMAIL:'fixture@example.invalid'};
+		const git=(root:string,...args:string[])=>execFileSync('/usr/bin/git',['-C',root,...args],{encoding:'utf8',env:environment,stdio:['ignore','pipe','pipe']}).trim();
+		try{
+			for(const root of [child,source]){mkdirSync(root);git(root,'init','--quiet','--initial-branch=treeseed-source');}
+			writeFileSync(join(child,'fixture.ts'),'export const fixture = true;\n');git(child,'add','.');git(child,'commit','--quiet','-m','fixture');
+			git(source,'-c','protocol.file.allow=always','submodule','add','--quiet',child,'.fixtures/fixture');git(source,'commit','--quiet','-m','source with fixture');
+			const commit=git(source,'rev-parse','HEAD');git(source,'bundle','create',bundle,'refs/heads/treeseed-source');
+			await expect(buildSourceWorkspace({root:target,bundle,commit,parentCommit:null})).resolves.toMatchObject({commit,clean:true,sourceOnly:true});
+			expect(readdirSync(join(target,'.fixtures/fixture'))).toEqual([]);
+		}finally{rmSync(directory,{recursive:true,force:true});}
 	});
 });

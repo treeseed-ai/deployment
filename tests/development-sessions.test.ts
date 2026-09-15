@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore, loopbackLookup } from '../src/manager/development-sessions.js';
+import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, loopbackLookup } from '../src/manager/development-sessions.js';
 
 const roots: string[] = [];
 vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
@@ -58,6 +58,16 @@ describe('development session manager', () => {
 		record.session.status = 'degraded'; record.session.targets[0]!.health = 'degraded'; sessions.save(record);
 		const restored = sessions.setMode('session-1', 'admin', 'web', 'released');
 		expect(restored.session.status).toBe('active'); expect(restored.session.targets[0]!.health).toBe('ready');
+	});
+
+	it('refreshes contracts in place and registers new targets as released', () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		const refreshed = runtime();
+		refreshed.targets.push({ ...structuredClone(refreshed.targets[0]!), id: 'worker', endpoints: [] });
+		const record = sessions.refreshRuntimes('session-1', [refreshed]);
+		expect(record.session.targets).toContainEqual({ projectId: 'admin', targetId: 'worker', mode: 'released', generation: 0, health: 'ready' });
+		expect(record.runtimes[0]?.targets.map((target) => target.id)).toEqual(['web', 'worker']);
 	});
 
 	it('returns an address list when the HTTPS client requests all lookup results', async () => {
@@ -150,6 +160,17 @@ describe('development session manager', () => {
 		expect(sessions.activeRoutes([])).toEqual([]);
 		expect(sessions.list()).toEqual([]);
 		expect(sessions.load('session-1').session.status).toBe('stopped');
+	});
+
+	it('keeps an explicitly registered target eligible for migration after a failed live activation restores released mode', () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		const record = sessions.load('session-1');
+		record.session.targets[0]!.mode = 'released';
+		sessions.save(record);
+		expect(hasRegisteredDevelopmentTarget(sessions.load('session-1'), 'admin', 'web')).toBe(true);
+		sessions.stop('session-1');
+		expect(hasRegisteredDevelopmentTarget(sessions.load('session-1'), 'admin', 'web')).toBe(false);
 	});
 
 	it('computes only directional declared consumers', () => {

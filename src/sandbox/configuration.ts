@@ -14,7 +14,8 @@ export function loadSandboxBrokerConfiguration(path = '/etc/treeseed/sandbox/bro
 	try {
 		const parsed = sandboxBrokerConfigurationSchema.parse(JSON.parse(readFileSync(path, 'utf8'))), credentials = process.env.CREDENTIALS_DIRECTORY;
 		return credentials ? { ...parsed, relay: { ...parsed.relay, privateKeyFile: resolve(credentials, 'relay-tls-key') },
-			...(parsed.modelGateway ? { modelGateway: { ...parsed.modelGateway, credentialFile: resolve(credentials, basename(parsed.modelGateway.credentialFile)) } } : {}) } : parsed;
+			...(parsed.modelGateway ? { modelGateway: { ...parsed.modelGateway, credentialFile: parsed.modelGateway.credentialFile.startsWith('/run/credentials/')
+				? resolve(credentials, basename(parsed.modelGateway.credentialFile)) : parsed.modelGateway.credentialFile } } : {}) } : parsed;
 	}
 	catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return defaults;

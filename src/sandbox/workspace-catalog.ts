@@ -57,7 +57,7 @@ export class WorkspaceCatalog {
 	/** Filesystem writes never imply source publication permission. Check again before candidate acceptance. */
 	assertCandidateAuthority(leaseId: string, authorizationId: string, now = new Date()) {
 		const lease = this.db.prepare('SELECT * FROM workspace_leases WHERE id=?').get(leaseId);
-		if (!lease || lease.state !== 'active' || lease.mode !== 'work' || lease.publication !== 'candidate-only'
+		if (!lease || lease.state !== 'active' || lease.mode !== 'work' || lease.publication !== 'assignment-branch'
 			|| lease.authorization_id !== authorizationId || Date.parse(String(lease.expires_at)) <= now.getTime()) {
 			throw new Error('Workspace has no current candidate publication authority.');
 		}

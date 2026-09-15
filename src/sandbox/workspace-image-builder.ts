@@ -13,6 +13,9 @@ import { kataWarmOperations } from './warm-sandbox-pool.js';
 import { containerdImageReference } from './image-reference.js';
 
 const exec = promisify(execFile);
+function safeBuilderMessage(value: unknown) {
+	return typeof value === 'string' ? value.replace(/https?:\/\/\S+/gu, '[redacted-url]').replace(/[\r\n\t]+/gu, ' ').slice(0, 512) : 'Builder receipt unavailable.';
+}
 async function digest(path: string) {
 	const hash = createHash('sha256'); for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
 	return `sha256:${hash.digest('hex')}`;
@@ -59,13 +62,19 @@ export async function buildWorkspaceImage(configuration: SandboxBrokerConfigurat
 			const child = `${vm}-source`;
 			guestStopped = false;
 			try {
-				await ctr(['run', '--rm', '--null-io', '--runtime', configuration.runtime,
-					'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${vm}`,
-					'--user', '65532:65532',
-					'--mount', `type=bind,src=${attached.device},dst=/workspace/project,options=${verify ? 'ro' : 'rw'}:nodev:nosuid`,
-					'--mount', `type=bind,src=${incoming},dst=/run/treeseed-builder,options=rbind:ro`,
-					'--mount', `type=bind,src=${outgoing},dst=/run/treeseed-output,options=rbind:rw`,
-					guestImage, child, 'node', '/run/treeseed-builder/builder.mjs', verify ? 'verify' : 'build']);
+				try {
+					await ctr(['run', '--rm', '--null-io', '--runtime', configuration.runtime,
+						'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${vm}`,
+						'--user', '65532:65532',
+						'--mount', `type=bind,src=${attached.device},dst=/workspace/project,options=${verify ? 'ro' : 'rw'}:nodev:nosuid`,
+						'--mount', `type=bind,src=${incoming},dst=/run/treeseed-builder,options=rbind:ro`,
+						'--mount', `type=bind,src=${outgoing},dst=/run/treeseed-output,options=rbind:rw`,
+						guestImage, child, 'node', '/run/treeseed-builder/builder.mjs', verify ? 'verify' : 'build']);
+				} catch (error) {
+					const receipt = await readFile(join(outgoing, 'source-verification.json'), 'utf8').then(value => JSON.parse(value) as Record<string, unknown>).catch((): Record<string, unknown> => ({}));
+					console.error(JSON.stringify({ event: 'source.builder.failed', phase: verify ? 'verify' : 'build', message: safeBuilderMessage(receipt['message']) }));
+					throw error;
+				}
 				const path = join(outgoing, 'source-verification.json'), details = await lstat(path);
 				if (!details.isFile() || details.size > 8192) throw new Error('Invalid isolated source verification receipt.');
 				const receipt = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;

@@ -112,6 +112,11 @@ export function activateHostDevelopment(input: unknown, command: CommandRunner, 
 	// Resolve the real supervisor dependency graph before a generation is allowed
 	// to replace the supervisor that would otherwise be responsible for rollback.
 	command('/usr/lib/treeseed/runtime/bin/node', ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${temporary}/dist/src/supervisor/execute.js`)})`]);
+	// The sandbox broker must resolve the SDK from this generation, never from the
+	// installed manager fallback. Exercise the mutable-workspace contract before
+	// switching any daemon so a partial development dependency closure fails here.
+	command('/usr/lib/treeseed/runtime/bin/node', ['--input-type=module', '--eval',
+		`const sdk=await import(${JSON.stringify(`file://${temporary}/node_modules/@treeseed/sdk/dist/capacity-provider/source-workspace.js`)});sdk.sourceWorkspaceAuthorizationSchema.parse({schemaVersion:'treeseed.source-workspace-authorization/v1',id:'development-contract-check',providerId:'provider',assignmentId:'assignment',attempt:1,source:{controlPlaneId:'https://api.treeseed.invalid',teamId:'team',projectId:'project',repositoryId:'repository',commit:'${'a'.repeat(40)}',formatVersion:1,profile:'source-only'},mode:'work',publication:'assignment-branch',credentialBindingId:'credential',issuedAt:'2098-01-01T00:00:00.000Z',expiresAt:'2099-01-01T00:00:00.000Z'})`]);
 	renameSync(temporary, generationRoot); chmodSync(generationRoot, 0o750);
 	command('/usr/bin/chown', ['-R', 'root:treeseed-manager', generationRoot]);
 	const manifestDigest = digest(JSON.stringify(activation.files));

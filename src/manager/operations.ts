@@ -17,7 +17,7 @@ import { serializedSecurityInitialize, serializedSecurityOperation } from './ser
 import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
-import { affectedDevelopmentClosure, DevelopmentSessionStore, usesManagerDevelopmentCustody } from './development-sessions.js';
+import { affectedDevelopmentClosure, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, usesManagerDevelopmentCustody } from './development-sessions.js';
 import { subjectAlternativeNames } from '../edge/caddy.js';
 import { hostDoctor } from './doctor.js';
 import { inspectRecoveryBackup, listRecoveryBackups } from './recovery.js';
@@ -32,6 +32,7 @@ import { assertTreeDxResetSafe } from './reset-safety.js';
 import { planHostInitialization, renderHostInitializationConfiguration, validateHostInitializationInputs } from './initialization.js';
 import { executeProviderEnvironmentCommand } from './provider-environment.js';
 import { executePostgresTransferCommand } from './postgres-transfer.js';
+import { availableCatalogSummary } from './catalog-summary.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -48,28 +49,6 @@ export const hostCommandRequestSchema = z.object({
 }).strict();
 
 export type HostCommandRequest = z.infer<typeof hostCommandRequestSchema>;
-
-export function availableCatalogSummary(
-	stablePath = `${paths.catalogs}/stable.json`,
-	developmentPath = `${paths.catalogs}/development.json`,
-	reader: typeof loadCatalog = loadCatalog,
-	fileExists: typeof existsSync = existsSync,
-) {
-	try {
-		const stable = reader(stablePath);
-		const development = fileExists(developmentPath) ? reader(developmentPath) : undefined;
-		return {
-			compatible: true as const,
-			requiresCoreUpdate: false,
-			stable: { release: stable.release, generation: stable.generation, digest: stable.catalogDigest },
-			development: development ? { release: development.release, generation: development.generation, digest: development.catalogDigest } : null,
-		};
-	} catch {
-		// Metadata may legitimately be newer than this manager's SDK. Keep update
-		// check useful and let explicit apply install the compatible core first.
-		return { compatible: false as const, requiresCoreUpdate: true, stable: null, development: null };
-	}
-}
 
 export const developmentEnvironmentPayloadSchema = z.object({
 	sessionId: z.string().min(1),
@@ -232,6 +211,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			noteDevelopmentPauseOwner(payload.sessionId, false);
 			await applyDevelopmentRoutes(store); return stopped;
 		}
+		case 'local.dev.session.refresh': {
+			if (!context.local) throw new Error('Development sessions may be refreshed only through the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().min(1), runtimes: z.array(z.unknown()).min(1) }).strict().parse(developmentPayload(request));
+			return new DevelopmentSessionStore().refreshRuntimes(payload.sessionId, payload.runtimes);
+		}
 		case 'local.dev.status': {
 			const payload = z.object({ sessionId: z.string().min(1).optional(), all: z.boolean().default(false) }).strict().parse(developmentPayload(request));
 			const store = new DevelopmentSessionStore();
@@ -244,7 +228,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.dev.container': {
 			if (!context.local) throw new Error('Development containers require the protected local manager socket.');
-			const payload = z.object({sessionId:z.string().regex(/^dev-[a-z0-9-]{1,64}$/),projectId:z.enum(['api','agent','treedx','ai']),targetId:z.enum(['service','operations-runner','provider','ai-inference','ai-training','ai-lab']),action:z.enum(['start','stop','status','logs'])}).strict().parse(developmentPayload(request));
+			const payload = z.object({sessionId:z.string().regex(/^dev-[a-z0-9-]{1,64}$/),projectId:z.enum(['api','agent','treedx','ai']),targetId:z.enum(['service','operations-runner','provider','sandbox','ai-inference','ai-training','ai-lab']),action:z.enum(['start','stop','status','logs'])}).strict().parse(developmentPayload(request));
 			return requestSupervisor({operation:'development.container',...payload});
 		}
 		case 'local.dev.environment': {
@@ -288,6 +272,14 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const target = record.session.targets.find((entry) => entry.projectId === payload.projectId && entry.targetId === payload.targetId);
 			if (!target) throw new Error('Development rebuild target is outside the selected session.');
 			target.generation += 1; target.health = 'pending'; store.save(record); return { target, requested: true };
+		}
+		case 'local.dev.migrate': {
+			if (!context.local) throw new Error('Development migrations require the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().regex(/^dev-[a-z0-9-]{1,64}$/u), projectId: z.literal('api'), targetId: z.literal('service') }).strict().parse(developmentPayload(request));
+			const record = new DevelopmentSessionStore().load(payload.sessionId);
+			if (!hasRegisteredDevelopmentTarget(record, payload.projectId, payload.targetId))
+				throw new Error('API service must belong to an active development session before applying a development migration.');
+			return requestSupervisor({ operation: 'development.postgres.migrate', sessionId: payload.sessionId, projectId: payload.projectId });
 		}
 		case 'local.dev.logs': {
 			const payload = z.object({ sessionId: z.string().min(1), targetId: z.string().min(1).optional() }).strict().parse(developmentPayload(request));
