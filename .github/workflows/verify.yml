@@ -23,7 +23,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@e440819668c01fbc1f9a487cb67e87def7405f07
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
         with:
           github-token: ${{ github.token }}
       - name: Fetch digest-pinned disposable OpenBao
@@ -55,7 +55,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@e440819668c01fbc1f9a487cb67e87def7405f07
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
         with:
           github-token: ${{ github.token }}
       - run: npm run verify:direct
@@ -86,7 +86,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@e440819668c01fbc1f9a487cb67e87def7405f07
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
         with:
           github-token: ${{ github.token }}
       - name: Verify current and legacy uninstall on disposable VM
