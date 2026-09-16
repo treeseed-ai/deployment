@@ -70,11 +70,15 @@ function validate(deps: DevelopmentBackupDependencies, entries: Entry[]) {
   const records = deps.records(), api = deps.components().find(item => item.componentId === 'api');
   for (const entry of entries) {
     const record = records.find(item => item.session.sessionId === entry.sessionId);
+    const selected = record?.session.targets.some(target => target.projectId === 'api' && target.targetId === 'operations-runner'
+      && (target.mode === 'candidate' || target.mode === 'live')) ?? false;
+    const current = record?.session.status === 'active' && selected && api?.runtimeDigest === entry.apiRuntimeDigest
+      ? snapshot(deps, record, entry.image, api.runtimeDigest) : null;
+    const snapshotMatches = Boolean(current && deploymentDigest(current) === deploymentDigest(entry));
+    const changedFields = current ? Object.keys(entry).filter(key => current[key as keyof Entry] !== entry[key as keyof Entry]).join(',') : 'unavailable';
     if (!record || record.session.status !== 'active' || api?.runtimeDigest !== entry.apiRuntimeDigest
-      || !record.session.targets.some(target => target.projectId === 'api' && target.targetId === 'operations-runner'
-        && (target.mode === 'candidate' || target.mode === 'live'))
-      || deploymentDigest(snapshot(deps, record, entry.image, api.runtimeDigest)) !== deploymentDigest(entry))
-      throw new Error('Development selection or snapshot changed during backup; explicit recovery required.');
+      || !selected || !snapshotMatches)
+      throw new Error(`Development selection or snapshot changed during backup; explicit recovery required (active=${record?.session.status === 'active'}, selected=${selected}, apiRuntimeMatches=${api?.runtimeDigest === entry.apiRuntimeDigest}, snapshotMatches=${snapshotMatches}, changedFields=${changedFields}).`);
   }
 }
 
