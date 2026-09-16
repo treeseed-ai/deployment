@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { composeFailureDiagnostics } from './compose-diagnostics.js';
+import { installedComponentRelease } from './component-release.js';
 import { migratePersistentComponentInput } from './component-input-migration.js';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
@@ -232,7 +233,14 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
 	guardPostgresTransferOperation(operation);
-	if (isPostgresOperation(operation)) return executePostgresOperation(operation);
+	if (isPostgresOperation(operation)) return executePostgresOperation(operation).catch(error => {
+		if (operation.operation !== 'postgres.component.activate') throw error;
+		const selected = operation.selections.find(component => component.componentId === operation.componentId);
+		if (!selected) throw error;
+		const component = installedComponentRelease(selected.componentId, selected.release);
+		const diagnostics = composeFailureDiagnostics(component.componentId, component.runtime.compose.projectName, command, captureCommand);
+		throw new Error(`PostgreSQL component activation failed; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
+	});
 	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
 	if (operation.operation === 'provider.runtime.status') return providerRuntimeStatus(componentStateRoot(loadHostConfiguration(), 'agent'));
@@ -365,8 +373,9 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		} finally { restoreSecrets(operation.componentId); } break;
 		case 'compose.status': {
 			const status = composeRuntimeStatus(operation, command);
-			return operation.projectName === 'treeseed-postgres'
-				? { ...status, diagnostics: composeFailureDiagnostics('postgres', operation.projectName, command, captureCommand) }
+			const id = operation.runtime?.componentId ?? (operation.projectName === 'treeseed-postgres' ? 'postgres' : undefined);
+			return id
+				? { ...status, diagnostics: composeFailureDiagnostics(id, operation.projectName, command, captureCommand) }
 				: status;
 		}
 		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;

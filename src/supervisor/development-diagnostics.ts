@@ -33,6 +33,10 @@ export function developmentDiagnosticEvents(output: string) {
 
 /** Fixed classifications only; only bounded /app-relative public source paths may accompany a module failure. */
 export function developmentStartupCode(log:string):string {
+  for (const code of ['openbao_not_ready', 'bootstrap_http_403', 'bootstrap_recovery_required', 'bootstrap_state_mismatch',
+    'os_credential_unavailable', 'key_unavailable'] as const) {
+    if (log.includes(`(${code})`)) return code.toUpperCase();
+  }
   for(const line of log.split('\n').slice(-200).reverse()) {
     try {
       const event=JSON.parse(line) as Record<string,unknown>;

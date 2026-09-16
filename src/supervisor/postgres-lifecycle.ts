@@ -23,6 +23,7 @@ import { requirePostgresTransition } from './postgres-transition.js';
 import type { PostgresTransferIntent } from '../postgres/transfer.js';
 import { postgresComponentRuntimeHealthy } from './postgres-runtime-health.js';
 import { prepareApiIdentityMigration, clearApiIdentityMigration } from './identity-api-migration.js';
+import { postgresDevelopmentReplacements } from './postgres-development-runtime.js';
 
 const active = new Set<string>();
 
@@ -101,7 +102,15 @@ export async function activateLocalPostgresComponent(componentId: string, select
         if (phase === 'migration') clearApiIdentityMigration(component);
       },
       disable: async id => { await session(id, connection => disablePostgresAllocation(topology, id, connection)); },
-      startRuntime: async services => { unchanged(); await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...services], 190); },
+      // Explicit closure prevents dependencies from starting a superseded released writer.
+      startRuntime: async services => {
+        unchanged();
+        const replacements = postgresDevelopmentReplacements(componentId);
+        const replaced = services.filter(service => replacements.some(replacement => replacement.service === service));
+        if (replaced.length) await postgresDocker([...compose(), 'stop', '--timeout', '30', ...replaced], 60);
+        const released = services.filter(service => !replacements.some(replacement => replacement.service === service));
+        if (released.length) await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...released], 190);
+      },
       runtimeHealthy: async services => {
         unchanged();
         return postgresComponentRuntimeHealthy(component, services);

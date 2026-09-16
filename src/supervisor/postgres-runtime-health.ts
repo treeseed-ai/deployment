@@ -1,6 +1,7 @@
 import type { ComponentRelease } from '@treeseed/sdk/deployment';
 import { componentComposeArguments } from './compose-runtime.js';
 import { postgresDocker } from './postgres-process.js';
+import { postgresDevelopmentReplacements, postgresDevelopmentRuntimeHealthy } from './postgres-development-runtime.js';
 
 /** Read-back only: verify exact images and actual health, never restart a
  * process while deciding whether a transfer can be accepted. */
@@ -10,7 +11,15 @@ export async function postgresComponentRuntimeHealthy(component: ComponentReleas
   const configured = JSON.parse(await postgresDocker([...compose, 'config', '--format', 'json'], 30, true));
   const raw = await postgresDocker([...compose, 'ps', '--all', '--format', 'json', ...services], 30, true);
   const rows = raw.trim().startsWith('[') ? JSON.parse(raw) : raw.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const replacements = postgresDevelopmentReplacements(component.componentId);
   for (const service of services) {
+    const owners = replacements.filter(replacement => replacement.service === service);
+    if (owners.length > 1) throw new Error('PostgreSQL runtime has competing development owners');
+    if (owners.length === 1) {
+      if (rows.some((row: { Service: string; State: string }) => row.Service === service && ['running', 'restarting'].includes(row.State))) return false;
+      if (!await postgresDevelopmentRuntimeHealthy(owners[0]!)) return false;
+      continue;
+    }
     const expected = configured.services?.[service];
     const instances = rows.filter((row: { Service: string }) => row.Service === service);
     if (!expected?.image || !instances.length) return false;
