@@ -6,10 +6,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('node:fs', () => ({ lstatSync: mocks.stat, readFileSync: mocks.read, realpathSync: mocks.realpath }));
 vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { list = mocks.sessions; } }));
 vi.mock('../src/supervisor/postgres-process.js', () => ({ postgresDocker: mocks.docker }));
+vi.mock('../src/core/events.js', () => ({ recordEvent: vi.fn() }));
 vi.mock('../src/supervisor/development-backup.js', () => ({
   developmentBackupDependencies: vi.fn(), developmentBackupRuntimeHeld: mocks.held,
 }));
-import { postgresDevelopmentReplacements, postgresDevelopmentRuntimeHealthy } from '../src/supervisor/postgres-development-runtime.js';
+import { postgresDevelopmentReplacements, postgresDevelopmentRuntimeHealthy, startPostgresDevelopmentRuntime } from '../src/supervisor/postgres-development-runtime.js';
 
 const owner = { service: 'api', sessionId: 'dev-test', targetId: 'service', name: 'treeseed-dev-test-api-service' };
 const image = `sha256:${'a'.repeat(64)}`;
@@ -48,6 +49,14 @@ it('never substitutes a hold for API service health', async () => {
   mocks.docker.mockResolvedValue(JSON.stringify({ image, state: 'exited', health: 'none' }));
   expect(await postgresDevelopmentRuntimeHealthy(owner)).toBe(false);
   expect(mocks.held).not.toHaveBeenCalled();
+});
+it('recreates the exact API snapshot to refresh restored credential mounts', async () => {
+  await startPostgresDevelopmentRuntime(owner);
+  expect(mocks.docker).toHaveBeenCalledWith(['compose', '--project-name', owner.name, '--file',
+    '/run/treeseed/development-containers/dev-test/service/compose.json', 'up', '--detach', '--force-recreate',
+    '--no-deps', '--wait', '--wait-timeout', '120', 'runtime'], 130);
+  await expect(startPostgresDevelopmentRuntime({ ...owner, targetId: 'operations-runner' })).rejects.toThrow('before recovery acceptance');
+  expect(mocks.docker).toHaveBeenCalledTimes(1);
 });
 it('requires a validated restored hold for a stopped operations writer', async () => {
   const runner = { ...owner, service: 'operations-runner', targetId: 'operations-runner', name: 'treeseed-dev-test-api-operations-runner' };

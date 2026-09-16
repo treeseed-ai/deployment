@@ -23,7 +23,7 @@ import { requirePostgresTransition } from './postgres-transition.js';
 import type { PostgresTransferIntent } from '../postgres/transfer.js';
 import { postgresComponentRuntimeHealthy } from './postgres-runtime-health.js';
 import { prepareApiIdentityMigration, clearApiIdentityMigration } from './identity-api-migration.js';
-import { postgresDevelopmentReplacements } from './postgres-development-runtime.js';
+import { postgresDevelopmentReplacements, startPostgresDevelopmentRuntime } from './postgres-development-runtime.js';
 
 const active = new Set<string>();
 
@@ -110,6 +110,8 @@ export async function activateLocalPostgresComponent(componentId: string, select
         if (replaced.length) await postgresDocker([...compose(), 'stop', '--timeout', '30', ...replaced], 60);
         const released = services.filter(service => !replacements.some(replacement => replacement.service === service));
         if (released.length) await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...released], 190);
+        for (const replacement of replacements.filter(owner => owner.targetId === 'service' && services.includes(owner.service)))
+          await startPostgresDevelopmentRuntime(replacement);
       },
       runtimeHealthy: async services => {
         unchanged();

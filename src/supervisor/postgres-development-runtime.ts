@@ -3,6 +3,7 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { DevelopmentSessionStore } from '../manager/development-sessions.js';
 import { developmentBackupDependencies, developmentBackupRuntimeHeld } from './development-backup.js';
 import { postgresDocker } from './postgres-process.js';
+import { recordEvent } from '../core/events.js';
 
 /** Existing API development custody replaces its released writer, including during recovery. */
 export function postgresDevelopmentReplacements(componentId: string) {
@@ -15,7 +16,8 @@ export function postgresDevelopmentReplacements(componentId: string) {
     })));
 }
 
-export async function postgresDevelopmentRuntimeHealthy(replacement: ReturnType<typeof postgresDevelopmentReplacements>[number]) {
+type Replacement = ReturnType<typeof postgresDevelopmentReplacements>[number];
+function runtimeSnapshot(replacement: Replacement) {
   const path = `/run/treeseed/development-containers/${replacement.sessionId}/${replacement.targetId}/compose.json`;
   const metadata = lstatSync(path);
   if (!metadata.isFile() || metadata.uid !== 0 || (metadata.mode & 0o022) || realpathSync(path) !== path)
@@ -23,8 +25,25 @@ export async function postgresDevelopmentRuntimeHealthy(replacement: ReturnType<
   const spec = JSON.parse(readFileSync(path, 'utf8'));
   if (!/^sha256:[a-f0-9]{64}$/u.test(spec.services?.runtime?.image ?? '') || spec.services.runtime.container_name !== replacement.name)
     throw new Error('PostgreSQL development runtime snapshot is invalid');
+  return { path, spec };
+}
+
+/** Recovery rematerializes credential mounts; recreate only the API, never the held writer. */
+export async function startPostgresDevelopmentRuntime(replacement: Replacement) {
+  if (replacement.targetId !== 'service') throw new Error('Held PostgreSQL development writer cannot be started before recovery acceptance');
+  const { path } = runtimeSnapshot(replacement);
+  await postgresDocker(['compose', '--project-name', replacement.name, '--file', path,
+    'up', '--detach', '--force-recreate', '--no-deps', '--wait', '--wait-timeout', '120', 'runtime'], 130);
+}
+
+export async function postgresDevelopmentRuntimeHealthy(replacement: Replacement) {
+  const { spec } = runtimeSnapshot(replacement);
   const observed = JSON.parse(await postgresDocker(['inspect', '--format',
     '{"image":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}', replacement.name], 10, true));
+  recordEvent('postgres.development.runtime-status', { sessionId: replacement.sessionId, targetId: replacement.targetId,
+    imageMatches: observed.image === spec.services.runtime.image,
+    state: ['created', 'running', 'paused', 'restarting', 'removing', 'exited', 'dead'].includes(observed.state) ? observed.state : 'unknown',
+    health: ['healthy', 'unhealthy', 'starting', 'none'].includes(observed.health) ? observed.health : 'unknown' });
   if (observed.image !== spec.services.runtime.image) return false;
   if (observed.state === 'running' && observed.health === 'healthy') return true;
   if (replacement.targetId !== 'operations-runner' || observed.state === 'running') return false;

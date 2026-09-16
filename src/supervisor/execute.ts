@@ -239,7 +239,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		if (!selected) throw error;
 		const component = installedComponentRelease(selected.componentId, selected.release);
 		const diagnostics = composeFailureDiagnostics(component.componentId, component.runtime.compose.projectName, command, captureCommand);
-		throw new Error(`PostgreSQL component activation failed; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
+		const stage = error instanceof Error ? /^PostgreSQL component activation failed \(([a-z-]+)\);/u.exec(error.message)?.[1] : undefined;
+		throw new Error(`PostgreSQL component activation failed${stage ? ` (${stage})` : ''}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
 	});
 	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
