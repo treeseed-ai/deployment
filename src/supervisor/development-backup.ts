@@ -103,7 +103,7 @@ export function planDevelopmentBackup(deps: DevelopmentBackupDependencies, targe
       const record = records.find(item => item.session.sessionId === sessionId);
       if (!record || labels['org.treeseed.development.target'] !== 'api.operations-runner'
         || state.Name !== `/${candidateName(sessionId)}` || !api || api.runtimeDigest !== targetApiRuntimeDigest)
-        throw new Error('Backup writer is not a compatible registered development candidate.');
+        throw new Error(`Backup writer ${state.Name} is not a compatible registered development candidate (target=${labels['org.treeseed.development.target'] ?? 'missing'}, registered=${Boolean(record)}, apiRuntimeMatches=${Boolean(api && api.runtimeDigest === targetApiRuntimeDigest)}).`);
       entries.push(snapshot(deps, record, state.Image, api.runtimeDigest));
     } else if (!components.some(component => component.runtime.compose.projectName === labels['com.docker.compose.project']
       && component.runtime.services.some(service => service.composeService === labels['com.docker.compose.service']))) {
