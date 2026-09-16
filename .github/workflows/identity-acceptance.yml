@@ -5,7 +5,7 @@ on:
   push:
     branches: [staging, main]
     paths: ['src/identity/**', 'src/postgres/**', 'src/supervisor/postgres*.ts', 'src/supervisor/backup*.ts', 'tests/identity-runtime/**', '.github/workflows/identity-acceptance.yml']
-permissions: { contents: read }
+permissions: { contents: read, actions: read }
 concurrency:
   group: identity-acceptance-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,6 +33,10 @@ jobs:
       - name: Install Deployment runtime dependencies used by shared database policy
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build the Deployment implementation exercised by acceptance
+        uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
+        with:
+          github-token: ${{ github.token }}
+      - name: Build the Deployment implementation
         run: npm run build
       - run: node tests/identity-runtime/node_modules/playwright/cli.js install --with-deps chromium
       - name: Resolve disposable TLS names only on this ephemeral runner
@@ -69,6 +73,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: { node-version: 24 }
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
+        with:
+          github-token: ${{ github.token }}
       - run: npm run build
       - name: Type-check privileged acceptance fixtures
         run: npx tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext tests/identity-runtime/local-bootstrap.ts tests/identity-runtime/managed-transfer.ts
