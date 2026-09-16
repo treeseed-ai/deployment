@@ -109,10 +109,16 @@ export async function activateLocalPostgresComponent(componentId: string, select
         const replaced = services.filter(service => replacements.some(replacement => replacement.service === service));
         if (replaced.length) await postgresDocker([...compose(), 'stop', '--timeout', '30', ...replaced], 60);
         const released = services.filter(service => !replacements.some(replacement => replacement.service === service));
-        // API bootstrap must honor the published OpenBao health dependency;
-        // the selected closure no longer contains a released API writer.
-        if (released.length) await postgresDocker([...compose(), 'up', '--detach',
-          ...(replacements.length ? [] : ['--no-deps']), '--wait', '--wait-timeout', '180', ...released], 190);
+        if (released.length && replacements.length) {
+          const configured = JSON.parse(await postgresDocker([...compose(), 'config', '--format', 'json'], 30, true));
+          const oneShot = released.filter(service => configured.services?.[service]?.restart === 'no');
+          const persistent = released.filter(service => !oneShot.includes(service));
+          if (persistent.length) await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...persistent], 190);
+          // Without the released API's completed-successfully dependency,
+          // Compose --wait incorrectly requires its initializer to stay running.
+          for (const service of oneShot) await postgresDocker([...compose(), 'up', '--no-deps',
+            '--abort-on-container-exit', '--exit-code-from', service, service], 190);
+        } else if (released.length) await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...released], 190);
         for (const replacement of replacements.filter(owner => owner.targetId === 'service' && services.includes(owner.service)))
           await startPostgresDevelopmentRuntime(replacement);
       },
