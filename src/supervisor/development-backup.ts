@@ -195,12 +195,13 @@ export function developmentBackupStatus(deps: DevelopmentBackupDependencies) {
   const hold = read(deps);
   return { generation: hold.generation, phase: hold.phase, targets: hold.entries.length };
 }
-/** A stopped development writer satisfies recovery containment only under its exact restored hold. */
+/** A stopped development writer satisfies containment under an exact completed hold. */
 export function developmentBackupRuntimeHeld(deps: DevelopmentBackupDependencies, sessionId: string) {
   if (!existsSync(deps.holdPath)) return false;
   const hold = read(deps);
-  if (hold.phase !== 'restored' || !hold.entries.some(entry => entry.sessionId === sessionId)) return false;
+  if (!['held', 'restored'].includes(hold.phase) || !hold.entries.some(entry => entry.sessionId === sessionId)) return false;
   validate(deps, hold.entries);
+  validateRestoredSelection(deps, hold);
   return true;
 }
 function validateRestoredSelection(deps: DevelopmentBackupDependencies, hold: Hold) {
