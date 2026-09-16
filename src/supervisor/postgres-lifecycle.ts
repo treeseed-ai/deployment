@@ -109,7 +109,10 @@ export async function activateLocalPostgresComponent(componentId: string, select
         const replaced = services.filter(service => replacements.some(replacement => replacement.service === service));
         if (replaced.length) await postgresDocker([...compose(), 'stop', '--timeout', '30', ...replaced], 60);
         const released = services.filter(service => !replacements.some(replacement => replacement.service === service));
-        if (released.length) await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...released], 190);
+        // API bootstrap must honor the published OpenBao health dependency;
+        // the selected closure no longer contains a released API writer.
+        if (released.length) await postgresDocker([...compose(), 'up', '--detach',
+          ...(replacements.length ? [] : ['--no-deps']), '--wait', '--wait-timeout', '180', ...released], 190);
         for (const replacement of replacements.filter(owner => owner.targetId === 'service' && services.includes(owner.service)))
           await startPostgresDevelopmentRuntime(replacement);
       },

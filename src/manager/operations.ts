@@ -460,7 +460,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			backups: await listRecoveryBackups(),
 			receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [],
 		};
-		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedReconcile();
+		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedRecovery('retry');
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');

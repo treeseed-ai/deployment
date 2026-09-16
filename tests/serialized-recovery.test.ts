@@ -8,6 +8,7 @@ it('serializes recovery with the exact updater lock and bounded generation argum
 	expect(recovery.slice(0, 6)).toEqual(serializedReconcileArguments().slice(0, 6));
 	expect(recovery[6]).toMatch(/\/bin\/recovery\.js$/u);
 	expect(recovery[7]).toBe('--generation=219');
+	expect(serializedRecoveryArguments('retry')[7]).toBe('--retry');
 	for (const value of [0, -1, Infinity, Number.MAX_SAFE_INTEGER + 1]) expect(() => serializedRecoveryArguments(value)).toThrow();
 });
 

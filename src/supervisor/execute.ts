@@ -240,7 +240,12 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		const component = installedComponentRelease(selected.componentId, selected.release);
 		const diagnostics = composeFailureDiagnostics(component.componentId, component.runtime.compose.projectName, command, captureCommand);
 		const stage = error instanceof Error ? /^PostgreSQL component activation failed \(([a-z-]+)\);/u.exec(error.message)?.[1] : undefined;
-		throw new Error(`PostgreSQL component activation failed${stage ? ` (${stage})` : ''}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
+		const reason = error instanceof Error && (/^PostgreSQL container operation failed: operation=[a-z]+, project=[a-zA-Z0-9._-]+, exit=(?:[0-9]+|signal), timedOut=(?:true|false)$/u.test(error.message)
+			|| ['PostgreSQL component runtime remains unhealthy', 'PostgreSQL runtime drift requires repair before activation',
+				'PostgreSQL development runtime lacks exact root custody', 'PostgreSQL development runtime snapshot is invalid',
+				'PostgreSQL runtime has competing development owners'].includes(error.message)) ? error.message : undefined;
+		const systemCode = /^[A-Z0-9_]{1,20}$/u.test(String((error as { code?: unknown })?.code ?? '')) ? String((error as { code: string }).code) : undefined;
+		throw new Error(`PostgreSQL component activation failed${stage ? ` (${stage})` : ''}; reason=${reason ?? systemCode ?? 'unclassified'}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
 	});
 	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
 	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
