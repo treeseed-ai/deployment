@@ -1,5 +1,6 @@
 import { composeProjectContainerIds, type CommandRunner } from './compose-runtime.js';
 import { postgresStartupDiagnostic } from '../postgres/startup-diagnostic.js';
+import { developmentStartupCode } from './development-diagnostics.js';
 
 function safeDiagnosticText(value: unknown) {
 	if (typeof value !== 'string') return null;
@@ -76,6 +77,12 @@ export function composeFailureDiagnostics(componentId: string, projectName: stri
 						diagnostic = postgresStartupDiagnostic(captureCommand('/usr/bin/docker', ['logs', '--since', started, '--tail', '80', id], ''));
 				}
 				catch { /* Never emit raw PostgreSQL logs, even when classification fails. */ }
+			}
+			if (componentId === 'api' && !diagnostic && (state !== 'running' || health !== 'healthy')) {
+				try {
+					const reason = developmentStartupCode(String(captureCommand('/usr/bin/docker', ['logs', '--tail', '200', id], '') ?? ''));
+					if (reason) diagnostic = { code: reason };
+				} catch { /* Only classified startup codes are eligible for operator evidence. */ }
 			}
 			diagnostics.push({ service, state, health, ...(Number.isInteger(code) ? { exitCode: code } : {}), ...(diagnostic ? { diagnostic } : {}) });
 		} catch { /* retain any other safe service summaries */ }

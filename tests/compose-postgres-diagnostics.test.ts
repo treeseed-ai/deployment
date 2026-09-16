@@ -27,3 +27,10 @@ it('retains service status without falling back to raw logs or another provider 
   composeFailureDiagnostics('admin', 'treeseed-admin', command, capture);
   expect(capture).not.toHaveBeenCalled();
 });
+it('classifies API custody startup without disclosing logs or credentials', () => {
+  const command = vi.fn((_exe: string, args: readonly string[]) => args[0] === 'ps' ? 'd'.repeat(64) : 'openbao-initialize\texited\tnone\t1');
+  const capture = vi.fn(() => 'CustodyError: secret custody failed (openbao_not_ready)\nsecret=private-value');
+  expect(composeFailureDiagnostics('api', 'treeseed-api', command, capture)).toEqual([
+    { service: 'openbao-initialize', state: 'exited', health: 'none', exitCode: 1, diagnostic: { code: 'OPENBAO_NOT_READY' } },
+  ]);
+});

@@ -441,7 +441,10 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.component.list': return { components: host.components };
 		case 'local.host.component.status': {
-			const id = componentId(request); return { componentId: id, selection: host.components[id] ?? null, receipt: receipt() };
+			const id = componentId(request), installed = loadActiveComponents().find(component => component.componentId === id);
+			const runtime = installed ? await requestSupervisor({ operation: 'compose.status', projectName: installed.runtime.compose.projectName,
+				runtime: { componentId: id, files: composeFiles(installed), services: installed.runtime.services.map(service => service.composeService) } }) : null;
+			return { componentId: id, selection: host.components[id] ?? null, receipt: receipt(), runtime };
 		}
 		case 'local.host.component.enable':
 		case 'local.host.component.disable': {
@@ -457,7 +460,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			backups: await listRecoveryBackups(),
 			receipts: existsSync(paths.receipts) ? readdirSync(paths.receipts).filter((name) => name.endsWith('.json')).sort().slice(-20) : [],
 		};
-		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedReconcile();
+		case 'local.host.recovery.retry': return request.options.plan === true ? plan() : serializedRecovery('retry');
 		case 'local.host.recovery.restore': {
 			const generation = Number(request.arguments[0]);
 			if (!Number.isInteger(generation) || generation < 1) throw new Error('A positive recovery generation is required.');

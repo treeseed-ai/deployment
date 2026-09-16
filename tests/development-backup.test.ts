@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { beginDevelopmentBackup, finishDevelopmentBackup, planDevelopmentBackup, markDevelopmentBackupRestored, fenceDevelopmentBackup, developmentBackupStatus, type DevelopmentBackupDependencies } from '../src/supervisor/development-backup.js';
+import { beginDevelopmentBackup, finishDevelopmentBackup, planDevelopmentBackup, markDevelopmentBackupRestored, fenceDevelopmentBackup, developmentBackupStatus, developmentBackupRuntimeHeld, type DevelopmentBackupDependencies } from '../src/supervisor/development-backup.js';
 import { assertDevelopmentNotHeld } from '../src/core/development-backup-hold.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 import { component } from './fixtures.js';
@@ -37,6 +37,19 @@ function createFixture(mode: 'candidate' | 'live') {
 }
 describe.each(['candidate', 'live'] as const)('registered %s backup hold', (mode) => {
   const fixture = () => createFixture(mode);
+  it('recognizes completed ordinary holds and rejects changed writer selections', () => {
+    const f = fixture(); beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest);
+    expect(developmentBackupRuntimeHeld(f.deps, f.record.session.sessionId)).toBe(true);
+    expect(developmentBackupRuntimeHeld(f.deps, 'unrelated-session')).toBe(false);
+    f.record.session.targets[0]!.mode = 'released';
+    expect(() => developmentBackupRuntimeHeld(f.deps, f.record.session.sessionId)).toThrow();
+  });
+  it('permits unrelated live targets to update without changing writer custody', () => {
+    const f = fixture(); beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest);
+    f.record.session.targets.push({ projectId: 'admin', targetId: 'web', mode: 'live' } as never);
+    expect(finishDevelopmentBackup(1, f.deps).resumed).toBe(true);
+    expect(existsSync(f.deps.holdPath)).toBe(false);
+  });
   it('drains without restoring released runner or deleting snapshots; resumes exact selection once', () => {
     const f = fixture(), original = JSON.stringify(f.record);
     expect(beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toEqual({ held: true, generation: 1, targets: 1 });

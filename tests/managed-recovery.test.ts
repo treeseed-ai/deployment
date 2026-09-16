@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
 	currentHost: undefined as any, currentComponents: [] as any[], currentReceipt: undefined as any,
 	target: undefined as any, activationFailure: false, backupFailure: false,
 	transfer: null as { restoreGeneration: number; restoreDigest: string } | null,
+	hold: null as { generation: number; phase: string } | null,
 }));
 
 vi.mock('../src/core/paths.js', () => ({ paths: { receipts: '/tmp/treeseed-recovery-test/receipts', managerState: '/tmp/treeseed-recovery-test/manager' } }));
@@ -15,6 +16,7 @@ vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => st
 vi.mock('../src/manager/current-state.js', () => ({ loadActiveComponents: () => state.currentComponents, loadCurrentReceipt: () => state.currentReceipt }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: (path: string, value: unknown) => state.writes.push({ path, value }) }));
 vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
+vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { activeRoutes(base: unknown) { return base; } } }));
 vi.mock('../src/edge/caddy.js', () => ({ renderCaddyfile: () => 'managed routes', subjectAlternativeNames: () => ['api.treeseed.localhost'] }));
 vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => true }));
 vi.mock('../src/manager/component-order.js', () => ({
@@ -22,6 +24,7 @@ vi.mock('../src/manager/component-order.js', () => ({
 	componentStopOrder: (_host: unknown, components: any[]) => [...components].reverse(),
 }));
 vi.mock('../src/manager/reconcile.js', () => ({
+	reconcile: async () => ({ action: 'noop' }),
 	stopComponent: async (item: any) => state.lifecycle.push(`stop:${item.release}`),
 	activateComponent: async (_host: unknown, item: any) => {
 		state.lifecycle.push(`activate:${item.release}`);
@@ -32,7 +35,7 @@ vi.mock('../src/manager/reconcile.js', () => ({
 }));
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
 	state.operations.push(operation);
-	if (operation.operation === 'development.backup.status') return null;
+	if (operation.operation === 'development.backup.status') return state.hold;
 	if (operation.operation === 'postgres.transfer.status') return state.transfer;
 	if (operation.operation === 'backup.inspect') return state.target;
 	if (operation.operation === 'backup.create') {
@@ -42,8 +45,33 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 	return {};
 } }));
 
-const { inspectRecoveryBackup, restoreManagedGeneration } = await import('../src/manager/recovery.js');
-afterEach(() => { state.transfer = null; state.backupFailure = false; state.activationFailure = false; });
+const { inspectRecoveryBackup, restoreManagedGeneration, retryManagedRecovery } = await import('../src/manager/recovery.js');
+afterEach(() => { state.hold = null; state.transfer = null; state.backupFailure = false; state.activationFailure = false; });
+
+it('retries restored runtime custody without another database archive or package installation', async () => {
+	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.operations = []; state.lifecycle = [];
+	state.hold = { generation: 73, phase: 'captured' };
+	await expect(retryManagedRecovery()).rejects.toThrow('exact backup restore');
+	expect(state.lifecycle).toEqual([]);
+	state.operations = []; state.hold.phase = 'restored';
+	expect(await retryManagedRecovery()).toMatchObject({ generation: 73, recovered: true });
+	expect(state.operations.map(({ operation }) => operation)).toEqual([
+		'development.backup.status', 'postgres.transfer.status', 'development.backup.fence', 'edge.apply', 'development.backup.finish',
+	]);
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`]);
+});
+
+it('keeps the restored fence when runtime retry fails and reconciles normally without a hold', async () => {
+	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.operations = []; state.lifecycle = []; state.hold = { generation: 73, phase: 'restored' }; state.activationFailure = true;
+	await expect(retryManagedRecovery()).rejects.toThrow('target health failed');
+	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(false);
+	state.hold = null;
+	expect(await retryManagedRecovery()).toEqual({ action: 'noop' });
+});
 
 function receipt(configuration: any, components: any[], id: string) {
 	return {

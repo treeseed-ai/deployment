@@ -5,7 +5,7 @@ on:
   push:
     branches: [staging, main]
     paths: ['src/postgres/**', 'src/supervisor/postgres*.ts', 'src/supervisor/backup*.ts', 'tests/identity-runtime/logical-transfer.ts', 'tests/identity-runtime/source-copy.ts', '.github/workflows/postgres-transfer.yml']
-permissions: { contents: read }
+permissions: { contents: read, actions: read }
 jobs:
   logical-transfer:
     strategy:
@@ -21,6 +21,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: { node-version: 24 }
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
+        with:
+          github-token: ${{ github.token }}
       - run: npm run build
       - name: Typecheck the disposable transfer fixture
         run: npx tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext tests/identity-runtime/logical-transfer.ts tests/identity-runtime/source-copy.ts

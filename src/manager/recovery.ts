@@ -17,8 +17,10 @@ import {
 	activateComponent,
 	rollbackRoutes,
 	stopComponent,
+	reconcile,
 } from './reconcile.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
+import { DevelopmentSessionStore } from './development-sessions.js';
 
 export interface RecoveryBackupInspection {
 	generation: number;
@@ -54,7 +56,9 @@ function packageSelections(receipt: HostReceipt) {
 }
 
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	await activateWithRoutes(rollbackRoutes(host, components), async () => {
+	const base = rollbackRoutes(host, components);
+	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
+	await activateWithRoutes(routes, async () => {
 		for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
 	});
 }
@@ -100,6 +104,22 @@ export async function listRecoveryBackups() {
 
 export async function inspectRecoveryBackup(generation: number) {
 	return parsedInspection(await requestSupervisor<RecoveryBackupInspection>({ operation: 'backup.inspect', generation }));
+}
+
+/** Retry accepted restored state; do not recapture/restore a database already restored. */
+export async function retryManagedRecovery() {
+	const held = await requestSupervisor<{ generation: number; phase: string } | null>({ operation: 'development.backup.status' });
+	if (!held) return reconcile();
+	if (held.phase !== 'restored') throw new Error('An authenticated exact backup restore is required before recovery retry.');
+	if (await requestSupervisor({ operation: 'postgres.transfer.status' })) throw new Error('Exact coordinated PostgreSQL transfer recovery is required.');
+	const host = loadHostConfiguration(), components = loadActiveComponents(), receipt = loadCurrentReceipt();
+	if (!receipt) throw new Error('A current known-good receipt is required before recovery retry.');
+	await requestSupervisor({ operation: 'development.backup.fence', generation: held.generation,
+		apiRuntimeDigest: components.find(component => component.componentId === 'api')?.runtimeDigest });
+	await activateRestoredGeneration(host, components);
+	await requestSupervisor({ operation: 'development.backup.finish', generation: held.generation });
+	recordEvent('recovery.retry-complete', { generation: held.generation, receiptId: receipt.receiptId });
+	return { generation: held.generation, recovered: true, receiptId: receipt.receiptId };
 }
 
 export async function restoreManagedGeneration(generation: number) {

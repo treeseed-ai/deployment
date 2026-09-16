@@ -41,6 +41,13 @@ const candidateName = (id: string) => `treeseed-${id}-api-operations-runner`;
 const directory = (deps: DevelopmentBackupDependencies, id: string) => resolve(deps.runtimeRoot, id, 'operations-runner');
 const compose = (deps: DevelopmentBackupDependencies, id: string) => ['compose', '--project-name', candidateName(id), '--file', resolve(directory(deps, id), 'compose.json')];
 
+/** Only the writer's selection/contract is custody authority; unrelated live targets may update. */
+function writerSelectionDigest(record: ManagedDevelopmentSession | undefined) {
+  return deploymentDigest(record ? { sessionId: record.session.sessionId, status: record.session.status,
+    target: record.session.targets.find(target => target.projectId === 'api' && target.targetId === 'operations-runner'),
+    runtime: record.runtimes?.find(runtime => runtime.project.id === 'api')?.targets.find(target => target.id === 'operations-runner') } : null);
+}
+
 function ownedFile(path: string, owner: number) {
   const stat = lstatSync(path);
   if (!stat.isFile() || realpathSync(path) !== path || stat.uid !== owner || (stat.mode & 0o022) !== 0)
@@ -63,18 +70,22 @@ function snapshot(deps: DevelopmentBackupDependencies, record: ManagedDevelopmen
   const parsed = JSON.parse(spec.toString('utf8'));
   if (parsed.services?.runtime?.image !== image || parsed.services?.runtime?.container_name !== candidateName(record.session.sessionId))
     throw new Error('Development writer does not match its fixed runtime snapshot.');
-  return entrySchema.parse({ sessionId: record.session.sessionId, recordDigest: deploymentDigest(record),
+  return entrySchema.parse({ sessionId: record.session.sessionId, recordDigest: writerSelectionDigest(record),
     specDigest: hash(spec), runtimeReceiptDigest: hash(ownedFile(resolve(root, 'runtime-receipt.json'), deps.ownerUid)), image, apiRuntimeDigest });
 }
 function validate(deps: DevelopmentBackupDependencies, entries: Entry[]) {
   const records = deps.records(), api = deps.components().find(item => item.componentId === 'api');
   for (const entry of entries) {
     const record = records.find(item => item.session.sessionId === entry.sessionId);
+    const selected = record?.session.targets.some(target => target.projectId === 'api' && target.targetId === 'operations-runner'
+      && (target.mode === 'candidate' || target.mode === 'live')) ?? false;
+    const current = record?.session.status === 'active' && selected && api?.runtimeDigest === entry.apiRuntimeDigest
+      ? snapshot(deps, record, entry.image, api.runtimeDigest) : null;
+    const snapshotMatches = Boolean(current && deploymentDigest(current) === deploymentDigest(entry));
+    const changedFields = current ? Object.keys(entry).filter(key => current[key as keyof Entry] !== entry[key as keyof Entry]).join(',') : 'unavailable';
     if (!record || record.session.status !== 'active' || api?.runtimeDigest !== entry.apiRuntimeDigest
-      || !record.session.targets.some(target => target.projectId === 'api' && target.targetId === 'operations-runner'
-        && (target.mode === 'candidate' || target.mode === 'live'))
-      || deploymentDigest(snapshot(deps, record, entry.image, api.runtimeDigest)) !== deploymentDigest(entry))
-      throw new Error('Development selection or snapshot changed during backup; explicit recovery required.');
+      || !selected || !snapshotMatches)
+      throw new Error(`Development selection or snapshot changed during backup; explicit recovery required (active=${record?.session.status === 'active'}, selected=${selected}, apiRuntimeMatches=${api?.runtimeDigest === entry.apiRuntimeDigest}, snapshotMatches=${snapshotMatches}, changedFields=${changedFields}).`);
   }
 }
 
@@ -103,7 +114,7 @@ export function planDevelopmentBackup(deps: DevelopmentBackupDependencies, targe
       const record = records.find(item => item.session.sessionId === sessionId);
       if (!record || labels['org.treeseed.development.target'] !== 'api.operations-runner'
         || state.Name !== `/${candidateName(sessionId)}` || !api || api.runtimeDigest !== targetApiRuntimeDigest)
-        throw new Error('Backup writer is not a compatible registered development candidate.');
+        throw new Error(`Backup writer ${state.Name} is not a compatible registered development candidate (target=${labels['org.treeseed.development.target'] ?? 'missing'}, registered=${Boolean(record)}, apiRuntimeMatches=${Boolean(api && api.runtimeDigest === targetApiRuntimeDigest)}).`);
       entries.push(snapshot(deps, record, state.Image, api.runtimeDigest));
     } else if (!components.some(component => component.runtime.compose.projectName === labels['com.docker.compose.project']
       && component.runtime.services.some(service => service.composeService === labels['com.docker.compose.service']))) {
@@ -184,10 +195,19 @@ export function developmentBackupStatus(deps: DevelopmentBackupDependencies) {
   const hold = read(deps);
   return { generation: hold.generation, phase: hold.phase, targets: hold.entries.length };
 }
+/** A stopped development writer satisfies containment under an exact completed hold. */
+export function developmentBackupRuntimeHeld(deps: DevelopmentBackupDependencies, sessionId: string) {
+  if (!existsSync(deps.holdPath)) return false;
+  const hold = read(deps);
+  if (!['held', 'restored'].includes(hold.phase) || !hold.entries.some(entry => entry.sessionId === sessionId)) return false;
+  validate(deps, hold.entries);
+  validateRestoredSelection(deps, hold);
+  return true;
+}
 function validateRestoredSelection(deps: DevelopmentBackupDependencies, hold: Hold) {
   const records = deps.records(), api = deps.components().find(item => item.componentId === 'api');
   if (hold.entries.some(entry => api?.runtimeDigest !== entry.apiRuntimeDigest
-    || deploymentDigest(records.find(record => record.session.sessionId === entry.sessionId) ?? null) !== entry.recordDigest))
+    || writerSelectionDigest(records.find(record => record.session.sessionId === entry.sessionId)) !== entry.recordDigest))
     throw new Error('Restored generation does not match the held development selection.');
 }
 export function fenceDevelopmentBackup(generation: number, deps: DevelopmentBackupDependencies, targetApiRuntimeDigest?: string) {
