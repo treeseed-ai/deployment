@@ -41,6 +41,13 @@ const candidateName = (id: string) => `treeseed-${id}-api-operations-runner`;
 const directory = (deps: DevelopmentBackupDependencies, id: string) => resolve(deps.runtimeRoot, id, 'operations-runner');
 const compose = (deps: DevelopmentBackupDependencies, id: string) => ['compose', '--project-name', candidateName(id), '--file', resolve(directory(deps, id), 'compose.json')];
 
+/** Only the writer's selection/contract is custody authority; unrelated live targets may update. */
+function writerSelectionDigest(record: ManagedDevelopmentSession | undefined) {
+  return deploymentDigest(record ? { sessionId: record.session.sessionId, status: record.session.status,
+    target: record.session.targets.find(target => target.projectId === 'api' && target.targetId === 'operations-runner'),
+    runtime: record.runtimes?.find(runtime => runtime.project.id === 'api')?.targets.find(target => target.id === 'operations-runner') } : null);
+}
+
 function ownedFile(path: string, owner: number) {
   const stat = lstatSync(path);
   if (!stat.isFile() || realpathSync(path) !== path || stat.uid !== owner || (stat.mode & 0o022) !== 0)
@@ -63,7 +70,7 @@ function snapshot(deps: DevelopmentBackupDependencies, record: ManagedDevelopmen
   const parsed = JSON.parse(spec.toString('utf8'));
   if (parsed.services?.runtime?.image !== image || parsed.services?.runtime?.container_name !== candidateName(record.session.sessionId))
     throw new Error('Development writer does not match its fixed runtime snapshot.');
-  return entrySchema.parse({ sessionId: record.session.sessionId, recordDigest: deploymentDigest(record),
+  return entrySchema.parse({ sessionId: record.session.sessionId, recordDigest: writerSelectionDigest(record),
     specDigest: hash(spec), runtimeReceiptDigest: hash(ownedFile(resolve(root, 'runtime-receipt.json'), deps.ownerUid)), image, apiRuntimeDigest });
 }
 function validate(deps: DevelopmentBackupDependencies, entries: Entry[]) {
@@ -191,7 +198,7 @@ export function developmentBackupStatus(deps: DevelopmentBackupDependencies) {
 function validateRestoredSelection(deps: DevelopmentBackupDependencies, hold: Hold) {
   const records = deps.records(), api = deps.components().find(item => item.componentId === 'api');
   if (hold.entries.some(entry => api?.runtimeDigest !== entry.apiRuntimeDigest
-    || deploymentDigest(records.find(record => record.session.sessionId === entry.sessionId) ?? null) !== entry.recordDigest))
+    || writerSelectionDigest(records.find(record => record.session.sessionId === entry.sessionId)) !== entry.recordDigest))
     throw new Error('Restored generation does not match the held development selection.');
 }
 export function fenceDevelopmentBackup(generation: number, deps: DevelopmentBackupDependencies, targetApiRuntimeDigest?: string) {

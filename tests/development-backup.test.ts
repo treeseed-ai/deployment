@@ -37,6 +37,12 @@ function createFixture(mode: 'candidate' | 'live') {
 }
 describe.each(['candidate', 'live'] as const)('registered %s backup hold', (mode) => {
   const fixture = () => createFixture(mode);
+  it('permits unrelated live targets to update without changing writer custody', () => {
+    const f = fixture(); beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest);
+    f.record.session.targets.push({ projectId: 'admin', targetId: 'web', mode: 'live' } as never);
+    expect(finishDevelopmentBackup(1, f.deps).resumed).toBe(true);
+    expect(existsSync(f.deps.holdPath)).toBe(false);
+  });
   it('drains without restoring released runner or deleting snapshots; resumes exact selection once', () => {
     const f = fixture(), original = JSON.stringify(f.record);
     expect(beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toEqual({ held: true, generation: 1, targets: 1 });
