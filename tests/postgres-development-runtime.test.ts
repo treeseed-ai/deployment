@@ -46,7 +46,7 @@ it('rejects mutable custody and mismatched images', async () => {
   expect(await postgresDevelopmentRuntimeHealthy(owner)).toBe(false);
 });
 it('never substitutes a hold for API service health', async () => {
-  mocks.docker.mockResolvedValue(JSON.stringify({ image, state: 'exited', health: 'none' }));
+  mocks.docker.mockImplementation(async (args: string[]) => args[0] === 'ps' ? 'a'.repeat(64) : JSON.stringify({ image, state: 'exited', health: 'none' }));
   expect(await postgresDevelopmentRuntimeHealthy(owner)).toBe(false);
   expect(mocks.held).not.toHaveBeenCalled();
 });
@@ -61,9 +61,13 @@ it('recreates the exact API snapshot to refresh restored credential mounts', asy
 it('requires a validated restored hold for a stopped operations writer', async () => {
   const runner = { ...owner, service: 'operations-runner', targetId: 'operations-runner', name: 'treeseed-dev-test-api-operations-runner' };
   mocks.read.mockReturnValue(JSON.stringify({ services: { runtime: { image, container_name: runner.name } } }));
-  mocks.docker.mockResolvedValue(JSON.stringify({ image, state: 'exited', health: 'none' }));
+  mocks.docker.mockImplementation(async (args: string[]) => args[0] === 'ps' ? 'a'.repeat(64) : JSON.stringify({ image, state: 'exited', health: 'none' }));
   mocks.held.mockReturnValue(false);
   expect(await postgresDevelopmentRuntimeHealthy(runner)).toBe(false);
   mocks.held.mockReturnValue(true);
   expect(await postgresDevelopmentRuntimeHealthy(runner)).toBe(true);
+  mocks.docker.mockResolvedValue('');
+  expect(await postgresDevelopmentRuntimeHealthy(runner)).toBe(true);
+  mocks.held.mockReturnValue(false);
+  await expect(postgresDevelopmentRuntimeHealthy(runner)).rejects.toThrow();
 });

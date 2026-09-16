@@ -20,6 +20,7 @@ import {
 	reconcile,
 } from './reconcile.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
+import { DevelopmentSessionStore } from './development-sessions.js';
 
 export interface RecoveryBackupInspection {
 	generation: number;
@@ -55,7 +56,9 @@ function packageSelections(receipt: HostReceipt) {
 }
 
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	await activateWithRoutes(rollbackRoutes(host, components), async () => {
+	const base = rollbackRoutes(host, components);
+	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
+	await activateWithRoutes(routes, async () => {
 		for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
 	});
 }

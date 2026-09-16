@@ -16,6 +16,7 @@ vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => st
 vi.mock('../src/manager/current-state.js', () => ({ loadActiveComponents: () => state.currentComponents, loadCurrentReceipt: () => state.currentReceipt }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: (path: string, value: unknown) => state.writes.push({ path, value }) }));
 vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
+vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { activeRoutes(base: unknown) { return base; } } }));
 vi.mock('../src/edge/caddy.js', () => ({ renderCaddyfile: () => 'managed routes', subjectAlternativeNames: () => ['api.treeseed.localhost'] }));
 vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => true }));
 vi.mock('../src/manager/component-order.js', () => ({

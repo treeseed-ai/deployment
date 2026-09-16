@@ -38,6 +38,14 @@ export async function startPostgresDevelopmentRuntime(replacement: Replacement) 
 
 export async function postgresDevelopmentRuntimeHealthy(replacement: Replacement) {
   const { spec } = runtimeSnapshot(replacement);
+  const held = replacement.targetId === 'operations-runner' && developmentBackupRuntimeHeld(
+    developmentBackupDependencies((executable, args) => execFileSync(executable, [...args],
+      { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] })), replacement.sessionId);
+  if (held) {
+    const inventory = (await postgresDocker(['ps', '--all', '--filter', `name=^/${replacement.name}$`, '--format', '{{.ID}}'], 10, true)).trim();
+    if (!inventory) return true; // Exact restored custody can recreate the fenced writer at finish.
+    if (!/^[a-f0-9]{12,64}$/u.test(inventory)) throw new Error('PostgreSQL development writer inventory is invalid');
+  }
   const observed = JSON.parse(await postgresDocker(['inspect', '--format',
     '{"image":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}', replacement.name], 10, true));
   recordEvent('postgres.development.runtime-status', { sessionId: replacement.sessionId, targetId: replacement.targetId,
@@ -47,6 +55,5 @@ export async function postgresDevelopmentRuntimeHealthy(replacement: Replacement
   if (observed.image !== spec.services.runtime.image) return false;
   if (observed.state === 'running' && observed.health === 'healthy') return true;
   if (replacement.targetId !== 'operations-runner' || observed.state === 'running') return false;
-  return developmentBackupRuntimeHeld(developmentBackupDependencies((executable, args) => execFileSync(executable, [...args],
-    { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] })), replacement.sessionId);
+  return held;
 }
