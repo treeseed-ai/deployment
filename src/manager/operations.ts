@@ -33,6 +33,7 @@ import { planHostInitialization, renderHostInitializationConfiguration, validate
 import { executeProviderEnvironmentCommand } from './provider-environment.js';
 import { executePostgresTransferCommand } from './postgres-transfer.js';
 import { availableCatalogSummary } from './catalog-summary.js';
+import { setComponentEnabled } from './component-selection.js';
 
 const bootstrapHandoffSchema = z.object({
 	complete: z.boolean(),
@@ -450,7 +451,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.component.disable': {
 			const id = componentId(request), enabled = request.handlerId.endsWith('.enable');
 			if (!host.components[id]) throw new Error(`Unknown configured component ${id}.`);
-			return request.options.plan === true ? { componentId: id, enabled, nextGeneration: host.generation + 1 } : replaceConfiguration((candidate) => { candidate.components[id]!.enabled = enabled; return candidate; });
+			return request.options.plan === true ? { componentId: id, enabled, nextGeneration: host.generation + 1 } : replaceConfiguration((candidate) => setComponentEnabled(candidate, id, enabled));
 		}
 		case 'local.host.aliases.list': return { aliases: plan().routes.map(({ alias, upstream, authentication }) => ({ alias, upstream, authentication })) };
 		case 'local.host.recovery.status': return {
