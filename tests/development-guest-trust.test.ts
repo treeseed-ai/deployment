@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { managedConnectionEnvironment, sandboxGuestTrustDigest } from '../src/manager/reconcile.js';
+import { managedConnectionEnvironment } from '../src/manager/reconcile.js';
+import { sandboxGuestTrustDigest } from '../src/manager/development-handoff.js';
 import { component, host } from './fixtures.js';
 
 describe('development sandbox guest trust', () => {
