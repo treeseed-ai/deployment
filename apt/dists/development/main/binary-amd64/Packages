@@ -540,6 +540,23 @@ Priority: optional
 Description: Signed compatible TreeSeed development release overlay
  Managed by the unified TreeSeed deployment system.
 
+Package: treeseed-release-catalog-development
+Version: 0.1.0~rc320-266+catalog.c2afef8bc057
+Architecture: all
+Maintainer: TreeSeed Releases <releases@treeseed.ai>
+Depends: treeseed-release-catalog (= 0.1.0-36+catalog.be9a3b39e19e)
+Breaks: treeseed-release-catalog (<< 0.1.0-36+catalog.be9a3b39e19e)
+Replaces: treeseed-release-catalog (<< 0.1.0-36+catalog.be9a3b39e19e)
+Filename: pool/development/treeseed-release-catalog-development_0.1.0~rc320-266+catalog.c2afef8bc057_all.deb
+Size: 15882
+MD5sum: 56073f085b910e6fc8658e396a8a69fd
+SHA1: be66b2fcbe0e9ff2098e6cd0e9927ed3172068cf
+SHA256: 1bb6158ecd415027b036db1a9f6f260e2fecda55803d6cbc407c8220d407d6ed
+Section: admin
+Priority: optional
+Description: Signed compatible TreeSeed development release overlay
+ Managed by the unified TreeSeed deployment system.
+
 Package: treeseed-sdk
 Version: 0.13.0~rc117-1
 Architecture: all

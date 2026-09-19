@@ -132,6 +132,14 @@
       "depends": "treeseed-release-catalog (= 0.1.0-36+catalog.be9a3b39e19e)"
     },
     {
+      "name": "treeseed-release-catalog-development_0.1.0~rc320-266+catalog.c2afef8bc057_all.deb",
+      "digest": "sha256:1bb6158ecd415027b036db1a9f6f260e2fecda55803d6cbc407c8220d407d6ed",
+      "size": 15882,
+      "package": "treeseed-release-catalog-development",
+      "version": "0.1.0~rc320-266+catalog.c2afef8bc057",
+      "depends": "treeseed-release-catalog (= 0.1.0-36+catalog.be9a3b39e19e)"
+    },
+    {
       "name": "treeseed-release-catalog_0.1.0-36+catalog.be9a3b39e19e_all.deb",
       "digest": "sha256:87369cee5385804dc31e4986f7275ce269ef2bced82c367315fa8fac9cae47bc",
       "size": 894,
