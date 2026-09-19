@@ -15,7 +15,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtimeStopped, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
-import { developmentHeldComponentIds, resumeDevelopmentSessions } from './development-handoff.js';
+import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, resumeDevelopmentSessions, sandboxGuestTrustDigest } from './development-handoff.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
@@ -27,17 +27,6 @@ import { activateWithRoutes } from './routed-activation.js';
 import { hostSecurityActivationBlockers, type HostSecurityActivationStatus } from './security-activation.js';
 
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
-
-export function sandboxGuestTrustDigest(
-	releasedDigest: string | undefined,
-	heldByDevelopmentSession: boolean,
-) {
-	// A development session owns guest trust for its lifetime. Its candidate
-	// import binds the exact local digest atomically; normal reconciliation must
-	// neither pull the released image nor replace that binding mid-session.
-	return heldByDevelopmentSession ? undefined : releasedDigest;
-}
-
 function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
 }
@@ -241,13 +230,18 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 	return { connectionEnvironment, secretFileIds, optionalSecretEnvironment };
 }
 
-export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], backupGeneration?: number) {
-	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
+async function configureComponentForActivation(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const developmentRoutes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes([]) : [];
 	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases, developmentRoutes);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
 	const sandboxGuestImageDigest = component.componentId === 'agent' ? component.images.find((image) => image.role === 'sandbox-guest')?.digest : undefined;
 	await requestSupervisor({ operation: 'component.configure', componentId: component.componentId, release: component.release, connectionEnvironment, secretFileIds, optionalSecretEnvironment, ...(sandboxGuestImageDigest ? { sandboxGuestImageDigest } : {}) });
+	return connectionEnvironment;
+}
+
+export async function activateComponent(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], backupGeneration?: number) {
+	const waitTimeoutSeconds = Math.max(60, ...component.runtime.services.flatMap((service) => service.endpoints.map((endpoint) => endpoint.healthGate?.timeoutSeconds ?? 0)));
+	const connectionEnvironment = await configureComponentForActivation(host, component, releases);
 	if (component.runtime.postgresLifecycle?.length) {
 		await requestSupervisor({ operation: 'postgres.component.activate', componentId: component.componentId,
 			selections: releases.map(({ componentId, release }) => ({ componentId, release })), ...(backupGeneration ? { backupGeneration } : {}) });
@@ -390,6 +384,16 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			if (status?.ready === false || typeof status?.present === 'boolean' && (!status.present || !status.running)) {
 				changedIds.add(component.componentId);
 				recordEvent('component.repair-required', { componentId: component.componentId, present: status.present === true, running: status.running === true, ...(status.issues?.length ? { issues: status.issues } : {}) });
+			}
+		}
+		// A live development runtime is not replaced by its released Compose service,
+		// but its manager-owned /run credentials still need restoration after restart.
+		for (const component of targets.filter(({ componentId }) => heldDevelopmentComponents.has(componentId))) {
+			const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
+			const status = await requestSupervisor<{ issues?: Array<{ service: string; reason: string }> }>({ operation: 'compose.status', projectName: component.runtime.compose.projectName, runtime: { componentId: component.componentId, files: composeFiles(component), services } });
+			if (heldDevelopmentCredentialsMissing(status)) {
+				await configureComponentForActivation(host, component, effective);
+				recordEvent('component.development-credential-repaired', { componentId: component.componentId });
 			}
 		}
 	}

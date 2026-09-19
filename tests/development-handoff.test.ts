@@ -3,7 +3,7 @@ import type { ManagedDevelopmentSession } from '../src/manager/development-sessi
 
 const request = vi.fn();
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: request }));
-const { developmentHeldComponentIds, resumeDevelopmentSessions } = await import('../src/manager/development-handoff.js');
+const { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, resumeDevelopmentSessions } = await import('../src/manager/development-handoff.js');
 
 function session(targets: Array<{ projectId: string; targetId: string; mode: string; kind: string }>) {
 	return { session: { sessionId: 'dev-acceptance', targets }, runtimes: targets.map((target) => ({
@@ -27,4 +27,11 @@ it('reports source recovery pending without changing installed-component custody
 	expect(await resumeDevelopmentSessions([record])).toBe(true);
 	expect(await resumeDevelopmentSessions([record])).toBe(false);
 	expect(request).toHaveBeenCalledWith({ operation: 'development.boot.resume', sessionId: 'dev-acceptance' });
+});
+
+it('restages only missing manager-owned credentials for a development-held runtime', () => {
+	expect(heldDevelopmentCredentialsMissing({ issues: [{ reason: 'runtime-credential-unavailable' }] })).toBe(true);
+	expect(heldDevelopmentCredentialsMissing({ issues: [{ reason: 'configuration-unavailable' }] })).toBe(true);
+	expect(heldDevelopmentCredentialsMissing({ issues: [{ reason: 'stopped' }] })).toBe(false);
+	expect(heldDevelopmentCredentialsMissing({})).toBe(false);
 });
