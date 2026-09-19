@@ -243,7 +243,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		const reason = error instanceof Error && (/^PostgreSQL container operation failed: operation=[a-z]+, project=[a-zA-Z0-9._-]+, exit=(?:[0-9]+|signal), timedOut=(?:true|false)$/u.test(error.message)
 			|| ['PostgreSQL component runtime remains unhealthy', 'PostgreSQL runtime drift requires repair before activation',
 				'PostgreSQL development runtime lacks exact root custody', 'PostgreSQL development runtime snapshot is invalid',
-				'PostgreSQL runtime has competing development owners'].includes(error.message)) ? error.message : undefined;
+				'PostgreSQL runtime has competing development owners', 'Verified shared-server restore point required',
+				'PostgreSQL allocation plan is blocked'].includes(error.message)) ? error.message : undefined;
 		const systemCode = /^[A-Z0-9_]{1,20}$/u.test(String((error as { code?: unknown })?.code ?? '')) ? String((error as { code: string }).code) : undefined;
 		throw new Error(`PostgreSQL component activation failed${stage ? ` (${stage})` : ''}; reason=${reason ?? systemCode ?? 'unclassified'}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
 	});

@@ -55,12 +55,12 @@ function packageSelections(receipt: HostReceipt) {
 		.map(({ name, version }) => `${name}=${version}`);
 }
 
-async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
+async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[], backupGeneration?: number) {
 	const enabled = components.filter(component => host.components[component.componentId]?.enabled === true);
 	const base = rollbackRoutes(host, enabled);
 	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
 	await activateWithRoutes(routes, async () => {
-		for (const component of componentActivationOrder(host, enabled)) await activateComponent(host, component, enabled);
+		for (const component of componentActivationOrder(host, enabled)) await activateComponent(host, component, enabled, backupGeneration);
 	});
 }
 
@@ -117,7 +117,7 @@ export async function retryManagedRecovery() {
 	if (!receipt) throw new Error('A current known-good receipt is required before recovery retry.');
 	await requestSupervisor({ operation: 'development.backup.fence', generation: held.generation,
 		apiRuntimeDigest: components.find(component => component.componentId === 'api')?.runtimeDigest });
-	await activateRestoredGeneration(host, components);
+	await activateRestoredGeneration(host, components, held.generation);
 	await requestSupervisor({ operation: 'development.backup.finish', generation: held.generation });
 	recordEvent('recovery.retry-complete', { generation: held.generation, receiptId: receipt.receiptId });
 	return { generation: held.generation, recovered: true, receiptId: receipt.receiptId };
