@@ -40,6 +40,13 @@ it('restores boot inputs before vault startup and client recovery, then noops', 
 	expect(recoverDevelopmentCustody(operations)).toBe(false);
 	expect(calls).toEqual(['prepare', 'vault', 'client']);
 });
+it('restarts vault custody when credential files survive but the vault stopped', () => {
+	let vaultRunning = false; const calls: string[] = [];
+	const operations = { ready: () => vaultRunning, prepare: () => { calls.push('prepare'); },
+		startVault: () => { calls.push('vault'); vaultRunning = true; }, initializeClient: () => { calls.push('client'); } };
+	expect(recoverDevelopmentCustody(operations)).toBe(true);
+	expect(calls).toEqual(['prepare', 'vault', 'client']);
+});
 it('does not initialize a client after failed vault startup', () => {
 	let initialized = false;
 	expect(() => recoverDevelopmentCustody({ ready: () => false, prepare: () => {},

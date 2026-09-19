@@ -7,6 +7,10 @@ import { runtimeStopped } from '../manager/update-state.js';
 type Command = (command: string, args: string[], input?: string) => unknown;
 const worker = '/usr/lib/treeseed/cli/dist/cli/development/boot-resume.js';
 
+export function developmentResumeRequired(record: ManagedDevelopmentSession) {
+	return record.session.targets.some(target => target.mode === 'live' && target.health !== 'ready');
+}
+
 export function captureBootCommand(command: Command, executable: string, args: string[]) {
 	const value = command(executable, args, '');
 	if (typeof value !== 'string') throw new Error('Development boot command returned no captured output.');
@@ -45,7 +49,13 @@ export function resumeDevelopmentAtBoot(sessionId: string, command: Command) {
 	const load = captureBootCommand(command, '/usr/bin/systemctl', ['show', unit, '--property=LoadState', '--value']);
 	if (load === 'loaded') {
 		const state = captureBootCommand(command, '/usr/bin/systemctl', ['show', unit, '--property=ActiveState', '--value']);
-		if (state === 'active') return { ready: true };
+		// RemainAfterExit can be active from an earlier successful boot even after
+		// host stop marked the live selections stopped. Rerun the fixed worker.
+		if (state === 'active') {
+			if (!developmentResumeRequired(record)) return { ready: true };
+			command('/usr/bin/systemctl', ['restart', '--no-block', unit]);
+			return { ready: false };
+		}
 		if (state !== 'activating') command('/usr/bin/systemctl', ['start', '--no-block', unit]);
 	} else command('/usr/bin/systemd-run', developmentBootCommand(record, owner));
 	return { ready: false };

@@ -9,7 +9,7 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents } from '../manager/current-state.js';
 import { managedContainerDevelopmentConnectionEnvironment, componentActivationInputs, composeFiles } from '../manager/reconcile.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment } from './component.js';
-import { componentComposeArguments, type CommandRunner } from './compose-runtime.js';
+import { componentComposeArguments, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
@@ -141,7 +141,12 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Reconstruct /run from encrypted persistent custody before mounting clients.
   const custodyCompose = () => ['compose', ...componentComposeArguments('api', composeFiles(component)), '--project-name', component.runtime.compose.projectName];
   recoverDevelopmentCustody({
-	ready: developmentCustodyReady,
+	ready: () => {
+		if (!developmentCustodyReady()) return false;
+		try { return composeRuntimeStatus({ operation: 'compose.status', projectName: component.runtime.compose.projectName,
+			runtime: { componentId: 'api', files: composeFiles(component), services: ['openbao'] } }, command).ready === true; }
+		catch { return false; }
+	},
     prepare: () => {
       const services = new Set(component.runtime.services.map(service => service.composeService));
       if (!services.has('openbao') || !services.has('openbao-initialize')) throw new Error('Managed API custody recovery contract is unavailable.');

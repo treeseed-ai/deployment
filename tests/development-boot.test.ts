@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureBootCommand, developmentBootCommand } from '../src/supervisor/development-boot.js';
+import { captureBootCommand, developmentBootCommand, developmentResumeRequired } from '../src/supervisor/development-boot.js';
 import type { ManagedDevelopmentSession } from '../src/manager/development-sessions.js';
 
 describe('development boot process custody', () => {
@@ -20,5 +20,10 @@ describe('development boot process custody', () => {
 		expect(() => developmentBootCommand(record, { uid: 0, gid: 0, home: '/root' })).toThrow();
 		expect(() => developmentBootCommand(record, { uid: 1001, gid: 1001, home: '/workspace/\nSECRET=bad' })).toThrow();
 		expect(() => developmentBootCommand({ session: { sessionId: '--malicious' } } as ManagedDevelopmentSession, { uid: 1001, gid: 1001, home: '/workspace/user' })).toThrow();
+	});
+	it('restarts a completed boot worker when host stop left live targets stopped', () => {
+		const stopped = { session: { targets: [{ mode: 'live', health: 'stopped' }, { mode: 'released', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession;
+		expect(developmentResumeRequired(stopped)).toBe(true);
+		expect(developmentResumeRequired({ session: { targets: [{ mode: 'live', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession)).toBe(false);
 	});
 });
