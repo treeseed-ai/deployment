@@ -60,7 +60,9 @@ async function activateRestoredGeneration(host: HostConfiguration, components: C
 	const base = rollbackRoutes(host, enabled);
 	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
 	await activateWithRoutes(routes, async () => {
-		for (const component of componentActivationOrder(host, enabled)) await activateComponent(host, component, enabled, backupGeneration);
+		// Activate only enabled components, but verify database requirements against
+		// the complete installed inventory, including disabled components.
+		for (const component of componentActivationOrder(host, enabled)) await activateComponent(host, component, components, backupGeneration);
 	});
 }
 

@@ -6,7 +6,7 @@ import { component, hash, host } from './fixtures.js';
 const state = vi.hoisted(() => ({
 	operations: [] as any[], events: [] as any[], writes: [] as any[], lifecycle: [] as string[],
 	currentHost: undefined as any, currentComponents: [] as any[], currentReceipt: undefined as any,
-	target: undefined as any, activationFailure: false, backupFailure: false,
+	target: undefined as any, activationFailure: false, backupFailure: false, activationInventories: [] as string[][],
 	transfer: null as { restoreGeneration: number; restoreDigest: string } | null,
 	hold: null as { generation: number; phase: string } | null,
 }));
@@ -26,7 +26,8 @@ vi.mock('../src/manager/component-order.js', () => ({
 vi.mock('../src/manager/reconcile.js', () => ({
 	reconcile: async () => ({ action: 'noop' }),
 	stopComponent: async (item: any) => state.lifecycle.push(`stop:${item.release}`),
-	activateComponent: async (_host: unknown, item: any, _components: unknown, backupGeneration?: number) => {
+	activateComponent: async (_host: unknown, item: any, components: any[], backupGeneration?: number) => {
+		state.activationInventories.push(components.map(component => component.componentId));
 		state.lifecycle.push(`activate:${item.release}`);
 		if (backupGeneration !== undefined) state.lifecycle.push(`backup:${backupGeneration}`);
 		if (state.activationFailure) { state.activationFailure = false; throw new Error('target health failed'); }
@@ -69,9 +70,10 @@ it('does not reactivate installed components disabled by the current host select
 	state.currentHost.components['ai-inference'] = { enabled: false, track: 'development', aliases: {}, configuration: {} };
 	state.currentComponents = [component('api', 'development', 'a'), component('ai-inference', 'development', 'b')];
 	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
-	state.operations = []; state.lifecycle = []; state.hold = { generation: 74, phase: 'restored' };
+	state.operations = []; state.lifecycle = []; state.activationInventories = []; state.hold = { generation: 74, phase: 'restored' };
 	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
 	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:74']);
+	expect(state.activationInventories).toEqual([['api', 'ai-inference']]);
 	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(true);
 });
 
