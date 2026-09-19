@@ -199,6 +199,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			noteDevelopmentPauseOwner(payload.sessionId, false);
 			await applyDevelopmentRoutes(store); return stopped;
 		}
+		case 'local.dev.session.suspend': {
+			if (!context.local) throw new Error('Development sessions may be suspended only through the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().regex(/^dev-[a-z0-9-]{1,64}$/u) }).strict().parse(developmentPayload(request));
+			return new DevelopmentSessionStore().suspend(payload.sessionId);
+		}
 		case 'local.dev.session.refresh': {
 			if (!context.local) throw new Error('Development sessions may be refreshed only through the protected local manager socket.');
 			const payload = z.object({ sessionId: z.string().min(1), runtimes: z.array(z.unknown()).min(1) }).strict().parse(developmentPayload(request));

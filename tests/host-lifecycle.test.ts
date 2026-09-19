@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
 	stopped: false,
 	live: false,
+	suspended: false,
 	hold: false,
 	stopFailure: false,
 	startFailure: false,
@@ -20,7 +21,7 @@ vi.mock('../src/manager/current-state.js', () => ({
 }));
 vi.mock('../src/manager/component-order.js', () => ({ componentStopOrder: () => [{ componentId: 'treedx' }, { componentId: 'api' }] }));
 vi.mock('../src/manager/development-sessions.js', () => ({
-	DevelopmentSessionStore: class { list() { return state.live ? [{ session: { targets: [{ mode: 'live' }] } }] : []; } },
+	DevelopmentSessionStore: class { list() { return state.live ? [{ session: { status: state.suspended ? 'suspended' : 'active', targets: [{ mode: 'live' }] } }] : []; } },
 }));
 vi.mock('../src/manager/reconcile.js', () => ({
 	reconcile: async () => { state.reconciles++; if (state.startFailure) throw new Error('activation failed'); return { receiptId: 'new-known-good' }; },
@@ -36,7 +37,7 @@ vi.mock('../src/manager/update-state.js', () => ({
 
 const { startHostWorkloads, stopHostWorkloads } = await import('../src/manager/host-lifecycle.js');
 
-beforeEach(() => { state.stopped = false; state.live = false; state.hold = false; state.stopFailure = false; state.startFailure = false; state.stops = []; state.reconciles = 0; });
+beforeEach(() => { state.stopped = false; state.live = false; state.suspended = false; state.hold = false; state.stopFailure = false; state.startFailure = false; state.stops = []; state.reconciles = 0; });
 
 describe('host lifecycle under the manager authority', () => {
 	it('fences updates before reverse-order stop, preserves the manager, and repeats as noop', async () => {
@@ -76,5 +77,7 @@ describe('host lifecycle under the manager authority', () => {
 		await expect(stopHostWorkloads()).rejects.toThrow('coordinated development pause');
 		expect(state.stopped).toBe(false);
 		expect(state.stops).toEqual([]);
+		state.suspended = true;
+		expect(await stopHostWorkloads()).toMatchObject({ state: 'stopped', changed: true });
 	});
 });

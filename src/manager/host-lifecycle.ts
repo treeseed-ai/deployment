@@ -10,7 +10,7 @@ import { runtimeStopped, setRuntimeStopped } from './update-state.js';
 export async function stopHostWorkloads() {
 	assertDevelopmentNotHeld();
 	const live = new DevelopmentSessionStore().list()
-		.filter(record => record.session.targets.some(target => target.mode !== 'released'));
+		.filter(record => record.session.status !== 'suspended' && record.session.targets.some(target => target.mode !== 'released'));
 	if (live.length) throw new Error('Active development targets require a coordinated development pause before host stop. No services were changed.');
 	if (runtimeStopped()) return { state: 'stopped' as const, changed: false };
 	const host = loadHostConfiguration(), active = loadActiveComponents();
