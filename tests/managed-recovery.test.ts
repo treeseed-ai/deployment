@@ -26,8 +26,9 @@ vi.mock('../src/manager/component-order.js', () => ({
 vi.mock('../src/manager/reconcile.js', () => ({
 	reconcile: async () => ({ action: 'noop' }),
 	stopComponent: async (item: any) => state.lifecycle.push(`stop:${item.release}`),
-	activateComponent: async (_host: unknown, item: any) => {
+	activateComponent: async (_host: unknown, item: any, _components: unknown, backupGeneration?: number) => {
 		state.lifecycle.push(`activate:${item.release}`);
+		if (backupGeneration !== undefined) state.lifecycle.push(`backup:${backupGeneration}`);
 		if (state.activationFailure) { state.activationFailure = false; throw new Error('target health failed'); }
 	},
 	enrollProvider: async (_host: unknown, item: any) => state.lifecycle.push(`enroll:${item.release}`),
@@ -60,7 +61,7 @@ it('retries restored runtime custody without another database archive or package
 	expect(state.operations.map(({ operation }) => operation)).toEqual([
 		'development.backup.status', 'postgres.transfer.status', 'development.backup.fence', 'edge.apply', 'development.backup.finish',
 	]);
-	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`]);
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:73']);
 });
 
 it('does not reactivate installed components disabled by the current host selection during retry', async () => {
@@ -70,7 +71,7 @@ it('does not reactivate installed components disabled by the current host select
 	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
 	state.operations = []; state.lifecycle = []; state.hold = { generation: 74, phase: 'restored' };
 	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
-	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`]);
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:74']);
 	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(true);
 });
 
