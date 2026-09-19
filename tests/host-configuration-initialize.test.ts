@@ -9,14 +9,15 @@ describe('privileged host configuration initialization', () => {
 	it('atomically installs one generation and completes the bootstrap marker', () => {
 		const root = mkdtempSync(join(tmpdir(), 'treeseed-initialize-'));
 		try {
-			const configurationPath = join(root, 'etc', 'platform.json'), marker = join(root, 'state', 'bootstrap-status.json');
+			const configurationPath = join(root, 'etc', 'platform.json'), marker = join(root, 'state', 'bootstrap-status.json'), updateState = join(root, 'state', 'update-state.json');
 			const calls: Array<[string, readonly string[]]> = [];
 			const operation = { operation: 'configuration.initialize' as const, configuration: host() };
-			expect(initializeHostConfiguration(operation, (executable, arguments_) => calls.push([executable, arguments_]), configurationPath, marker)).toMatchObject({ initialized: true, configurationId: 'test-host', generation: 1 });
+			expect(initializeHostConfiguration(operation, (executable, arguments_) => calls.push([executable, arguments_]), configurationPath, marker, undefined, updateState)).toMatchObject({ initialized: true, configurationId: 'test-host', generation: 1 });
+			expect(JSON.parse(readFileSync(updateState, 'utf8'))).toMatchObject({ runtimeStopped: true });
 			expect(JSON.parse(readFileSync(configurationPath, 'utf8'))).toEqual(host());
 			expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ complete: true, foundationReady: true, initializationRequired: false, installerCredentialsRetained: false });
-			expect(calls).toEqual([['/usr/bin/chown', ['root:treeseed-manager', configurationPath]], ['/usr/bin/chown', ['treeseed-manager:treeseed-manager', marker]]]);
-			expect(() => initializeHostConfiguration(operation, () => undefined, configurationPath, marker)).toThrow(/unconfigured foundation/u);
+			expect(calls).toEqual([['/usr/bin/chown', ['treeseed-manager:treeseed-manager', updateState]], ['/usr/bin/chown', ['root:treeseed-manager', configurationPath]], ['/usr/bin/chown', ['treeseed-manager:treeseed-manager', marker]]]);
+			expect(() => initializeHostConfiguration(operation, () => undefined, configurationPath, marker, undefined, updateState)).toThrow(/unconfigured foundation/u);
 		} finally { rmSync(root, { recursive: true, force: true }); }
 	});
 
@@ -25,9 +26,9 @@ describe('privileged host configuration initialization', () => {
 		try {
 			const configuration = host();
 			configuration.secrets['provider-registration'] = { provider: 'file', reference: '/etc/treeseed/credentials/provider-registration' };
-			const configurationPath = join(root, 'etc', 'platform.json'), marker = join(root, 'state', 'bootstrap-status.json'), credentials = join(root, 'credentials');
+			const configurationPath = join(root, 'etc', 'platform.json'), marker = join(root, 'state', 'bootstrap-status.json'), credentials = join(root, 'credentials'), updateState = join(root, 'state', 'update-state.json');
 			const result = initializeHostConfiguration({ operation: 'configuration.initialize', configuration,
-				oneTimeCredentials: { 'provider-registration': 'temporary-registration-code' } }, () => undefined, configurationPath, marker, credentials);
+				oneTimeCredentials: { 'provider-registration': 'temporary-registration-code' } }, () => undefined, configurationPath, marker, credentials, updateState);
 			expect(result).toEqual({ initialized: true, configurationId: 'test-host', generation: 1 });
 			expect(readFileSync(join(credentials, 'provider-registration'), 'utf8')).toBe('temporary-registration-code');
 			expect(statSync(join(credentials, 'provider-registration')).mode & 0o777).toBe(0o600);

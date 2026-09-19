@@ -148,7 +148,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		const oneTimeCredentials = initializationInputs.teamRegistrationCode ? { 'provider-registration': initializationInputs.teamRegistrationCode } : undefined;
 		await requestSupervisor({ operation: 'configuration.initialize', configuration, ...(oneTimeCredentials ? { oneTimeCredentials } : {}) });
 		return { ...proposed, mode: 'execute', mutation: true, configured: true, initialized: true, configurationId: configuration.configurationId, generation: configuration.generation,
-			securityRequired: proposed.security.requirement === 'required', nextAction: proposed.security.requirement === 'required' ? 'host security initialize' : 'host reconcile' };
+			securityRequired: proposed.security.requirement === 'required', nextAction: proposed.security.requirement === 'required' ? 'host security initialize' : 'host start' };
 	}
 	if (request.handlerId === 'local.host.uninstall') {
 		if (!context.local) throw new Error('Host uninstall is available only through the protected local manager socket.');
