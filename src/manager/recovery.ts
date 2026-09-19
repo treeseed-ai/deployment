@@ -83,6 +83,7 @@ function persistRestoredReceipt(target: HostReceipt, components: ComponentReleas
 	return receipt;
 }
 
+
 export async function listRecoveryBackups() {
 	const backups = await requestSupervisor<RecoveryBackupSummary[]>({ operation: 'backup.list' });
 	return backups.map((backup) => {
@@ -129,6 +130,10 @@ export async function restoreManagedGeneration(generation: number) {
 	const target = await inspectRecoveryBackup(generation);
 	const currentHost = loadHostConfiguration(), currentComponents = loadActiveComponents(), currentReceipt = loadCurrentReceipt();
 	if (!currentReceipt) throw new Error('A current known-good receipt is required before manual recovery.');
+	const reenabled = Object.entries(target.configuration.components)
+		.filter(([id, selection]) => selection.enabled && currentHost.components[id]?.enabled === false)
+		.map(([id]) => id);
+	if (reenabled.length) throw new Error(`Recovery would enable explicitly disabled components: ${reenabled.join(', ')}. Review and change the current host selection before restoring this generation.`);
 	const safetyGeneration = Date.now();
 	const held = await requestSupervisor<{ generation: number } | null>({ operation: 'development.backup.status' });
 	const transfer = await requestSupervisor<{ restoreGeneration: number; restoreDigest: string } | null>({ operation: 'postgres.transfer.status' });
