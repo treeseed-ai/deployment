@@ -207,7 +207,9 @@ describe('Debian and systemd contracts', () => {
 		expect(workflow).toContain('cmp --silent "$asset" "$existing_dir/$name"');
 		expect(workflow).not.toContain('gh release upload "${{ inputs.tag }}" release/out/*');
 		expect(workflow).toContain('Restore exact release assets for APT-only resume');
-		expect(workflow).toContain("gh release download \"${{ inputs.tag }}\" --pattern '*.deb' --pattern exact-head.json");
+		expect(workflow).toContain("gh release download \"${{ inputs.tag }}\" --pattern '*.deb' --pattern 'treeseed-deployment-runtime-*.tgz' --pattern exact-head.json");
+		expect(workflow).toContain('Rebuild only the generation-bound development catalog');
+		expect(workflow).toContain('node --import tsx scripts/verify-deb.ts');
 		expect(workflow).toContain('.repository == $repository and .commit == $commit and .tag == $tag and .suite == $suite');
 		expect(workflow).toContain('if: ${{ !inputs.resume_apt_only }}');
 		expect(workflow).toContain('checked_out_head="$(git rev-parse HEAD)"');
