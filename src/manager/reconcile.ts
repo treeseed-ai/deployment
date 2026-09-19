@@ -15,6 +15,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtimeStopped, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
+import { developmentHeldComponentIds, resumeDevelopmentSessions } from './development-handoff.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
@@ -348,9 +349,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		recordEvent('update.metadata-current', { track, eligible: false, catalogDigest: stable.catalogDigest });
 		return previous;
 	}
-	// User-owned recovery must be scheduled even when an unrelated AI runtime fails.
-	const bootRecovery = await Promise.allSettled(activeDevelopmentSessions.map(record => requestSupervisor<{ ready: boolean }>({ operation: 'development.boot.resume', sessionId: record.session.sessionId })));
-	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
+	const heldDevelopmentComponents = developmentHeldComponentIds(activeDevelopmentSessions);
 	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
 	const disabledPreviouslyActive = active.some((component) => host.components[component.componentId]?.enabled === false);
 	const effectiveCandidates = previous ? accepted.components.map((component) => {
@@ -415,7 +414,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			recordEvent('edge.repaired', {});
 		}
 		await reconcileAiModeSelection(host, effective);
-		if (bootRecovery.some(result => result.status === 'rejected' || !result.value.ready)) {
+		if (!await resumeDevelopmentSessions(activeDevelopmentSessions)) {
 			recordEvent('development.boot-recovery-pending', {});
 			return previous;
 		}
@@ -484,6 +483,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		throw error;
 	}
 	if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
+	if (!await resumeDevelopmentSessions(activeDevelopmentSessions)) recordEvent('development.boot-recovery-pending', {});
 	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: configurationScope.size && previous ? previous.catalogDigest : accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
