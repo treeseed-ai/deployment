@@ -13,6 +13,10 @@ export function reconcileFailurePolicy(value: unknown): ReconcileFailurePolicy {
 	if (value === 'halt') return 'halt';
 	throw new Error('Reconciliation failure policy must be rollback or halt.');
 }
+/** A failed change must never revive a component the operator explicitly disabled. */
+export function failurePolicyForDisabledComponents(requested: ReconcileFailurePolicy, disabledPreviouslyActive: boolean): ReconcileFailurePolicy {
+	return disabledPreviouslyActive ? 'halt' : requested;
+}
 export function requireAutomaticRollback(policy: ReconcileFailurePolicy) {
 	if (reconcileFailurePolicy(policy) === 'halt') throw Object.assign(new Error('Reconciliation halted with affected components stopped; explicit recovery is required. Previous packages and data were not restored.'), {code:'reconcile_halted'});
 }

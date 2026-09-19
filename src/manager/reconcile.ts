@@ -17,7 +17,7 @@ import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
-import { reconcileFailurePolicy, requireAutomaticRollback } from './serialized-reconcile.js';
+import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
 import { quiescedBackup } from './quiesced-backup.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
@@ -349,6 +349,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const bootRecovery = await Promise.allSettled(activeDevelopmentSessions.map(record => requestSupervisor<{ ready: boolean }>({ operation: 'development.boot.resume', sessionId: record.session.sessionId })));
 	const heldDevelopmentComponents = new Set(activeDevelopmentSessions.flatMap((record) => record.session.targets.filter((target) => target.mode !== 'released').map((target) => target.projectId)));
 	const active = loadActiveComponents(), activeById = new Map(active.map((component) => [component.componentId, component]));
+	const disabledPreviouslyActive = active.some((component) => host.components[component.componentId]?.enabled === false);
 	const effectiveCandidates = previous ? accepted.components.map((component) => {
 		const heldBySession = heldDevelopmentComponents.has(component.componentId);
 		const outsideRequestedTrack = Boolean(track && host.components[component.componentId]?.track !== track);
@@ -429,12 +430,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
 	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
 		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
-	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active).filter(impacted), {
+	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active.filter(component => host.components[component.componentId]?.enabled === true)).filter(impacted), {
 		prepare: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.begin', generation,
 			apiRuntimeDigest: effective.find(component => component.componentId === 'api')?.runtimeDigest }) : undefined,
 		resumeAfterFailure: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.finish', generation }) : undefined,
 		stop: stopComponent, start: component => activateComponent(loadHostConfiguration(), component, active),
-		rollbackConfiguration: async () => previous ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
+		rollbackConfiguration: async () => previous && !disabledPreviouslyActive ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
 		capture: async () => {
 			if (!snapshotRequired) return;
 			const backup = await requestSupervisor({ operation: 'backup.create', generation });
@@ -455,11 +456,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 				|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
 		});
 	} catch (error) {
-		recordEvent(failurePolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
+		const rollbackPolicy = failurePolicyForDisabledComponents(failurePolicy, disabledPreviouslyActive);
+		recordEvent(rollbackPolicy === 'halt' ? 'reconcile.halted' : 'reconcile.rollback-started', { generation, message: error instanceof Error ? error.message : String(error) });
 		for (const component of componentStopOrder(host, effective).filter(impacted)) {
 			try { await stopComponent(component); } catch { /* continue restoring the last known-good generation */ }
 		}
-		requireAutomaticRollback(failurePolicy);
+		requireAutomaticRollback(rollbackPolicy);
 		if (snapshotRequired) await requestSupervisor({ operation: 'recovery.restore', generation });
 		const rollbackPackages = [...refresh.previousCore.entries(), ...active.flatMap((component) => component.packages.map((item) => [item.name, item.version] as const))].map(([name, version]) => `${name}=${version}`);
 		if (rollbackPackages.length) await requestSupervisor({ operation: 'apt.install', packages: [...new Set(rollbackPackages)] });
