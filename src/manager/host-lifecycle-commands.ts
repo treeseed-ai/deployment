@@ -1,7 +1,6 @@
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
-import { requestSupervisor } from '../supervisor/client.js';
 import { configurationPlan } from './configuration-preflight.js';
-import { serializedHostLifecycle } from './serialized-reconcile.js';
+import { serializedHostConfigurationStage, serializedHostLifecycle } from './serialized-reconcile.js';
 import { runtimeStopped } from './update-state.js';
 
 /** The local manager socket is the only authority for whole-host lifecycle changes. */
@@ -17,8 +16,7 @@ export async function executeHostLifecycleCommand(request: {
 		const candidate = request.configuration, proposed = configurationPlan(candidate);
 		if (request.options.plan === true) return proposed;
 		if (proposed.plan.blockers.length) throw new Error('Host configuration plan has unresolved blockers.');
-		await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
-		return { staged: true, configurationId: candidate.configurationId, generation: candidate.generation, lifecycle: 'stopped' as const };
+		return serializedHostConfigurationStage(candidate);
 	}
 	const action = request.handlerId === 'local.host.start' ? 'start' : 'stop';
 	return request.options.plan === true

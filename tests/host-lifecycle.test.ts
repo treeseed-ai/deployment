@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 	startFailure: false,
 	stops: [] as string[],
 	reconciles: 0,
+	staged: [] as unknown[],
 }));
 
 vi.mock('../src/core/development-backup-hold.js', () => ({
@@ -34,12 +35,23 @@ vi.mock('../src/manager/update-state.js', () => ({
 	runtimeStopped: () => state.stopped,
 	setRuntimeStopped: (value: boolean) => { state.stopped = value; },
 }));
+vi.mock('../src/manager/configuration-preflight.js', () => ({ configurationPlan: () => ({ plan: { blockers: [] } }) }));
+vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: unknown) => { state.staged.push(operation); } }));
 
-const { startHostWorkloads, stopHostWorkloads } = await import('../src/manager/host-lifecycle.js');
+const { stageHostConfiguration, startHostWorkloads, stopHostWorkloads } = await import('../src/manager/host-lifecycle.js');
 
-beforeEach(() => { state.stopped = false; state.live = false; state.suspended = false; state.hold = false; state.stopFailure = false; state.startFailure = false; state.stops = []; state.reconciles = 0; });
+beforeEach(() => { state.stopped = false; state.live = false; state.suspended = false; state.hold = false; state.stopFailure = false; state.startFailure = false; state.stops = []; state.reconciles = 0; state.staged = []; });
 
 describe('host lifecycle under the manager authority', () => {
+	it('stages only under the stopped fence without starting components', async () => {
+		const candidate = { configurationId: 'fixture', generation: 2 } as any;
+		await expect(stageHostConfiguration(candidate)).rejects.toThrow('Stop host workloads');
+		expect(state.staged).toEqual([]);
+		state.stopped = true;
+		expect(await stageHostConfiguration(candidate)).toEqual({ staged: true, configurationId: 'fixture', generation: 2, lifecycle: 'stopped' });
+		expect(state.staged).toEqual([{ operation: 'configuration.replace', configuration: candidate }]);
+		expect(state.reconciles).toBe(0);
+	});
 	it('fences updates before reverse-order stop, preserves the manager, and repeats as noop', async () => {
 		expect(await stopHostWorkloads()).toEqual({ state: 'stopped', changed: true });
 		expect(state.stopped).toBe(true);

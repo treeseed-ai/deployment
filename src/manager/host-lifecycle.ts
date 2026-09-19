@@ -5,6 +5,18 @@ import { componentStopOrder } from './component-order.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { reconcile, stopComponent } from './reconcile.js';
 import { runtimeStopped, setRuntimeStopped } from './update-state.js';
+import { configurationPlan } from './configuration-preflight.js';
+import { requestSupervisor } from '../supervisor/client.js';
+import type { HostConfiguration } from '@treeseed/sdk/deployment';
+
+/** Called while holding the reconciliation lock, so start cannot race the replacement. */
+export async function stageHostConfiguration(candidate: HostConfiguration) {
+	if (!runtimeStopped()) throw new Error('Stop host workloads before staging a configuration without activation.');
+	const proposed = configurationPlan(candidate);
+	if (proposed.plan.blockers.length) throw new Error('Host configuration plan has unresolved blockers.');
+	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
+	return { staged: true, configurationId: candidate.configurationId, generation: candidate.generation, lifecycle: 'stopped' as const };
+}
 
 /** The manager and supervisor remain reachable; only selected workloads stop. */
 export async function stopHostWorkloads() {

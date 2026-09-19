@@ -11,6 +11,11 @@ vi.mock('../src/manager/update-state.js', () => ({
 }));
 vi.mock('../src/manager/serialized-reconcile.js', () => ({
 	serializedHostLifecycle: async (action: string) => { state.calls.push(action); return { state: action === 'stop' ? 'stopped' : 'running', changed: true }; },
+	serializedHostConfigurationStage: async (configuration: unknown) => {
+		state.calls.push('stage'); state.replacements.push({ operation: 'configuration.replace', configuration });
+		return { staged: true, configurationId: (configuration as { configurationId: string }).configurationId,
+			generation: (configuration as { generation: number }).generation, lifecycle: 'stopped' };
+	},
 	serializedReconcile: async () => { state.calls.push('reconcile'); return { receiptId: 'known-good' }; },
 }));
 vi.mock('../src/manager/configuration-preflight.js', () => ({
@@ -59,7 +64,7 @@ describe('host lifecycle command authority', () => {
 		const result = await executeHostCommand(command('local.host.config.stage', {}, candidate), { local: true });
 		expect(result).toMatchObject({ staged: true, lifecycle: 'stopped', generation: candidate.generation });
 		expect(state.replacements).toEqual([{ operation: 'configuration.replace', configuration: candidate }]);
-		expect(state.calls).toEqual([]);
+		expect(state.calls).toEqual(['stage']);
 	});
 
 	it('changes a component selection while stopped without activating it', async () => {
