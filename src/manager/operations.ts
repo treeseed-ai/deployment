@@ -299,7 +299,8 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.ai.mode.set': return setAiModeCommand(request);
 		case 'local.host.doctor': {
-			return hostDoctor(plan, subjectAlternativeNames(rollbackRoutes(host, loadActiveComponents())), host.components.postgres?.enabled === true);
+			const current = plan();
+			return hostDoctor(() => current, subjectAlternativeNames(current.routes), host.components.postgres?.enabled === true);
 		}
 		case 'local.host.plan': return plan();
 		case 'local.host.apply':
