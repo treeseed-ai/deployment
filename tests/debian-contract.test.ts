@@ -174,7 +174,7 @@ describe('Debian and systemd contracts', () => {
 		expect(bootstrap).toContain('treeseed-host-runtime=$deployment_version');
 		expect(bootstrap).toContain('treeseed-kata-runtime=$deployment_version');
 		expect(bootstrap).toContain('treeseed-manager=$deployment_version');
-		expect(bootstrap).toContain('treeseed-release-catalog-development=$deployment_version');
+		expect(bootstrap).toContain('treeseed-release-catalog-development=$catalog_candidate');
 		expect(bootstrap).toContain('--allow-downgrades');
 		expect(bootstrap).toContain('systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer');
 		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
@@ -230,7 +230,8 @@ describe('Debian and systemd contracts', () => {
 
 	it('versions stable catalog packages by immutable generation and digest', () => {
 		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
-		expect(packager).toContain('stableCatalogDebianVersion(stableCatalog)');
+		expect(packager).toContain('catalogDebianVersion(stableCatalog)');
+		expect(packager).toContain('version: developmentCatalogVersion');
 		expect(readFileSync('scripts/catalog-package-version.ts', 'utf8')).toContain("+catalog.${catalog.catalogDigest.slice(7, 19)}");
 		expect(packager).not.toContain('const stableCatalogVersion = `${stableCatalogRelease}-1`');
 	});

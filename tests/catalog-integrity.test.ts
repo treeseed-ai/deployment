@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { deploymentDigest } from '@treeseed/sdk/deployment';
 import { sealCatalog } from '../scripts/compile-catalog.js';
-import { stableCatalogDebianVersion } from '../scripts/catalog-package-version.js';
+import { catalogDebianVersion } from '../scripts/catalog-package-version.js';
 import { loadCatalog } from '../src/catalog/load.js';
 
 const roots: string[] = [];
@@ -38,7 +39,16 @@ describe('catalog identity', () => {
 		const first = sealCatalog(stable());
 		const second = sealCatalog({ ...stable(), createdAt: '2026-08-31T00:00:01.000Z' });
 		expect(first.generation).toBe(second.generation);
-		expect(stableCatalogDebianVersion(first)).not.toBe(stableCatalogDebianVersion(second));
-		expect(stableCatalogDebianVersion(first)).toMatch(/^0\.1\.0-36\+catalog\.[a-f0-9]{12}$/u);
+		expect(catalogDebianVersion(first)).not.toBe(catalogDebianVersion(second));
+		expect(catalogDebianVersion(first)).toMatch(/^0\.1\.0-36\+catalog\.[a-f0-9]{12}$/u);
+	});
+
+	it('versions a development overlay by generation and content so APT upgrades it independently of the manager', () => {
+		const first = { release: '0.1.0~rc318', generation: 264, catalogDigest: `sha256:${'a'.repeat(64)}` };
+		const next = { ...first, generation: 265, catalogDigest: `sha256:${'b'.repeat(64)}` };
+		expect(catalogDebianVersion(first)).not.toBe(catalogDebianVersion(next));
+		expect(catalogDebianVersion(next)).toMatch(/^0\.1\.0~rc318-265\+catalog\.[a-f0-9]{12}$/u);
+		expect(() => execFileSync('dpkg', ['--compare-versions', catalogDebianVersion(next), 'gt', '0.1.0~rc318-1'])).not.toThrow();
+		expect(() => execFileSync('dpkg', ['--compare-versions', catalogDebianVersion(next), 'gt', catalogDebianVersion(first)])).not.toThrow();
 	});
 });

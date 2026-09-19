@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { componentReleaseSchema, deploymentDigest, integrationReleaseSchema, releaseCatalogSchema } from '@treeseed/sdk/deployment';
 import { verifiedComponentRelease } from '../src/catalog/component-integrity.js';
+import { catalogDebianVersion } from './catalog-package-version.js';
 
 const output = resolve('release/out');
 const aptSuite = process.env.TREESEED_APT_SUITE;
@@ -74,9 +75,11 @@ try {
 		return catalog;
 	};
 	const stable = verifiedCatalog(resolve(root, 'usr/share/treeseed/catalogs/stable.json'));
+	if (field(packageFile('treeseed-release-catalog'), 'Version') !== catalogDebianVersion(stable)) throw new Error('Stable catalog Debian version does not bind its generation and digest.');
 	if (aptSuite === 'stable' && existsSync(resolve(root, 'usr/share/treeseed/catalogs/development.json'))) throw new Error('Stable package set carries a development catalog.');
 	if (aptSuite === 'development') {
 		const development = verifiedCatalog(resolve(root, 'usr/share/treeseed/catalogs/development.json'));
+		if (field(packageFile('treeseed-release-catalog-development'), 'Version') !== catalogDebianVersion(development)) throw new Error('Development catalog Debian version does not bind its generation and digest.');
 		if (development.stableBase?.catalogDigest !== stable.catalogDigest) throw new Error('Development catalog is not bound to the selected stable base.');
 	}
 	for (const component of selected) {
