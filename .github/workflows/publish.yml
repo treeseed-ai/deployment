@@ -76,7 +76,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p release/out
-          gh release download "${{ inputs.tag }}" --pattern '*.deb' --pattern exact-head.json --dir release/out
+          gh release download "${{ inputs.tag }}" --pattern '*.deb' --pattern 'treeseed-deployment-runtime-*.tgz' --pattern exact-head.json --dir release/out
           expected_commit="$(git rev-list -n 1 "${{ inputs.tag }}")"
           jq -e \
             --arg repository "$GITHUB_REPOSITORY" \
