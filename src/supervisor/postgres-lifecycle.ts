@@ -119,7 +119,7 @@ export async function activateLocalPostgresComponent(componentId: string, select
           for (const service of oneShot) await postgresDocker([...compose(), 'up', '--no-deps',
             '--abort-on-container-exit', '--exit-code-from', service, service], 190);
         } else if (released.length) await postgresDocker([...compose(), 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', '180', ...released], 190);
-        for (const replacement of replacements.filter(owner => owner.targetId === 'service' && services.includes(owner.service)))
+        for (const replacement of replacements.filter(owner => services.includes(owner.service)))
           await startPostgresDevelopmentRuntime(replacement);
       },
       runtimeHealthy: async services => {
