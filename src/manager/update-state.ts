@@ -4,6 +4,7 @@ import { atomicJson } from '../core/files.js';
 import { paths } from '../core/paths.js';
 
 const updateStateSchema = z.object({
+	runtimeStopped: z.boolean().default(false),
 	stablePaused: z.boolean(),
 	developmentPaused: z.boolean(),
 	developmentPauseOwners: z.array(z.string().min(1)).default([]),
@@ -15,7 +16,7 @@ export type UpdateState = z.infer<typeof updateStateSchema>;
 const statePath = `${paths.managerState}/update-state.json`;
 
 export function loadUpdateState(): UpdateState {
-	if (!existsSync(statePath)) return { stablePaused: false, developmentPaused: false, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } };
+	if (!existsSync(statePath)) return { runtimeStopped: false, stablePaused: false, developmentPaused: false, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } };
 	return updateStateSchema.parse(JSON.parse(readFileSync(statePath, 'utf8')));
 }
 
@@ -53,5 +54,15 @@ export function recoverDevelopmentPauseOwners(activeSessionIds: readonly string[
 
 export function trackPaused(track: 'stable' | 'development') {
 	const current = loadUpdateState();
-	return current[`${track}Paused`] || current.developmentPauseOwners.length > 0;
+	return current.runtimeStopped || current[`${track}Paused`] || current.developmentPauseOwners.length > 0;
+}
+
+export function runtimeStopped() { return loadUpdateState().runtimeStopped; }
+
+export function setRuntimeStopped(stopped: boolean): UpdateState {
+	const current = loadUpdateState();
+	if (current.runtimeStopped === stopped) return current;
+	const next = { ...current, runtimeStopped: stopped, changedAt: new Date().toISOString() };
+	atomicJson(statePath, next);
+	return next;
 }

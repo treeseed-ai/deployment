@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 	previous: undefined as any,
 	active: [] as any[],
 	paused: false,
+	stopped: false,
 	edgeReady: true,
 	eligible: true,
 	refreshFailure: null as Error | null,
@@ -44,6 +45,7 @@ vi.mock('../src/manager/update-state.js', () => ({
 	noteDevelopmentPauseOwner: () => undefined,
 	recoverDevelopmentPauseOwners: () => undefined,
 	trackPaused: () => state.paused,
+	runtimeStopped: () => state.stopped,
 }));
 vi.mock('../src/manager/update-policy.js', () => ({ activationEligible: () => state.eligible, metadataRefreshDue: () => true }));
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
@@ -98,10 +100,16 @@ beforeEach(() => {
 	newAgent.stableBase = { releaseRange: '^1.0.0', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: state.stable.catalogDigest };
 	oldAgent.stableBase = structuredClone(newAgent.stableBase);
 	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc2', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: state.stable.release, catalogDigest: state.stable.catalogDigest }, components: [newAgent], createdAt: '2026-08-25T00:01:00.000Z' };
-	state.active = [api, oldAgent]; state.previous = receipt(state.active); state.paused = false; state.eligible = true; state.refreshFailure = null; state.installFailure = null; state.activationFailure = null; state.composeStatus = null; state.operations = []; state.events = [];
+	state.active = [api, oldAgent]; state.previous = receipt(state.active); state.paused = false; state.stopped = false; state.eligible = true; state.refreshFailure = null; state.installFailure = null; state.activationFailure = null; state.composeStatus = null; state.operations = []; state.events = [];
 });
 
 describe('isolated update fault qualification', () => {
+	it('does not refresh metadata, install packages, or reactivate services on an intentionally stopped host', async () => {
+		state.stopped = true;
+		expect(await reconcile('development')).toBe(state.previous);
+		expect(await reconcile('stable')).toBe(state.previous);
+		expect(state.operations).toEqual([]);
+	});
 	it('serializes contenders through a real cross-process flock', async () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-lock-')), lock = resolve(root, 'reconcile.lock'), log = resolve(root, 'order');
 		const run = (label: string, delay: string) => new Promise<void>((accept, reject) => {

@@ -12,7 +12,7 @@ import { verifiedComponentRelease } from '../catalog/component-integrity.js';
 import { activationEligible, metadataRefreshDue } from './update-policy.js';
 import { validateProductionCompose } from '../runtime/compose.js';
 import { requestSupervisor } from '../supervisor/client.js';
-import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, trackPaused } from './update-state.js';
+import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtimeStopped, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
@@ -302,6 +302,9 @@ export function runtimeRepairTargets<T extends { componentId: string }>(targets:
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
 	configurationComponentScope: readonly string[] = [], failurePolicy: 'rollback' | 'halt' = 'rollback') {
+	if (runtimeStopped()) {
+		return loadCurrentReceipt();
+	}
 	assertDevelopmentNotHeld();
 	failurePolicy = reconcileFailurePolicy(failurePolicy);
 	let host = loadHostConfiguration();

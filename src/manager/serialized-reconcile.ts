@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hostReceiptSchema, type HostReceipt } from '@treeseed/sdk/deployment';
+import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
 export const reconcileLockPath = '/run/treeseed/manager/reconcile.lock';
@@ -57,4 +58,13 @@ export async function serializedReconcile(track?: 'stable' | 'development', forc
 	}
 	const value = JSON.parse(stdout.trim()) as unknown;
 	return value === null ? undefined : hostReceiptSchema.parse(value);
+}
+
+const lifecycleResultSchema = z.object({ state: z.enum(['running', 'stopped']), changed: z.boolean(), receipt: hostReceiptSchema.optional() }).strict();
+export async function serializedHostLifecycle(action: 'start' | 'stop') {
+	const { stdout } = await execFileAsync('/usr/bin/flock', [
+		'--exclusive', '--close', '--wait', '3500', reconcileLockPath,
+		process.execPath, reconcileExecutable, `--host-action=${action}`,
+	], { maxBuffer: 1024 * 1024 });
+	return lifecycleResultSchema.parse(JSON.parse(stdout.trim()) as unknown);
 }
