@@ -19,7 +19,6 @@ install -m 0644 /usr/share/treeseed/bootstrap/development.sources /etc/apt/sourc
 apt-get -o DPkg::Lock::Timeout=600 update
 deployment_version=$(dpkg-query -W -f='${Version}' treeseed)
 release_packages='treeseed-host-runtime treeseed-kata-runtime treeseed-manager'
-if [ "$suite" = development ]; then release_packages="$release_packages treeseed-release-catalog-development"; fi
 for package in $release_packages; do
 	candidate=$(apt-cache policy "$package" | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p' | head -n 1)
 	if [ "$candidate" != "$deployment_version" ]; then
@@ -29,7 +28,15 @@ for package in $release_packages; do
 done
 suite_packages="treeseed-host-runtime=$deployment_version treeseed-kata-runtime=$deployment_version treeseed-manager=$deployment_version"
 if [ "$suite" = stable ]; then suite_packages="$suite_packages treeseed-release-catalog/stable"; fi
-if [ "$suite" = development ]; then suite_packages="$suite_packages treeseed-release-catalog-development=$deployment_version"; fi
+if [ "$suite" = development ]; then
+	catalog_candidate=$(apt-cache policy treeseed-release-catalog-development | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p' | head -n 1)
+	deployment_base=${deployment_version%-*}
+	case "$catalog_candidate" in
+		"$deployment_base"-*+catalog.*) ;;
+		*) printf '%s development catalog for bootstrap release %s is not yet visible (candidate %s)\n' "$(date -u +%FT%TZ)" "$deployment_version" "${catalog_candidate:-none}" >>"$log"; exit 75 ;;
+	esac
+	suite_packages="$suite_packages treeseed-release-catalog-development=$catalog_candidate"
+fi
 apt-get -o DPkg::Lock::Timeout=600 --allow-downgrades --no-remove --no-install-recommends --target-release "$suite" install -y $suite_packages
 systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer >/dev/null 2>&1 || true
 install -d -o treeseed-manager -g treeseed-manager -m 0750 "$manager_state"

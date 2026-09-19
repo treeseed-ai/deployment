@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { componentReleaseSchema, integrationReleaseSchema, type IntegrationRelease } from '@treeseed/sdk/deployment';
-import { stableCatalogDebianVersion } from './catalog-package-version.js';
+import { catalogDebianVersion } from './catalog-package-version.js';
 import { postgresRuntimePaths } from './postgres-runtime-dependencies.js';
 import { verifiedComponentRelease } from '../src/catalog/component-integrity.js';
 
@@ -14,7 +14,11 @@ const deploymentVersion = process.env.TREESEED_DEBIAN_VERSION ?? npmVersion.repl
 const aptSuite = process.env.TREESEED_APT_SUITE;
 if (aptSuite !== undefined && aptSuite !== 'stable' && aptSuite !== 'development') throw new Error('TREESEED_APT_SUITE must be stable or development.');
 const stableCatalog = JSON.parse(readFileSync(resolve(artifacts, 'catalogs/stable.json'), 'utf8')) as { release: string; generation: number; catalogDigest: string };
-const stableCatalogVersion = stableCatalogDebianVersion(stableCatalog);
+const stableCatalogVersion = catalogDebianVersion(stableCatalog);
+const developmentCatalogPath = resolve(artifacts, 'catalogs/development.json');
+const developmentCatalogVersion = existsSync(developmentCatalogPath)
+	? catalogDebianVersion(JSON.parse(readFileSync(developmentCatalogPath, 'utf8')) as { release: string; generation: number; catalogDigest: string })
+	: undefined;
 function readIntegration(track: 'stable' | 'development') {
 	const path = resolve(artifacts, 'integrations', `${track}.json`);
 	return existsSync(path) ? integrationReleaseSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined;
@@ -136,12 +140,13 @@ const packages: Record<string, Definition> = {
 		install('scripts/cli-wrapper.sh', resolve(stage, 'usr/bin/trsd'), 0o755);
 	} },
 	'treeseed-release-catalog': { architecture: 'all', version: stableCatalogVersion, depends: '', description: 'Signed compatible TreeSeed stable-base release catalog', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); copyFileSync(resolve(artifacts, 'catalogs/stable.json'), resolve(stage, 'usr/share/treeseed/catalogs/stable.json')); } },
-	'treeseed-release-catalog-development': { architecture: 'all', depends: `treeseed-release-catalog (= ${stableCatalogVersion})`, replaces: `treeseed-release-catalog (<< ${stableCatalogVersion})`, breaks: `treeseed-release-catalog (<< ${stableCatalogVersion})`, description: 'Signed compatible TreeSeed development release overlay', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); copyFileSync(resolve(artifacts, 'catalogs/development.json'), resolve(stage, 'usr/share/treeseed/catalogs/development.json')); } },
+	'treeseed-release-catalog-development': { architecture: 'all', ...(developmentCatalogVersion ? { version: developmentCatalogVersion } : {}), depends: `treeseed-release-catalog (= ${stableCatalogVersion})`, replaces: `treeseed-release-catalog (<< ${stableCatalogVersion})`, breaks: `treeseed-release-catalog (<< ${stableCatalogVersion})`, description: 'Signed compatible TreeSeed development release overlay', payload(stage) { directory(resolve(stage, 'usr/share/treeseed/catalogs')); copyFileSync(developmentCatalogPath, resolve(stage, 'usr/share/treeseed/catalogs/development.json')); } },
 	'treeseed-edge': { architecture: 'all', depends: 'docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin', description: 'Manager-owned TreeSeed Caddy edge and local TLS aliases', postinst: 'debian/edge/postinst', payload(stage) { unit(stage, 'treeseed-edge.service'); directory(resolve(stage, 'etc/treeseed/edge')); writeFileSync(resolve(stage, 'etc/treeseed/edge/Caddyfile'), ':443 {\n\tabort\n}\n'); install('deploy/edge/compose.yml', resolve(stage, 'usr/share/treeseed/edge/compose.yml')); install('scripts/edge/ensure-network.sh', resolve(stage, 'usr/lib/treeseed/edge/bin/ensure-network'), 0o755); } },
 	...(packageIntegration ? componentDefinitions(packageIntegration) : {}),
 };
 function build(name: string, definition: Definition, clean = true) {
 	name = definition.packageName ?? name;
+	if (name === 'treeseed-release-catalog-development' && !developmentCatalogVersion) throw new Error('Development catalog package requires a sealed development catalog.');
 	const stage = resolve(output, '.stage', name); rmSync(stage, { recursive: true, force: true }); directory(stage); directory(resolve(stage, 'DEBIAN'));
 	const packageVersion = definition.version ?? deploymentVersion;
 	if (clean) for (const stale of readdirSync(output).filter((candidate) => candidate.startsWith(`${name}_`) && candidate.endsWith('.deb'))) rmSync(resolve(output, stale), { force: true });
