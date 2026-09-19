@@ -16,9 +16,13 @@ it('uses a persistent selection until it is explicitly cleared', () => {
 		const path = resolve(root, 'wrapper.sh'); writeFileSync(path, wrapper);
 		const state = resolve(root, 'treeseed/development'); mkdirSync(state, { recursive: true });
 		const selection = resolve(state, 'cli-entrypoint');
-		const run = () => execFileSync('/bin/sh', [path], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: root } }).trim();
+		const run = (...args: string[]) => execFileSync('/bin/sh', [path, ...args], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: root } }).trim();
 		writeFileSync(selection, `treeseed.development-cli-selection/v2\n${selected}\n`);
 		expect(run()).toBe('live'); expect(run()).toBe('live');
+		expect(run('host', 'stop')).toBe('released');
+		expect(run('host', 'start')).toBe('released');
+		expect(run('host', 'config', 'stage')).toBe('released');
+		expect(run('dev', 'status')).toBe('live');
 		rmSync(selection); expect(run()).toBe('released');
 		writeFileSync(selection, `treeseed.development-cli-selection/v1\n9999999999\n${selected}\n`);
 		expect(run()).toBe('released');

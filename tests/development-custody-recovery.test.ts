@@ -1,5 +1,22 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
-import { recoverDevelopmentCustody, recoveredVaultStartArguments } from '../src/supervisor/development-custody-recovery.js';
+import { developmentCustodyReady, recoverDevelopmentCustody, recoveredVaultStartArguments } from '../src/supervisor/development-custody-recovery.js';
+
+it('requires both the vault identity and ephemeral API credential files after a stop/start', () => {
+	const root = mkdtempSync(resolve(tmpdir(), 'treeseed-development-custody-'));
+	try {
+		const paths = ['identity.json', 'credentials', 'diagnostics'].map(name => resolve(root, name));
+		expect(developmentCustodyReady(paths)).toBe(false);
+		writeFileSync(paths[0]!, '{}');
+		expect(developmentCustodyReady(paths)).toBe(false);
+		writeFileSync(paths[1]!, 'encrypted');
+		expect(developmentCustodyReady(paths)).toBe(false);
+		writeFileSync(paths[2]!, 'encrypted');
+		expect(developmentCustodyReady(paths)).toBe(true);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 it('recreates only the vault process after runtime reconstruction, without deleting storage', () => {
 	expect(recoveredVaultStartArguments(['compose', '--file', '/managed/compose.json'])).toEqual([
