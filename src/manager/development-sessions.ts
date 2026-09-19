@@ -273,6 +273,16 @@ export class DevelopmentSessionStore {
 		return this.save(record);
 	}
 
+	/** Retain the selected modes for an explicit host restart, without serving stale routes. */
+	suspend(sessionId: string) {
+		const record = this.load(sessionId);
+		if (record.session.status === 'stopped' || record.session.status === 'suspended') return record;
+		record.routes = [];
+		record.session.status = 'suspended';
+		for (const target of record.session.targets) target.health = target.mode === 'released' ? 'ready' : 'stopped';
+		return this.save(record);
+	}
+
 	activeRoutes(base: readonly EdgeRoute[]) {
 		const routes = new Map(base.map((route) => [route.alias, route]));
 		for (const record of this.list()) for (const route of record.routes) routes.set(route.alias, { alias: route.alias, upstream: route.upstream, authentication: route.authentication });

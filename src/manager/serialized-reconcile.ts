@@ -1,7 +1,8 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { hostReceiptSchema, type HostReceipt } from '@treeseed/sdk/deployment';
+import { hostReceiptSchema, type HostConfiguration, type HostReceipt } from '@treeseed/sdk/deployment';
+import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
 export const reconcileLockPath = '/run/treeseed/manager/reconcile.lock';
@@ -57,4 +58,35 @@ export async function serializedReconcile(track?: 'stable' | 'development', forc
 	}
 	const value = JSON.parse(stdout.trim()) as unknown;
 	return value === null ? undefined : hostReceiptSchema.parse(value);
+}
+
+const lifecycleResultSchema = z.object({ state: z.enum(['running', 'stopped']), changed: z.boolean(), receipt: hostReceiptSchema.optional() }).strict();
+export async function serializedHostLifecycle(action: 'start' | 'stop') {
+	const { stdout } = await execFileAsync('/usr/bin/flock', [
+		'--exclusive', '--close', '--wait', '3500', reconcileLockPath,
+		process.execPath, reconcileExecutable, `--host-action=${action}`,
+	], { maxBuffer: 1024 * 1024 });
+	return lifecycleResultSchema.parse(JSON.parse(stdout.trim()) as unknown);
+}
+
+const stageResultSchema = z.object({ staged: z.literal(true), configurationId: z.string(), generation: z.number().int(), lifecycle: z.literal('stopped') }).strict();
+export async function serializedHostConfigurationStage(configuration: HostConfiguration) {
+	const stdout = await new Promise<string>((resolve, reject) => {
+		const child = spawn('/usr/bin/flock', [
+			'--exclusive', '--close', '--wait', '3500', reconcileLockPath,
+			process.execPath, reconcileExecutable, '--host-action=stage',
+		], { stdio: ['pipe', 'pipe', 'pipe'] });
+		let output = '', errorOutput = '';
+		const append = (current: string, chunk: Buffer) => {
+			const next = current + chunk.toString('utf8');
+			if (Buffer.byteLength(next, 'utf8') > 1024 * 1024) child.kill('SIGKILL');
+			return next;
+		};
+		child.stdout.on('data', (chunk: Buffer) => { output = append(output, chunk); });
+		child.stderr.on('data', (chunk: Buffer) => { errorOutput = append(errorOutput, chunk); });
+		child.on('error', reject);
+		child.on('close', (code, signal) => code === 0 ? resolve(output) : reject(new Error(`Serialized configuration stage failed (${signal ?? `exit ${code ?? 'unknown'}`}): ${errorOutput.trim()}`)));
+		child.stdin.end(JSON.stringify(configuration));
+	});
+	return stageResultSchema.parse(JSON.parse(stdout.trim()) as unknown);
 }

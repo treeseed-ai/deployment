@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { hostConfigurationSchema, type HostConfiguration } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { loadCatalog } from '../catalog/load.js';
@@ -13,8 +13,9 @@ import { configurationPlan } from './configuration-preflight.js';
 import { composeFiles, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, reconcileDevelopmentPeers, refreshAvailableCatalogs, rollbackRoutes } from './reconcile.js';
 import { activateWithRoutes } from './routed-activation.js';
 import { reconcileFailurePolicy, serializedReconcile } from './serialized-reconcile.js';
+import { executeHostLifecycleCommand } from './host-lifecycle-commands.js';
 import { serializedSecurityInitialize, serializedSecurityOperation } from './serialized-security.js';
-import { loadUpdateState, noteDevelopmentPauseOwner, updatePaused } from './update-state.js';
+import { loadUpdateState, noteDevelopmentPauseOwner, runtimeStopped, updatePaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { serializedReset } from './serialized-reset.js';
 import { affectedDevelopmentClosure, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, usesManagerDevelopmentCustody } from './development-sessions.js';
@@ -34,13 +35,7 @@ import { executeProviderEnvironmentCommand } from './provider-environment.js';
 import { executePostgresTransferCommand } from './postgres-transfer.js';
 import { availableCatalogSummary } from './catalog-summary.js';
 import { setComponentEnabled } from './component-selection.js';
-
-const bootstrapHandoffSchema = z.object({
-	complete: z.boolean(),
-	foundationReady: z.boolean().default(false),
-	initializationRequired: z.boolean().default(false),
-	installerCredentialsRetained: z.boolean(),
-}).strict();
+import { bootstrapStatus } from './bootstrap-status.js';
 
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z][a-z0-9-]*)+$/u),
@@ -128,14 +123,6 @@ export function updateTrack(request: Pick<HostCommandRequest, 'arguments' | 'opt
 	return value;
 }
 
-function bootstrapStatus() {
-	const marker = `${paths.managerState}/bootstrap-status.json`;
-	const handoff = existsSync(marker)
-		? bootstrapHandoffSchema.parse(JSON.parse(readFileSync(marker, 'utf8')))
-		: { complete: false, foundationReady: false, initializationRequired: true, installerCredentialsRetained: false };
-	return { ...handoff, configurationInstalled: existsSync(paths.configuration), managerTlsReady: existsSync(`${paths.tls}/ca.crt`) };
-}
-
 export async function executeHostCommand(input: unknown, context: { local: boolean }) {
 	const request = hostCommandRequestSchema.parse(input), host = tryLoadHostConfiguration();
 	if (request.handlerId === 'local.host.initialize') {
@@ -161,7 +148,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		const oneTimeCredentials = initializationInputs.teamRegistrationCode ? { 'provider-registration': initializationInputs.teamRegistrationCode } : undefined;
 		await requestSupervisor({ operation: 'configuration.initialize', configuration, ...(oneTimeCredentials ? { oneTimeCredentials } : {}) });
 		return { ...proposed, mode: 'execute', mutation: true, configured: true, initialized: true, configurationId: configuration.configurationId, generation: configuration.generation,
-			securityRequired: proposed.security.requirement === 'required', nextAction: proposed.security.requirement === 'required' ? 'host security initialize' : 'host reconcile' };
+			securityRequired: proposed.security.requirement === 'required', nextAction: proposed.security.requirement === 'required' ? 'host security initialize' : 'host start' };
 	}
 	if (request.handlerId === 'local.host.uninstall') {
 		if (!context.local) throw new Error('Host uninstall is available only through the protected local manager socket.');
@@ -211,6 +198,11 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const store = new DevelopmentSessionStore(), stopped = store.stop(payload.sessionId);
 			noteDevelopmentPauseOwner(payload.sessionId, false);
 			await applyDevelopmentRoutes(store); return stopped;
+		}
+		case 'local.dev.session.suspend': {
+			if (!context.local) throw new Error('Development sessions may be suspended only through the protected local manager socket.');
+			const payload = z.object({ sessionId: z.string().regex(/^dev-[a-z0-9-]{1,64}$/u) }).strict().parse(developmentPayload(request));
+			return new DevelopmentSessionStore().suspend(payload.sessionId);
 		}
 		case 'local.dev.session.refresh': {
 			if (!context.local) throw new Error('Development sessions may be refreshed only through the protected local manager socket.');
@@ -289,7 +281,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.dev.freeze':
 		case 'local.dev.verify': throw new Error('Candidate freeze and verification execute unprivileged through trsd.');
-		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState() };
+		case 'local.host.status': return { configurationId: host.configurationId, generation: host.generation, components: host.components, receipt: receipt(), updates: loadUpdateState(), lifecycle: runtimeStopped() ? 'stopped' : 'running' };
 		case 'local.host.postgres.transfer.prepare':
 		case 'local.host.postgres.transfer.status': return executePostgresTransferCommand(request, context.local);
 		case 'local.host.ai.mode.show': return aiModeStatus();
@@ -300,9 +292,12 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.ai.mode.set': return setAiModeCommand(request);
 		case 'local.host.doctor': {
 			const current = plan();
-			return hostDoctor(() => current, subjectAlternativeNames(current.routes), host.components.postgres?.enabled === true);
+			const stopped = runtimeStopped();
+			return { ...await hostDoctor(() => current, stopped ? [] : subjectAlternativeNames(current.routes), host.components.postgres?.enabled === true, stopped), lifecycle: stopped ? 'stopped' : 'running' };
 		}
 		case 'local.host.plan': return plan();
+		case 'local.host.start':
+		case 'local.host.stop': return executeHostLifecycleCommand({ ...request, handlerId: request.handlerId }, context.local);
 		case 'local.host.apply':
 		case 'local.host.reconcile': {
 			const failurePolicy = reconcileFailurePolicy(request.options.failurePolicy);
@@ -319,6 +314,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
 			return serializedReconcile();
 		}
+		case 'local.host.config.stage': return executeHostLifecycleCommand({ ...request, handlerId: request.handlerId }, context.local);
 		case 'local.host.config.adopt': {
 			const candidate = requiredConfiguration(request);
 			const proposed = configurationPlan(candidate);

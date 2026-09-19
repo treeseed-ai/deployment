@@ -1,12 +1,14 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { atomicJson } from '../core/files.js';
 import { paths } from '../core/paths.js';
+import { setRuntimeStopped } from '../manager/update-state.js';
 import type { SupervisorOperation } from './protocol.js';
 
 type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 
 export function initializeHostConfiguration(configuration: SupervisorOperation & { operation: 'configuration.initialize' }, command: CommandRunner,
-	configurationPath: string = paths.configuration, marker: string = `${paths.managerState}/bootstrap-status.json`, credentialRoot = '/etc/treeseed/credentials') {
+	configurationPath: string = paths.configuration, marker: string = `${paths.managerState}/bootstrap-status.json`, credentialRoot = '/etc/treeseed/credentials',
+	updateStatePath: string = `${paths.managerState}/update-state.json`) {
 	if (existsSync(configurationPath)) throw new Error('Host configuration initialization requires an unconfigured foundation.');
 	const oneTimeCredentials = configuration.oneTimeCredentials ?? {};
 	if (Object.keys(oneTimeCredentials).length > 4) throw new Error('Host configuration initialization accepts at most four one-time credentials.');
@@ -21,6 +23,9 @@ export function initializeHostConfiguration(configuration: SupervisorOperation &
 			writeFileSync(path, value, { mode: 0o600, flag: 'wx' });
 			writtenCredentials.push(path);
 		}
+		// The restart fence must exist before the configuration becomes visible to updater timers.
+		setRuntimeStopped(true, updateStatePath);
+		command('/usr/bin/chown', ['treeseed-manager:treeseed-manager', updateStatePath]);
 		atomicJson(configurationPath, configuration.configuration, 0o640);
 	} catch (error) {
 		for (const path of writtenCredentials) try { unlinkSync(path); } catch { /* preserve the initialization failure */ }

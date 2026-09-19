@@ -5,11 +5,22 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 
 const root = mkdtempSync(join(tmpdir(), 'treeseed-development-update-state-'));
 vi.mock('../src/core/paths.js', () => ({ paths: { managerState: root } }));
-const { loadUpdateState, noteDevelopmentPauseOwner, recoverDevelopmentPauseOwners, trackPaused, updatePaused } = await import('../src/manager/update-state.js');
+const { loadUpdateState, noteDevelopmentPauseOwner, recoverDevelopmentPauseOwners, setRuntimeStopped, trackPaused, updatePaused } = await import('../src/manager/update-state.js');
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe('development update pause ownership', () => {
+	it('keeps both updater tracks paused across a stopped-host reload and resumes only on explicit start', () => {
+		setRuntimeStopped(true);
+		expect(loadUpdateState().runtimeStopped).toBe(true);
+		expect(trackPaused('stable')).toBe(true);
+		expect(trackPaused('development')).toBe(true);
+		setRuntimeStopped(true);
+		expect(loadUpdateState().runtimeStopped).toBe(true);
+		setRuntimeStopped(false);
+		expect(trackPaused('stable')).toBe(false);
+		expect(trackPaused('development')).toBe(false);
+	});
 	it('keeps explicit user pauses independent from session component holds', () => {
 		noteDevelopmentPauseOwner('session-1', true);
 		expect(loadUpdateState().developmentPauseOwners).toEqual(['session-1']);

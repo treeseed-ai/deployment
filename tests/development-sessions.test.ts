@@ -162,6 +162,20 @@ describe('development session manager', () => {
 		expect(sessions.load('session-1').session.status).toBe('stopped');
 	});
 
+	it('suspends routes but retains exact live selection for host restart', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		const before = sessions.load('session-1').session.targets[0];
+		const suspended = sessions.suspend('session-1');
+		expect(suspended.session.status).toBe('suspended');
+		expect(suspended.session.targets[0]).toMatchObject({ mode: before?.mode, generation: before?.generation, health: 'stopped' });
+		expect(sessions.activeRoutes([])).toEqual([]);
+		expect(sessions.suspend('session-1')).toEqual(suspended);
+		expect(sessions.list()).toHaveLength(1);
+		expect(sessions.setMode('session-1', 'admin', 'web', 'live').session.status).toBe('active');
+	});
+
 	it('keeps an explicitly registered target eligible for migration after a failed live activation restores released mode', () => {
 		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
 		sessions.start(session(now), [runtime()]);

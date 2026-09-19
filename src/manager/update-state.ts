@@ -4,6 +4,7 @@ import { atomicJson } from '../core/files.js';
 import { paths } from '../core/paths.js';
 
 const updateStateSchema = z.object({
+	runtimeStopped: z.boolean().default(false),
 	stablePaused: z.boolean(),
 	developmentPaused: z.boolean(),
 	developmentPauseOwners: z.array(z.string().min(1)).default([]),
@@ -12,24 +13,24 @@ const updateStateSchema = z.object({
 }).strict();
 
 export type UpdateState = z.infer<typeof updateStateSchema>;
-const statePath = `${paths.managerState}/update-state.json`;
+const defaultStatePath = `${paths.managerState}/update-state.json`;
 
-export function loadUpdateState(): UpdateState {
-	if (!existsSync(statePath)) return { stablePaused: false, developmentPaused: false, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } };
+export function loadUpdateState(statePath = defaultStatePath): UpdateState {
+	if (!existsSync(statePath)) return { runtimeStopped: false, stablePaused: false, developmentPaused: false, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } };
 	return updateStateSchema.parse(JSON.parse(readFileSync(statePath, 'utf8')));
 }
 
 export function metadataChecked(track: 'stable' | 'development', checkedAt = new Date()): UpdateState {
 	const current = loadUpdateState();
 	const next = { ...current, metadataCheckedAt: { ...current.metadataCheckedAt, [track]: checkedAt.toISOString() } };
-	atomicJson(statePath, next);
+	atomicJson(defaultStatePath, next);
 	return next;
 }
 
 export function updatePaused(track: 'stable' | 'development', paused: boolean): UpdateState {
 	const current = loadUpdateState();
 	const next = { ...current, [`${track}Paused`]: paused, changedAt: new Date().toISOString() } as UpdateState;
-	atomicJson(statePath, next);
+	atomicJson(defaultStatePath, next);
 	return next;
 }
 
@@ -38,7 +39,7 @@ export function noteDevelopmentPauseOwner(sessionId: string, active: boolean): U
 	const owners = new Set(current.developmentPauseOwners);
 	if (active) owners.add(sessionId); else owners.delete(sessionId);
 	const next = { ...current, developmentPauseOwners: [...owners].sort(), changedAt: new Date().toISOString() };
-	atomicJson(statePath, next);
+	atomicJson(defaultStatePath, next);
 	return next;
 }
 
@@ -47,11 +48,21 @@ export function recoverDevelopmentPauseOwners(activeSessionIds: readonly string[
 	const retained = current.developmentPauseOwners.filter((sessionId) => active.has(sessionId));
 	if (retained.length === current.developmentPauseOwners.length) return current;
 	const next = { ...current, developmentPauseOwners: retained, changedAt: new Date().toISOString() };
-	atomicJson(statePath, next);
+	atomicJson(defaultStatePath, next);
 	return next;
 }
 
 export function trackPaused(track: 'stable' | 'development') {
 	const current = loadUpdateState();
-	return current[`${track}Paused`] || current.developmentPauseOwners.length > 0;
+	return current.runtimeStopped || current[`${track}Paused`] || current.developmentPauseOwners.length > 0;
+}
+
+export function runtimeStopped() { return loadUpdateState().runtimeStopped; }
+
+export function setRuntimeStopped(stopped: boolean, statePath = defaultStatePath): UpdateState {
+	const current = loadUpdateState(statePath);
+	if (current.runtimeStopped === stopped) return current;
+	const next = { ...current, runtimeStopped: stopped, changedAt: new Date().toISOString() };
+	atomicJson(statePath, next);
+	return next;
 }

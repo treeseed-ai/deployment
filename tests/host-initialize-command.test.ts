@@ -35,7 +35,7 @@ describe('host initialize command boundary', () => {
 		const result = await executeHostCommand({ handlerId: 'local.host.initialize', arguments: [], options: { profile: 'core', confirm: true, payload: JSON.stringify({
 			profile: 'core', hostId: (plan as { hostId: string }).hostId, catalog: (plan as { catalog: unknown }).catalog, inputs: {},
 		}) } }, { local: true });
-		expect(result).toMatchObject({ mode: 'execute', profile: 'core', mutation: true, initialized: true, generation: 1, nextAction: 'host reconcile' });
+		expect(result).toMatchObject({ mode: 'execute', profile: 'core', mutation: true, initialized: true, generation: 1, nextAction: 'host start' });
 		expect(state.operations).toHaveLength(1);
 		expect(state.operations[0]).toMatchObject({ operation: 'configuration.initialize', configuration: { schemaVersion: 'treeseed.host/v1', generation: 1,
 			runtime: { environment: 'production' }, components: { lab: { profile: 'core' } } } });

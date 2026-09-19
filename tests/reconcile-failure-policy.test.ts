@@ -31,6 +31,6 @@ describe('explicit reconciliation failure policy',()=>{
     expect(source).toContain('previous && !disabledPreviouslyActive');
     expect(source).toContain('failurePolicyForDisabledComponents(failurePolicy, disabledPreviouslyActive)');
     const operations=readFileSync('src/manager/operations.ts','utf8');
-    expect(operations).toContain('hostDoctor(() => current, subjectAlternativeNames(current.routes)');
+    expect(operations).toContain('hostDoctor(() => current, stopped ? [] : subjectAlternativeNames(current.routes), host.components.postgres?.enabled === true, stopped)');
   });
 });

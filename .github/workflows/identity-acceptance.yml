@@ -33,7 +33,7 @@ jobs:
       - name: Install Deployment runtime dependencies used by shared database policy
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build the Deployment implementation exercised by acceptance
-        uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
+        uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@0bc542a8c2919bd58ac16f5a2b12eace961ef755
         with:
           github-token: ${{ github.token }}
       - name: Build the Deployment implementation
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: { node-version: 24 }
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@c57912d9ce2e05bfb09209b03aa7c3a1d9489585
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@0bc542a8c2919bd58ac16f5a2b12eace961ef755
         with:
           github-token: ${{ github.token }}
       - run: npm run build
