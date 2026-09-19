@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { DevelopmentSessionStore } from '../manager/development-sessions.js';
-import { developmentBackupDependencies, developmentBackupRuntimeHeld } from './development-backup.js';
+import { developmentBackupDependencies, developmentBackupRuntimeHeld, developmentBackupStatus } from './development-backup.js';
 import { postgresDocker } from './postgres-process.js';
 import { recordEvent } from '../core/events.js';
 
@@ -30,7 +30,16 @@ function runtimeSnapshot(replacement: Replacement) {
 
 /** Recovery rematerializes credential mounts; recreate only the API, never the held writer. */
 export async function startPostgresDevelopmentRuntime(replacement: Replacement) {
-  if (replacement.targetId !== 'service') throw new Error('Held PostgreSQL development writer cannot be started before recovery acceptance');
+  if (replacement.targetId === 'operations-runner') {
+    const deps = developmentBackupDependencies((executable, args) => execFileSync(executable, [...args],
+      { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }));
+    const hold = developmentBackupStatus(deps);
+    if (hold && hold.phase !== 'restored') throw new Error('PostgreSQL development writer recovery is not ready');
+    if (hold?.targets) {
+      if (!developmentBackupRuntimeHeld(deps, replacement.sessionId)) throw new Error('PostgreSQL development writer is not covered by the held backup');
+      return;
+    }
+  }
   const { path } = runtimeSnapshot(replacement);
   await postgresDocker(['compose', '--project-name', replacement.name, '--file', path,
     'up', '--detach', '--force-recreate', '--no-deps', '--wait', '--wait-timeout', '120', 'runtime'], 130);
