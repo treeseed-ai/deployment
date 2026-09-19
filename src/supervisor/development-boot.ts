@@ -8,7 +8,7 @@ type Command = (command: string, args: string[], input?: string) => unknown;
 const worker = '/usr/lib/treeseed/cli/dist/cli/development/boot-resume.js';
 
 export function developmentResumeRequired(record: ManagedDevelopmentSession) {
-	return record.session.targets.some(target => target.mode !== 'released' && target.health !== 'ready');
+	return record.session.targets.some(target => target.mode === 'live' && target.health !== 'ready');
 }
 
 export function captureBootCommand(command: Command, executable: string, args: string[]) {

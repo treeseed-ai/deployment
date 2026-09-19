@@ -22,8 +22,8 @@ describe('development boot process custody', () => {
 		expect(() => developmentBootCommand({ session: { sessionId: '--malicious' } } as ManagedDevelopmentSession, { uid: 1001, gid: 1001, home: '/workspace/user' })).toThrow();
 	});
 	it('restarts a completed boot worker when host stop left live targets stopped', () => {
-		const stopped = { session: { targets: [{ mode: 'live', health: 'stopped' }, { mode: 'released', health: 'ready' }] } } as ManagedDevelopmentSession;
+		const stopped = { session: { targets: [{ mode: 'live', health: 'stopped' }, { mode: 'released', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession;
 		expect(developmentResumeRequired(stopped)).toBe(true);
-		expect(developmentResumeRequired({ session: { targets: [{ mode: 'live', health: 'ready' }] } } as ManagedDevelopmentSession)).toBe(false);
+		expect(developmentResumeRequired({ session: { targets: [{ mode: 'live', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession)).toBe(false);
 	});
 });
