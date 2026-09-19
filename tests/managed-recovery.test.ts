@@ -63,6 +63,17 @@ it('retries restored runtime custody without another database archive or package
 	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`]);
 });
 
+it('does not reactivate installed components disabled by the current host selection during retry', async () => {
+	state.currentHost = host();
+	state.currentHost.components['ai-inference'] = { enabled: false, track: 'development', aliases: {}, configuration: {} };
+	state.currentComponents = [component('api', 'development', 'a'), component('ai-inference', 'development', 'b')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.operations = []; state.lifecycle = []; state.hold = { generation: 74, phase: 'restored' };
+	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`]);
+	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(true);
+});
+
 it('keeps the restored fence when runtime retry fails and reconciles normally without a hold', async () => {
 	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];
 	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
