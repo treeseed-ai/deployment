@@ -56,10 +56,11 @@ function packageSelections(receipt: HostReceipt) {
 }
 
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[]) {
-	const base = rollbackRoutes(host, components);
+	const enabled = components.filter(component => host.components[component.componentId]?.enabled === true);
+	const base = rollbackRoutes(host, enabled);
 	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
 	await activateWithRoutes(routes, async () => {
-		for (const component of componentActivationOrder(host, components)) await activateComponent(host, component, components);
+		for (const component of componentActivationOrder(host, enabled)) await activateComponent(host, component, enabled);
 	});
 }
 
