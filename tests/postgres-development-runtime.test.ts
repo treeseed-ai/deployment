@@ -71,6 +71,9 @@ it('preserves a held runner fence and rejects an unverified hold', async () => {
   mocks.held.mockReturnValue(true);
   await startPostgresDevelopmentRuntime(runner);
   expect(mocks.docker).not.toHaveBeenCalled();
+  mocks.holdStatus.mockReturnValue({ generation: 73, phase: 'held', targets: 1 });
+  await startPostgresDevelopmentRuntime(runner);
+  expect(mocks.docker).not.toHaveBeenCalled();
   mocks.held.mockReturnValue(false);
   await expect(startPostgresDevelopmentRuntime(runner)).rejects.toThrow('not covered');
   mocks.holdStatus.mockReturnValue({ generation: 73, phase: 'held', targets: 0 });

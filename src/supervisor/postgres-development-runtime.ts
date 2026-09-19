@@ -34,11 +34,12 @@ export async function startPostgresDevelopmentRuntime(replacement: Replacement) 
     const deps = developmentBackupDependencies((executable, args) => execFileSync(executable, [...args],
       { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }));
     const hold = developmentBackupStatus(deps);
-    if (hold && hold.phase !== 'restored') throw new Error('PostgreSQL development writer recovery is not ready');
     if (hold?.targets) {
+      if (hold.phase !== 'held' && hold.phase !== 'restored') throw new Error('PostgreSQL development writer recovery is not ready');
       if (!developmentBackupRuntimeHeld(deps, replacement.sessionId)) throw new Error('PostgreSQL development writer is not covered by the held backup');
       return;
     }
+    if (hold && hold.phase !== 'restored') throw new Error('PostgreSQL development writer recovery is not ready');
   }
   const { path } = runtimeSnapshot(replacement);
   await postgresDocker(['compose', '--project-name', replacement.name, '--file', path,
