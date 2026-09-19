@@ -13,7 +13,7 @@ import { componentComposeArguments, type CommandRunner } from './compose-runtime
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
 import { copyDevelopmentRuntime } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
-import { recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
+import { developmentCustodyReady, recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
 import { recoverRunnerCustody } from './runner-custody-probe.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import { stopReleasedApi, restoreReleasedApi } from './development-api-handoff.js';
@@ -141,7 +141,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Reconstruct /run from encrypted persistent custody before mounting clients.
   const custodyCompose = () => ['compose', ...componentComposeArguments('api', composeFiles(component)), '--project-name', component.runtime.compose.projectName];
   recoverDevelopmentCustody({
-    ready: () => existsSync('/run/treeseed/openbao/client/identity.json'),
+	ready: developmentCustodyReady,
     prepare: () => {
       const services = new Set(component.runtime.services.map(service => service.composeService));
       if (!services.has('openbao') || !services.has('openbao-initialize')) throw new Error('Managed API custody recovery contract is unavailable.');

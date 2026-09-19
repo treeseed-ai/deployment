@@ -1,3 +1,14 @@
+import { existsSync } from 'node:fs';
+
+/** A surviving vault identity alone does not prove that ephemeral API keys survived host stop. */
+export function developmentCustodyReady(paths = [
+	'/run/treeseed/openbao/client/identity.json',
+	'/run/treeseed/component-credentials/api/credentials',
+	'/run/treeseed/component-credentials/api/diagnostics',
+]) {
+	return paths.every(path => existsSync(path));
+}
+
 /** Rebind ephemeral inputs even when Docker auto-started an unhealthy old container. */
 export function recoveredVaultStartArguments(compose: string[]) {
 	return [...compose, 'up', '--detach', '--force-recreate', '--wait', '--wait-timeout', '120', 'openbao'];

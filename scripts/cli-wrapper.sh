@@ -8,6 +8,12 @@ if [ -z "${NODE_EXTRA_CA_CERTS:-}" ] && [ -r /etc/treeseed/cli/localhost-ca.crt 
 	export NODE_EXTRA_CA_CERTS
 fi
 
+# Host control must remain on the installed, manager-compatible CLI even when a
+# persistent development selection still points at an older local CLI build.
+if [ "${1:-}" = host ]; then
+	exec /usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/cli/dist/cli/main.js "$@"
+fi
+
 if [ -n "${XDG_STATE_HOME:-}" ]; then
 	TREESEED_CLI_SELECTION="${XDG_STATE_HOME}/treeseed/development/cli-entrypoint"
 elif [ -n "${HOME:-}" ]; then
