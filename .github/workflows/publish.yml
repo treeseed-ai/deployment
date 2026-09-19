@@ -86,6 +86,35 @@ jobs:
             '.repository == $repository and .commit == $commit and .tag == $tag and .suite == $suite' \
             release/out/exact-head.json
           compgen -G 'release/out/*.deb' >/dev/null
+      - name: Rebuild only the generation-bound development catalog
+        if: ${{ inputs.resume_apt_only && inputs.suite == 'development' }}
+        run: |
+          set -euo pipefail
+          npm run artifacts:prepare
+          node --import tsx scripts/package-deb.ts treeseed-release-catalog-development
+          catalog=(release/out/treeseed-release-catalog-development_*.deb)
+          test "${#catalog[@]}" -eq 1
+          expected="$(node --import tsx -e 'import { readFileSync } from "node:fs"; import { catalogDebianVersion } from "./scripts/catalog-package-version.ts"; process.stdout.write(catalogDebianVersion(JSON.parse(readFileSync(".treeseed/artifacts/catalogs/development.json", "utf8"))))')"
+          test "$(dpkg-deb --field "${catalog[0]}" Version)" = "$expected"
+          node --import tsx scripts/verify-deb.ts
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        if: ${{ inputs.resume_apt_only && inputs.suite == 'development' }}
+        with:
+          subject-path: release/out/treeseed-release-catalog-development_*.deb
+      - name: Publish generation-bound catalog release asset
+        if: ${{ inputs.resume_apt_only && inputs.suite == 'development' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          catalog=(release/out/treeseed-release-catalog-development_*.deb)
+          existing_dir="$(mktemp -d)"
+          trap 'rm -rf "$existing_dir"' EXIT
+          if gh release download "${{ inputs.tag }}" --pattern "$(basename "${catalog[0]}")" --dir "$existing_dir"; then
+            cmp --silent "${catalog[0]}" "$existing_dir/$(basename "${catalog[0]}")"
+          else
+            gh release upload "${{ inputs.tag }}" "${catalog[0]}"
+          fi
       - run: npm run verify:direct
         if: ${{ !inputs.resume_apt_only }}
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
