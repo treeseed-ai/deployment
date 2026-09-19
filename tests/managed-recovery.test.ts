@@ -77,6 +77,21 @@ it('does not reactivate installed components disabled by the current host select
 	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(true);
 });
 
+it('rejects a whole-generation restore that would undo an explicit component disable before mutation', async () => {
+	state.currentHost = host();
+	state.currentHost.components.lab = { enabled: false, track: 'stable', aliases: {}, configuration: {} };
+	const targetHost = structuredClone(state.currentHost);
+	targetHost.components.lab.enabled = true;
+	state.currentComponents = [component('api', 'stable', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.target = { generation: 73, sha256: hash('e'), configuration: targetHost,
+		receipt: receipt(targetHost, state.currentComponents, 'receipt-target'), components: state.currentComponents };
+	state.operations = []; state.lifecycle = [];
+	await expect(restoreManagedGeneration(73)).rejects.toThrow('explicitly disabled components: lab');
+	expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect']);
+	expect(state.lifecycle).toEqual([]);
+});
+
 it('keeps the restored fence when runtime retry fails and reconciles normally without a hold', async () => {
 	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];
 	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
