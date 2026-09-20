@@ -272,7 +272,10 @@ export class KataSandboxRuntime {
 		let exitCode: number | null;
 		try {
 			exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); });
-			if (subscriptionCredential) {
+			// A guest that fails before seeding the return channel cannot rotate its
+			// credential. Preserve the guest failure below instead of masking it with
+			// an ENOENT from the rotation read.
+			if (subscriptionCredential && exitCode === 0) {
 				const nextPath = resolve(sandbox.outputDirectory, 'codex-auth.json');
 				const next = await readFile(nextPath), current = await readFile(subscriptionCredential);
 				validateSubscriptionCredential(next, current);
