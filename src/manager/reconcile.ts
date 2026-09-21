@@ -25,16 +25,14 @@ import { componentActivationOrder, componentStopOrder } from './component-order.
 import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 import { activateWithRoutes } from './routed-activation.js';
 import { hostSecurityActivationBlockers, type HostSecurityActivationStatus } from './security-activation.js';
-
+import { applyRuntimeBuildIdentity } from './runtime-build-identity.js';
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
 }
-
 export function aptSuiteForRefresh(hostDefaultTrack: 'stable' | 'development', requestedTrack: 'stable' | 'development') {
 	return hostDefaultTrack === 'development' || requestedTrack === 'development' ? 'development' : 'stable';
 }
-
 export async function refreshAvailableCatalogs(host: HostConfiguration, requestedTrack?: 'stable' | 'development', allowCoreUpdate = true, forceMetadata = false) {
 	const tracks = requestedTrack ? [requestedTrack] : [...new Set([host.updates.defaultTrack, ...Object.values(host.components).filter((component) => component.enabled).map((component) => component.track)])];
 	let coreUpdated = false;
@@ -58,7 +56,6 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 	}
 	return { coreUpdated, previousCore };
 }
-
 export function composeFiles(component: ComponentRelease) {
 	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
 }
@@ -206,11 +203,7 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 	const connectionEnvironment = host.runtime.environment === 'development'
 		? managedContainerDevelopmentConnectionEnvironment(host, component, releases, developmentRoutes)
 		: managedConnectionEnvironment(host, component, releases);
-	if (component.componentId === 'agent') {
-		const runnerDigest = component.images.find((image) => image.role === 'runner')?.digest;
-		if (runnerDigest && /^sha256:[a-f0-9]{64}$/u.test(runnerDigest)) connectionEnvironment.TREESEED_PROVIDER_RUNTIME_BUILD = runnerDigest;
-		else if (validateRuntimeBuildIdentity) throw new Error('Agent release requires an exact runner image digest for assignment build identity.');
-	}
+	applyRuntimeBuildIdentity(component, connectionEnvironment, validateRuntimeBuildIdentity);
 	if (component.runtime.modeControl?.role === 'controller') {
 		const [, port] = host.network.manager.binding.split(':');
 		Object.assign(connectionEnvironment, {
