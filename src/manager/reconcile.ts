@@ -25,16 +25,14 @@ import { componentActivationOrder, componentStopOrder } from './component-order.
 import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections } from './development-peer-connections.js';
 import { activateWithRoutes } from './routed-activation.js';
 import { hostSecurityActivationBlockers, type HostSecurityActivationStatus } from './security-activation.js';
-
+import { applyRuntimeBuildIdentity } from './runtime-build-identity.js';
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
 }
-
 export function aptSuiteForRefresh(hostDefaultTrack: 'stable' | 'development', requestedTrack: 'stable' | 'development') {
 	return hostDefaultTrack === 'development' || requestedTrack === 'development' ? 'development' : 'stable';
 }
-
 export async function refreshAvailableCatalogs(host: HostConfiguration, requestedTrack?: 'stable' | 'development', allowCoreUpdate = true, forceMetadata = false) {
 	const tracks = requestedTrack ? [requestedTrack] : [...new Set([host.updates.defaultTrack, ...Object.values(host.components).filter((component) => component.enabled).map((component) => component.track)])];
 	let coreUpdated = false;
@@ -58,7 +56,6 @@ export async function refreshAvailableCatalogs(host: HostConfiguration, requeste
 	}
 	return { coreUpdated, previousCore };
 }
-
 export function composeFiles(component: ComponentRelease) {
 	return component.runtime.compose.files.map((file) => `${component.componentId}/${component.release}/${file.path}`);
 }
@@ -202,10 +199,11 @@ export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], developmentRoutes: readonly EdgeRoute[] = []) {
+export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], developmentRoutes: readonly EdgeRoute[] = [], validateRuntimeBuildIdentity = true) {
 	const connectionEnvironment = host.runtime.environment === 'development'
 		? managedContainerDevelopmentConnectionEnvironment(host, component, releases, developmentRoutes)
 		: managedConnectionEnvironment(host, component, releases);
+	applyRuntimeBuildIdentity(component, connectionEnvironment, validateRuntimeBuildIdentity);
 	if (component.runtime.modeControl?.role === 'controller') {
 		const [, port] = host.network.manager.binding.split(':');
 		Object.assign(connectionEnvironment, {
@@ -255,8 +253,8 @@ export async function reconcileDevelopmentPeers(host: HostConfiguration, release
 	const ordered = componentActivationOrder(host, releases);
 	return reconcilePeerConnections(ordered.map(component => ({
 		componentId: component.componentId,
-		released: componentActivationInputs(host, component, releases).connectionEnvironment,
-		desired: componentActivationInputs(host, component, releases, routes).connectionEnvironment,
+		released: componentActivationInputs(host, component, releases, [], false).connectionEnvironment,
+		desired: componentActivationInputs(host, component, releases, routes, false).connectionEnvironment,
 	})), held, { read: readConnectionDigest, activate: id => activateComponent(host, ordered.find(component => component.componentId === id)!, releases) });
 }
 
@@ -434,8 +432,10 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
 	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
-	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
-		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
+	for (const component of activationOrder.filter((component) => !heldDevelopmentComponents.has(component.componentId)
+		&& (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)))) {
+		componentActivationInputs(host, component, effective);
+	}
 	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active.filter(component => host.components[component.componentId]?.enabled === true)).filter(impacted), {
 		prepare: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.begin', generation,
 			apiRuntimeDigest: effective.find(component => component.componentId === 'api')?.runtimeDigest }) : undefined,

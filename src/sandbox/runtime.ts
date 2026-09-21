@@ -15,6 +15,7 @@ import type { AssignmentSource } from './assignment-source.js';
 import { z } from 'zod';
 
 interface Prepared {
+  terminationReason?: SandboxTerminationReason;
   lastLeaseRenewal?: { issued: number; expiresAt: string };
   closing?: boolean;
   source?: AssignmentSource;
@@ -25,6 +26,17 @@ interface Prepared {
 	tokenHash: Buffer; guestTokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
 	toolRequests: Array<{ id:string; tool:string; arguments:Record<string,unknown>; createdAt:string }>;
 	toolWaiters: Map<string,{ resolve:(value:unknown)=>void; reject:(error:Error)=>void; timer:ReturnType<typeof setTimeout> }>;
+}
+export type SandboxTerminationReason = 'execution_deadline' | 'assignment_lease_expired' | 'source_authorization_expired' | 'cancelled';
+export function sandboxDeadline(input: { executionDeadline: number; leaseExpiresAt: string; sourceExpiresAt?: string }, now: number) {
+	const timestamp = (value: string) => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; };
+	const deadlines = [
+		{ reason: 'execution_deadline' as const, at: input.executionDeadline },
+		{ reason: 'assignment_lease_expired' as const, at: timestamp(input.leaseExpiresAt) },
+		{ reason: 'source_authorization_expired' as const, at: input.sourceExpiresAt ? timestamp(input.sourceExpiresAt) : Infinity },
+	];
+	const first = deadlines.reduce((earliest, candidate) => candidate.at < earliest.at ? candidate : earliest);
+	return { reason: first.reason, remainingMilliseconds: first.at - now };
 }
 export const safeContainerId = (value: string) => value.replace(/[^a-zA-Z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80) || 'assignment';
 export const authorizedGuestImage = (configured: SandboxBrokerConfiguration['guestImages'], assignment: Pick<SandboxAssignment, 'guestImage' | 'guestImageDigest' | 'profile'>) => {
@@ -260,14 +272,18 @@ export class KataSandboxRuntime {
 		}).catch(() => undefined); }, 500);
 		const executionDeadline = Date.now() + sandbox.assignment.resources.durationSeconds * 1_000; let timeout: ReturnType<typeof setTimeout>;
 		const enforceDeadline = () => {
-			let sourceDeadline = Infinity;
-			if (sandbox.source) { try { sourceDeadline = Date.parse(sandbox.source.attachment().authorization.expiresAt); } catch { sourceDeadline = 0; } }
-			const remaining = Math.min(executionDeadline, Date.parse(sandbox.assignment.leaseExpiresAt), sourceDeadline) - Date.now();
-			if (remaining <= 1) { this.ctr(['tasks', 'kill', '--signal', 'SIGKILL', sandboxId]); child.kill('SIGKILL'); return; }
+			let sourceExpiresAt: string | undefined;
+			if (sandbox.source) { try { sourceExpiresAt = sandbox.source.attachment().authorization.expiresAt; } catch { sourceExpiresAt = new Date(0).toISOString(); } }
+			const deadline = sandboxDeadline({ executionDeadline, leaseExpiresAt: sandbox.assignment.leaseExpiresAt,
+				...(sourceExpiresAt ? { sourceExpiresAt } : {}) }, Date.now());
+			if (deadline.remainingMilliseconds <= 1) {
+				sandbox.terminationReason = deadline.reason;
+				this.ctr(['tasks', 'kill', '--signal', 'SIGKILL', sandboxId]); child.kill('SIGKILL'); return;
+			}
 			// Re-read the mutable lease when this timer fires. A renewal received while
 			// the guest is running must extend the lease boundary without extending the
 			// assignment's immutable execution-duration limit.
-			timeout = setTimeout(enforceDeadline, remaining);
+			timeout = setTimeout(enforceDeadline, deadline.remainingMilliseconds);
 		}; enforceDeadline();
 		let exitCode: number | null;
 		try {
@@ -291,8 +307,8 @@ export class KataSandboxRuntime {
 			const failureDigest = `sha256:${createHash('sha256').update(failureContent).digest('hex')}`;
 			const failure = (() => { try { const value = JSON.parse(failureContent) as Record<string, unknown>; return typeof value.error === 'string' ? value.error : ''; } catch { return ''; } })()
 				.replace(/Bearer\s+\S+/giu, 'Bearer [REDACTED]').replace(/\b(?:sk|sess)-[A-Za-z0-9_-]{16,}\b/gu, '[REDACTED]');
-			await this.emit(sandbox, 'execution.failed', { exitCode, failureDigest, stderrDigest: `sha256:${createHash('sha256').update(stderr).digest('hex')}` });
-			throw new Error(`Kata guest exited ${exitCode}: ${(failure || stderr).slice(0, 1_024)}`);
+			await this.emit(sandbox, 'execution.failed', { exitCode, terminationReason: sandbox.terminationReason ?? 'unattributed_guest_exit', failureDigest, stderrDigest: `sha256:${createHash('sha256').update(stderr).digest('hex')}` });
+			throw new Error(`Kata guest exited ${exitCode} (${sandbox.terminationReason ?? 'unattributed_guest_exit'}): ${(failure || stderr).slice(0, 1_024)}`);
 		}
 		const resultPath = resolve(sandbox.outputDirectory, 'result.json'), resultDescriptor = sandbox.assignment.outputs.find((output) => output.id === 'result');
 		const resultBytes = (await stat(resultPath)).size; if (!resultDescriptor || resultDescriptor.path !== '/run/treeseed-output/result.json' || resultBytes > resultDescriptor.maxBytes) throw new Error('Sandbox result exceeded its authorized output contract.');
@@ -352,7 +368,7 @@ export class KataSandboxRuntime {
 		const target = resolve(sandbox.outputDirectory, artifact.path.slice('/run/treeseed-output/'.length));
 		return { artifact, stream: createReadStream(target) };
 	}
-	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
+	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.terminationReason = 'cancelled'; sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
 	async destroy(sandboxId: string, token: string) {
 		const sandbox = this.authorized(sandboxId, token, true); sandbox.closing = true; sandbox.child?.kill('SIGKILL');
 		const executionStopped = this.removeContainer(sandboxId);

@@ -4,6 +4,12 @@ import { developmentContainerSchema } from '../src/supervisor/development-contai
 
 it('classifies migration failures without exposing captured output', () => {
 	expect(boundedDiagnosticFailureCode('invalid input syntax for type json: secret-value', '/usr/bin/docker', ['run'])).toBe('DATABASE_INVALID_JSON');
+	expect(boundedDiagnosticFailureCode('drain active workdays before removing retired allocation authority', '/usr/bin/docker', ['run']))
+		.toBe('ACTIVE_WORKDAYS_REQUIRE_DRAIN');
+	expect(boundedDiagnosticFailureCode('drain active assignments before removing retired allocation authority', '/usr/bin/docker', ['run']))
+		.toBe('ACTIVE_ASSIGNMENTS_REQUIRE_DRAIN');
+	expect(boundedDiagnosticFailureCode('cannot drop table because other objects depend on it', '/usr/bin/docker', ['run']))
+		.toBe('DATABASE_DEPENDENCY_CONFLICT');
 	expect(boundedDiagnosticFailureCode('private failure', '/usr/bin/docker', ['run'])).toBe('CONTAINER_FAILED');
 });
 
