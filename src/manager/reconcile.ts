@@ -202,10 +202,15 @@ export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
 
-export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], developmentRoutes: readonly EdgeRoute[] = []) {
+export function componentActivationInputs(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[], developmentRoutes: readonly EdgeRoute[] = [], validateRuntimeBuildIdentity = true) {
 	const connectionEnvironment = host.runtime.environment === 'development'
 		? managedContainerDevelopmentConnectionEnvironment(host, component, releases, developmentRoutes)
 		: managedConnectionEnvironment(host, component, releases);
+	if (component.componentId === 'agent') {
+		const runnerDigest = component.images.find((image) => image.role === 'runner')?.digest;
+		if (runnerDigest && /^sha256:[a-f0-9]{64}$/u.test(runnerDigest)) connectionEnvironment.TREESEED_PROVIDER_RUNTIME_BUILD = runnerDigest;
+		else if (validateRuntimeBuildIdentity) throw new Error('Agent release requires an exact runner image digest for assignment build identity.');
+	}
 	if (component.runtime.modeControl?.role === 'controller') {
 		const [, port] = host.network.manager.binding.split(':');
 		Object.assign(connectionEnvironment, {
@@ -255,8 +260,8 @@ export async function reconcileDevelopmentPeers(host: HostConfiguration, release
 	const ordered = componentActivationOrder(host, releases);
 	return reconcilePeerConnections(ordered.map(component => ({
 		componentId: component.componentId,
-		released: componentActivationInputs(host, component, releases).connectionEnvironment,
-		desired: componentActivationInputs(host, component, releases, routes).connectionEnvironment,
+		released: componentActivationInputs(host, component, releases, [], false).connectionEnvironment,
+		desired: componentActivationInputs(host, component, releases, routes, false).connectionEnvironment,
 	})), held, { read: readConnectionDigest, activate: id => activateComponent(host, ordered.find(component => component.componentId === id)!, releases) });
 }
 
@@ -434,8 +439,10 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const activationOrder = componentActivationOrder(host, effective);
 	const generation = Date.now();
 	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
-	for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
-		|| changedTargetIds.has(component.componentId))) componentActivationInputs(host, component, effective);
+	for (const component of activationOrder.filter((component) => !heldDevelopmentComponents.has(component.componentId)
+		&& (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)))) {
+		componentActivationInputs(host, component, effective);
+	}
 	await quiescedBackup(componentStopOrder(host, active).filter(impacted), componentActivationOrder(host, active.filter(component => host.components[component.componentId]?.enabled === true)).filter(impacted), {
 		prepare: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.begin', generation,
 			apiRuntimeDigest: effective.find(component => component.componentId === 'api')?.runtimeDigest }) : undefined,

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { componentActivationInputs, managedHostRuntimeEnvironment, managedRuntimeInputEnvironment, prepareComponentSecretFiles, replaceRuntimeCredential, restoreComponentSecretFiles, type SecretFileOperations } from '../src/index.js';
-import { component, host } from './fixtures.js';
+import { component, hash, host } from './fixtures.js';
 
 describe('component runtime input custody', () => {
 	it('atomically replaces an existing ephemeral application key during retry and rollback', () => {
@@ -62,6 +62,17 @@ describe('component runtime input custody', () => {
 		release.runtime.configuration = { environment: [{ name: 'NODE_ENV', required: false, source: 'configuration', default: 'development' }], secretEnvironment: [], secretFiles: [], files: [] };
 		configuration.components.api!.configuration = { environment: { NODE_ENV: 'production' } };
 		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment).toEqual({});
+	});
+
+	it('binds a released Agent provider to its exact runner build and rejects an unpinned release', () => {
+		const configuration = host(), release = component('agent', 'development', 'b');
+		release.images = [{ ...release.images[0]!, role: 'runner' }];
+		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment.TREESEED_PROVIDER_RUNTIME_BUILD)
+			.toBe(hash('b'));
+		release.images = [];
+		expect(() => componentActivationInputs(configuration, release, [release])).toThrow(/exact runner image digest/u);
+		expect(componentActivationInputs(configuration, release, [release], [], false).connectionEnvironment)
+			.not.toHaveProperty('TREESEED_PROVIDER_RUNTIME_BUILD');
 	});
 
 	it('materializes an absent package-owned public default for supervisor rendering', () => {

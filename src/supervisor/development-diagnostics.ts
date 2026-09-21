@@ -75,6 +75,9 @@ export function developmentStartupCode(log:string):string {
 
 /** Classify captured command failures without forwarding output that may contain custody data. */
 export function boundedDiagnosticFailureCode(output: string, executable: string, arguments_: readonly string[]) {
+  if (/drain active workdays/iu.test(output)) return 'ACTIVE_WORKDAYS_REQUIRE_DRAIN';
+  if (/drain active assignments/iu.test(output)) return 'ACTIVE_ASSIGNMENTS_REQUIRE_DRAIN';
+  if (/cannot drop .* because other objects depend on it/iu.test(output)) return 'DATABASE_DEPENDENCY_CONFLICT';
   if (/invalid input syntax for type json|invalid json/iu.test(output)) return 'DATABASE_INVALID_JSON';
   if (/permission denied/iu.test(output)) return 'PERMISSION_DENIED';
   if (/relation .* does not exist/iu.test(output)) return 'DATABASE_RELATION_MISSING';
