@@ -33,6 +33,32 @@ async function fixture(mode: 'analysis' | 'work' = 'analysis', expiresAt = '2026
   return { root, id, directory, journal, job, lease };
 }
 describe('expired analysis recovery under fenced guest custody', () => {
+  it('automatically finishes normal-result deletion without touching active or work leases', async () => {
+    const f = await fixture('analysis', '2026-09-26T21:00:00Z');
+    await writeFile(join(f.root, 'results', 'sandbox-test.json'), JSON.stringify({
+      leaseId: f.lease.id, teardownVerified: true, status: 'completed',
+    }), { mode: 0o600 });
+    const catalog = new WorkspaceCatalog(join(f.root, 'catalog.db'));
+    catalog.recordDurableResult(f.lease.id, 'sandbox-test.json'); catalog.release(f.lease.id, true); catalog.close();
+    expect(await recoverExpiredAnalysis(f.root, now, true)).toEqual([f.id]);
+    expect(await recoverExpiredAnalysis(f.root, now, true)).toEqual([]);
+    for (const retained of [await fixture(), await fixture('work')]) {
+      expect(await recoverExpiredAnalysis(retained.root, now, true)).toEqual([]);
+      await access(retained.directory);
+    }
+  });
+  it('automatic collection preserves attached disks and rejects false teardown receipts', async () => {
+    const f = await fixture();
+    const result = join(f.root, 'results', 'sandbox-test.json');
+    await writeFile(result, JSON.stringify({ leaseId: f.lease.id, teardownVerified: false }), { mode: 0o600 });
+    const catalog = new WorkspaceCatalog(join(f.root, 'catalog.db'));
+    catalog.recordDurableResult(f.lease.id, 'sandbox-test.json'); catalog.release(f.lease.id, true); catalog.close();
+    await writeFile(join(f.directory, 'device.json'), '{}');
+    expect(await recoverExpiredAnalysis(f.root, now, true)).toEqual([]);
+    await rm(join(f.directory, 'device.json'));
+    await expect(recoverExpiredAnalysis(f.root, now, true)).rejects.toThrow('does not prove teardown');
+    await access(f.directory);
+  });
   it('durably records interruption, releases only analysis, deletes disk, and replays as noop', async () => {
     const f = await fixture(); expect(await recoverExpiredAnalysis(f.root, now)).toEqual([f.id]);
     await expect(access(f.directory)).rejects.toThrow();

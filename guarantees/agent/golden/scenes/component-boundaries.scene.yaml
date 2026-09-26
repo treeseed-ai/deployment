@@ -1,4 +1,7 @@
 workflow:
+  - id: automatic-released-cleanup
+    action: { verifier: deployment.golden.automatic-released-cleanup }
+    expect: { status: passed }
   - id: warm-pool
     action: { verifier: deployment.golden.warm-pool }
     expect: { status: passed }

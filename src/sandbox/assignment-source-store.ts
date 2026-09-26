@@ -12,6 +12,7 @@ import type { SandboxBrokerConfiguration } from './protocol.js';
 import { SourcePublicationJob } from './source-publication-job.js';
 import { candidateVmVerifier } from './workspace-candidate-vm.js';
 import { publishVerifiedSourceBranch } from './source-branch-publication.js';
+import { recoverExpiredAnalysis } from './workspace-analysis-recovery.js';
 
 /** Bounded host worker scheduling, independent of the HTTP lifetime. One image build at a time. */
 export class SourceBuildQueue {
@@ -53,6 +54,7 @@ export class AssignmentSourceStore {
     return this.initialization ??= (async () => {
       await initializeWorkspaceStorage();
       this.catalog = new WorkspaceCatalog(join(workspaceStorageRoot, 'catalog.db'));
+      await recoverExpiredAnalysis(workspaceStorageRoot, new Date(), true);
       return this.catalog;
     })();
   }
@@ -129,6 +131,7 @@ export class AssignmentSourceStore {
     // The directory was generated and validated by the block store, never supplied by the guest or API.
     await rm(retained.disk.directory, { recursive: true });
     this.publications.delete(sandboxId); this.executionDetached.delete(sandboxId);
+    await recoverExpiredAnalysis(workspaceStorageRoot, new Date(), true);
     return { released: true, receiptId };
   }
 }
