@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { detachWorkspaceDisk, initializeWorkspaceStorage, workspaceStorageRoot } from './workspace-block-store.js';
 import { WorkspaceCatalog } from './workspace-catalog.js';
+import { recoverExpiredAnalysis } from './workspace-analysis-recovery.js';
 
 const exec = promisify(execFile);
 const run = async (command: string, args: string[]) => (await exec(command, args, {
@@ -17,7 +18,7 @@ export function assertWorkspaceRecoveryIdle(tasks: string, activeLeases: number)
   if (tasks.trim() || activeLeases !== 0) throw new Error('Workspace recovery requires no guests or active workspace leases.');
 }
 
-/** Serialized supervisor maintenance. Retains every disk, including unpublished work.
+/** Serialized supervisor maintenance. Retains unpublished work; retires expired analysis.
  * No guest filesystem is read or mounted, and no task is force-killed for recovery. */
 export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfiguration) {
   await initializeWorkspaceStorage();
@@ -27,7 +28,9 @@ export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfigu
   const inspect = () => {
     const db = new DatabaseSync(database, { readOnly: true });
     try {
-      return { active: Number(db.prepare("SELECT count(*) AS n FROM workspace_leases WHERE state!='released'").get()!.n),
+      const leases = db.prepare("SELECT expires_at FROM workspace_leases WHERE state!='released'").all();
+      return { active: leases.filter(lease => !Number.isFinite(Date.parse(String(lease.expires_at)))
+        || Date.parse(String(lease.expires_at)) > Date.now()).length,
         builds: db.prepare("SELECT id,job_id FROM workspace_images WHERE state='building'").all() as { id: string; job_id: string }[] };
     } finally { db.close(); }
   };
@@ -58,13 +61,14 @@ export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfigu
       await detachWorkspaceDisk({ id, directory, device: device.device, image: join(directory, 'work.qcow2'), unit: `treeseed-${id}.service` }, true);
       detached.push(id);
     }
+    const removedAnalysisDisks = await recoverExpiredAnalysis(workspaceStorageRoot);
     const catalog = new WorkspaceCatalog(database);
     try {
       for (const build of snapshot.builds) {
         if (!catalog.failBuild(build.id, build.job_id)) throw new Error('Workspace recovery build ownership changed.');
       }
     } finally { catalog.close(); }
-    return { recoveredBuilds: snapshot.builds.map(build => build.id), detached, diskContentsRetained: true, hostFilesystemMounts: 0 };
+    return { recoveredBuilds: snapshot.builds.map(build => build.id), detached, removedAnalysisDisks, workDiskContentsRetained: true, hostFilesystemMounts: 0 };
   } finally {
     if (state === 'active') await run('/usr/bin/systemctl', ['start', broker]);
   }

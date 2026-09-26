@@ -66,3 +66,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-build-recovery.test.ts
     testName: requires both guest and lease absence
+  deployment.golden.expired-analysis-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: durably records interruption, releases only analysis, deletes disk, and replays as noop
+  deployment.golden.recovery-preserves-work:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: preserves work disks and current analysis authority

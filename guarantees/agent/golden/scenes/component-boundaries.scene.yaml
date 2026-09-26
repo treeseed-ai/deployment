@@ -38,3 +38,9 @@ workflow:
   - id: crash-recovery
     action: { verifier: deployment.golden.crash-recovery }
     expect: { status: passed }
+  - id: expired-analysis-recovery
+    action: { verifier: deployment.golden.expired-analysis-recovery }
+    expect: { status: passed }
+  - id: recovery-preserves-work
+    action: { verifier: deployment.golden.recovery-preserves-work }
+    expect: { status: passed }
