@@ -76,3 +76,8 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-analysis-recovery.test.ts
     testName: preserves work disks and current analysis authority
+  deployment.golden.automatic-released-cleanup:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: automatically finishes normal-result deletion without touching active or work leases
