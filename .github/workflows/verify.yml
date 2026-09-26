@@ -60,7 +60,7 @@ jobs:
           github-token: ${{ github.token }}
       - run: npm run verify:direct
       - name: Execute coded sandbox component scenes
-        uses: treeseed-ai/reviewer/.github/actions/run-scenes@4c79b4b2b28c678f2759c6bcca5547b408f53f08
+        uses: treeseed-ai/reviewer/.github/actions/run-scenes@e29c5bf2db97188c47fdc67a7a098e81a95ced22
         with:
           ids: guarantee.deployment.golden.component-boundaries
       - name: Verify kernel-enforced trusted source cache quota
