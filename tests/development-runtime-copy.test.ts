@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, linkSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, linkSync, statSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyDevelopmentRuntime } from '../src/supervisor/development-runtime-copy.js';
@@ -56,4 +56,9 @@ it('copies npm hardlinks into independent private files',()=>{
   copyDevelopmentRuntime(f);writeFileSync(original,'changed');
   const copied=join(f.destination,'node_modules','linked.js');
   expect(readFileSync(copied,'utf8')).toBe('export {};');expect(statSync(copied).ino).not.toBe(statSync(original).ino);
+});
+it('keeps a bounded per-file limit above the current Codex guest binary size',()=>{
+  const f=fixture(),oversized=join(f.worktree,'node_modules','oversized-binary');
+  writeFileSync(oversized,'');truncateSync(oversized,384*1024*1024+1);
+  expect(()=>copyDevelopmentRuntime(f)).toThrow('bounded regular file');
 });

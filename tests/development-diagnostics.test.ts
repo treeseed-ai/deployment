@@ -21,6 +21,14 @@ it('returns bounded structured error metadata without messages, SQL or credentia
   expect(developmentDiagnosticEvents(Array(500).fill(JSON.stringify(event)).join('\n'))).toHaveLength(200);
 });
 
+it('reports bounded operation-runner polling without operation inputs or outputs', () => {
+  expect(developmentDiagnosticEvents(JSON.stringify({ ok: true, claimed: true,
+    operation: { namespace: 'knowledge', operation: 'publish_review', status: 'completed', input: { token: 'secret' }, output: { secret: true } } })))
+    .toEqual([{ event: 'runner.poll', ok: true, claimed: true, namespace: 'knowledge', operation: 'publish_review', status: 'completed' }]);
+  expect(developmentDiagnosticEvents(JSON.stringify({ ok: true, claimed: false, operation: null })))
+    .toEqual([{ event: 'runner.poll', ok: true, claimed: false }]);
+});
+
 it('diagnostic requests retain fixed registered target scope with no arbitrary log paths', () => {
   const input = { operation: 'development.container', sessionId: 'dev-test', projectId: 'api', targetId: 'service', action: 'logs' };
   expect(developmentContainerSchema.parse(input)).toEqual(input);

@@ -50,6 +50,10 @@ export class WarmSandboxPool {
 }
 
 const exec = promisify(execFile);
+export function kataGuestMemoryMiB(memoryBytes: number) {
+	if (!Number.isSafeInteger(memoryBytes) || memoryBytes <= 0) throw new Error('Invalid Kata guest memory limit.');
+	return Math.ceil(memoryBytes / 1_048_576);
+}
 export function kataWarmOperations(configuration: SandboxBrokerConfiguration, onFailure: WarmOperations['onFailure']): WarmOperations {
 	const ctr = async (args: string[]) => (await exec('/usr/bin/ctr', ['--address', configuration.containerdAddress,
 		'--namespace', configuration.namespace, ...args], { encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536,
@@ -63,9 +67,11 @@ export function kataWarmOperations(configuration: SandboxBrokerConfiguration, on
 	};
 	return { destroy, onFailure, create: async shape => {
 		const id = `sandbox-warm-${randomUUID()}`;
+		const memoryMiB = kataGuestMemoryMiB(shape.memoryBytes);
 		try {
 			await ctr(['run', '--detach', '--null-io', '--runtime', configuration.runtime, ...(shape.network === 'none' ? [] : ['--cni']),
 				'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', String(shape.cpuCores),
+				'--annotation', `io.katacontainers.config.hypervisor.default_memory=${memoryMiB}`,
 				'--memory-limit', String(shape.memoryBytes), '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
 				shape.image, id, '/bin/sleep', 'infinity']);
 			// This readiness child receives no source, assignment, token, credential or host mount.

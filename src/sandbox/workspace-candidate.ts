@@ -13,7 +13,7 @@ export interface CandidateVerification {
 export interface CandidateOperations {
   now(): Date;
   journal(value: Record<string, unknown>): Promise<void>;
-  verify(input: { disk: WorkspaceDisk; baseCommit: string; commit: string; maxBytes: number }): Promise<{
+  verify(input: { disk: WorkspaceDisk; baseCommit: string; additionalCommits: string[]; commit: string; maxBytes: number }): Promise<{
     verification: CandidateVerification; bundlePath: string; digest: string; verifierStopped: boolean;
   }>;
 }
@@ -25,7 +25,7 @@ export async function verifyWorkspaceCandidate(input: {
 }, operations: CandidateOperations) {
   const authority = input.authorization;
   const assertAuthority = () => {
-    if (authority.mode !== 'work' || authority.publication !== 'assignment-branch'
+    if (authority.mode !== 'work' || !['assignment-branch', 'simulation-branch'].includes(authority.publication)
       || Date.parse(authority.expiresAt) <= operations.now().getTime()) throw new Error('Source publication requires current work authority.');
   };
   assertAuthority();
@@ -37,6 +37,7 @@ export async function verifyWorkspaceCandidate(input: {
   await operations.journal({ ...custody, state: 'verifying', executionStopped: true });
   try {
     const result = await operations.verify({ disk: input.disk, baseCommit: authority.source.commit,
+      additionalCommits: authority.source.additionalCommits ?? [],
       commit: input.commit, maxBytes: input.maxBytes });
     const verification = result.verification;
     if (!result.verifierStopped || verification.baseCommit !== authority.source.commit || verification.commit !== input.commit

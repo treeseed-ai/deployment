@@ -50,7 +50,7 @@ export function renderAgentDevelopmentOverride(input: { sessionId: string; runti
 	];
 	const environment: Record<string, string> = { ...input.environment,
 		...(input.sandboxGuestDigest ? { TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST: input.sandboxGuestDigest } : {}),
-		TREESEED_PROVIDER_SOURCE_CLOSURE_DIGEST: input.sourceClosureDigest,
+		TREESEED_PROVIDER_RUNTIME_BUILD: input.sourceClosureDigest,
 		TREESEED_DEVELOPMENT_SESSION_ID: input.sessionId, TREESEED_DEVELOPMENT_MODE: 'candidate' };
 	const service = {
 		restart: 'no',

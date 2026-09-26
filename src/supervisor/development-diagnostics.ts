@@ -1,10 +1,21 @@
 /** Structured metadata only: never forward raw container messages, SQL, or values. */
-export function developmentDiagnosticEvents(output: string) {
-  const events = output.split('\n').slice(-200).flatMap(line => {
+export function developmentDiagnosticEvents(output: string): Array<Record<string, string | number | boolean>> {
+  const events: Array<Record<string, string | number | boolean>> = output.split('\n').slice(-200).flatMap(line => {
     try {
       const value = JSON.parse(line) as Record<string, unknown>;
+      if (typeof value.claimed === 'boolean' && typeof value.ok === 'boolean') {
+        const operation = value.operation && typeof value.operation === 'object' ? value.operation as Record<string, unknown> : {};
+        const result: Record<string, string | number | boolean> = { event: 'runner.poll', ok: value.ok, claimed: value.claimed };
+        for (const key of ['id', 'namespace', 'operation', 'status']) {
+          const field = operation[key];
+          if (typeof field === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(field)) result[key === 'id' ? 'operationId' : key] = field;
+        }
+        const error = value.error && typeof value.error === 'object' ? value.error as Record<string, unknown> : {};
+        if (typeof error.code === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(error.code)) result.code = error.code;
+        return [result];
+      }
       if (!['operation.internal-error', 'operation.failed', 'operation.output-contract-invalid'].includes(String(value.event))) return [];
-      const result: Record<string, string | number> = { event: String(value.event) };
+      const result: Record<string, string | number | boolean> = { event: String(value.event) };
       for (const key of ['operationId', 'requestId', 'name', 'code', 'constraint']) {
         const field = value[key];
         if (typeof field === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(field)) result[key] = field;

@@ -104,6 +104,7 @@ export function startSandboxBroker() {
 	const subscriptionProxy = createServer();
 	const proxyLog = boundedProxyLogger();
 	subscriptionProxy.on('connect', (request, client, head) => {
+		client.on('error', () => undefined);
 		let requestedHost = '';
 		try {
 			const target = new URL(`https://${request.url ?? ''}`), host = target.hostname, port = Number(target.port || 443); requestedHost = /^[a-z0-9.-]{1,253}$/u.test(host) ? host : '';

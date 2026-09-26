@@ -1,0 +1,68 @@
+schemaVersion: treeseed.guarantee-verifiers/v1
+ownerPackage: "@treeseed/deployment"
+verifiers:
+  deployment.golden.warm-pool:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: atomically assigns each VM once, replenishes only pristine capacity and bounds idle memory
+  deployment.golden.image-isolation:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: never substitutes an incompatible image or resource shape
+  deployment.golden.pool-drain:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: does not recycle failed readiness and rejects admission after drain
+  deployment.golden.source-custody:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: constructs exact Git source, preserves history across incremental bundles and rejects dirty parents
+  deployment.golden.analysis-overlay:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-nbd-service.test.ts
+    testName: gives analysis a writable private overlay without tying NBD to the supervisor cgroup
+  deployment.golden.device-denial:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-nbd-service.test.ts
+    testName: rejects caller paths, unrelated devices, image formats and IDs
+  deployment.golden.candidate-verification:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate.test.ts
+    testName: journals ownership before independent verification and never represents verification as publication
+  deployment.golden.lease-deadline:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-deadline.test.ts
+    testName: reads renewed lease and source authority without extending productive time
+  deployment.golden.deadline-diagnostics:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-deadline.test.ts
+    testName: identifies the first limiting deadline without mistaking it for guest OOM
+  deployment.golden.credential-custody:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-model-policy.test.ts
+    testName: updates policy without replacing credential custody or guest trust and repeats noop
+  deployment.golden.cleanup-authority:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-collection.test.ts
+    testName: does not unlink while a build or active/quarantined lease exists
+  deployment.golden.cleanup-replay:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-collection.test.ts
+    testName: deletes only leaves, bounds each batch and repeats as noop
+  deployment.golden.crash-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: requires both guest and lease absence

@@ -79,7 +79,7 @@ function release(componentId: string, track: 'stable' | 'development', marker: s
 	const value = component(componentId, track, marker);
 	value.release = version; value.applicationVersion = version; value.runtime.version = version;
 	value.packages[0]!.version = version; value.runtimeDigest = deploymentDigest(value.runtime); value.images[0]!.digest = hash(marker);
-	if (componentId === 'agent') value.images[0]!.role = 'runner';
+	if (componentId === 'agent') value.images[0]!.role = 'agent-runner';
 	return value;
 }
 

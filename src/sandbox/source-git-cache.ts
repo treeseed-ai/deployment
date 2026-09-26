@@ -62,29 +62,35 @@ export async function acquireSourceBundle(input: {
     await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId, assignmentId: authorization.assignmentId, authorizationId: authorization.id, pid: process.pid }), { mode: 0o600, flag: 'wx' });
     const result = await dependencies.volume(cache, input.maxBundleBytes, async volume => {
     const temporary = join(volume, `${jobId}.bundle`);
+		const git = join(volume, 'repository.git');
+		await privateDirectory(git);
+		await dependencies.run(git, ['init', '--bare', '--template=']);
+		const commits = [source.commit, ...(source.additionalCommits ?? [])];
 		if (authorization.acquisition === 'simulation-local') {
-			const git = simulationSourceRepository(dependencies.root, source);
-			const info = await lstat(git);
-			if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || await realpath(git) !== git) {
+			const trusted = simulationSourceRepository(dependencies.root, source);
+			const info = await lstat(trusted);
+			if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || await realpath(trusted) !== trusted) {
 				throw new Error('Simulation source repository escaped manager custody.');
 			}
-			if (await dependencies.run(git, ['rev-parse', '--verify', `${source.commit}^{commit}`]) !== source.commit) {
-				throw new Error('Simulation source commit is not present in manager custody.');
+			for (const commit of commits) {
+				if (await dependencies.run(trusted, ['rev-parse', '--verify', `${commit}^{commit}`]) !== commit) {
+					throw new Error('Authorized simulation commit is not present in manager custody.');
+				}
+				await dependencies.run(git, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-recurse-submodules', trusted, commit]);
+				if (await dependencies.run(git, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']) !== commit) throw new Error('Simulation source fetch changed its exact commit.');
 			}
-			await dependencies.run(git, ['fsck', '--strict', '--no-reflogs', source.commit]);
-			await dependencies.run(git, ['bundle', 'create', temporary, '--all']);
 		} else {
-			const git = join(volume, 'repository.git');
-			await privateDirectory(git);
-			await dependencies.run(git, ['init', '--bare', '--template=']);
 			// The manager never accepts a remote config or filesystem from an execution guest.
-			await dependencies.run(git, ['fetch', '--no-tags', '--no-recurse-submodules', repository.cloneUrl, source.commit], input.credential);
-			current(authorization, dependencies.now());
-			if (await dependencies.run(git, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']) !== source.commit) throw new Error('Fetched source differs from the authorized exact revision.');
-			await dependencies.run(git, ['fsck', '--strict', '--no-reflogs', source.commit]);
-			await dependencies.run(git, ['update-ref', 'refs/heads/treeseed-source', source.commit]);
-			await dependencies.run(git, ['bundle', 'create', temporary, 'refs/heads/treeseed-source']);
+			for (const commit of commits) {
+				await dependencies.run(git, ['fetch', '--no-tags', '--no-recurse-submodules', repository.cloneUrl, commit], input.credential);
+				current(authorization, dependencies.now());
+				if (await dependencies.run(git, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']) !== commit) throw new Error('Fetched source differs from the authorized exact revision.');
+			}
 		}
+		await dependencies.run(git, ['fsck', '--strict', '--no-reflogs', ...commits]);
+		const refs = commits.map((_, index) => index === 0 ? 'refs/heads/treeseed-source' : `refs/heads/treeseed-predecessor-${index - 1}`);
+		for (let index = 0; index < commits.length; index++) await dependencies.run(git, ['update-ref', refs[index]!, commits[index]!]);
+		await dependencies.run(git, ['bundle', 'create', temporary, ...refs]);
     const info = await lstat(temporary);
     if (!info.isFile() || info.size < 1 || info.size > input.maxBundleBytes) throw new Error('Source bundle exceeds the admitted transfer limit.');
     const sha256 = await digest(temporary), path = join(bundles, `${sha256}.bundle`);

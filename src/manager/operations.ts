@@ -180,7 +180,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.dev.host.guest-image.import': {
 			if (!context.local) throw new Error('Development guest images may be imported only through the protected local manager socket.');
 			if (!host.fleet.rolloutGroup.toLowerCase().includes('development')) throw new Error('Development guest-image import is restricted to development rollout groups.');
-			const payload = z.object({ archivePath: z.string().startsWith('/').max(4_096), image: z.string().regex(/^(?:docker\.io\/)?treeseed\/sandbox-[a-z0-9._-]+:local$/u) }).strict().parse(developmentPayload(request));
+			const payload = z.object({ image: z.string().regex(/^(?:docker\.io\/)?treeseed\/sandbox-[a-z0-9._-]+:local$/u) }).strict().parse(developmentPayload(request));
 			return requestSupervisor({ operation: 'sandbox.guest-image.import', ...payload });
 		}
 		case 'local.dev.host.deactivate':

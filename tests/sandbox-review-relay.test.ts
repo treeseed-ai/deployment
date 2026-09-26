@@ -23,6 +23,22 @@ describe('assignment review relay', () => {
     await expect(pending).resolves.toEqual({ receiptId: 'verified' });
     expect(sandbox.toolWaiters.size).toBe(0);
   });
+  it('registers completion authority before the request becomes pollable', async () => {
+    const { sandbox, runtime } = fixture();
+    let releaseEvent!: () => void;
+    const eventPersisted = new Promise<void>((resolve) => { releaseEvent = resolve; });
+    (runtime as unknown as { emit: ReturnType<typeof vi.fn> }).emit.mockImplementationOnce(async () => eventPersisted);
+    const pending = KataSandboxRuntime.prototype.requestTreeDxTool.call(runtime, 'sandbox', 'guest-token', {
+      tool: 'treeseed_time_status', arguments: {},
+    });
+    await vi.waitFor(() => expect(sandbox.toolRequests).toHaveLength(1));
+    const request = KataSandboxRuntime.prototype.nextToolRequest.call(runtime, 'sandbox', 'host-token').request;
+    if (!request) throw new Error('Expected queued timing request');
+    await expect(KataSandboxRuntime.prototype.completeToolRequest.call(runtime, 'sandbox', 'host-token', request.id,
+      { result: { remainingSeconds: 30 } })).resolves.toEqual({ completed: true });
+    releaseEvent();
+    await expect(pending).resolves.toEqual({ remainingSeconds: 30 });
+  });
   it.each(['expired', 'no-relay', 'no-handle', 'unknown-tool'])('denies %s without enqueuing', async boundary => {
     const { sandbox, runtime } = fixture();
     if (boundary === 'expired') sandbox.assignment.leaseExpiresAt = new Date(0).toISOString();
