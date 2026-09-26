@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { composeFailureDiagnostics } from './compose-diagnostics.js';
 import { installedComponentRelease } from './component-release.js';
 import { migratePersistentComponentInput } from './component-input-migration.js';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
@@ -45,7 +45,7 @@ import { ensureDevelopmentConfiguration } from './development-configuration.js';
 import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
 import { initializeHostConfiguration } from './configuration-initialize.js';
 import { componentComposeArguments, composeProjectContainerIds, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
-import { importSandboxGuestArchive } from './sandbox-guest-import.js';
+import { bindExistingSandboxGuestTrust, importSandboxGuestArchive } from './sandbox-guest-import.js';
 import { boundedDiagnosticFailureCode } from './development-diagnostics.js';
 
 export type { CommandRunner } from './compose-runtime.js';
@@ -112,11 +112,17 @@ export function bindSandboxGuestTrust(digest: string, command: CommandRunner, pa
 	return { changed: current.guestImages.some((entry) => entry.digest !== digest), digest, images };
 }
 
-export function importDevelopmentSandboxGuest(archivePath: string, image: string, command: CommandRunner, options: { stateRoot?: string; brokerPath?: string } = {}) {
-	const stateRoot = realpathSync(options.stateRoot ?? '/home'), archive = realpathSync(archivePath), metadata = lstatSync(archive);
-	if (!archive.startsWith(`${stateRoot}${sep}`) || !/\/\.local\/state\/treeseed\/development\/images\/sandbox-[a-f0-9-]{8,80}\.tar$/u.test(archive)
-		|| !metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0) throw new Error('Development sandbox archive failed bounded local custody validation.');
-	return importSandboxGuestArchive(archive, image, command, options.brokerPath);
+export function importDevelopmentSandboxGuest(image: string, command: CommandRunner, options: { stateRoot?: string; brokerPath?: string } = {}) {
+	if (!/^(?:docker\.io\/)?treeseed\/sandbox-[a-z0-9._-]+:local$/u.test(image)) throw new Error('Invalid development sandbox image.');
+	const stateRoot = options.stateRoot ?? paths.managerState;
+	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+	const directory = mkdtempSync(resolve(stateRoot, 'sandbox-image-')), archive = resolve(directory, 'guest.tar');
+	try {
+		command('/usr/bin/docker', ['image', 'save', '--output', archive, image]);
+		const metadata = lstatSync(archive);
+		if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0) throw new Error('Development sandbox archive failed bounded manager custody validation.');
+		return importSandboxGuestArchive(archive, image, command, options.brokerPath);
+	} finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 
@@ -291,7 +297,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.model-policy.reconcile': return reconcileSandboxModelPolicy(loadHostConfiguration(), command);
 		case 'sandbox.guest-trust.bind': return bindSandboxGuestTrust(operation.digest, command);
 		case 'sandbox.guest-image.import': {
-			const imported = importDevelopmentSandboxGuest(operation.archivePath, operation.image, command);
+			const imported = importDevelopmentSandboxGuest(operation.image, command);
 			recordHostDevelopmentGuestImage(imported.digest);
 			return imported;
 		}
@@ -394,7 +400,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'storage.r2.install': return installR2Storage(operation, command);
 		case 'host.development.activate': {
 			ensureSandboxNetwork(command);
-			if (operation.activation.guestImageDigest) bindSandboxGuestTrust(operation.activation.guestImageDigest, command);
+			if (operation.activation.guestImageDigest) bindExistingSandboxGuestTrust(operation.activation.guestImageDigest, command);
 			return activateHostDevelopment(operation.activation, command);
 		}
 		case 'host.development.status': return hostDevelopmentStatus();

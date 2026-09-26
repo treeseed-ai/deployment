@@ -96,7 +96,7 @@ it('renders a fixed Agent overlay with read-only candidate code, live peer route
 		expect(service.volumes.every(volume=>volume.read_only)).toBe(true);
 		expect(service.environment.TREESEED_CONTROL_PLANE_URL).toBe('http://api-live:3000');
 		expect(service.environment.TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST).toBe(digest);
-		expect(service.environment.TREESEED_PROVIDER_SOURCE_CLOSURE_DIGEST).toBe(digest);
+		expect(service.environment.TREESEED_PROVIDER_RUNTIME_BUILD).toBe(digest);
 	}
 	expect(JSON.stringify(spec)).not.toContain('docker.sock');
 });
@@ -112,7 +112,7 @@ it('allows polling handoff but blocks active and recoverable Agent claims',()=>{
 	} finally {rmSync(root,{recursive:true,force:true});}
 });
 it('uses immutable image, read-only source, fixed networks and no privileged/socket access',()=>{
-  const spec=renderDevelopmentContainer(input),runtime=spec.services.runtime;
+  const spec=renderDevelopmentContainer(input),runtime=spec.services.runtime,migration=spec.services.migration;
   expect(runtime.image).toBe(input.image);expect(runtime.read_only).toBe(true);
   expect(runtime.user).toBe('1000:1000');
   expect(runtime.cap_drop).toEqual(['ALL']);expect(runtime.security_opt).toEqual(['no-new-privileges:true']);
@@ -122,6 +122,13 @@ it('uses immutable image, read-only source, fixed networks and no privileged/soc
   expect(JSON.stringify(spec)).not.toContain('docker.sock');expect(runtime.ports).toEqual(['127.0.0.1:3000:3000']);
   expect(runtime.entrypoint.join(' ')).not.toContain('setTimeout');
   expect(runtime.entrypoint.join(' ')).toContain('process.on(s,()=>c.kill(s))');
+  expect(runtime.depends_on).toEqual({migration:{condition:'service_completed_successfully'}});
+  expect(migration?.entrypoint).toEqual(['node','--import','tsx','scripts/support/migrate-db.ts']);
+  expect(migration?.environment).toEqual({TREESEED_DATABASE_URL_FILE:'/run/treeseed/postgres/api/url',TREESEED_DEVELOPMENT_MODE:'migration'});
+  expect(migration?.volumes).toEqual([
+    {type:'bind',source:input.workspace,target:input.workspace,read_only:true},
+    {type:'bind',source:'/run/treeseed/postgres-clients/api/api/runtime',target:'/run/treeseed/postgres/api',read_only:true},
+  ]);
   expect(()=>renderDevelopmentContainer({...input,image:'node:latest'})).toThrow('immutable');
 });
 it('does not publish a runner port and confines its writable state',()=>{
@@ -130,6 +137,7 @@ it('does not publish a runner port and confines its writable state',()=>{
   expect(runtime.volumes[0]).toMatchObject({source:'/run/treeseed/development-containers/dev-example/operations-runner/runtime',target:'/app',read_only:true});
   expect(runtime.ports).toBeUndefined();
   expect(runtime.environment.TREESEED_DEVELOPMENT_MODE).toBe('candidate');
+  expect(renderDevelopmentContainer({...input,targetId:'operations-runner'}).services).not.toHaveProperty('migration');
   expect(runtime.healthcheck.test.join(' ')).toContain('/readyz');
   expect(runtime.entrypoint.join(' ')).toContain('process.on(s,()=>c.kill(s))');
   expect(runtime.volumes.filter(v=>!v.read_only).map(v=>v.source)).toEqual([
@@ -153,4 +161,7 @@ it('allows group-readable source without changing state identity or enabling wri
   expect(runtime.user).toBe('0:0');expect(runtime.group_add).toEqual(['1000']);
   expect(runtime.volumes[0]?.read_only).toBe(true);expect(runtime.cap_drop).toEqual(['ALL']);
   expect(renderDevelopmentContainer({...input,sourceGid:1000}).services.runtime.group_add).toEqual([]);
+  const migration=renderDevelopmentContainer({...input,targetId:'service',uid:0,gid:0,sourceGid:1000}).services.migration;
+  expect(migration?.user).toBe('0:0');expect(migration?.group_add).toEqual(['1000']);
+  expect(migration?.volumes[0]?.read_only).toBe(true);
 });

@@ -54,9 +54,9 @@ export class WorkspaceCatalog {
 				|| prior.assignment_id !== authorization.assignmentId || prior.attempt !== authorization.attempt
 				|| prior.mode !== authorization.mode || prior.acquisition !== authorization.acquisition
 				|| prior.publication !== authorization.publication) throw new Error('Workspace renewal changed authority or targets an expired lease.');
-			if (Date.parse(authorization.expiresAt) < Date.parse(String(prior.expires_at))) throw new Error('Workspace renewal cannot shorten an active lease.');
+			const expiresAt = new Date(Math.max(Date.parse(authorization.expiresAt), Date.parse(String(prior.expires_at)))).toISOString();
 			this.db.prepare('UPDATE workspace_leases SET authorization_id=?,expires_at=? WHERE id=?')
-				.run(authorization.id, authorization.expiresAt, leaseId);
+				.run(authorization.id, expiresAt, leaseId);
 		});
 	}
 	/** Filesystem writes never imply source publication permission. Check again before candidate acceptance. */

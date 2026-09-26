@@ -53,4 +53,19 @@ describe('independent source candidate verifier', () => {
       await expect(verifySourceCandidate({ ...f.input, baseCommit: f.input.commit, commit: f.input.baseCommit })).rejects.toThrow();
     } finally { f.cleanup(); }
   });
+  it('requires a release integration commit to include every approved predecessor', async () => {
+    const f = fixture(); try {
+      f.git(['checkout', '-q', f.input.baseCommit]);
+      f.git(['checkout', '-qb', 'approved']);
+      writeFileSync(join(f.root, 'approved.ts'), 'export const approved = true;\n');
+      f.git(['add', '.']); f.git(['commit', '-qm', 'approved']);
+      const approved = f.git(['rev-parse', 'HEAD']);
+      f.git(['checkout', '-q', f.input.commit]);
+      await expect(verifySourceCandidate({ ...f.input, additionalCommits: [approved] })).rejects.toThrow();
+      f.git(['merge', '--no-ff', '--no-edit', 'approved']);
+      const merged = f.git(['rev-parse', 'HEAD']);
+      await expect(verifySourceCandidate({ ...f.input, commit: merged, additionalCommits: [approved] }))
+        .resolves.toMatchObject({ commit: merged, ancestry: true });
+    } finally { f.cleanup(); }
+  });
 });

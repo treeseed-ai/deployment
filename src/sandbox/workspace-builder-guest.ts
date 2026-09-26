@@ -31,8 +31,11 @@ export async function verifySourceWorkspace(root: string, commit: string) {
 	return { commit, tree: await git(root, ['rev-parse', 'HEAD^{tree}']), clean: true, objectClosure: true, sourceOnly: true };
 }
 
-export async function buildSourceWorkspace(input: { root: string; bundle: string; commit: string; parentCommit: string | null }) {
-	if (!exactCommit.test(input.commit) || (input.parentCommit !== null && !exactCommit.test(input.parentCommit))) throw new Error('Source build requires exact commits.');
+export async function buildSourceWorkspace(input: { root: string; bundle: string; commit: string; parentCommit: string | null; additionalCommits?: string[] }) {
+	const additional = input.additionalCommits ?? [];
+	if (!exactCommit.test(input.commit) || (input.parentCommit !== null && !exactCommit.test(input.parentCommit))
+		|| additional.length > 16 || new Set(additional).size !== additional.length
+		|| additional.some(commit => !exactCommit.test(commit) || commit === input.commit)) throw new Error('Source build requires distinct exact commits.');
 	await mkdir(input.root, { recursive: true });
 	if (input.parentCommit) {
 		if (await git(input.root, ['rev-parse', 'HEAD']) !== input.parentCommit) throw new Error('Workspace backing commit changed.');
@@ -43,7 +46,11 @@ export async function buildSourceWorkspace(input: { root: string; bundle: string
 		await writeFile(resolve(input.root, '.git/info/exclude'), '/lost+found\n', { mode: 0o600 });
 	}
 	await git(input.root, ['bundle', 'verify', input.bundle]);
-	await git(input.root, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-recurse-submodules', input.bundle, 'refs/heads/treeseed-source']);
+	const refs = ['refs/heads/treeseed-source', ...additional.map((_, index) => `refs/heads/treeseed-predecessor-${index}`)];
+	const heads = await git(input.root, ['bundle', 'list-heads', input.bundle]);
+	const expected = [input.commit, ...additional].map((commit, index) => `${commit} ${refs[index]}`).sort();
+	if (JSON.stringify(heads.split('\n').sort()) !== JSON.stringify(expected)) throw new Error('Source bundle heads differ from authorized exact commits.');
+	await git(input.root, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-recurse-submodules', input.bundle, ...refs]);
 	if (await git(input.root, ['rev-parse', 'FETCH_HEAD']) !== input.commit) throw new Error('Source bundle does not match its authorized commit.');
 	if (input.parentCommit) await git(input.root, ['merge-base', '--is-ancestor', input.parentCommit, input.commit]);
 	await git(input.root, ['checkout', '--detach', '--force', '--no-recurse-submodules', input.commit]);
@@ -52,10 +59,11 @@ export async function buildSourceWorkspace(input: { root: string; bundle: string
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	try {
-		const input = JSON.parse(await readFile('/run/treeseed-builder/build.json', 'utf8')) as { commit: string; parentCommit: string | null };
+		const input = JSON.parse(await readFile('/run/treeseed-builder/build.json', 'utf8')) as { commit: string; parentCommit: string | null; additionalCommits?: string[] };
 		const result = process.argv[2] === 'verify' ? await verifySourceWorkspace('/workspace/project', input.commit)
 			: await buildSourceWorkspace({ root: '/workspace/project', bundle: '/run/treeseed-builder/source.bundle',
-				commit: input.commit, parentCommit: input.parentCommit });
+				commit: input.commit, parentCommit: input.parentCommit,
+				...(input.additionalCommits ? { additionalCommits: input.additionalCommits } : {}) });
 		await writeFile('/run/treeseed-output/source-verification.json', JSON.stringify(result));
 	} catch (error) {
 		await writeFile('/run/treeseed-output/source-verification.json', JSON.stringify({ failed: true,

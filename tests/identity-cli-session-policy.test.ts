@@ -19,19 +19,19 @@ function fixture(overrides: Record<string, unknown> = {}) {
   return { input: { resource: 'https://identity.example/admin/realms/treeseed', clientId: 'client-id', token: 'synthetic', transport: transport as typeof fetch },
     transport, realm: () => realm, client: () => client };
 }
-it('extends CLI to 24h, retains five-minute tokens and other client limits, and repeats noop', async () => {
+it('extends CLI to one week, retains five-minute tokens and other client limits, and repeats noop', async () => {
   const f = fixture();
-  expect(await reconcileCliSessionPolicy(f.input)).toMatchObject({ action: 'updated', sessionMaxSeconds: 86400, accessTokenSeconds: 300 });
-  expect(f.realm()).toMatchObject({ ssoSessionIdleTimeout: 86400, ssoSessionMaxLifespan: 86400, clientSessionIdleTimeout: 1800, clientSessionMaxLifespan: 36000, unrelated: 'keep' });
-  expect(f.client()).toMatchObject({ redirectUris: ['http://127.0.0.1/callback'], attributes: { 'pkce.code.challenge.method': 'S256', 'client.session.idle.timeout': '86400', 'client.session.max.lifespan': '86400' } });
+  expect(await reconcileCliSessionPolicy(f.input)).toMatchObject({ action: 'updated', sessionMaxSeconds: 604800, accessTokenSeconds: 300 });
+  expect(f.realm()).toMatchObject({ ssoSessionIdleTimeout: 604800, ssoSessionMaxLifespan: 604800, clientSessionIdleTimeout: 1800, clientSessionMaxLifespan: 36000, unrelated: 'keep' });
+  expect(f.client()).toMatchObject({ redirectUris: ['http://127.0.0.1/callback'], attributes: { 'pkce.code.challenge.method': 'S256', 'client.session.idle.timeout': '604800', 'client.session.max.lifespan': '604800' } });
   expect(await reconcileCliSessionPolicy(f.input)).toMatchObject({ action: 'noop' });
   expect(f.client().webOrigins).toEqual([]);
   expect(f.transport.mock.calls.filter(([, init]) => init.method === 'PUT')).toHaveLength(2);
 });
 it('does not shorten preexisting SSO policy or change explicit other-client defaults', async () => {
-  const f = fixture({ ssoSessionIdleTimeout: 172800, ssoSessionMaxLifespan: 172800, clientSessionIdleTimeout: 900, clientSessionMaxLifespan: 7200 });
+  const f = fixture({ ssoSessionIdleTimeout: 1209600, ssoSessionMaxLifespan: 1209600, clientSessionIdleTimeout: 900, clientSessionMaxLifespan: 7200 });
   await reconcileCliSessionPolicy(f.input);
-  expect(f.realm()).toMatchObject({ ssoSessionIdleTimeout: 172800, ssoSessionMaxLifespan: 172800, clientSessionIdleTimeout: 900, clientSessionMaxLifespan: 7200 });
+  expect(f.realm()).toMatchObject({ ssoSessionIdleTimeout: 1209600, ssoSessionMaxLifespan: 1209600, clientSessionIdleTimeout: 900, clientSessionMaxLifespan: 7200 });
 });
 it('materializes Keycloak defaults for a new realm', async () => {
   const f = fixture({ ssoSessionIdleTimeout: undefined, ssoSessionMaxLifespan: undefined });

@@ -74,7 +74,15 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
   const args=api?['--watch','--import','tsx','src/api/support/server.ts']:['dist/operations-runner/entrypoint.js','run'];
   // Forward explicit stop signals; elapsed time never terminates development.
   const processSupervisor=`const{spawn}=require('node:child_process');const c=spawn(process.execPath,${JSON.stringify(args)},{stdio:'inherit'});for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>c.kill(s));c.on('exit',n=>process.exit(n??1));`;
-  return {services:{runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
+  const sourceMount={type:'bind',source:api?input.workspace:resolve(directory,'runtime'),target:api?input.workspace:'/app',read_only:true};
+  const databaseMount={type:'bind',source:'/run/treeseed/postgres-clients/api/api/runtime',target:'/run/treeseed/postgres/api',read_only:true};
+  const migration=api?{migration:{image:input.image,user:`${input.uid}:${input.gid}`,
+    group_add:input.sourceGid===undefined||input.sourceGid===input.gid?[]:[String(input.sourceGid)],
+    init:true,read_only:true,restart:'no',
+    entrypoint:['node','--import','tsx','scripts/support/migrate-db.ts'],working_dir:input.worktree,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
+    environment:{TREESEED_DATABASE_URL_FILE:'/run/treeseed/postgres/api/url',TREESEED_DEVELOPMENT_MODE:'migration'},
+    volumes:[sourceMount,databaseMount],tmpfs:['/tmp'],networks:{postgres:{}}}}:{};
+  return {services:{...migration,runtime:{image:input.image,container_name:name,user:`${input.uid}:${input.gid}`,init:true,read_only:true,restart:'no',
     group_add:input.sourceGid===undefined||input.sourceGid===input.gid?[]:[String(input.sourceGid)],
     entrypoint:['node','-e',processSupervisor],working_dir:api?input.worktree:'/app',cap_drop:['ALL'],security_opt:['no-new-privileges:true'],
     pids_limit:512,mem_limit:'4g',cpus:4,stop_grace_period:'30s',
@@ -84,16 +92,17 @@ export function renderDevelopmentContainer(input:{sessionId:string;targetId:'ser
       TREESEED_OPENBAO_ADDRESS:'https://openbao:8200',TREESEED_OPENBAO_IDENTITY_FILE:'/run/openbao-client/identity.json',NODE_EXTRA_CA_CERTS:'/run/openbao-client/ca.pem',
       TREESEED_CAPACITY_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/credentials',TREESEED_DIAGNOSTICS_ENCRYPTION_KEY_FILE:'/run/treeseed-keys/diagnostics',
       ...(api?{}:{TREESEED_PLATFORM_RUNNER_DATA_DIR:'/data/operations-runner',TREESEED_PUBLISHED_KNOWLEDGE_ROOT:'/data/published-knowledge'})},
-    volumes:[{type:'bind',source:api?input.workspace:resolve(directory,'runtime'),target:api?input.workspace:'/app',read_only:true},
+    volumes:[sourceMount,
       {type:'bind',source:resolve(directory,'openbao'),target:'/run/openbao-client',read_only:true},
       {type:'bind',source:resolve(directory,'keys'),target:'/run/treeseed-keys',read_only:true},
-      {type:'bind',source:'/run/treeseed/postgres-clients/api/api/runtime',target:'/run/treeseed/postgres/api',read_only:true},
+      databaseMount,
       {type:'bind',source:'/run/treeseed/identity-clients/api',target:'/run/treeseed/identity/api',read_only:true},
-      ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner'},
-        {type:'bind',source:resolve(input.stateRoot,'published-knowledge'),target:'/data/published-knowledge'}])],
+      ...(api?[]:[{type:'bind',source:resolve(input.stateRoot,'operations-runner'),target:'/data/operations-runner',read_only:false},
+        {type:'bind',source:resolve(input.stateRoot,'published-knowledge'),target:'/data/published-knowledge',read_only:false}])],
     tmpfs:['/tmp'],extra_hosts:['host.docker.internal:host-gateway',
       ...(input.environment.TREESEED_IDENTITY_HOSTNAME?[`${input.environment.TREESEED_IDENTITY_HOSTNAME}:host-gateway`]:[])],
     ...(api?{ports:['127.0.0.1:3000:3000']}:{}),
+    ...(api?{depends_on:{migration:{condition:'service_completed_successfully'}}}:{}),
     healthcheck:{test:['CMD','node','-e',`fetch('http://127.0.0.1:3000${api?'/v1/health/ready':'/readyz'}').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))`],interval:'2s',timeout:'2s',retries:60},
     networks:{private:api?{aliases:['api','api-live']}:{},edge:{aliases:[api?'api-live':'operations-runner-live']},platform:api?{aliases:['api','api-live']}:{},postgres:{}}}},
     networks:{private:{external:true,name:'treeseed-api_private'},edge:{external:true,name:'treeseed-edge'},platform:{external:true,name:'treeseed-platform'},postgres:{external:true,name:'treeseed-postgres-private'}}};
@@ -210,9 +219,16 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   }
   catch(error) {
     let code='';
-    try { const log=String(command('/usr/bin/docker',['logs','--tail','50',`treeseed-${input.sessionId}-api-${input.targetId}`]));
-      code=developmentStartupCode(log);
-    } catch {/* Diagnostics never prevent cleanup. */}
+    // Compose can fail before runtime exists (notably when its one-shot
+    // migration fails). Classify both fixed services before cleanup removes
+    // their containers; never forward raw logs or credential-bearing output.
+    for (const service of ['migration', 'runtime']) {
+      if (code) break;
+      try {
+        const log=String(command('/usr/bin/docker',[...compose,'logs','--no-color','--tail','50',service]));
+        code=developmentStartupCode(log);
+      } catch {/* Diagnostics never prevent cleanup. */}
+    }
     try{
       if(targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
       command('/usr/bin/docker',[...compose,'down','--timeout','30']);

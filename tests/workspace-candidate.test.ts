@@ -24,6 +24,18 @@ describe('source candidate custody transition', () => {
     expect(vi.mocked(operations.journal).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(operations.verify).mock.invocationCallOrder[0]!);
     expect(JSON.stringify(vi.mocked(operations.journal).mock.calls)).not.toMatch(/accepted|persistedAt|bundlePath/);
   });
+  it('admits simulation publication and passes exact integration predecessors to the verifier', async () => {
+    const { input, operations } = fixture();
+    input.authorization.acquisition = 'simulation-local';
+    input.authorization.publication = 'simulation-branch';
+    input.authorization.publicationRef = 'simulation/campaign/workday/assignment';
+    delete input.authorization.credentialBindingId;
+    input.authorization.source.additionalCommits = ['c'.repeat(40)];
+    await expect(verifyWorkspaceCandidate(input, operations)).resolves.toBeDefined();
+    expect(operations.verify).toHaveBeenCalledWith(expect.objectContaining({
+      baseCommit: input.authorization.source.commit, additionalCommits: ['c'.repeat(40)],
+    }));
+  });
   it.each(['analysis', 'denied', 'expired', 'running'] as const)('rejects %s before verifier admission', async mode => {
     const { input, operations } = fixture();
     if (mode === 'analysis') input.authorization.mode = 'analysis';

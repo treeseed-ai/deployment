@@ -1,6 +1,6 @@
-/** Finite CLI login, not a 24-hour bearer token. Other clients retain their
+/** Finite CLI login, not a week-long bearer token. Other clients retain their
  * effective realm defaults when the shared SSO parent is extended. */
-export const CLI_SESSION_SECONDS = 86_400;
+export const CLI_SESSION_SECONDS = 604_800;
 export async function reconcileCliSessionPolicy(options: {
   resource: string; clientId: string; token: string; transport: typeof fetch;
 }) {

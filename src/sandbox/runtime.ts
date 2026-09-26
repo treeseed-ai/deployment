@@ -193,8 +193,17 @@ export class KataSandboxRuntime {
 		if(Date.parse(sandbox.assignment.leaseExpiresAt)<=Date.now()) throw new Error('Assignment TreeDX authority expired.');
 		const tool=String(request.tool??''), arguments_=request.arguments&&typeof request.arguments==='object'&&!Array.isArray(request.arguments)?request.arguments as Record<string,unknown>:{};
 		if(!['treeseed_time_status','treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths','treeseed_publish_review','treeseed_publish_proposal','treeseed_publish_execution_plan'].includes(tool)) throw new Error('Assignment tool is not supported.');
-		const id=randomUUID(), createdAt=new Date().toISOString(); sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt}); await this.emit(sandbox,'tool.requested',{requestId:id,tool});
-		return new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
+		const id=randomUUID(), createdAt=new Date().toISOString();
+		const completion=new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
+		// Publish a request only after its waiter exists. The provider may poll and
+		// complete the queue while event persistence is still in flight.
+		sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt});
+		try { await this.emit(sandbox,'tool.requested',{requestId:id,tool}); }
+		catch (error) {
+			const index=sandbox.toolRequests.findIndex(candidate=>candidate.id===id); if(index>=0)sandbox.toolRequests.splice(index,1);
+			const waiter=sandbox.toolWaiters.get(id); if(waiter)clearTimeout(waiter.timer); sandbox.toolWaiters.delete(id); throw error;
+		}
+		return completion;
 	}
 	nextToolRequest(sandboxId:string,token:string) { const sandbox=this.authorized(sandboxId,token); return {request:sandbox.toolRequests.shift()??null}; }
 	async completeToolRequest(sandboxId:string,token:string,requestId:string,value:unknown) {
@@ -291,12 +300,22 @@ export class KataSandboxRuntime {
 			// A guest that fails before seeding the return channel cannot rotate its
 			// credential. Preserve the guest failure below instead of masking it with
 			// an ENOENT from the rotation read.
-			if (subscriptionCredential && exitCode === 0) {
+			if (subscriptionCredential) {
 				const nextPath = resolve(sandbox.outputDirectory, 'codex-auth.json');
-				const next = await readFile(nextPath), current = await readFile(subscriptionCredential);
-				validateSubscriptionCredential(next, current);
-				const temporary = `${subscriptionCredential}.${process.pid}.${Date.now()}.new`;
-				await writeFile(temporary, next, { mode: 0o600, flag: 'wx' }); await chmod(temporary, 0o600); await rename(temporary, subscriptionCredential);
+				const next = await readFile(nextPath).catch((error: unknown) => {
+					if (exitCode === 0) throw error;
+					return null;
+				});
+				if (next) {
+					const current = await readFile(subscriptionCredential);
+					let valid = false;
+					try { validateSubscriptionCredential(next, current); valid = true; }
+					catch (error) { if (exitCode === 0) throw error; }
+					if (valid && !next.equals(current)) {
+						const temporary = `${subscriptionCredential}.${process.pid}.${Date.now()}.new`;
+						await writeFile(temporary, next, { mode: 0o600, flag: 'wx' }); await chmod(temporary, 0o600); await rename(temporary, subscriptionCredential);
+					}
+				}
 			}
 		} finally {
 			if (this.activeSubscriptionSandboxId === sandboxId) this.activeSubscriptionSandboxId = null;

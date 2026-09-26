@@ -44,6 +44,7 @@ export async function buildWorkspaceImage(configuration: SandboxBrokerConfigurat
 		await copyFile(fileURLToPath(new URL('./workspace-builder-guest.js', import.meta.url)), join(incoming, 'builder.mjs'));
 		const parent = input.parentId ? catalog.image(input.parentId) : undefined;
 		await writeFile(join(incoming, 'build.json'), JSON.stringify({ commit: input.source.commit,
+			additionalCommits: input.source.additionalCommits ?? [],
 			parentCommit: parent ? (JSON.parse(parent.source_json) as SourceWorkspaceKey).commit : null }));
 		for (const name of ['source.bundle', 'builder.mjs', 'build.json']) {
 			await chmod(join(incoming, name), 0o400); await chown(join(incoming, name), 65532, 65532);

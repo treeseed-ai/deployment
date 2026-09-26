@@ -16,6 +16,7 @@ import { credentialInitializerStatus, loadCredentialInitializers } from '../src/
 import { safeContainerId, validateSubscriptionCredential } from '../src/sandbox/runtime.js';
 import { bindSandboxGuestImageDigest, configuredSandboxGuestImageDigests } from '../src/supervisor/component.js';
 import { bindSandboxGuestTrust, importDevelopmentSandboxGuest } from '../src/supervisor/execute.js';
+import { bindExistingSandboxGuestTrust } from '../src/supervisor/sandbox-guest-import.js';
 import { authorizedGuestImage } from '../src/sandbox/runtime.js';
 import { allowedPackageRegistryHost, allowedSubscriptionProxyHost, assignmentProxyService } from '../src/sandbox/server.js';
 import { sandboxCniConfiguration, sandboxNetworkRules } from '../src/sandbox/network.js';
@@ -110,24 +111,40 @@ describe('host security contracts', () => {
 		finally { rmSync(directory, { recursive: true, force: true }); }
 	});
 
+	it('binds an imported development guest without a registry pull', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-development-guest-binding-'));
+		const path = resolve(directory, 'broker.json'), digest = `sha256:${'e'.repeat(64)}`;
+		const configuration = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json', relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [{ image: 'docker.io/treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['read'] }] };
+		const calls: string[][] = [];
+		try {
+			writeFileSync(path, JSON.stringify(configuration));
+			bindExistingSandboxGuestTrust(digest, (_executable, arguments_) => { calls.push([...arguments_]); }, path);
+			expect(calls.some((arguments_) => arguments_.includes('inspect') && arguments_.includes(`docker.io/treeseed/sandbox-codex@${digest}`))).toBe(true);
+			expect(calls.some((arguments_) => arguments_.includes('pull'))).toBe(false);
+			expect(calls.at(-1)).toEqual(['restart', 'treeseed-sandbox-broker.service']);
+		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+
 	it('imports a locally built development guest through bounded host custody', () => {
 		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-guest-import-'));
-		const stateRoot = resolve(directory, 'home'), archiveDirectory = resolve(stateRoot, 'operator/.local/state/treeseed/development/images');
-		const archive = resolve(archiveDirectory, 'sandbox-12345678-1234-1234-1234-123456789abc.tar'), brokerPath = resolve(directory, 'broker.json');
+		const stateRoot = resolve(directory, 'manager'), brokerPath = resolve(directory, 'broker.json');
 		const digest = `sha256:${'d'.repeat(64)}`;
 		const configuration = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json', relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [{ image: 'docker.io/treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['read'] }] };
 		const calls: string[][] = [];
 		try {
-			mkdirSync(archiveDirectory, { recursive: true }); writeFileSync(archive, Buffer.alloc(2_048), { mode: 0o600 }); writeFileSync(brokerPath, JSON.stringify(configuration));
-			const result = importDevelopmentSandboxGuest(archive, 'treeseed/sandbox-codex:local', (_executable, arguments_) => {
+			writeFileSync(brokerPath, JSON.stringify(configuration));
+			const result = importDevelopmentSandboxGuest('treeseed/sandbox-codex:local', (_executable, arguments_) => {
 				calls.push([...arguments_]);
+				if (arguments_.includes('save')) writeFileSync(arguments_[arguments_.indexOf('--output') + 1]!, Buffer.alloc(2_048), { mode: 0o600 });
 				return arguments_.includes('inspect') ? `docker.io/treeseed/sandbox-codex:local application/vnd.oci.image.index.v1+json ${digest}` : undefined;
 			}, { stateRoot, brokerPath });
 			expect(result).toMatchObject({ digest, architecture: expect.stringMatching(/^linux\/(?:amd64|arm64)$/u), imported: true });
-			expect(calls.some((arguments_) => arguments_.includes('import') && arguments_.includes(archive))).toBe(true);
+			expect(calls.some((arguments_) => arguments_.includes('save') && arguments_.includes('treeseed/sandbox-codex:local'))).toBe(true);
+			expect(calls.some((arguments_) => arguments_.includes('import') && arguments_.some((argument) => argument.endsWith('/guest.tar')))).toBe(true);
 			expect(calls.some((arguments_) => arguments_.includes('tag') && arguments_.includes(`docker.io/treeseed/sandbox-codex@${digest}`))).toBe(true);
 			expect(JSON.parse(readFileSync(brokerPath, 'utf8')).guestImages[0].digest).toBe(digest);
-			expect(supervisorOperationSchema.parse({ operation: 'sandbox.guest-image.import', archivePath: archive, image: 'treeseed/sandbox-codex:local' })).toMatchObject({ image: 'treeseed/sandbox-codex:local' });
+			expect(supervisorOperationSchema.parse({ operation: 'sandbox.guest-image.import', image: 'treeseed/sandbox-codex:local' })).toMatchObject({ image: 'treeseed/sandbox-codex:local' });
+			expect(() => supervisorOperationSchema.parse({ operation: 'sandbox.guest-image.import', archivePath: '/tmp/guest.tar', image: 'treeseed/sandbox-codex:local' })).toThrow();
 		} finally { rmSync(directory, { recursive: true, force: true }); }
 	});
 

@@ -66,7 +66,7 @@ describe('component runtime input custody', () => {
 
 	it('binds a released Agent provider to its exact runner build and rejects an unpinned release', () => {
 		const configuration = host(), release = component('agent', 'development', 'b');
-		release.images = [{ ...release.images[0]!, role: 'runner' }];
+		release.images = [{ ...release.images[0]!, role: 'agent-runner' }];
 		expect(componentActivationInputs(configuration, release, [release]).connectionEnvironment.TREESEED_PROVIDER_RUNTIME_BUILD)
 			.toBe(hash('b'));
 		release.images = [];

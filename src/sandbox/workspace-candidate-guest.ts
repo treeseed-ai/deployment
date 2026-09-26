@@ -28,8 +28,11 @@ async function writeBoundedBundle(args: string[], path: string, maximum: number)
 
 /** Run ONLY inside a fresh, network-denied verifier VM with the executed disk mounted read-only.
  * Never use the execution repository's config, hooks or index: even `git status` can execute fsmonitor/filter commands. */
-export async function verifySourceCandidate(input: { root: string; baseCommit: string; commit: string; output: string; maxBytes: number; scratch: string }) {
-  if (!exact.test(input.baseCommit) || !exact.test(input.commit) || !Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1) throw new Error('Candidate verification input is invalid.');
+export async function verifySourceCandidate(input: { root: string; baseCommit: string; additionalCommits?: string[]; commit: string; output: string; maxBytes: number; scratch: string }) {
+  const predecessors = input.additionalCommits ?? [];
+  if (!exact.test(input.baseCommit) || !exact.test(input.commit) || predecessors.length > 16
+    || new Set(predecessors).size !== predecessors.length || predecessors.some(commit => !exact.test(commit) || commit === input.baseCommit)
+    || !Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1) throw new Error('Candidate verification input is invalid.');
   const metadata = join(input.root, '.git'), objects = join(metadata, 'objects');
   for (const directory of [input.root, metadata, objects]) {
     if (!(await lstat(directory)).isDirectory() || await realpath(directory) !== directory) throw new Error('Candidate Git objects escaped the isolated source mount.');
@@ -53,6 +56,10 @@ export async function verifySourceCandidate(input: { root: string; baseCommit: s
     if (await git(['rev-parse', `${input.commit}^{commit}`]) !== input.commit) throw new Error('Candidate object is not an exact commit.');
     await git(['fsck', '--strict', '--no-reflogs', '--no-dangling', input.commit]);
     await git(['merge-base', '--is-ancestor', input.baseCommit, input.commit]);
+    for (const predecessor of predecessors) {
+      try { await git(['merge-base', '--is-ancestor', predecessor, input.commit]); }
+      catch { throw new Error('Integrated candidate omits an authorized Git predecessor.'); }
+    }
     await git(['update-ref', 'refs/heads/treeseed-source', input.commit]);
     await git(['symbolic-ref', 'HEAD', 'refs/heads/treeseed-source']);
     await git(['read-tree', input.commit]);
@@ -78,7 +85,7 @@ export async function verifySourceCandidate(input: { root: string; baseCommit: s
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const input = JSON.parse(await readFile('/run/treeseed-verifier/candidate.json', 'utf8')) as { baseCommit: string; commit: string; maxBytes: number };
+    const input = JSON.parse(await readFile('/run/treeseed-verifier/candidate.json', 'utf8')) as { baseCommit: string; additionalCommits?: string[]; commit: string; maxBytes: number };
     const receipt = await verifySourceCandidate({ ...input, root: '/workspace/project', output: '/run/treeseed-output/source.bundle', scratch: '/tmp' });
     await writeFile('/run/treeseed-output/candidate-verification.json', JSON.stringify(receipt));
   } catch (error) {

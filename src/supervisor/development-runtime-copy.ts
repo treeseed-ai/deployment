@@ -49,7 +49,7 @@ export function copyDevelopmentRuntime(input: { worktree: string; workspace: str
       } else {
         // npm uses hardlinks for binaries. Copy their bytes into new private
         // files; never retain hardlinks to the operator's mutable cache.
-        if (!stat.isFile() || stat.size > 256 * 1024 * 1024)
+        if (!stat.isFile() || stat.size > 384 * 1024 * 1024)
           throw new Error('Candidate dependency is not a bounded regular file.');
         if (++files > 100_000) throw new Error('Candidate runtime exceeds custody limits.');
         const buffer = Buffer.alloc(stat.size + 1);

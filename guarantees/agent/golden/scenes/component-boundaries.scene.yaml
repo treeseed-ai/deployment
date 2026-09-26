@@ -1,0 +1,46 @@
+workflow:
+  - id: warm-pool
+    action: { verifier: deployment.golden.warm-pool }
+    expect: { status: passed }
+  - id: image-isolation
+    action: { verifier: deployment.golden.image-isolation }
+    expect: { status: passed }
+  - id: pool-drain
+    action: { verifier: deployment.golden.pool-drain }
+    expect: { status: passed }
+  - id: source-custody
+    action: { verifier: deployment.golden.source-custody }
+    expect: { status: passed }
+  - id: analysis-overlay
+    action: { verifier: deployment.golden.analysis-overlay }
+    expect: { status: passed }
+  - id: device-denial
+    action: { verifier: deployment.golden.device-denial }
+    expect: { status: passed }
+  - id: candidate-verification
+    action: { verifier: deployment.golden.candidate-verification }
+    expect: { status: passed }
+  - id: lease-deadline
+    action: { verifier: deployment.golden.lease-deadline }
+    expect: { status: passed }
+  - id: deadline-diagnostics
+    action: { verifier: deployment.golden.deadline-diagnostics }
+    expect: { status: passed }
+  - id: credential-custody
+    action: { verifier: deployment.golden.credential-custody }
+    expect: { status: passed }
+  - id: cleanup-authority
+    action: { verifier: deployment.golden.cleanup-authority }
+    expect: { status: passed }
+  - id: cleanup-replay
+    action: { verifier: deployment.golden.cleanup-replay }
+    expect: { status: passed }
+  - id: crash-recovery
+    action: { verifier: deployment.golden.crash-recovery }
+    expect: { status: passed }
+  - id: expired-analysis-recovery
+    action: { verifier: deployment.golden.expired-analysis-recovery }
+    expect: { status: passed }
+  - id: recovery-preserves-work
+    action: { verifier: deployment.golden.recovery-preserves-work }
+    expect: { status: passed }

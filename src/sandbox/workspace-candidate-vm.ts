@@ -25,7 +25,8 @@ export function candidateVmVerifier(configuration: SandboxBrokerConfiguration): 
     const incoming = join(directory, 'input'), outgoing = join(directory, 'output');
     for (const path of [incoming, outgoing]) { await mkdir(path, { mode: 0o700 }); await chown(path, 65532, 65532); }
     await copyFile(fileURLToPath(new URL('./workspace-candidate-guest.js', import.meta.url)), join(incoming, 'verifier.mjs'));
-    await writeFile(join(incoming, 'candidate.json'), JSON.stringify({ baseCommit: input.baseCommit, commit: input.commit, maxBytes: input.maxBytes }));
+    await writeFile(join(incoming, 'candidate.json'), JSON.stringify({ baseCommit: input.baseCommit,
+      additionalCommits: input.additionalCommits, commit: input.commit, maxBytes: input.maxBytes }));
     for (const name of ['verifier.mjs', 'candidate.json']) { await chmod(join(incoming, name), 0o400); await chown(join(incoming, name), 65532, 65532); }
     const image = containerdImageReference(configured.image, configured.digest);
     const operations = kataWarmOperations(configuration, () => undefined);

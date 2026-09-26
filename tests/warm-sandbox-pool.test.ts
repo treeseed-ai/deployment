@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { WarmSandboxPool } from '../src/sandbox/warm-sandbox-pool.js';
+import { kataGuestMemoryMiB, WarmSandboxPool } from '../src/sandbox/warm-sandbox-pool.js';
 
 const shape = { image: 'trusted@sha256:fixture', cpuCores: 1, memoryBytes: 1024 };
 function fixture() {
@@ -8,6 +8,11 @@ function fixture() {
 	return { operations, pool: new WarmSandboxPool(operations) };
 }
 describe('one-use pristine warm sandbox pool', () => {
+	it('projects exact byte limits into the Kata MiB annotation', () => {
+		expect(kataGuestMemoryMiB(8_589_934_592)).toBe(8192);
+		expect(kataGuestMemoryMiB(1_048_577)).toBe(2);
+		expect(() => kataGuestMemoryMiB(0)).toThrow('Invalid Kata guest memory limit');
+	});
 	it('atomically assigns each VM once, replenishes only pristine capacity and bounds idle memory', async () => {
 		const { pool, operations } = fixture(); pool.prewarm(shape); pool.prewarm(shape);
 		expect(operations.create).toHaveBeenCalledTimes(1);

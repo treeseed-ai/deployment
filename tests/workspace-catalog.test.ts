@@ -47,6 +47,17 @@ describe('durable source workspace catalog', () => {
 			expect(catalog.claimDeletion(sourceWorkspaceId(source))).toBe(true);
 		} finally { catalog.close(); }
 	});
+	it('keeps the longer active expiry when API reauthorization is shorter', () => {
+		const catalog = new WorkspaceCatalog(':memory:');
+		try {
+			publish(catalog);
+			const lease = catalog.lease(authority(), now);
+			catalog.renew(lease.id, { ...authority(), id: 'shorter-authority', expiresAt: '2026-01-01T00:09:00Z' }, now);
+			expect(() => catalog.renew(lease.id, { ...authority(), id: 'later-authority',
+				issuedAt: '2026-01-01T00:09:29Z', expiresAt: '2026-01-01T00:12:00Z' },
+			new Date('2026-01-01T00:09:30Z'))).not.toThrow();
+		} finally { catalog.close(); }
+	});
 	it('keys caches by security domain as well as source revision', () => {
 		for (const field of ['controlPlaneId', 'teamId', 'projectId', 'repositoryId'] as const) {
 			expect(sourceWorkspaceId({ ...source, [field]: 'other' })).not.toBe(sourceWorkspaceId(source));
