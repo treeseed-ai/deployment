@@ -406,11 +406,12 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (!context.local) throw new Error('Provider enrollment is available only through the protected local manager socket.');
 			const payload = z.discriminatedUnion('action', [
 				z.object({ action: z.literal('begin'), connectionId: z.string().optional(), teamId: z.string().min(1).max(256), registrationCode: z.string().min(1).max(16_384) }).passthrough(),
-				z.object({ action: z.literal('complete'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u) }).passthrough(),
+				z.object({ action: z.literal('complete'), connectionId: z.string().regex(/^[a-z][a-z0-9.-]+$/u), maxConcurrentRunners: z.number().int().positive().max(1_024).optional() }).passthrough(),
 			]).parse(JSON.parse(String(request.options.payload ?? '')));
 			const releases = loadActiveComponents(), agent = releases.find((component) => component.componentId === 'agent');
 			if (!agent || !host.components.agent?.enabled) throw new Error('The managed Agent component is not active on this host.');
-			if (payload.action === 'complete') return requestSupervisor({ operation: 'provider.enrollment-handoff', payload: { action: 'complete', connectionId: payload.connectionId }, files: composeFiles(agent), projectName: 'treeseed-agent' });
+			if (payload.action === 'complete') return requestSupervisor({ operation: 'provider.enrollment-handoff', payload: { action: 'complete', connectionId: payload.connectionId,
+				...(payload.maxConcurrentRunners !== undefined ? { maxConcurrentRunners: payload.maxConcurrentRunners } : {}) }, files: composeFiles(agent), projectName: 'treeseed-agent' });
 			const connectionId = payload.connectionId ?? `local-${payload.teamId}`;
 			const environment = managedConnectionEnvironment(host, agent, releases);
 			const controlPlaneUrl = environment.TREESEED_CONTROL_PLANE_URL;

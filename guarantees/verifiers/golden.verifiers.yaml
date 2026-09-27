@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.enrolled-concurrency:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-enrollment-contract.test.ts
+    testName: updates only bounded concurrency through the existing completion handoff
   deployment.golden.warm-pool:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
