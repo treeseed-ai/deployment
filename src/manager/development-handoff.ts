@@ -20,6 +20,11 @@ export function runtimeActivationTargets<T extends { componentId: string }>(orde
 	return ordered.filter(({ componentId }) => !heldIds.has(componentId) && (configurationImpacts(componentId) || changedIds.has(componentId)));
 }
 
+/** Backups discard ephemeral keys; restore only held services before resuming their existing runtimes. */
+export async function restoreHeldComponentCredentials<T extends { componentId: string }>(ordered: readonly T[], heldIds: ReadonlySet<string>, configure: (component: T) => Promise<unknown>) {
+	for (const component of ordered) if (heldIds.has(component.componentId)) await configure(component);
+}
+
 export function heldDevelopmentCredentialsMissing(status: { issues?: Array<{ reason: string }> }) {
 	return status.issues?.some(({ reason }) => reason === 'runtime-credential-unavailable' || reason === 'configuration-unavailable') === true;
 }

@@ -33,6 +33,7 @@ vi.mock('../src/manager/reconcile.js', () => ({
 		if (backupGeneration !== undefined) state.lifecycle.push(`backup:${backupGeneration}`);
 		if (state.activationFailure) { state.activationFailure = false; throw new Error('target health failed'); }
 	},
+	configureComponentForActivation: async (_host: unknown, item: any) => state.lifecycle.push(`configure:${item.release}`),
 	enrollProvider: async (_host: unknown, item: any) => state.lifecycle.push(`enroll:${item.release}`),
 	rollbackRoutes: () => [{ alias: 'api.treeseed.localhost', upstream: 'http://api:8787', authentication: 'none' }],
 }));
@@ -61,7 +62,7 @@ it('recovers dependencies without starting a development-held released API write
 		runtimes: [{ project: { id: 'api' }, targets: [{ id: 'service', kind: 'service' }] }] }];
 	state.operations = []; state.lifecycle = []; state.hold = { generation: 75, phase: 'restored' };
 	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
-	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:75']);
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:75', `configure:${state.currentComponents[1].release}`]);
 	expect(state.operations.map(({ operation }) => operation)).toContain('development.boot.resume');
 });
 

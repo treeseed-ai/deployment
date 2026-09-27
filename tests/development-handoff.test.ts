@@ -3,7 +3,7 @@ import type { ManagedDevelopmentSession } from '../src/manager/development-sessi
 
 const request = vi.fn();
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: request }));
-const { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, resumeDevelopmentSessions } = await import('../src/manager/development-handoff.js');
+const { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions } = await import('../src/manager/development-handoff.js');
 
 function session(targets: Array<{ projectId: string; targetId: string; mode: string; kind: string }>) {
 	return { session: { sessionId: 'dev-acceptance', targets }, runtimes: targets.map((target) => ({
@@ -27,6 +27,13 @@ it('reports source recovery pending without changing installed-component custody
 	expect(await resumeDevelopmentSessions([record])).toBe(true);
 	expect(await resumeDevelopmentSessions([record])).toBe(false);
 	expect(request).toHaveBeenCalledWith({ operation: 'development.boot.resume', sessionId: 'dev-acceptance' });
+});
+
+it('restores ephemeral credentials only for held runtimes, in dependency order', async () => {
+	const configured: string[] = [];
+	const components = [{ componentId: 'postgres' }, { componentId: 'api' }, { componentId: 'agent' }];
+	await restoreHeldComponentCredentials(components, new Set(['api', 'agent']), async component => { configured.push(component.componentId); });
+	expect(configured).toEqual(['api', 'agent']);
 });
 
 it('restages only missing manager-owned credentials for a development-held runtime', () => {

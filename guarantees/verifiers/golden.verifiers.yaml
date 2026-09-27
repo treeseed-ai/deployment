@@ -11,6 +11,11 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/managed-recovery.test.ts
     testName: recovers dependencies without starting a development-held released API writer
+  deployment.golden.development-credential-restore:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-handoff.test.ts
+    testName: restores ephemeral credentials only for held runtimes, in dependency order
   deployment.golden.ordinary-component-activation:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
