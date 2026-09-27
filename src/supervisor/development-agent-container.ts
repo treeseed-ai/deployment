@@ -104,7 +104,13 @@ function containerState(command: CommandRunner, service: typeof services[number]
 	const connectionEnvironment = Object.fromEntries(environment
 		.map(String).map((entry: string) => entry.split(/=(.*)/su, 2) as [string, string])
 		.filter(([key]) => ['TREESEED_CONTROL_PLANE_URL', 'TREESEED_SERVER_PROFILE_LOCAL_URL', 'TREESEED_API_URL'].includes(key)));
-	return { name, running: value.running as boolean, labels: value.labels as Record<string, string>, connectionEnvironment };
+	const guestDigest = environment.map(String).find((entry) => entry.startsWith('TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST='))
+		?.slice('TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST='.length) ?? null;
+	return { name, running: value.running as boolean, labels: value.labels as Record<string, string>, connectionEnvironment, guestDigest };
+}
+
+export function providerGuestTrustReady(expectedDigest: string, instances: readonly { running: boolean; guestDigest: string | null }[]) {
+	return instances.length === services.length && instances.every(({ running, guestDigest }) => running && guestDigest === expectedDigest);
 }
 
 function stopService(command: CommandRunner, service: typeof services[number]) {
@@ -235,8 +241,9 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
 		const states = services.map((service) => containerState(command, service));
-		const instances = states.map(({ name, running, labels, connectionEnvironment }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'], connectionEnvironment }));
-		return { registered: true, instances, ready: instances.every((item) => item.running) };
+		const expectedDigest = configuredSandboxGuestDigest();
+		const instances = states.map(({ name, running, labels, connectionEnvironment, guestDigest }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'], connectionEnvironment, guestDigest }));
+		return { registered: true, instances, ready: providerGuestTrustReady(expectedDigest, instances), expectedGuestDigest: expectedDigest };
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { if (existsSync(directory)) rmSync(directory, { recursive: true }); return { stopped: true }; }

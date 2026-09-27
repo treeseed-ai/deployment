@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
-import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride,writeAgentDevelopmentManifest} from '../src/supervisor/development-agent-container.js';
+import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride,writeAgentDevelopmentManifest,providerGuestTrustReady} from '../src/supervisor/development-agent-container.js';
 import type {ManagedDevelopmentSession} from '../src/manager/development-sessions.js';
 import {managedPersistentServices,renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
 import {parseDevelopmentMigrationInventory} from '../src/supervisor/development-postgres-migration.js';
@@ -100,6 +100,15 @@ it('renders a fixed Agent overlay with read-only candidate code, live peer route
 		expect(service.environment.TREESEED_PROVIDER_RUNTIME_BUILD).toBe(digest);
 	}
 	expect(JSON.stringify(spec)).not.toContain('docker.sock');
+});
+it('refuses a live provider whose containers retain a sandbox digest from before host restart',()=>{
+	const oldDigest=`sha256:${'a'.repeat(64)}`, currentDigest=`sha256:${'b'.repeat(64)}`;
+	const both=(digest:string|null)=>[{running:true,guestDigest:digest},{running:true,guestDigest:digest}];
+	expect(providerGuestTrustReady(currentDigest,both(currentDigest))).toBe(true);
+	expect(providerGuestTrustReady(currentDigest,both(oldDigest))).toBe(false);
+	expect(providerGuestTrustReady(currentDigest,both(null))).toBe(false);
+	expect(providerGuestTrustReady(currentDigest,[{running:true,guestDigest:currentDigest},{running:false,guestDigest:currentDigest}])).toBe(false);
+	expect(providerGuestTrustReady(currentDigest,[{running:true,guestDigest:currentDigest}])).toBe(false);
 });
 it('binds the desired provider manifest and enrolls through the same exact development snapshot',()=>{
 	const path='/run/treeseed/development-containers/dev-example/agent/provider/treeseed.capacity-provider.yaml';
