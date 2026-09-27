@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -36,7 +36,7 @@ function sourceFor(record: ManagedDevelopmentSession) {
 	return { worktree, workspace, uid: stat.uid };
 }
 
-export function renderAgentDevelopmentOverride(input: { sessionId: string; runtimeRoot: string; sourceClosureDigest: string; environment?: Record<string, string>; sandboxGuestDigest?: string }) {
+export function renderAgentDevelopmentOverride(input: { sessionId: string; runtimeRoot: string; sourceClosureDigest: string; environment?: Record<string, string>; sandboxGuestDigest?: string; manifestPath?: string }) {
 	if (!/^dev-[a-z0-9-]{1,64}$/u.test(input.sessionId)) throw new Error('Invalid Agent development session.');
 	if (!/^sha256:[a-f0-9]{64}$/u.test(input.sourceClosureDigest)) throw new Error('Invalid Agent development source closure digest.');
 	const labels = {
@@ -47,6 +47,7 @@ export function renderAgentDevelopmentOverride(input: { sessionId: string; runti
 		{ type: 'bind', source: resolve(input.runtimeRoot, 'dist'), target: '/app/dist', read_only: true },
 		{ type: 'bind', source: resolve(input.runtimeRoot, 'package.json'), target: '/app/package.json', read_only: true },
 		{ type: 'bind', source: resolve(input.runtimeRoot, 'node_modules'), target: '/app/node_modules', read_only: true },
+		...(input.manifestPath ? [{ type: 'bind', source: input.manifestPath, target: '/config/treeseed.capacity-provider.yaml', read_only: true }] : []),
 	];
 	const environment: Record<string, string> = { ...input.environment,
 		...(input.sandboxGuestDigest ? { TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST: input.sandboxGuestDigest } : {}),
@@ -59,6 +60,18 @@ export function renderAgentDevelopmentOverride(input: { sessionId: string; runti
 		volumes,
 	};
 	return { services: { manager: service, runner: service } };
+}
+
+/** Enrollment consumes the same registered root-owned provider snapshot as execution. */
+export function agentEnrollmentDevelopmentOverride(records = new DevelopmentSessionStore().list(), available = existsSync) {
+	const selected = records.filter(record => record.session.status === 'active' && record.session.targets.some(target => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'));
+	if (selected.length > 1) throw new Error('Provider development enrollment selection is ambiguous.');
+	if (!selected.length) return undefined;
+	const sessionId = selected[0]!.session.sessionId;
+	if (!/^dev-[a-z0-9-]{1,64}$/u.test(sessionId)) throw new Error('Invalid Agent development session.');
+	const override = resolve(root, sessionId, 'agent', 'provider', 'compose.json');
+	if (!available(override)) throw new Error('Registered provider development snapshot is unavailable.');
+	return override;
 }
 
 export function activeAgentClaims(stateRoot: string) {
@@ -249,7 +262,11 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	atomicJson(resolve(directory, 'runtime-receipt.json'), receipt, 0o600);
 	const host = loadHostConfiguration();
 	const environment = managedContainerDevelopmentConnectionEnvironment(host, component, releases, record.routes);
-	atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: configuredSandboxGuestDigest() }), 0o600);
+	const manifest = (host.components.agent?.configuration?.files as Record<string, unknown> | undefined)?.['treeseed.capacity-provider.yaml'];
+	if (typeof manifest !== 'string' || !manifest.trim()) throw new Error('Managed provider development requires its desired manifest.');
+	const manifestPath = resolve(directory, 'treeseed.capacity-provider.yaml');
+	writeFileSync(manifestPath, manifest, { mode: 0o644 });
+	atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: configuredSandboxGuestDigest(), manifestPath }), 0o600);
 	atomicJson(handoff, { restore: true }, 0o600);
 	stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
 	try {
