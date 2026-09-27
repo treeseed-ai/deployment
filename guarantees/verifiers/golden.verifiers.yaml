@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-snapshot-permissions:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-container.test.ts
+    testName: makes the root snapshot provider-readable without relying on supervisor umask
   deployment.golden.provider-development-parity:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
