@@ -15,6 +15,11 @@ export function developmentHeldComponentIds(records: readonly ManagedDevelopment
 		.map((target) => target.projectId)));
 }
 
+/** A development-held service resumes from its pinned source, never its older released writer. */
+export function runtimeActivationTargets<T extends { componentId: string }>(ordered: T[], heldIds: ReadonlySet<string>, changedIds: ReadonlySet<string>, configurationImpacts: (componentId: string) => boolean): T[] {
+	return ordered.filter(({ componentId }) => !heldIds.has(componentId) && (configurationImpacts(componentId) || changedIds.has(componentId)));
+}
+
 export function heldDevelopmentCredentialsMissing(status: { issues?: Array<{ reason: string }> }) {
 	return status.issues?.some(({ reason }) => reason === 'runtime-credential-unavailable' || reason === 'configuration-unavailable') === true;
 }

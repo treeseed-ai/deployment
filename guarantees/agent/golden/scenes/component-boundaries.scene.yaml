@@ -1,4 +1,13 @@
 workflow:
+  - id: development-held-host-start
+    action: { verifier: deployment.golden.development-held-host-start }
+    expect: { status: passed }
+  - id: development-held-recovery
+    action: { verifier: deployment.golden.development-held-recovery }
+    expect: { status: passed }
+  - id: ordinary-component-activation
+    action: { verifier: deployment.golden.ordinary-component-activation }
+    expect: { status: passed }
   - id: subscription-concurrency
     action: { verifier: deployment.golden.subscription-concurrency }
     expect: { status: passed }
