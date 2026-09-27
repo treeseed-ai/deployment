@@ -293,6 +293,11 @@ export function runtimeRepairTargets<T extends { componentId: string }>(targets:
 	return configurationChanged ? [] : targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
 }
 
+/** A development-held service resumes from its pinned source, never its older released writer. */
+export function runtimeActivationTargets<T extends { componentId: string }>(ordered: T[], heldIds: ReadonlySet<string>, changedIds: ReadonlySet<string>, configurationImpacts: (componentId: string) => boolean): T[] {
+	return ordered.filter(({ componentId }) => !heldIds.has(componentId) && (configurationImpacts(componentId) || changedIds.has(componentId)));
+}
+
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,
 	configurationComponentScope: readonly string[] = [], failurePolicy: 'rollback' | 'halt' = 'rollback') {
 	if (runtimeStopped()) {
@@ -453,13 +458,12 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
 		for (const component of effective) validateProductionCompose(component, `${paths.bundles}/${component.componentId}/${component.release}`);
 		await activateWithRoutes(routes, async () => {
-			for (const component of activationOrder) {
-				if (snapshotRequired || configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId))
-					await activateComponent(host, component, effective, snapshotRequired ? generation : undefined);
-			}
+			for (const component of runtimeActivationTargets(activationOrder, heldDevelopmentComponents, changedTargetIds,
+				(componentId) => snapshotRequired || configurationImpacts(componentId)))
+				await activateComponent(host, component, effective, snapshotRequired ? generation : undefined);
 			await reconcileAiModeSelection(host, effective);
-			for (const component of activationOrder.filter((component) => configurationImpacts(component.componentId)
-				|| changedTargetIds.has(component.componentId))) await enrollProvider(host, component);
+			for (const component of runtimeActivationTargets(activationOrder, heldDevelopmentComponents, changedTargetIds,
+				configurationImpacts)) await enrollProvider(host, component);
 		});
 	} catch (error) {
 		const rollbackPolicy = failurePolicyForDisabledComponents(failurePolicy, disabledPreviouslyActive);
@@ -475,7 +479,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			const restoredHost = loadHostConfiguration();
 			const previousRoutes = developmentSessions.activeRoutes(rollbackRoutes(host, active));
 			await activateWithRoutes(previousRoutes, async () => {
-				for (const component of componentActivationOrder(restoredHost, active)) await activateComponent(restoredHost, component, active);
+				for (const component of runtimeActivationTargets(componentActivationOrder(restoredHost, active), heldDevelopmentComponents,
+					new Set(), () => true)) await activateComponent(restoredHost, component, active);
 			});
 			if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
 			recordEvent('reconcile.rollback-complete', { generation, receiptId: previous?.receiptId ?? null });
