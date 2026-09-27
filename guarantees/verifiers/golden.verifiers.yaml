@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.subscription-concurrency:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: admits five independent snapshots without holding custody during guest execution
+  deployment.golden.subscription-stale-return:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: preserves a refresh against four stale unchanged exports and permits subsequent refresh
+  deployment.golden.subscription-rotation-conflict:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: rejects ambiguous competing rotations without overwrite and recovers custody after rejection
+  deployment.golden.subscription-account-isolation:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: rejects invalid or changed-account returns and external account replacement even for unchanged exports
   deployment.golden.provider-snapshot-permissions:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

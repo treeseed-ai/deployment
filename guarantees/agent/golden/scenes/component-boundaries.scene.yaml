@@ -1,4 +1,16 @@
 workflow:
+  - id: subscription-concurrency
+    action: { verifier: deployment.golden.subscription-concurrency }
+    expect: { status: passed }
+  - id: subscription-stale-return
+    action: { verifier: deployment.golden.subscription-stale-return }
+    expect: { status: passed }
+  - id: subscription-rotation-conflict
+    action: { verifier: deployment.golden.subscription-rotation-conflict }
+    expect: { status: passed }
+  - id: subscription-account-isolation
+    action: { verifier: deployment.golden.subscription-account-isolation }
+    expect: { status: passed }
   - id: provider-snapshot-permissions
     action: { verifier: deployment.golden.provider-snapshot-permissions }
     expect: { status: passed }

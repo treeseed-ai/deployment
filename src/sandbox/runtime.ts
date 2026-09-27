@@ -58,6 +58,41 @@ export function validateSubscriptionCredential(next: Buffer, current?: Buffer) {
 	return parsed.record;
 }
 
+/** Serialize custody operations, never the guest's model execution. */
+export class SubscriptionCredentialCustody {
+	private pending: Promise<unknown> = Promise.resolve();
+	constructor(private readonly path: string) {}
+	private serialized<T>(operation: () => Promise<T>): Promise<T> {
+		const result = this.pending.then(operation);
+		this.pending = result.catch(() => undefined);
+		return result;
+	}
+	snapshot() {
+		return this.serialized(async () => {
+			const current = await readFile(this.path);
+			validateSubscriptionCredential(current);
+			return current;
+		});
+	}
+	commit(issued: Buffer, next: Buffer) {
+		return this.serialized(async () => {
+			const current = await readFile(this.path);
+			validateSubscriptionCredential(issued, current);
+			validateSubscriptionCredential(next, current);
+			// A guest exporting its unchanged snapshot must not undo another guest's refresh.
+			if (next.equals(issued) || next.equals(current)) return;
+			// Opaque refresh tokens have no trustworthy ordering. Never guess which competing refresh won.
+			if (!current.equals(issued)) throw new Error('Concurrent Codex subscription credential rotation requires fresh authentication; canonical credentials were preserved.');
+			const temporary = `${this.path}.${randomUUID()}.new`;
+			try {
+				await writeFile(temporary, next, { mode: 0o600, flag: 'wx' });
+				await chmod(temporary, 0o600);
+				await rename(temporary, this.path);
+			} finally { await rm(temporary, { force: true }); }
+		});
+	}
+}
+
 async function materializeGuestResolver(directory: string) {
 	const candidates = ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'];
 	for (const candidate of candidates) {
@@ -74,10 +109,12 @@ async function materializeGuestResolver(directory: string) {
 
 export class KataSandboxRuntime {
 	private readonly sandboxes = new Map<string, Prepared>();
-	private activeSubscriptionSandboxId: string | null = null;
+	private readonly subscriptionCustody: SubscriptionCredentialCustody | null;
 	private readonly warmPool: WarmSandboxPool;
 	private readonly sourceStore: AssignmentSourceStore;
 	constructor(private readonly configuration: SandboxBrokerConfiguration) {
+		this.subscriptionCustody = configuration.modelGateway?.authenticationMode === 'codex-subscription'
+			? new SubscriptionCredentialCustody(configuration.modelGateway.credentialFile) : null;
 		this.sourceStore = new AssignmentSourceStore(configuration);
 		this.warmPool = new WarmSandboxPool(kataWarmOperations(configuration, () => {
 			process.stderr.write(`${JSON.stringify({ source: 'sandbox-warm-pool', status: 'readiness-failed' })}\n`);
@@ -262,15 +299,10 @@ export class KataSandboxRuntime {
 			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
 		const subscriptionCredential = this.configuration.modelGateway?.authenticationMode === 'codex-subscription'
 			? this.configuration.modelGateway.credentialFile : null;
-		if (subscriptionCredential) {
-			if (this.activeSubscriptionSandboxId) throw new Error('Codex subscription execution is already active on this provider.');
-			this.activeSubscriptionSandboxId = sandboxId;
-			try {
-				const authentication = await readFile(subscriptionCredential);
-				validateSubscriptionCredential(authentication);
-				const path = resolve(sandbox.inputDirectory, 'codex-auth.json');
-				await writeFile(path, authentication, { mode: 0o400, flag: 'wx' }); await chown(path, 65_532, 65_532);
-			} catch (error) { this.activeSubscriptionSandboxId = null; throw error; }
+		const issuedCredential = this.subscriptionCustody ? await this.subscriptionCustody.snapshot() : null;
+		if (issuedCredential) {
+			const path = resolve(sandbox.inputDirectory, 'codex-auth.json');
+			await writeFile(path, issuedCredential, { mode: 0o400, flag: 'wx' }); await chown(path, 65_532, 65_532);
 		}
 		const child = spawn('/usr/bin/ctr', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); sandbox.child = child;
 		let stderr = ''; child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 16_384) stderr += chunk.toString('utf8'); });
@@ -307,18 +339,11 @@ export class KataSandboxRuntime {
 					return null;
 				});
 				if (next) {
-					const current = await readFile(subscriptionCredential);
-					let valid = false;
-					try { validateSubscriptionCredential(next, current); valid = true; }
+					try { await this.subscriptionCustody!.commit(issuedCredential!, next); }
 					catch (error) { if (exitCode === 0) throw error; }
-					if (valid && !next.equals(current)) {
-						const temporary = `${subscriptionCredential}.${process.pid}.${Date.now()}.new`;
-						await writeFile(temporary, next, { mode: 0o600, flag: 'wx' }); await chmod(temporary, 0o600); await rename(temporary, subscriptionCredential);
-					}
 				}
 			}
 		} finally {
-			if (this.activeSubscriptionSandboxId === sandboxId) this.activeSubscriptionSandboxId = null;
 			clearTimeout(timeout!); clearInterval(progressTimer); delete sandbox.child;
 		}
 		if (exitCode !== 0) {
