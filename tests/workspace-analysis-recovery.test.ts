@@ -35,6 +35,7 @@ async function fixture(mode: 'analysis' | 'work' = 'analysis', expiresAt = '2026
 describe('expired analysis recovery under fenced guest custody', () => {
   it('retires expired simulation work durably but preserves production and current simulation work', async () => {
     const expired = await fixture('work', '2026-09-26T19:00:00Z', true);
+    await mkdir(join(expired.directory, 'candidate-ABC123'), { mode: 0o700 });
     expect(await recoverExpiredAnalysis(expired.root, now)).toEqual([expired.id]);
     const receipt = JSON.parse(await readFile(join(expired.root, 'results', 'sandbox-test-recovery.json'), 'utf8'));
     expect(receipt).toMatchObject({ status: 'interrupted', recovery: 'expired-simulation', teardownVerified: true });
@@ -42,6 +43,15 @@ describe('expired analysis recovery under fenced guest custody', () => {
     for (const retained of [await fixture('work'), await fixture('work', '2026-09-26T21:00:00Z', true)]) {
       expect(await recoverExpiredAnalysis(retained.root, now)).toEqual([]); await access(retained.directory);
     }
+  });
+  it('rejects candidate symlinks and unknown simulation disk contents', async () => {
+    const f = await fixture('work', '2026-09-26T19:00:00Z', true);
+    await symlink(tmpdir(), join(f.directory, 'candidate-ABC123'));
+    await expect(recoverExpiredAnalysis(f.root, now)).rejects.toThrow('candidate custody');
+    await rm(join(f.directory, 'candidate-ABC123'));
+    await writeFile(join(f.directory, 'unknown'), 'retain');
+    await expect(recoverExpiredAnalysis(f.root, now)).rejects.toThrow('attached or unclassified');
+    await access(f.directory);
   });
   it('automatically finishes normal-result deletion without touching active or work leases', async () => {
     const f = await fixture('analysis', '2026-09-26T21:00:00Z');

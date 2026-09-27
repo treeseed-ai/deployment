@@ -46,7 +46,15 @@ export async function recoverExpiredAnalysis(root: string, now = new Date(), rel
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT' && lease.state === 'released') continue; throw error; }
       if (!disk.isDirectory() || disk.uid !== process.getuid?.() || (disk.mode & 0o077)
         || await realpath(directory) !== directory) throw new Error('Recovery disk custody changed.');
-      if ((await readdir(directory)).some(value => !['work.qcow2', 'nbd.pid'].includes(value))) {
+      const entries = await readdir(directory);
+      const simulation = lease.mode === 'work' && lease.acquisition === 'simulation-local' && lease.publication === 'simulation-branch';
+      for (const entry of entries.filter(value => simulation && /^candidate-[a-zA-Z0-9]{6}$/u.test(value))) {
+        const path = join(directory, entry), info = await lstat(path);
+        if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077)
+          || await realpath(path) !== path) throw new Error('Recovery candidate custody changed.');
+      }
+      if (entries.some(value => !['work.qcow2', 'nbd.pid'].includes(value)
+        && !(simulation && /^candidate-[a-zA-Z0-9]{6}$/u.test(value)))) {
         if (releasedOnly) continue;
         throw new Error('Recovery disk remains attached or unclassified.');
       }
