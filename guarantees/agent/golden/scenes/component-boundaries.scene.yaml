@@ -1,4 +1,7 @@
 workflow:
+  - id: provider-snapshot-permissions
+    action: { verifier: deployment.golden.provider-snapshot-permissions }
+    expect: { status: passed }
   - id: provider-development-parity
     action: { verifier: deployment.golden.provider-development-parity }
     expect: { status: passed }

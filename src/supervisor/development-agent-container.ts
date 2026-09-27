@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -72,6 +72,12 @@ export function agentEnrollmentDevelopmentOverride(records = new DevelopmentSess
 	const override = resolve(root, sessionId, 'agent', 'provider', 'compose.json');
 	if (!available(override)) throw new Error('Registered provider development snapshot is unavailable.');
 	return override;
+}
+
+export function writeAgentDevelopmentManifest(path: string, manifest: string, ownership = chownSync) {
+	writeFileSync(path, manifest, { mode: 0o600 });
+	ownership(path, 0, 65_532);
+	chmodSync(path, 0o640);
 }
 
 export function activeAgentClaims(stateRoot: string) {
@@ -265,7 +271,7 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	const manifest = (host.components.agent?.configuration?.files as Record<string, unknown> | undefined)?.['treeseed.capacity-provider.yaml'];
 	if (typeof manifest !== 'string' || !manifest.trim()) throw new Error('Managed provider development requires its desired manifest.');
 	const manifestPath = resolve(directory, 'treeseed.capacity-provider.yaml');
-	writeFileSync(manifestPath, manifest, { mode: 0o644 });
+	writeAgentDevelopmentManifest(manifestPath, manifest);
 	atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: configuredSandboxGuestDigest(), manifestPath }), 0o600);
 	atomicJson(handoff, { restore: true }, 0o600);
 	stopForHandoff(command, stateRoot, () => startService(command, 'manager'));

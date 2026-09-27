@@ -1,10 +1,10 @@
 import {expect,it} from 'vitest';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync,statSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
-import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
+import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride,writeAgentDevelopmentManifest} from '../src/supervisor/development-agent-container.js';
 import type {ManagedDevelopmentSession} from '../src/manager/development-sessions.js';
 import {managedPersistentServices,renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
 import {parseDevelopmentMigrationInventory} from '../src/supervisor/development-postgres-migration.js';
@@ -111,6 +111,16 @@ it('binds the desired provider manifest and enrolls through the same exact devel
 	expect(()=>agentEnrollmentDevelopmentOverride([record],()=>false)).toThrow('snapshot is unavailable');
 	expect(()=>agentEnrollmentDevelopmentOverride([record,record],()=>true)).toThrow('ambiguous');
 	expect(()=>agentEnrollmentDevelopmentOverride([{...record,session:{...record.session,sessionId:'../../escape'}}],()=>true)).toThrow('Invalid Agent');
+});
+it('makes the root snapshot provider-readable without relying on supervisor umask',()=>{
+	const directory=mkdtempSync(resolve(tmpdir(),'treeseed-provider-manifest-'));
+	try {
+		const path=resolve(directory,'manifest.yaml'),calls:unknown[][]=[];
+		writeAgentDevelopmentManifest(path,'schemaVersion: 5\n',(target,uid,gid)=>{calls.push([target,uid,gid]);expect(statSync(target).mode&0o777).toBe(0o600);});
+		expect(calls).toEqual([[path,0,65532]]);
+		expect(statSync(path).mode&0o777).toBe(0o640);
+		expect(readFileSync(path,'utf8')).toBe('schemaVersion: 5\n');
+	} finally {rmSync(directory,{recursive:true,force:true});}
 });
 it('allows polling handoff but blocks active and recoverable Agent claims',()=>{
 	const root=mkdtempSync(resolve(tmpdir(),'treeseed-agent-development-'));
