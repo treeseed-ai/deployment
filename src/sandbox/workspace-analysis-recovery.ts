@@ -6,11 +6,12 @@ import { WorkspaceCatalog } from './workspace-catalog.js';
 
 interface RecoveryLease {
   id: string; assignment_id: string; provider_id: string; attempt: number; mode: string;
-  publication: string; state: string; expires_at: string; result_artifact_id: string | null;
+  acquisition: string; publication: string; state: string; expires_at: string; result_artifact_id: string | null;
 }
 
 export function recoverableAnalysis(lease: RecoveryLease, now: Date) {
-  return lease.mode === 'analysis' && lease.publication === 'denied'
+  return ((lease.mode === 'analysis' && lease.publication === 'denied')
+    || (lease.mode === 'work' && lease.acquisition === 'simulation-local' && lease.publication === 'simulation-branch'))
     && ['active', 'quarantined', 'released'].includes(lease.state)
     && Number.isFinite(Date.parse(lease.expires_at)) && Date.parse(lease.expires_at) <= now.getTime();
 }
@@ -58,7 +59,7 @@ export async function recoverExpiredAnalysis(root: string, now = new Date(), rel
         const handle = await open(temporary, 'wx', 0o600);
         try { await handle.writeFile(JSON.stringify({ schemaVersion: 'treeseed.source-result/v1',
           sandboxId: name.slice(0, -5), leaseId: lease.id, status: 'interrupted', result: null,
-          sourceReference: null, teardownVerified: true, completedAt: now.toISOString(), recovery: 'expired-analysis' })); await handle.sync(); }
+          sourceReference: null, teardownVerified: true, completedAt: now.toISOString(), recovery: lease.mode === 'analysis' ? 'expired-analysis' : 'expired-simulation' })); await handle.sync(); }
         finally { await handle.close(); }
         await rename(temporary, join(results, receiptId));
         const parent = await open(results, 'r'); try { await parent.sync(); } finally { await parent.close(); }

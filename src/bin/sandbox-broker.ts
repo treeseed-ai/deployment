@@ -1,4 +1,3 @@
 import { startSandboxBroker } from '../sandbox/server.js';
 
-startSandboxBroker();
-
+await startSandboxBroker();

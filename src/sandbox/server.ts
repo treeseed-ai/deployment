@@ -9,6 +9,7 @@ import { KataSandboxRuntime } from './runtime.js';
 import { verifySandboxAssignment, verifySandboxLeaseRenewal } from './trust.js';
 import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { proxyModelRequest } from './model-gateway.js';
+import { recoverWorkspaceBuilds } from './workspace-build-recovery.js';
 
 async function body(request: IncomingMessage) {
 	let input = ''; for await (const chunk of request) { input += String(chunk); if (input.length > 1_048_576) throw new Error('Sandbox broker request exceeds one MiB.'); }
@@ -38,10 +39,12 @@ function boundedProxyLogger() {
 	};
 }
 
-export function startSandboxBroker() {
+export async function startSandboxBroker() {
 	if (process.getuid?.() !== 0) throw new Error('TreeSeed sandbox broker must run as root.');
 	const configuration = loadSandboxBrokerConfiguration(), runtime = new KataSandboxRuntime(configuration);
-	runtime.reconcile();
+	const recovery = runtime.reconcile();
+	if (!recovery.reconciled) throw new Error('Sandbox restart could not prove guest teardown.');
+	await recoverWorkspaceBuilds(configuration, true);
 	mkdirSync(dirname(configuration.socketPath), { recursive: true, mode: 0o750 }); rmSync(configuration.socketPath, { force: true });
 	const server = createServer(async (request, response) => {
 		try {

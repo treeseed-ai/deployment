@@ -9,7 +9,7 @@ import type { SourceWorkspaceAuthorization } from '@treeseed/sdk/capacity-provid
 
 const roots: string[] = [], now = new Date('2026-09-26T20:00:00Z');
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-async function fixture(mode: 'analysis' | 'work' = 'analysis', expiresAt = '2026-09-26T19:00:00Z') {
+async function fixture(mode: 'analysis' | 'work' = 'analysis', expiresAt = '2026-09-26T19:00:00Z', simulation = false) {
   const root = await mkdtemp(join(tmpdir(), 'treeseed-analysis-recovery-')); roots.push(root);
   for (const name of ['jobs', 'leases', 'results']) await mkdir(join(root, name), { mode: 0o700 });
   const catalog = new WorkspaceCatalog(join(root, 'catalog.db'));
@@ -20,9 +20,9 @@ async function fixture(mode: 'analysis' | 'work' = 'analysis', expiresAt = '2026
     clean: true, filesystemVerified: true, builderStopped: true });
   const authority: SourceWorkspaceAuthorization = { schemaVersion: 'treeseed.source-workspace-authorization/v1',
     id: 'authority', providerId: 'provider', assignmentId: 'assignment', attempt: 1, source, mode,
-    acquisition: 'upstream-authorized', publication: mode === 'work' ? 'assignment-branch' : 'denied',
-    ...(mode === 'work' ? { publicationRef: 'refs/heads/assignment/test' } : {}),
-    credentialBindingId: 'binding', issuedAt: '2026-09-26T18:00:00Z', expiresAt };
+    acquisition: simulation ? 'simulation-local' : 'upstream-authorized', publication: mode === 'work' ? simulation ? 'simulation-branch' : 'assignment-branch' : 'denied',
+    ...(mode === 'work' ? { publicationRef: simulation ? 'refs/heads/simulation/test' : 'refs/heads/assignment/test' } : {}),
+    ...(!simulation ? { credentialBindingId: 'binding' } : {}), issuedAt: '2026-09-26T18:00:00Z', expiresAt };
   const lease = catalog.lease(authority, new Date(authority.issuedAt)); catalog.close();
   const id = 'workspace-lease-11111111-1111-4111-8111-111111111111', directory = join(root, 'leases', id);
   await mkdir(directory, { mode: 0o700 }); await writeFile(join(directory, 'work.qcow2'), 'opaque guest disk', { mode: 0o600 });
@@ -33,6 +33,16 @@ async function fixture(mode: 'analysis' | 'work' = 'analysis', expiresAt = '2026
   return { root, id, directory, journal, job, lease };
 }
 describe('expired analysis recovery under fenced guest custody', () => {
+  it('retires expired simulation work durably but preserves production and current simulation work', async () => {
+    const expired = await fixture('work', '2026-09-26T19:00:00Z', true);
+    expect(await recoverExpiredAnalysis(expired.root, now)).toEqual([expired.id]);
+    const receipt = JSON.parse(await readFile(join(expired.root, 'results', 'sandbox-test-recovery.json'), 'utf8'));
+    expect(receipt).toMatchObject({ status: 'interrupted', recovery: 'expired-simulation', teardownVerified: true });
+    expect(await recoverExpiredAnalysis(expired.root, now)).toEqual([]);
+    for (const retained of [await fixture('work'), await fixture('work', '2026-09-26T21:00:00Z', true)]) {
+      expect(await recoverExpiredAnalysis(retained.root, now)).toEqual([]); await access(retained.directory);
+    }
+  });
   it('automatically finishes normal-result deletion without touching active or work leases', async () => {
     const f = await fixture('analysis', '2026-09-26T21:00:00Z');
     await writeFile(join(f.root, 'results', 'sandbox-test.json'), JSON.stringify({
