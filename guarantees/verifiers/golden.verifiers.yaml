@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-development-parity:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-container.test.ts
+    testName: binds the desired provider manifest and enrolls through the same exact development snapshot
   deployment.golden.enrolled-concurrency:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

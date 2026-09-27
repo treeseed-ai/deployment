@@ -4,7 +4,8 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
-import {activeAgentClaims,renderAgentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
+import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride} from '../src/supervisor/development-agent-container.js';
+import type {ManagedDevelopmentSession} from '../src/manager/development-sessions.js';
 import {managedPersistentServices,renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
 import {parseDevelopmentMigrationInventory} from '../src/supervisor/development-postgres-migration.js';
 import {managedContainerDevelopmentConnectionEnvironment} from '../src/manager/reconcile.js';
@@ -99,6 +100,17 @@ it('renders a fixed Agent overlay with read-only candidate code, live peer route
 		expect(service.environment.TREESEED_PROVIDER_RUNTIME_BUILD).toBe(digest);
 	}
 	expect(JSON.stringify(spec)).not.toContain('docker.sock');
+});
+it('binds the desired provider manifest and enrolls through the same exact development snapshot',()=>{
+	const path='/run/treeseed/development-containers/dev-example/agent/provider/treeseed.capacity-provider.yaml';
+	const spec=renderAgentDevelopmentOverride({sessionId:'dev-example',runtimeRoot:'/run/treeseed/development-containers/dev-example/agent/provider/runtime',sourceClosureDigest:`sha256:${'c'.repeat(64)}`,manifestPath:path});
+	for(const service of Object.values(spec.services)) expect(service.volumes.at(-1)).toEqual({type:'bind',source:path,target:'/config/treeseed.capacity-provider.yaml',read_only:true});
+	const record={session:{sessionId:'dev-example',status:'active',targets:[{projectId:'agent',targetId:'provider',mode:'candidate'}]}} as ManagedDevelopmentSession;
+	expect(agentEnrollmentDevelopmentOverride([record],()=>true)).toBe('/run/treeseed/development-containers/dev-example/agent/provider/compose.json');
+	expect(agentEnrollmentDevelopmentOverride([],()=>true)).toBeUndefined();
+	expect(()=>agentEnrollmentDevelopmentOverride([record],()=>false)).toThrow('snapshot is unavailable');
+	expect(()=>agentEnrollmentDevelopmentOverride([record,record],()=>true)).toThrow('ambiguous');
+	expect(()=>agentEnrollmentDevelopmentOverride([{...record,session:{...record.session,sessionId:'../../escape'}}],()=>true)).toThrow('Invalid Agent');
 });
 it('allows polling handoff but blocks active and recoverable Agent claims',()=>{
 	const root=mkdtempSync(resolve(tmpdir(),'treeseed-agent-development-'));

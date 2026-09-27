@@ -16,6 +16,7 @@ import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } 
 import { enrollClient } from './pki.js';
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
 import { providerRuntimeStatus } from './provider-runtime.js';
+import { agentEnrollmentDevelopmentOverride } from './development-agent-container.js';
 import { executePostgresOperation, isPostgresOperation } from './postgres-operations.js';
 import { guardPostgresTransferOperation, activePostgresTransferJournal } from './postgres-transfer-guard.js';
 import { ensureDevelopmentCredentials } from './development-credentials.js';
@@ -342,7 +343,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		}
 		case 'provider.enrollment-handoff': {
 			const input = `${JSON.stringify(operation.payload)}\n`;
-			const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			const override = agentEnrollmentDevelopmentOverride();
+			const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), ...(override ? ['--file', override] : []), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
 			return enrollmentReceipt(output, operation.payload.connectionId);
 		}
 		case 'compose.activate':

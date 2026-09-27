@@ -1,4 +1,7 @@
 workflow:
+  - id: provider-development-parity
+    action: { verifier: deployment.golden.provider-development-parity }
+    expect: { status: passed }
   - id: enrolled-concurrency
     action: { verifier: deployment.golden.enrolled-concurrency }
     expect: { status: passed }
