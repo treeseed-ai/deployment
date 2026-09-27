@@ -1,4 +1,7 @@
 workflow:
+  - id: enrolled-concurrency
+    action: { verifier: deployment.golden.enrolled-concurrency }
+    expect: { status: passed }
   - id: expired-simulation-recovery
     action: { verifier: deployment.golden.expired-simulation-recovery }
     expect: { status: passed }
