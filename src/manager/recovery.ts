@@ -15,13 +15,14 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import {
 	activateComponent,
+	configureComponentForActivation,
 	rollbackRoutes,
 	stopComponent,
 	reconcile,
 } from './reconcile.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
-import { developmentHeldComponentIds, resumeDevelopmentSessions } from './development-handoff.js';
+import { developmentHeldComponentIds, restoreHeldComponentCredentials, resumeDevelopmentSessions } from './development-handoff.js';
 
 export interface RecoveryBackupInspection {
 	generation: number;
@@ -125,6 +126,8 @@ export async function retryManagedRecovery() {
 		apiRuntimeDigest: components.find(component => component.componentId === 'api')?.runtimeDigest });
 	await activateRestoredGeneration(host, components, held.generation);
 	await requestSupervisor({ operation: 'development.backup.finish', generation: held.generation });
+	await restoreHeldComponentCredentials(components, developmentHeldComponentIds(new DevelopmentSessionStore().list()),
+		component => configureComponentForActivation(host, component, components));
 	if (!await resumeDevelopmentSessions(new DevelopmentSessionStore().list()))
 		throw new Error('Restored development runtime did not resume; retry ordinary reconciliation.');
 	recordEvent('recovery.retry-complete', { generation: held.generation, receiptId: receipt.receiptId });

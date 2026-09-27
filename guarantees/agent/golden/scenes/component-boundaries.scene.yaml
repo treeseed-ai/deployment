@@ -5,6 +5,9 @@ workflow:
   - id: development-held-recovery
     action: { verifier: deployment.golden.development-held-recovery }
     expect: { status: passed }
+  - id: development-credential-restore
+    action: { verifier: deployment.golden.development-credential-restore }
+    expect: { status: passed }
   - id: ordinary-component-activation
     action: { verifier: deployment.golden.ordinary-component-activation }
     expect: { status: passed }

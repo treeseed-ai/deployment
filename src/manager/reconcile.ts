@@ -15,7 +15,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtimeStopped, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
-import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, resumeDevelopmentSessions, runtimeActivationTargets, sandboxGuestTrustDigest } from './development-handoff.js';
+import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions, runtimeActivationTargets, sandboxGuestTrustDigest } from './development-handoff.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
@@ -228,7 +228,7 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 	return { connectionEnvironment, secretFileIds, optionalSecretEnvironment };
 }
 
-async function configureComponentForActivation(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
+export async function configureComponentForActivation(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const developmentRoutes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes([]) : [];
 	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases, developmentRoutes);
 	if (component.runtime.modeControl?.role === 'controller') await requestSupervisor({ operation: 'ai.mode.credentials.ensure' });
@@ -288,8 +288,7 @@ export async function withCoreUpgradeHandoff<T>(coreUpdated: boolean, previous: 
 export function runtimeRepairTargets<T extends { componentId: string }>(targets: T[], changedIds: ReadonlySet<string>, heldIds: ReadonlySet<string>, configurationChanged = false): T[] {
 	// Candidate Compose files arrive during package installation. Already-planned
 	// changes receive post-install activation checks, not pre-install drift probes.
-	// Desired credential bindings have not been materialized yet. Inspecting them
-	// as if they were the accepted runtime would reject legitimate configuration changes.
+	// Unmaterialized credential bindings cannot be probed as accepted runtime.
 	return configurationChanged ? [] : targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
 }
 
@@ -487,6 +486,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		throw error;
 	}
 	if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
+	await restoreHeldComponentCredentials(effective, heldDevelopmentComponents, component => configureComponentForActivation(host, component, effective));
 	if (!await resumeDevelopmentSessions(activeDevelopmentSessions)) recordEvent('development.boot-recovery-pending', {});
 	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: configurationScope.size && previous ? previous.catalogDigest : accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
