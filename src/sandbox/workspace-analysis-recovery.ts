@@ -6,11 +6,12 @@ import { WorkspaceCatalog } from './workspace-catalog.js';
 
 interface RecoveryLease {
   id: string; assignment_id: string; provider_id: string; attempt: number; mode: string;
-  publication: string; state: string; expires_at: string; result_artifact_id: string | null;
+  acquisition: string; publication: string; state: string; expires_at: string; result_artifact_id: string | null;
 }
 
 export function recoverableAnalysis(lease: RecoveryLease, now: Date) {
-  return lease.mode === 'analysis' && lease.publication === 'denied'
+  return ((lease.mode === 'analysis' && lease.publication === 'denied')
+    || (lease.mode === 'work' && lease.acquisition === 'simulation-local' && lease.publication === 'simulation-branch'))
     && ['active', 'quarantined', 'released'].includes(lease.state)
     && Number.isFinite(Date.parse(lease.expires_at)) && Date.parse(lease.expires_at) <= now.getTime();
 }
@@ -45,7 +46,15 @@ export async function recoverExpiredAnalysis(root: string, now = new Date(), rel
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT' && lease.state === 'released') continue; throw error; }
       if (!disk.isDirectory() || disk.uid !== process.getuid?.() || (disk.mode & 0o077)
         || await realpath(directory) !== directory) throw new Error('Recovery disk custody changed.');
-      if ((await readdir(directory)).some(value => !['work.qcow2', 'nbd.pid'].includes(value))) {
+      const entries = await readdir(directory);
+      const simulation = lease.mode === 'work' && lease.acquisition === 'simulation-local' && lease.publication === 'simulation-branch';
+      for (const entry of entries.filter(value => simulation && /^candidate-[a-zA-Z0-9]{6}$/u.test(value))) {
+        const path = join(directory, entry), info = await lstat(path);
+        if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077)
+          || await realpath(path) !== path) throw new Error('Recovery candidate custody changed.');
+      }
+      if (entries.some(value => !['work.qcow2', 'nbd.pid'].includes(value)
+        && !(simulation && /^candidate-[a-zA-Z0-9]{6}$/u.test(value)))) {
         if (releasedOnly) continue;
         throw new Error('Recovery disk remains attached or unclassified.');
       }
@@ -58,7 +67,7 @@ export async function recoverExpiredAnalysis(root: string, now = new Date(), rel
         const handle = await open(temporary, 'wx', 0o600);
         try { await handle.writeFile(JSON.stringify({ schemaVersion: 'treeseed.source-result/v1',
           sandboxId: name.slice(0, -5), leaseId: lease.id, status: 'interrupted', result: null,
-          sourceReference: null, teardownVerified: true, completedAt: now.toISOString(), recovery: 'expired-analysis' })); await handle.sync(); }
+          sourceReference: null, teardownVerified: true, completedAt: now.toISOString(), recovery: lease.mode === 'analysis' ? 'expired-analysis' : 'expired-simulation' })); await handle.sync(); }
         finally { await handle.close(); }
         await rename(temporary, join(results, receiptId));
         const parent = await open(results, 'r'); try { await parent.sync(); } finally { await parent.close(); }

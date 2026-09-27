@@ -20,7 +20,7 @@ export function assertWorkspaceRecoveryIdle(tasks: string, activeLeases: number)
 
 /** Serialized supervisor maintenance. Retains unpublished work; retires expired analysis.
  * No guest filesystem is read or mounted, and no task is force-killed for recovery. */
-export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfiguration) {
+export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfiguration, brokerAlreadyFenced = false) {
   await initializeWorkspaceStorage();
   const database = join(workspaceStorageRoot, 'catalog.db');
   const tasks = () => run('/usr/bin/ctr', ['--address', configuration.containerdAddress,
@@ -34,9 +34,11 @@ export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfigu
         builds: db.prepare("SELECT id,job_id FROM workspace_images WHERE state='building'").all() as { id: string; job_id: string }[] };
     } finally { db.close(); }
   };
-  assertWorkspaceRecoveryIdle(await tasks(), inspect().active);
+  const runningTasks = await tasks(), initial = inspect();
+  if (brokerAlreadyFenced && (runningTasks.trim() || initial.active !== 0)) return { skipped: 'active_workspace_authority' };
+  assertWorkspaceRecoveryIdle(runningTasks, initial.active);
   const broker = 'treeseed-sandbox-broker.service';
-  const state = await run('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value']);
+  const state = brokerAlreadyFenced ? 'inactive' : await run('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value']);
   if (!['active', 'inactive', 'failed'].includes(state)) throw new Error('Sandbox broker is transitioning.');
   try {
     if (state === 'active') await run('/usr/bin/systemctl', ['stop', broker]);

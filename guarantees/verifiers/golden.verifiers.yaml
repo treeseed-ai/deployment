@@ -81,3 +81,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-analysis-recovery.test.ts
     testName: automatically finishes normal-result deletion without touching active or work leases
+  deployment.golden.expired-simulation-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: retires expired simulation work durably but preserves production and current simulation work
+  deployment.golden.failed-simulation-cleanup:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: automatically discards stopped failed simulations but retains unpublished production and successful candidates

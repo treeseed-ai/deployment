@@ -29,6 +29,11 @@ export class SourceBuildQueue {
   }
 }
 
+export function retainUnpublishedWork(authorization: { mode: string; acquisition: string; publication: string }, status: string | undefined) {
+  return authorization.mode === 'work' && !(authorization.acquisition === 'simulation-local'
+    && authorization.publication === 'simulation-branch' && status !== 'completed');
+}
+
 async function privateDirectory(path: string) {
   await mkdir(path, { recursive: true, mode: 0o700 });
   const info = await lstat(path);
@@ -120,7 +125,7 @@ export class AssignmentSourceStore {
     if (!guestStopped) return { released: false, reason: 'guest_teardown_unverified' };
     if (!retained.disk || !retained.leaseId || !retained.authorization) return { released: false, reason: 'source_job_retained' };
     if (!this.executionDetached.has(sandboxId)) await detachWorkspaceDisk(retained.disk, true);
-    if (retained.authorization.mode === 'work' && !publication?.publishedReference()) return { released: false, reason: 'source_publication_required' };
+    if (!publication?.publishedReference() && retainUnpublishedWork(retained.authorization, result?.status)) return { released: false, reason: 'source_publication_required' };
     const receiptId = `${sandboxId}.json`;
     await durableJson(join(workspaceStorageRoot, 'results'), receiptId, { schemaVersion: 'treeseed.source-result/v1',
       sandboxId, leaseId: retained.leaseId, source: retained.authorization.source,

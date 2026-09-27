@@ -1,4 +1,10 @@
 workflow:
+  - id: expired-simulation-recovery
+    action: { verifier: deployment.golden.expired-simulation-recovery }
+    expect: { status: passed }
+  - id: failed-simulation-cleanup
+    action: { verifier: deployment.golden.failed-simulation-cleanup }
+    expect: { status: passed }
   - id: automatic-released-cleanup
     action: { verifier: deployment.golden.automatic-released-cleanup }
     expect: { status: passed }
