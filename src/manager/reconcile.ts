@@ -15,7 +15,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtimeStopped, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
-import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, resumeDevelopmentSessions, sandboxGuestTrustDigest } from './development-handoff.js';
+import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, resumeDevelopmentSessions, runtimeActivationTargets, sandboxGuestTrustDigest } from './development-handoff.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
@@ -291,11 +291,6 @@ export function runtimeRepairTargets<T extends { componentId: string }>(targets:
 	// Desired credential bindings have not been materialized yet. Inspecting them
 	// as if they were the accepted runtime would reject legitimate configuration changes.
 	return configurationChanged ? [] : targets.filter(({ componentId }) => !changedIds.has(componentId) && !heldIds.has(componentId));
-}
-
-/** A development-held service resumes from its pinned source, never its older released writer. */
-export function runtimeActivationTargets<T extends { componentId: string }>(ordered: T[], heldIds: ReadonlySet<string>, changedIds: ReadonlySet<string>, configurationImpacts: (componentId: string) => boolean): T[] {
-	return ordered.filter(({ componentId }) => !heldIds.has(componentId) && (configurationImpacts(componentId) || changedIds.has(componentId)));
 }
 
 export async function reconcile(track?: 'stable' | 'development', forceMetadata = false,

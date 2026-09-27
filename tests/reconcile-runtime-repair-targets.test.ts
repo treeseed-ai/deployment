@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { runtimeActivationTargets, runtimeRepairTargets } from '../src/manager/reconcile.js';
+import { runtimeRepairTargets } from '../src/manager/reconcile.js';
+import { runtimeActivationTargets } from '../src/manager/development-handoff.js';
 
 it('defers probes until changed credential bindings are configured and activated', () => {
 	expect(runtimeRepairTargets([{ componentId: 'api' }], new Set(), new Set(), true)).toEqual([]);
