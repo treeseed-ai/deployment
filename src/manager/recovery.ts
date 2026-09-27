@@ -21,6 +21,7 @@ import {
 } from './reconcile.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
+import { developmentHeldComponentIds, resumeDevelopmentSessions } from './development-handoff.js';
 
 export interface RecoveryBackupInspection {
 	generation: number;
@@ -57,12 +58,14 @@ function packageSelections(receipt: HostReceipt) {
 
 async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[], backupGeneration?: number) {
 	const enabled = components.filter(component => host.components[component.componentId]?.enabled === true);
+	const held = developmentHeldComponentIds(new DevelopmentSessionStore().list());
 	const base = rollbackRoutes(host, enabled);
 	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
 	await activateWithRoutes(routes, async () => {
 		// Activate only enabled components, but verify database requirements against
 		// the complete installed inventory, including disabled components.
-		for (const component of componentActivationOrder(host, enabled)) await activateComponent(host, component, components, backupGeneration);
+		for (const component of componentActivationOrder(host, enabled).filter(component => !held.has(component.componentId)))
+			await activateComponent(host, component, components, backupGeneration);
 	});
 }
 
@@ -122,6 +125,8 @@ export async function retryManagedRecovery() {
 		apiRuntimeDigest: components.find(component => component.componentId === 'api')?.runtimeDigest });
 	await activateRestoredGeneration(host, components, held.generation);
 	await requestSupervisor({ operation: 'development.backup.finish', generation: held.generation });
+	if (!await resumeDevelopmentSessions(new DevelopmentSessionStore().list()))
+		throw new Error('Restored development runtime did not resume; retry ordinary reconciliation.');
 	recordEvent('recovery.retry-complete', { generation: held.generation, receiptId: receipt.receiptId });
 	return { generation: held.generation, recovered: true, receiptId: receipt.receiptId };
 }

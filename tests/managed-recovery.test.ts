@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 	target: undefined as any, activationFailure: false, backupFailure: false, activationInventories: [] as string[][],
 	transfer: null as { restoreGeneration: number; restoreDigest: string } | null,
 	hold: null as { generation: number; phase: string } | null,
+	developmentSessions: [] as any[],
 }));
 
 vi.mock('../src/core/paths.js', () => ({ paths: { receipts: '/tmp/treeseed-recovery-test/receipts', managerState: '/tmp/treeseed-recovery-test/manager' } }));
@@ -16,7 +17,7 @@ vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => st
 vi.mock('../src/manager/current-state.js', () => ({ loadActiveComponents: () => state.currentComponents, loadCurrentReceipt: () => state.currentReceipt }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: (path: string, value: unknown) => state.writes.push({ path, value }) }));
 vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
-vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { activeRoutes(base: unknown) { return base; } } }));
+vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { activeRoutes(base: unknown) { return base; } list() { return state.developmentSessions; } } }));
 vi.mock('../src/edge/caddy.js', () => ({ renderCaddyfile: () => 'managed routes', subjectAlternativeNames: () => ['api.treeseed.localhost'] }));
 vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => true }));
 vi.mock('../src/manager/component-order.js', () => ({
@@ -40,6 +41,7 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 	if (operation.operation === 'development.backup.status') return state.hold;
 	if (operation.operation === 'postgres.transfer.status') return state.transfer;
 	if (operation.operation === 'backup.inspect') return state.target;
+	if (operation.operation === 'development.boot.resume') return { ready: true };
 	if (operation.operation === 'backup.create') {
 		if (state.lifecycle.length !== state.currentComponents.length || state.lifecycle.some(item => !item.startsWith('stop:'))) throw new Error('Backup attempted before all current writers stopped');
 		if (state.backupFailure) throw new Error('Safety backup failed');
@@ -48,7 +50,20 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 } }));
 
 const { inspectRecoveryBackup, restoreManagedGeneration, retryManagedRecovery } = await import('../src/manager/recovery.js');
-afterEach(() => { state.hold = null; state.transfer = null; state.backupFailure = false; state.activationFailure = false; });
+afterEach(() => { state.hold = null; state.transfer = null; state.backupFailure = false; state.activationFailure = false; state.developmentSessions = []; });
+
+it('recovers dependencies without starting a development-held released API writer', async () => {
+	state.currentHost = host();
+	state.currentHost.components.postgres = { enabled: true, track: 'development', aliases: {}, configuration: {} };
+	state.currentComponents = [component('postgres', 'development', 'b'), component('api', 'development', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.developmentSessions = [{ session: { sessionId: 'dev-test', targets: [{ projectId: 'api', targetId: 'service', mode: 'live' }] },
+		runtimes: [{ project: { id: 'api' }, targets: [{ id: 'service', kind: 'service' }] }] }];
+	state.operations = []; state.lifecycle = []; state.hold = { generation: 75, phase: 'restored' };
+	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:75']);
+	expect(state.operations.map(({ operation }) => operation)).toContain('development.boot.resume');
+});
 
 it('retries restored runtime custody without another database archive or package installation', async () => {
 	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];

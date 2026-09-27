@@ -6,6 +6,11 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/reconcile-runtime-repair-targets.test.ts
     testName: never activates an older released writer held by development during configuration start
+  deployment.golden.development-held-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/managed-recovery.test.ts
+    testName: recovers dependencies without starting a development-held released API writer
   deployment.golden.ordinary-component-activation:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
