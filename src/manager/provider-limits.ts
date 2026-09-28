@@ -1,6 +1,8 @@
 import YAML from 'yaml';
 import { validateCapacityProviderManifestV5, type CapacityProviderManifestV5 } from '@treeseed/sdk/capacity-provider';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
+import { requestSupervisor } from '../supervisor/client.js';
+import { serializedReconcile } from './serialized-reconcile.js';
 
 const manifestName = 'treeseed.capacity-provider.yaml';
 
@@ -62,4 +64,19 @@ export function setProviderLimits(host: HostConfiguration, input: {
 	const changed = source(candidate) !== source(host);
 	if (changed) candidate.generation = host.generation + 1;
 	return { candidate, changed, limits: showProviderLimits(candidate) };
+}
+
+export async function executeProviderLimitSet(host: HostConfiguration, providerId: string | undefined, options: {
+	dailyActiveSeconds?: unknown; capability?: unknown; expectedGeneration?: unknown; plan?: unknown;
+}) {
+	if (!providerId) throw new Error('An execution provider ID is required.');
+	const { candidate, changed, limits } = setProviderLimits(host, {
+		providerId,
+		dailyActiveSecondsLimit: Number(options.dailyActiveSeconds),
+		...(typeof options.capability === 'string' ? { capabilityId: options.capability } : {}),
+		...(options.expectedGeneration !== undefined ? { expectedGeneration: Number(options.expectedGeneration) } : {}),
+	});
+	if (options.plan === true || !changed) return { changed, limits };
+	await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
+	return { changed: true, limits, receipt: await serializedReconcile() };
 }

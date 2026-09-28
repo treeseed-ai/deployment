@@ -35,7 +35,7 @@ import { executeProviderEnvironmentCommand } from './provider-environment.js';
 import { executePostgresTransferCommand } from './postgres-transfer.js';
 import { availableCatalogSummary } from './catalog-summary.js';
 import { setComponentEnabled } from './component-selection.js';
-import { setProviderLimits, showProviderLimits } from './provider-limits.js';
+import { executeProviderLimitSet, showProviderLimits } from './provider-limits.js';
 import { bootstrapStatus } from './bootstrap-status.js';
 
 export const hostCommandRequestSchema = z.object({
@@ -307,19 +307,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.events': return { events: recentEvents(100) };
 		case 'local.host.config.show': return host;
 		case 'local.host.provider.limits.show': return showProviderLimits(host);
-		case 'local.host.provider.limits.set': {
-			const providerId = request.arguments[0];
-			if (!providerId) throw new Error('An execution provider ID is required.');
-			const { candidate, changed, limits } = setProviderLimits(host, {
-				providerId,
-				dailyActiveSecondsLimit: Number(request.options.dailyActiveSeconds),
-				...(typeof request.options.capability === 'string' ? { capabilityId: request.options.capability } : {}),
-				...(request.options.expectedGeneration !== undefined ? { expectedGeneration: Number(request.options.expectedGeneration) } : {}),
-			});
-			if (request.options.plan === true || !changed) return { changed, limits };
-			await requestSupervisor({ operation: 'configuration.replace', configuration: candidate });
-			return { changed: true, limits, receipt: await serializedReconcile() };
-		}
+		case 'local.host.provider.limits.set': return executeProviderLimitSet(host, request.arguments[0], request.options);
 		case 'local.host.config.plan': return configurationPlan(requiredConfiguration(request));
 		case 'local.host.config.apply': {
 			const candidate = requiredConfiguration(request);
