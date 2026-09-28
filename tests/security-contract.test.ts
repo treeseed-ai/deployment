@@ -25,6 +25,14 @@ const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.m
 	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
 
 describe('host security contracts', () => {
+	it('keeps full synchronous diagnosis off the concurrent sandbox-create route', () => {
+		const source = readFileSync(new URL('../src/sandbox/server.ts', import.meta.url), 'utf8');
+		const create = source.split("request.method === 'POST' && request.url === '/v1/sandboxes'")[1]?.split('const input =')[0];
+		expect(create).toContain('verifySandboxAssignment(assignment, configuration.trustedProvidersPath)');
+		expect(create).toContain('runtime.prepare(assignment)');
+		expect(create).not.toContain('inspectSandboxHost(');
+		expect(source).toContain("request.method === 'GET' && request.url === '/v1/status'");
+	});
 	it('preserves the active development guest trust while credentials are reconfigured', () => {
 		const released = `sha256:${'a'.repeat(64)}`, development = `sha256:${'b'.repeat(64)}`;
 		const profiles = [

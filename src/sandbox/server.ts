@@ -51,7 +51,6 @@ export async function startSandboxBroker() {
 			if (request.method === 'GET' && request.url === '/v1/status') return respond(response, 200, inspectSandboxHost(configuration));
 			if (request.method === 'POST' && request.url === '/v1/sandboxes') {
 				const value = await body(request) as Record<string, unknown>, assignment = sandboxAssignmentSchema.parse(value.assignment); verifySandboxAssignment(assignment, configuration.trustedProvidersPath);
-				const health = inspectSandboxHost(configuration); if (!health.ready) return respond(response, 503, { error: health.reason, checks: health.checks });
 				return respond(response, 201, await runtime.prepare(assignment));
 			}
 			const input = request.url?.match(/^\/v1\/sandboxes\/([a-zA-Z0-9_.-]+)\/inputs\/([a-z][a-z0-9._-]{0,127})$/u);
