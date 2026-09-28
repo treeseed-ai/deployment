@@ -35,6 +35,7 @@ import { executeProviderEnvironmentCommand } from './provider-environment.js';
 import { executePostgresTransferCommand } from './postgres-transfer.js';
 import { availableCatalogSummary } from './catalog-summary.js';
 import { setComponentEnabled } from './component-selection.js';
+import { executeProviderLimitSet, showProviderLimits } from './provider-limits.js';
 import { bootstrapStatus } from './bootstrap-status.js';
 
 export const hostCommandRequestSchema = z.object({
@@ -305,6 +306,8 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		}
 		case 'local.host.events': return { events: recentEvents(100) };
 		case 'local.host.config.show': return host;
+		case 'local.host.provider.limits.show': return showProviderLimits(host);
+		case 'local.host.provider.limits.set': return executeProviderLimitSet(host, request.arguments[0], request.options);
 		case 'local.host.config.plan': return configurationPlan(requiredConfiguration(request));
 		case 'local.host.config.apply': {
 			const candidate = requiredConfiguration(request);
