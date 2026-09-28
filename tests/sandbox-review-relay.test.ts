@@ -39,6 +39,33 @@ describe('assignment review relay', () => {
     releaseEvent();
     await expect(pending).resolves.toEqual({ remainingSeconds: 30 });
   });
+  it('keeps a denied relay request local while event persistence is pending', async () => {
+    const { sandbox, runtime } = fixture();
+    let releaseEvent!: () => void;
+    const eventPersisted = new Promise<void>((resolve) => { releaseEvent = resolve; });
+    (runtime as unknown as { emit: ReturnType<typeof vi.fn> }).emit.mockImplementationOnce(async () => eventPersisted);
+    const pending = KataSandboxRuntime.prototype.requestTreeDxTool.call(runtime, 'sandbox', 'guest-token', {
+      tool: 'treedx_read_files', arguments: { project: 'sdk-library', paths: ['knowledge/missing.md'] },
+    });
+    await vi.waitFor(() => expect(sandbox.toolRequests).toHaveLength(1));
+    const request = KataSandboxRuntime.prototype.nextToolRequest.call(runtime, 'sandbox', 'host-token').request;
+    if (!request) throw new Error('Expected queued read request');
+    await expect(KataSandboxRuntime.prototype.completeToolRequest.call(runtime, 'sandbox', 'host-token', request.id,
+      { error: 'Assignment has no TreeDX read grant for project sdk-library.' })).resolves.toEqual({ completed: true });
+    await Promise.resolve();
+    releaseEvent();
+    await expect(pending).rejects.toThrow('Assignment has no TreeDX read grant for project sdk-library.');
+    expect(sandbox.toolWaiters.size).toBe(0);
+    const next = KataSandboxRuntime.prototype.requestTreeDxTool.call(runtime, 'sandbox', 'guest-token', {
+      tool: 'treeseed_time_status', arguments: {},
+    });
+    await vi.waitFor(() => expect(sandbox.toolRequests).toHaveLength(1));
+    const nextRequest = KataSandboxRuntime.prototype.nextToolRequest.call(runtime, 'sandbox', 'host-token').request;
+    if (!nextRequest) throw new Error('Expected subsequent request');
+    await KataSandboxRuntime.prototype.completeToolRequest.call(runtime, 'sandbox', 'host-token', nextRequest.id,
+      { result: { remainingSeconds: 15 } });
+    await expect(next).resolves.toEqual({ remainingSeconds: 15 });
+  });
   it.each(['expired', 'no-relay', 'no-handle', 'unknown-tool'])('denies %s without enqueuing', async boundary => {
     const { sandbox, runtime } = fixture();
     if (boundary === 'expired') sandbox.assignment.leaseExpiresAt = new Date(0).toISOString();
