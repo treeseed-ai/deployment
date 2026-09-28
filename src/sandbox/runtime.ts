@@ -232,13 +232,16 @@ export class KataSandboxRuntime {
 		if(!['treeseed_time_status','treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths','treeseed_publish_review','treeseed_publish_proposal','treeseed_publish_execution_plan'].includes(tool)) throw new Error('Assignment tool is not supported.');
 		const id=randomUUID(), createdAt=new Date().toISOString();
 		const completion=new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
+		// The provider can reject a polled request before event persistence finishes.
+		// Observe that rejection now; the original promise still rejects for the guest.
+		void completion.catch(()=>undefined);
 		// Publish a request only after its waiter exists. The provider may poll and
 		// complete the queue while event persistence is still in flight.
 		sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt});
 		try { await this.emit(sandbox,'tool.requested',{requestId:id,tool}); }
 		catch (error) {
 			const index=sandbox.toolRequests.findIndex(candidate=>candidate.id===id); if(index>=0)sandbox.toolRequests.splice(index,1);
-			const waiter=sandbox.toolWaiters.get(id); if(waiter)clearTimeout(waiter.timer); sandbox.toolWaiters.delete(id); throw error;
+			const waiter=sandbox.toolWaiters.get(id); if(waiter){clearTimeout(waiter.timer);waiter.reject(error instanceof Error?error:new Error(String(error)));} sandbox.toolWaiters.delete(id); throw error;
 		}
 		return completion;
 	}
