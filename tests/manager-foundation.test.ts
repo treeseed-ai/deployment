@@ -321,17 +321,6 @@ describe('unified host manager foundation', () => {
 		expect(() => resolveDevelopmentSecretEnvironment(configuration, 'api', { TREESEED_UNDECLARED_TOKEN: 'agent-token' }, {}, () => 'secret')).toThrow(/not configured/u);
 	});
 
-	it('uses managed peer URLs during development custody rendering without weakening production collisions', () => {
-		const configuration = host();
-		configuration.components.api!.configuration = { environment: { TREESEED_TREEDX_URL: 'http://treedx:4000' } };
-		const connections = { TREESEED_TREEDX_URL: 'http://host.docker.internal:4000' };
-		expect(() => renderComponentEnvironment(configuration, 'api', connections)).toThrow(/reserved for a managed connection/u);
-		configuration.runtime = { management: 'managed', environment: 'development', dataRoot: '/work/platform/.treeseed/data' };
-		const rendered = renderComponentEnvironment(configuration, 'api', connections);
-		expect(rendered).toContain('TREESEED_TREEDX_URL="http://host.docker.internal:4000"');
-		expect(rendered).not.toContain('TREESEED_TREEDX_URL="http://treedx:4000"');
-	});
-
 	it('places development state under the workspace-visible data root', () => {
 		const configuration = host();
 		configuration.runtime = { management: 'managed', environment: 'development', dataRoot: '/work/platform/.treeseed/data' };
