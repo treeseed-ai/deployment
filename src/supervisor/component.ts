@@ -96,7 +96,12 @@ export function renderComponentEnvironment(host: HostConfiguration, componentId:
 	const values = new Map<string, string>(Object.entries(connectionEnvironment));
 	for (const [key, value] of Object.entries(environment)) {
 		if (!environmentKey.test(key) || typeof value !== 'string' || value.length > 16_384) throw new Error(`Invalid environment entry ${key}.`);
-		if (values.has(key)) throw new Error(`Environment entry ${key} is reserved for a managed connection.`);
+		if (values.has(key)) {
+			if (host.runtime.environment !== 'development') throw new Error(`Environment entry ${key} is reserved for a managed connection.`);
+			// The development peer connection supersedes the released URL, as it
+			// does for the development target's secret environment below.
+			continue;
+		}
 		values.set(key, value);
 	}
 	for (const [key, secretId] of Object.entries(secretEnvironment)) {
