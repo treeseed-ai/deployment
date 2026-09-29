@@ -28,8 +28,24 @@ it('reports the failing recovery stage without reflecting sensitive backend erro
 	for (const stage of ['prepare', 'startVault', 'initializeClient'] as const) {
 		const operations = { ready: () => false, prepare: () => {}, startVault: () => {}, initializeClient: () => {} };
 		operations[stage] = () => { throw new Error('private-bootstrap-value'); };
-		expect(() => recoverDevelopmentCustody(operations)).toThrow(`Managed API custody recovery failed at ${stage}.`);
+		expect(() => recoverDevelopmentCustody(operations)).toThrow(new RegExp(`API_CUSTODY_${stage.toUpperCase()}_UNCLASSIFIED(?:_[A-Z0-9_]+)?`));
 	}
+});
+
+it('reports only a bounded custody error code, never secret-bearing error prose', () => {
+	const privateMessage = 'secret value must remain private';
+	const coded = Object.assign(new Error(privateMessage), { code: 'os_credential_unavailable' });
+	let error: Error | undefined;
+	try { recoverDevelopmentCustody({ ready: () => false, prepare: () => { throw coded; }, startVault: () => {}, initializeClient: () => {} }); }
+	catch (cause) { error = cause as Error; }
+	expect(error?.message).toBe('Managed development diagnostic failed (API_CUSTODY_PREPARE_OS_CREDENTIAL_UNAVAILABLE).');
+	expect(error?.message).not.toContain(privateMessage);
+});
+
+it('identifies a managed environment conflict by key without printing its value', () => {
+	expect(() => recoverDevelopmentCustody({ ready: () => false,
+		prepare: () => { throw new Error('Environment entry TREESEED_TREEDX_URL is reserved for a managed connection.'); },
+		startVault: () => {}, initializeClient: () => {} })).toThrow('API_CUSTODY_PREPARE_ENVIRONMENT_CONFLICT_TREESEED_TREEDX_URL');
 });
 
 it('restores boot inputs before vault startup and client recovery, then noops', () => {
@@ -50,7 +66,7 @@ it('restarts vault custody when credential files survive but the vault stopped',
 it('does not initialize a client after failed vault startup', () => {
 	let initialized = false;
 	expect(() => recoverDevelopmentCustody({ ready: () => false, prepare: () => {},
-		startVault: () => { throw new Error('sealed'); }, initializeClient: () => { initialized = true; } })).toThrow('startVault');
+		startVault: () => { throw new Error('sealed'); }, initializeClient: () => { initialized = true; } })).toThrow('API_CUSTODY_STARTVAULT_UNCLASSIFIED');
 	expect(initialized).toBe(false);
 });
 it('rejects successful initializer exit without the required identity', () => {
