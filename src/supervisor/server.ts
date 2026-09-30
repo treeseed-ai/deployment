@@ -17,15 +17,18 @@ export function supervisorConnectionHandler(execute: (input: unknown) => unknown
 		connection.on('end', async () => {
 			if (connection.destroyed) return;
 			let operation = 'unknown';
+			let componentId: string | undefined;
 			try {
 				const request = JSON.parse(input) as unknown;
 				operation = typeof (request as { operation?: unknown }).operation === 'string' ? (request as { operation: string }).operation : 'unknown';
+				const candidate = (request as { componentId?: unknown }).componentId;
+				if (typeof candidate === 'string' && /^[a-z][a-z0-9-]{0,63}$/u.test(candidate)) componentId = candidate;
 				const result = await execute(request);
-				event('supervisor.operation-complete', { operation });
+				event('supervisor.operation-complete', { operation, ...(componentId ? { componentId } : {}) });
 				connection.end(`${JSON.stringify({ ok: true, result: result ?? null })}\n`);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				event('supervisor.operation-failed', { operation, message });
+				event('supervisor.operation-failed', { operation, message, ...(componentId ? { componentId } : {}) });
 				const safeDevelopmentError = (operation === 'development.container' || operation === 'development.postgres.migrate') && isSafeDevelopmentError(message);
 				const operatorMessage = safeDevelopmentError || operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
 				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation, ...(operatorMessage ? { message: operatorMessage } : {}) })}\n`);

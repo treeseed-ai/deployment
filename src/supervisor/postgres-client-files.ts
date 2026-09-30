@@ -4,6 +4,7 @@ import { componentReleaseSchema, hostConfigurationSchema, type ComponentRelease,
 import { postgresClientMaterial } from '../postgres/client-files.js';
 import { readComponentCredential } from './component-sealed.js';
 import { replaceRuntimeCredential } from './component.js';
+import { prepareRuntimeCustodyDirectory } from '../security/custody/local.js';
 
 const names = ['password', 'username', 'database', 'hostname', 'port', 'ca.pem', 'url', 'jdbc-url'];
 const root = '/run/treeseed/postgres-clients';
@@ -18,6 +19,7 @@ function directory(componentId: string, requirementId: string, phase: 'migration
       if (!create) return null;
       mkdirSync(current, { mode: current === target ? 0o755 : 0o700 });
     }
+    if (create && current === root) prepareRuntimeCustodyDirectory(current);
     const stat = lstatSync(current);
     if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== 0 || (stat.mode & 0o022)
       || (current === root && (stat.mode & 0o077))) throw new Error('Unsafe PostgreSQL client custody');

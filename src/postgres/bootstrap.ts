@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { OsSecretCustody, type CredentialCommand } from '../security/custody/os.js';
-import { LocalSecretCustody } from '../security/custody/local.js';
+import { LocalSecretCustody, prepareRuntimeCustodyDirectory, removeEmptyRuntimePlaceholder } from '../security/custody/local.js';
 import { POSTGRES_HBA } from './policy.js';
 
 /** Privileged Deployment bootstrap only. Independent of API/vault availability. */
@@ -17,7 +17,8 @@ export function prepareManagedPostgresBootstrap(options: {
   for (const root of [options.stateRoot, options.runtimeRoot]) {
     if (!isAbsolute(root) || resolve(root) !== root || root === '/') throw new Error('Invalid PostgreSQL custody root');
     mkdirSync(root, { recursive: true, mode: 0o700 });
-    new LocalSecretCustody(root); // Reject aliases, writable ancestors and foreign ownership.
+    if (root === options.runtimeRoot) prepareRuntimeCustodyDirectory(root);
+    new LocalSecretCustody(root); // Persistent custody is never permission-repaired.
   }
   const data = join(options.stateRoot, 'postgres');
   mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -47,6 +48,8 @@ export function prepareManagedPostgresBootstrap(options: {
   if (existsSync(hba) && lstatSync(hba).isSymbolicLink()) throw new Error('Unsafe PostgreSQL network policy path');
   const socket = join(options.runtimeRoot, 'socket');
   mkdirSync(socket, { mode: 0o700, recursive: true });
+  const socketStat = lstatSync(socket);
+  if (socketStat.isDirectory() && !socketStat.isSymbolicLink() && socketStat.uid === process.getuid?.()) chmodSync(socket, 0o700);
   if (!lstatSync(socket).isDirectory() || lstatSync(socket).isSymbolicLink() || (lstatSync(socket).mode & 0o077)) throw new Error('Unsafe PostgreSQL socket directory');
   mkdirSync(tls, { mode: 0o755, recursive: true });
   const stat = lstatSync(tls);
@@ -55,6 +58,7 @@ export function prepareManagedPostgresBootstrap(options: {
   // the non-root database process. Keep bootstrap/password/private key private.
   chmodSync(tls, 0o755);
   const materialize = (path: string, value: string, mode: number) => {
+    removeEmptyRuntimePlaceholder(path);
     const temporary = `${path}.${randomUUID()}`;
     writeFileSync(temporary, value, { mode, flag: 'wx' });
     chmodSync(temporary, mode);

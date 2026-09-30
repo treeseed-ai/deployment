@@ -4,22 +4,29 @@ import { describe, expect, it } from 'vitest';
 import { isSafeDevelopmentError, supervisorConnectionHandler } from '../src/supervisor/server.js';
 import { recoverAiWithoutBlockingManagement } from '../src/manager/api.js';
 
-async function exchange(execute: (input: unknown) => unknown, operation = 'backup.list') {
+async function exchange(execute: (input: unknown) => unknown, operation = 'backup.list', input: Record<string, unknown> = {}) {
 	const events: string[] = [];
-	const server = createServer({ allowHalfOpen: true }, supervisorConnectionHandler(execute, (name) => { events.push(name); }));
+	const details: Record<string, unknown>[] = [];
+	const server = createServer({ allowHalfOpen: true }, supervisorConnectionHandler(execute, (name, value) => { events.push(name); details.push(value ?? {}); }));
 	server.listen(0, '127.0.0.1'); await once(server, 'listening');
 	const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing test listener.');
 	const client = createConnection(address.port, '127.0.0.1');
 	let output = ''; client.setEncoding('utf8'); client.on('data', chunk => { output += chunk; });
 	try {
 		await once(client, 'connect');
-		client.end(JSON.stringify({ operation }));
+		client.end(JSON.stringify({ ...input, operation }));
 		await once(client, 'end');
-		return { response: JSON.parse(output), events };
+		return { response: JSON.parse(output), events, details };
 	} finally { client.destroy(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }
 
 describe('supervisor asynchronous completion', () => {
+	it('identifies the failed component without copying request credentials into diagnostics', async () => {
+		const result = await exchange(() => { throw new Error('Secret custody: unsafe_directory'); }, 'component.configure', { componentId: 'postgres', credentials: 'not-for-evidence' });
+		expect(result.details).toEqual([{ operation: 'component.configure', componentId: 'postgres', message: 'Secret custody: unsafe_directory' }]);
+		expect(result.response).not.toHaveProperty('message');
+		expect((await exchange(() => null, 'component.configure', { componentId: 'malformed/private' })).details).toEqual([{ operation: 'component.configure' }]);
+	});
 	it('permits only bounded development diagnostics including numeric inventory counts', () => {
 		expect(isSafeDevelopmentError('Managed development application startup failed (API_ENTRYPOINT_MIG_PENDING_2_UNEXPECTED_1).')).toBe(true);
 		expect(isSafeDevelopmentError('Managed development diagnostic failed (DATABASE_INVALID_JSON).')).toBe(true);
