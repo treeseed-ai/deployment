@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.development-database-reboot-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-container.test.ts
+    testName: restores missing development database custody from the installed runtime allocation after reboot
   deployment.golden.runtime-bind-custody:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

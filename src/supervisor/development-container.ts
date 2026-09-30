@@ -22,6 +22,7 @@ import { managedIdentityClientPlan } from '../identity/client-plan.js';
 import { developmentDiagnosticEvents, developmentStartupCode } from './development-diagnostics.js';
 import { executeAgentDevelopmentContainer } from './development-agent-container.js';
 import { executeManagedComponentDevelopment } from './development-component-container.js';
+import { materializePostgresClient } from './postgres-client-files.js';
 
 const root='/run/treeseed/development-containers';
 
@@ -33,6 +34,13 @@ export function developmentRuntimeOwner(host:HostConfiguration,component:Compone
   if(component.runtime.postgresLifecycle?.some(item=>item.credentialOwner.uid!==allocation.credentialOwner.uid||item.credentialOwner.gid!==allocation.credentialOwner.gid))
     throw new Error('Managed development API custody identities disagree.');
   return allocation.credentialOwner;
+}
+
+/** Reboot removes /run, including custody for an API held in development. */
+export function restoreDevelopmentDatabaseCustody(host:HostConfiguration,component:ComponentRelease,
+  present:typeof existsSync=existsSync,materialize:typeof materializePostgresClient=materializePostgresClient) {
+  developmentRuntimeOwner(host,component);
+  if(!present('/run/treeseed/postgres-clients/api/api/runtime/url')) materialize(host,component,'api','runtime');
 }
 
 const dockerCommand:CommandRunner=(executable,args)=>{
@@ -178,6 +186,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   // Both targets consume the installed API's file-scoped runtime credentials.
   // Source ownership cannot grant a different OS identity access to custody.
   const identity=developmentRuntimeOwner(host,component);
+  restoreDevelopmentDatabaseCustody(host,component);
   environment.TREESEED_IDENTITY_HOSTNAME=new URL(managedIdentityClientPlan(host).issuer).hostname;
   if(targetId==='operations-runner') {
     const runner=releasedRunnerIdentity(command);

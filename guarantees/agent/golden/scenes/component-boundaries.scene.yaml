@@ -1,4 +1,7 @@
 workflow:
+  - id: development-database-reboot-custody
+    action: { verifier: deployment.golden.development-database-reboot-custody }
+    expect: { status: passed }
   - id: runtime-bind-custody
     action: { verifier: deployment.golden.runtime-bind-custody }
     expect: { status: passed }
