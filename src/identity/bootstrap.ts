@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync
 import { randomUUID, X509Certificate } from 'node:crypto';
 import { join } from 'node:path';
 import { OsSecretCustody, type CredentialCommand } from '../security/custody/os.js';
-import { LocalSecretCustody } from '../security/custody/local.js';
+import { LocalSecretCustody, prepareRuntimeCustodyDirectory, removeEmptyRuntimePlaceholder } from '../security/custody/local.js';
 import { materializeIdentityTheme } from './theme.js';
 
 /** Local managed-host bootstrap only. Railway supplies independent protected
@@ -17,6 +17,7 @@ export function prepareIdentityBootstrap(options: {
   if (publicUrl.protocol !== 'https:' || publicUrl.username || publicUrl.password || publicUrl.pathname !== '/' || publicUrl.search || publicUrl.hash
     || !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/u.test(publicUrl.hostname) || !['staging', 'production'].includes(options.environment)) throw new Error('Invalid Identity bootstrap boundary');
   for (const root of [options.stateRoot, options.runtimeRoot]) {
+    if (root === options.runtimeRoot) prepareRuntimeCustodyDirectory(root);
     mkdirSync(root, { recursive: true, mode: 0o700 }); new LocalSecretCustody(root);
   }
   const store = new OsSecretCustody(join(options.stateRoot, 'identity-os'), false, options.credentialCommand);
@@ -53,6 +54,7 @@ export function prepareIdentityBootstrap(options: {
     chmodSync(path, 0o755); // Explicit container traversal, independent of supervisor umask; files remain UID1000/0400.
   }
   const materialize = (path: string, content: string) => {
+    removeEmptyRuntimePlaceholder(path);
     const temporary = `${path}.tmp-${randomUUID()}`;
     try { writeFileSync(temporary, content, { flag: 'wx', mode: 0o400 }); chownSync(temporary, 1000, 0); renameSync(temporary, path); }
     finally { if (existsSync(temporary)) rmSync(temporary); }

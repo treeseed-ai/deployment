@@ -1,6 +1,21 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.identity-reboot-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/identity-bootstrap.test.ts
+    testName: restores Identity reboot placeholders from unchanged protected custody
+  deployment.golden.postgres-reboot-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/postgres-bootstrap.test.ts
+    testName: recovers Docker-created reboot placeholders and permissions without changing credentials or database data
+  deployment.golden.postgres-reboot-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/postgres-bootstrap.test.ts
+    testName: rejects nonempty or aliased runtime placeholders without deleting their contents
   deployment.golden.development-held-host-start:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

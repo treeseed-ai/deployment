@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareManagedPostgresBootstrap } from '../src/postgres/bootstrap.js';
@@ -30,6 +30,35 @@ it('does not initialize over existing data without custody', () => {
   mkdirSync(join(input.stateRoot, 'postgres'), { recursive: true, mode: 0o700 });
   writeFileSync(join(input.stateRoot, 'postgres/PG_VERSION'), '16');
   expect(() => prepareManagedPostgresBootstrap(input)).toThrow('original bootstrap custody');
+});
+it('recovers Docker-created reboot placeholders and permissions without changing credentials or database data', () => {
+  const input = options();
+  prepareManagedPostgresBootstrap(input);
+  const password = readFileSync(join(input.runtimeRoot, 'bootstrap-password'));
+  const certificate = readFileSync(join(input.runtimeRoot, 'tls/cert.pem'));
+  writeFileSync(join(input.stateRoot, 'postgres/PG_VERSION'), '17');
+  rmSync(input.runtimeRoot, { recursive: true });
+  for (const path of ['bootstrap-password','hba.conf','socket','tls/key.pem','tls/cert.pem']) mkdirSync(join(input.runtimeRoot, path), { recursive: true, mode: 0o755 });
+  chmodSync(input.runtimeRoot, 0o755);
+  prepareManagedPostgresBootstrap(input);
+  expect(statSync(input.runtimeRoot).mode & 0o777).toBe(0o700);
+  expect(statSync(join(input.runtimeRoot, 'socket')).mode & 0o777).toBe(0o700);
+  expect(readFileSync(join(input.runtimeRoot, 'bootstrap-password')).equals(password)).toBe(true);
+  expect(readFileSync(join(input.runtimeRoot, 'tls/cert.pem')).equals(certificate)).toBe(true);
+  expect(readFileSync(join(input.stateRoot, 'postgres/PG_VERSION'), 'utf8')).toBe('17');
+  prepareManagedPostgresBootstrap(input);
+  expect(readFileSync(join(input.runtimeRoot, 'bootstrap-password')).equals(password)).toBe(true);
+});
+it('rejects nonempty or aliased runtime placeholders without deleting their contents', () => {
+  const input = options(); prepareManagedPostgresBootstrap(input);
+  const hba = join(input.runtimeRoot, 'hba.conf'); rmSync(hba);
+  mkdirSync(hba); writeFileSync(join(hba, 'keep'), 'preserved');
+  expect(() => prepareManagedPostgresBootstrap(input)).toThrow();
+  expect(readFileSync(join(hba, 'keep'), 'utf8')).toBe('preserved');
+  rmSync(hba, { recursive: true }); symlinkSync(join(input.stateRoot, 'postgres'), hba);
+  expect(() => prepareManagedPostgresBootstrap(input)).toThrow('Unsafe PostgreSQL network policy path');
+  rmSync(hba); rmSync(input.runtimeRoot, { recursive: true }); symlinkSync(input.stateRoot, input.runtimeRoot);
+  expect(() => prepareManagedPostgresBootstrap(input)).toThrow('unsafe_directory');
 });
 it.each([0o007, 0o077])('materializes exact public and private modes under supervisor umask %i', mask => {
   const input = options(), previous = process.umask(mask);

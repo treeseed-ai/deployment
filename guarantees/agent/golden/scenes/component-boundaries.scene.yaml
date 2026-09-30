@@ -1,4 +1,13 @@
 workflow:
+  - id: identity-reboot-custody
+    action: { verifier: deployment.golden.identity-reboot-custody }
+    expect: { status: passed }
+  - id: postgres-reboot-custody
+    action: { verifier: deployment.golden.postgres-reboot-custody }
+    expect: { status: passed }
+  - id: postgres-reboot-denial
+    action: { verifier: deployment.golden.postgres-reboot-denial }
+    expect: { status: passed }
   - id: development-held-host-start
     action: { verifier: deployment.golden.development-held-host-start }
     expect: { status: passed }

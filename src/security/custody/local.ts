@@ -1,9 +1,31 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { constants, closeSync, existsSync, fsyncSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, closeSync, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { CustodyError, secretPath, validateSecretValues, validateVersion, type SecretRecord, type SecretScope } from './contracts.js';
 
 type StoredRecord = { version: number; values: Record<string, string> | null };
+
+/** Ephemeral bind parents may be recreated by Docker; persistent custody must never use this repair. */
+export function prepareRuntimeCustodyDirectory(root: string): void {
+	if (!isAbsolute(root) || resolve(root) !== root || root === '/') throw new CustodyError('invalid_directory');
+	mkdirSync(root, { recursive: true, mode: 0o700 });
+	const stat = lstatSync(root);
+	if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || realpathSync(root) !== root) throw new CustodyError('unsafe_directory');
+	chmodSync(root, 0o700);
+	new LocalSecretCustody(root);
+}
+
+/** Only remove an empty, owner-created directory at an exact managed runtime file path. */
+export function removeEmptyRuntimePlaceholder(path: string): void {
+	let stat;
+	try { stat = lstatSync(path); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+	if (stat.isSymbolicLink()) throw new CustodyError('unsafe_record');
+	if (stat.isDirectory()) {
+		if (stat.uid !== process.getuid?.()) throw new CustodyError('unsafe_directory');
+		rmdirSync(path);
+	}
+}
 
 /** The caller provisions an owner-only directory and supplies a key from OS custody.
  * No key files, environment fallback, default keys, or plaintext import are supported.
