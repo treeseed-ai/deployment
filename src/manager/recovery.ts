@@ -19,10 +19,43 @@ import {
 	rollbackRoutes,
 	stopComponent,
 	reconcile,
+	composeFiles,
 } from './reconcile.js';
 import { componentActivationOrder, componentStopOrder } from './component-order.js';
-import { DevelopmentSessionStore } from './development-sessions.js';
-import { developmentHeldComponentIds, restoreHeldComponentCredentials, resumeDevelopmentSessions } from './development-handoff.js';
+import { DevelopmentSessionStore, type ManagedDevelopmentSession } from './development-sessions.js';
+import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions } from './development-handoff.js';
+import { verifiedComponentRelease } from '../catalog/component-integrity.js';
+import { aiModeActivationServices } from './ai-mode.js';
+import { edgeReadiness } from '../edge/readiness.js';
+import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
+
+/** Pausing release selection must not pause recovery of the accepted runtime. */
+export async function recoverAcceptedRuntime(host: HostConfiguration, records: readonly ManagedDevelopmentSession[]) {
+	const installed = loadActiveComponents();
+	const enabled = installed.filter(component => host.components[component.componentId]?.enabled === true);
+	const held = developmentHeldComponentIds(records);
+	for (const component of enabled) verifiedComponentRelease(component);
+	for (const component of componentActivationOrder(host, enabled)) {
+		const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
+		const status = await requestSupervisor<{ ready: boolean; issues?: Array<{ reason: string }> }>({
+			operation: 'compose.status', projectName: component.runtime.compose.projectName,
+			runtime: { componentId: component.componentId, files: composeFiles(component), services },
+		});
+		if (!status) throw new Error(`Accepted runtime status unavailable for ${component.componentId}.`);
+		if (held.has(component.componentId)) {
+			if (heldDevelopmentCredentialsMissing(status)) await configureComponentForActivation(host, component, installed);
+		} else if (!status.ready) {
+			await activateComponent(host, component, installed);
+			recordEvent('component.accepted-runtime-repaired', { componentId: component.componentId });
+		}
+	}
+	const routes = new DevelopmentSessionStore().activeRoutes(rollbackRoutes(host, enabled));
+	if (routes.length && !await edgeReadiness(subjectAlternativeNames(routes))) {
+		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+		if (!await edgeReadiness(subjectAlternativeNames(routes))) throw new Error('Managed edge TLS readiness failed after recovery.');
+	}
+	if (!await resumeDevelopmentSessions(records)) recordEvent('development.boot-recovery-pending', {});
+}
 
 export interface RecoveryBackupInspection {
 	generation: number;

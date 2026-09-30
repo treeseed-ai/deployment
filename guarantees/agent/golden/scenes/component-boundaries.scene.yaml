@@ -1,4 +1,10 @@
 workflow:
+  - id: paused-runtime-recovery
+    action: { verifier: deployment.golden.paused-runtime-recovery }
+    expect: { status: passed }
+  - id: paused-recovery-denial
+    action: { verifier: deployment.golden.paused-recovery-denial }
+    expect: { status: passed }
   - id: development-database-reboot-custody
     action: { verifier: deployment.golden.development-database-reboot-custody }
     expect: { status: passed }

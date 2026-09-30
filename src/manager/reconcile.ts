@@ -26,6 +26,7 @@ import { readConnectionDigest, recordConnectionDigest, reconcilePeerConnections 
 import { activateWithRoutes } from './routed-activation.js';
 import { hostSecurityActivationBlockers, type HostSecurityActivationStatus } from './security-activation.js';
 import { applyRuntimeBuildIdentity } from './runtime-build-identity.js';
+import { recoverAcceptedRuntime } from './recovery.js';
 interface AptRefreshResult { coreUpdated: boolean; before: Record<string, string | null>; after: Record<string, string | null> }
 function configuredAptSource(track: 'stable' | 'development') {
 	return `/etc/apt/sources.list.d/treeseed-deployment-${track}.sources`;
@@ -194,7 +195,6 @@ export async function enrollProvider(host: HostConfiguration, component: Compone
 	if (typeof connectionId !== 'string' || typeof registrationSecretId !== 'string' || typeof offer.maxConcurrentRunners !== 'number' || !Array.isArray(offer.capabilities) || !offer.capabilities.every((item) => typeof item === 'string')) throw new Error('Provider enrollment configuration is invalid.');
 	await requestSupervisor({ operation: 'provider.enroll', connectionId, controlPlaneUrl: connection.url, controlPlaneAudience: connection.audience, registrationSecretId, offer: { maxConcurrentRunners: offer.maxConcurrentRunners, capabilities: offer.capabilities, metadata: { hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup } }, files: composeFiles(component), projectName: 'treeseed-agent' });
 }
-
 export async function stopComponent(component: ComponentRelease) {
 	await requestSupervisor({ operation: 'compose.stop', componentId: component.componentId, projectName: component.runtime.compose.projectName, files: composeFiles(component) });
 }
@@ -227,7 +227,6 @@ export function componentActivationInputs(host: HostConfiguration, component: Co
 	const optionalSecretEnvironment = component.runtime.configuration.secretEnvironment.filter(({ required }) => !required).map(({ name }) => name);
 	return { connectionEnvironment, secretFileIds, optionalSecretEnvironment };
 }
-
 export async function configureComponentForActivation(host: HostConfiguration, component: ComponentRelease, releases: ComponentRelease[]) {
 	const developmentRoutes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes([]) : [];
 	const { connectionEnvironment, secretFileIds, optionalSecretEnvironment } = componentActivationInputs(host, component, releases, developmentRoutes);
@@ -310,6 +309,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	recoverDevelopmentPauseOwners(heldSessionIds);
 	if (track && trackPaused(track)) {
 		recordEvent('update.paused', { track });
+		if (previous) await recoverAcceptedRuntime(host, activeDevelopmentSessions);
 		return previous;
 	}
 	if (host.runtime.environment === 'development') {
