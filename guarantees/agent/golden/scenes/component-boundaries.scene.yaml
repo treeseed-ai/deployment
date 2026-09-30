@@ -1,4 +1,7 @@
 workflow:
+  - id: runtime-bind-custody
+    action: { verifier: deployment.golden.runtime-bind-custody }
+    expect: { status: passed }
   - id: identity-reboot-custody
     action: { verifier: deployment.golden.identity-reboot-custody }
     expect: { status: passed }

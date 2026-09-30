@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LocalSecretCustody, OpenBaoCustody, secretPath, type SecretScope } from '../src/security/custody/index.js';
+import { prepareRuntimeCustodyDirectory } from '../src/security/custody/local.js';
 
 const scope: SecretScope = { team: 'team-a', project: 'project-a', environment: 'staging', purpose: 'hosting', name: 'railway' };
 const roots: string[] = [];
@@ -22,6 +23,19 @@ describe('exact scope', () => {
 });
 
 describe('OS-key local custody', () => {
+	it('repairs only owner-owned ephemeral bind roots while persistent custody and foreign ownership stay fail-closed', () => {
+		const { root, store } = local(); store.write(scope, { token: 'unchanged' }, 0);
+		chmodSync(root, 0o755);
+		expect(() => new LocalSecretCustody(root)).toThrow('unsafe_directory');
+		prepareRuntimeCustodyDirectory(root);
+		expect(statSync(root).mode & 0o777).toBe(0o700);
+		expect(store.read(scope)?.values.token).toBe('unchanged');
+		const owner = statSync(root).uid;
+		const identity = vi.spyOn(process, 'getuid').mockReturnValue(owner + 1);
+		try { expect(() => prepareRuntimeCustodyDirectory(root)).toThrow('unsafe_directory'); }
+		finally { identity.mockRestore(); }
+		expect(() => prepareRuntimeCustodyDirectory('/')).toThrow('invalid_directory');
+	});
 	it('encrypts with restrictive permissions, real locking and key isolation', () => {
 		const { store, key, root } = local();
 		expect(store.write(scope, { apiToken: 'not-public' }, 0)).toBe(1);

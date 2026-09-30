@@ -7,7 +7,7 @@ import { recoverAiWithoutBlockingManagement } from '../src/manager/api.js';
 async function exchange(execute: (input: unknown) => unknown, operation = 'backup.list', input: Record<string, unknown> = {}) {
 	const events: string[] = [];
 	const details: Record<string, unknown>[] = [];
-	const server = createServer({ allowHalfOpen: true }, supervisorConnectionHandler(execute, (name, value) => { events.push(name); details.push(value); }));
+	const server = createServer({ allowHalfOpen: true }, supervisorConnectionHandler(execute, (name, value) => { events.push(name); details.push(value ?? {}); }));
 	server.listen(0, '127.0.0.1'); await once(server, 'listening');
 	const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing test listener.');
 	const client = createConnection(address.port, '127.0.0.1');

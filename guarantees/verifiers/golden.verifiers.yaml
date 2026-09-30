@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.runtime-bind-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/secret-custody.test.ts
+    testName: repairs only owner-owned ephemeral bind roots while persistent custody and foreign ownership stay fail-closed
   deployment.golden.identity-reboot-custody:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
