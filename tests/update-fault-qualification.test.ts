@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
 	development: undefined as any,
 	previous: undefined as any,
 	active: [] as any[],
+	sessions: [] as any[],
+	resumeReady: true,
 	paused: false,
 	stopped: false,
 	edgeReady: true,
@@ -39,6 +41,10 @@ vi.mock('../src/core/files.js', () => ({ atomicJson: () => undefined }));
 vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
 vi.mock('../src/runtime/compose.js', () => ({ validateProductionCompose: () => undefined }));
 vi.mock('../src/manager/current-state.js', () => ({ loadCurrentReceipt: () => state.previous, loadActiveComponents: () => state.active }));
+vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class {
+	list() { return state.sessions; }
+	activeRoutes(routes: unknown[]) { return routes; }
+} }));
 vi.mock('../src/manager/update-state.js', () => ({
 	loadUpdateState: () => ({ stablePaused: false, developmentPaused: state.paused, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } }),
 	metadataChecked: () => undefined,
@@ -64,9 +70,11 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 	if (operation.operation === 'compose.status') {
 		const installed = state.active.find(item => item.componentId === operation.runtime?.componentId);
 		const candidate = [...state.stable.components, ...state.development.components].find(item => item.componentId === operation.runtime?.componentId);
-		if (installed && candidate && installed.release !== candidate.release) throw new Error('Candidate Compose file is not installed');
+		if (installed && candidate && installed.release !== candidate.release
+			&& operation.runtime.files.some((file: string) => file.startsWith(`${candidate.componentId}/${candidate.release}/`))) throw new Error('Candidate Compose file is not installed');
 		return state.composeStatus ?? undefined;
 	}
+	if (operation.operation === 'development.boot.resume') return { ready: state.resumeReady };
 	return undefined;
 } }));
 
@@ -101,7 +109,7 @@ beforeEach(() => {
 	newAgent.stableBase = { releaseRange: '^1.0.0', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: state.stable.catalogDigest };
 	oldAgent.stableBase = structuredClone(newAgent.stableBase);
 	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc2', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: state.stable.release, catalogDigest: state.stable.catalogDigest }, components: [newAgent], createdAt: '2026-08-25T00:01:00.000Z' };
-	state.active = [api, oldAgent]; state.previous = receipt(state.active); state.paused = false; state.stopped = false; state.eligible = true; state.refreshFailure = null; state.installFailure = null; state.activationFailure = null; state.composeStatus = null; state.operations = []; state.events = [];
+	state.active = [api, oldAgent]; state.previous = receipt(state.active); state.sessions = []; state.resumeReady = true; state.paused = false; state.stopped = false; state.eligible = true; state.refreshFailure = null; state.installFailure = null; state.activationFailure = null; state.composeStatus = null; state.operations = []; state.events = [];
 });
 
 describe('isolated update fault qualification', () => {
@@ -180,10 +188,12 @@ describe('isolated update fault qualification', () => {
 		state.evidence.push({ case: 'stable-window-single-activation', result: 'passed', firstActivationCount, developmentReleasePreserved: oldAgent.release, secondActivationCount: 0 });
 	});
 
-	it('pauses without external work and resumes into one update followed by a no-op', async () => {
+	it('pauses release updates, checks accepted runtime health, and resumes into one update followed by a no-op', async () => {
 		state.paused = true;
+		state.composeStatus = { present: true, running: true, ready: true };
 		expect(await reconcile('development')).toBe(state.previous);
-		expect(state.operations).toEqual([]);
+		expect(state.operations.map(item => item.operation)).toEqual(['compose.status', 'compose.status']);
+		state.operations = [];
 		state.paused = false;
 		const accepted = await reconcile('development');
 		expect(accepted?.state).toBe('known-good');
@@ -192,6 +202,32 @@ describe('isolated update fault qualification', () => {
 		expect(await reconcile('development')).toBe(accepted);
 		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
 		state.evidence.push({ case: 'pause-resume-noop', result: 'passed', activationCount, unchangedRestartCount: 0 });
+	});
+
+	it('recovers pinned dependencies before resuming held source even when both update tracks are paused', async () => {
+		state.paused = true;
+		state.composeStatus = { present: false, running: false, ready: false, issues: [{ service: 'api', reason: 'runtime-credential-unavailable' }] };
+		state.sessions = [{ session: { sessionId: 'dev-reboot', targets: [{ projectId: 'agent', targetId: 'provider', mode: 'live' }] },
+			runtimes: [{ project: { id: 'agent' }, targets: [{ id: 'provider', kind: 'live-api' }] }] }];
+		state.resumeReady = false;
+		for (const track of ['stable', 'development'] as const) {
+			state.operations = []; state.events = [];
+			expect(await reconcile(track)).toBe(state.previous);
+			expect(state.operations.map(item => item.operation)).toEqual(['compose.status', 'component.configure', 'compose.activate', 'compose.status', 'component.configure', 'development.boot.resume']);
+			expect(state.operations.find(item => item.operation === 'compose.activate')?.componentId).toBe('api');
+			expect(state.operations.filter(item => item.operation === 'component.configure').map(item => item.release)).toEqual(state.active.map(item => item.release));
+			expect(state.events.map(item => item.type)).toContain('development.boot-recovery-pending');
+		}
+	});
+
+	it('fails closed on recovery failure or missing health, never selecting a catalog update', async () => {
+		state.paused = true;
+		await expect(reconcile('development')).rejects.toThrow('status unavailable');
+		state.operations = [];
+		state.composeStatus = { present: false, running: false, ready: false };
+		state.activationFailure = new Error('accepted runtime recovery failed');
+		await expect(reconcile('development')).rejects.toThrow('accepted runtime recovery failed');
+		expect(state.operations.some(item => ['apt.refresh', 'apt.install', 'backup.create', 'recovery.restore'].includes(item.operation))).toBe(false);
 	});
 
 	it('repairs managed CLI custody during an otherwise unchanged tick', async () => {
