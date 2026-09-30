@@ -2,7 +2,7 @@ import {expect,it} from 'vitest';
 import {mkdtempSync,mkdirSync,rmSync,writeFileSync,statSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
-import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
+import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,restoreDevelopmentDatabaseCustody,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
 import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride,writeAgentDevelopmentManifest,providerGuestTrustReady} from '../src/supervisor/development-agent-container.js';
 import type {ManagedDevelopmentSession} from '../src/manager/development-sessions.js';
@@ -50,6 +50,21 @@ it('requires the installed API allocation and consistent credential owner',()=>{
   expect(()=>developmentRuntimeOwner(host,{...release,componentId:'identity'})).toThrow('allocation');
   expect(()=>developmentRuntimeOwner(host,{...release,runtime:{...release.runtime,postgresLifecycle:[]}})).toThrow('allocation');
   expect(()=>developmentRuntimeOwner(host,{...release,runtime:{...release.runtime,postgresLifecycle:[...release.runtime.postgresLifecycle!,{...release.runtime.postgresLifecycle![0]!,requirementId:'other',credentialOwner:{uid:0,gid:0}}]}})).toThrow('identities disagree');
+});
+it('restores missing development database custody from the installed runtime allocation after reboot',()=>{
+  const configuration={components:{api:{configuration:{identityRuntime:{}}}},postgres:{requirements:[{id:'api',componentId:'api',enabled:true}],allocations:[{requirementId:'api'}]}} as unknown as HostConfiguration;
+  const release={componentId:'api',runtime:{postgresLifecycle:[{requirementId:'api',credentialOwner:{uid:10001,gid:10001}}]}} as unknown as ComponentRelease;
+  const calls:unknown[][]=[];
+  const materialize=(_host:HostConfiguration,_component:ComponentRelease,requirement:string,phase:'migration'|'runtime')=>{
+    calls.push([_host,_component,requirement,phase]);return {requirementId:requirement,phase,directory:'runtime',mount:'runtime',files:['url']};
+  };
+  restoreDevelopmentDatabaseCustody(configuration,release,path=>{expect(path).toBe('/run/treeseed/postgres-clients/api/api/runtime/url');return false;},materialize);
+  expect(calls).toEqual([[configuration,release,'api','runtime']]);
+  restoreDevelopmentDatabaseCustody(configuration,release,()=>true,materialize);
+  expect(calls).toHaveLength(1);
+  expect(()=>restoreDevelopmentDatabaseCustody(configuration,release,()=>false,()=>{throw new Error('custody unavailable');})).toThrow('custody unavailable');
+  expect(()=>restoreDevelopmentDatabaseCustody({...configuration,postgres:undefined},release,()=>false,materialize)).toThrow('allocation');
+  expect(calls).toHaveLength(1);
 });
 it('classifies fixed permission boundaries without exposing paths or values',()=>{
   for(const [path,code] of [['/data/operations-runner/file','RUNNER_STATE_PERMISSION'],
