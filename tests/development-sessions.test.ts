@@ -4,11 +4,11 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { affectedDevelopmentClosure, boundedRoutedHealth, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, loopbackLookup } from '../src/manager/development-sessions.js';
+import { affectedDevelopmentClosure, boundedReadiness, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, loopbackLookup } from '../src/manager/development-sessions.js';
 
 const roots: string[] = [];
 vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllGlobals(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function runtime(project = 'admin', target = 'web', dependency?: { id: string; target: string; reaction: string }, edgeHost?: string) {
 	return {
@@ -35,6 +35,50 @@ function store(now: Date) {
 }
 
 describe('development session manager', () => {
+	it('waits through transient direct HTTP startup without extending the declared readiness window', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
+		const now = new Date(), sessions = new DevelopmentSessionStore(root), contract = runtime();
+		contract.targets[0]!.ready.timeoutSeconds = 1;
+		sessions.start(session(now), [contract]);
+		let attempts = 0;
+		vi.stubGlobal('fetch', vi.fn(async () => {
+			if (++attempts === 1) throw new Error('ECONNREFUSED');
+			return { status: attempts === 2 ? 503 : 200 };
+		}));
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(attempts).toBe(3);
+		expect(sessions.load('session-1').session.targets[0]).toMatchObject({ health: 'ready', generation: 1 });
+	});
+	it('fails closed on persistent direct HTTP failure within the declared readiness window', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
+		const sessions = new DevelopmentSessionStore(root), contract = runtime();
+		contract.targets[0]!.ready.timeoutSeconds = 1;
+		sessions.start(session(new Date()), [contract]);
+		const fetch = vi.fn(async () => ({ status: 503 })); vi.stubGlobal('fetch', fetch);
+		await expect(sessions.attach('session-1', 'admin', 'web', 4322)).rejects.toThrow('Direct readiness failed');
+		expect(fetch.mock.calls.length).toBeGreaterThan(1);
+		expect(sessions.load('session-1').session.targets[0]).toMatchObject({ health: 'pending', generation: 0 });
+		expect(sessions.load('session-1').routes).toEqual([]);
+	});
+	it('waits for a direct TCP listener within the same declared startup window', async () => {
+		const server = createServer(socket => socket.destroy());
+		await new Promise<void>(resolvePromise => server.listen(0, '127.0.0.1', resolvePromise));
+		const address = server.address();
+		if (!address || typeof address === 'string') throw new Error('Expected ephemeral TCP port');
+		await new Promise<void>(resolvePromise => server.close(() => resolvePromise()));
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
+		const sessions = new DevelopmentSessionStore(root), contract = runtime();
+		const tcp = { ...contract, targets: contract.targets.map(target => ({ ...target, ready: { kind: 'tcp', timeoutSeconds: 1 } })) };
+		sessions.start(session(new Date()), [tcp]);
+		const startup = setTimeout(() => server.listen(address.port, '127.0.0.1'), 30);
+		try {
+			await sessions.attach('session-1', 'admin', 'web', address.port);
+			expect(sessions.load('session-1').session.targets[0]!.health).toBe('ready');
+		} finally {
+			clearTimeout(startup);
+			if (server.listening) await new Promise<void>(resolvePromise => server.close(() => resolvePromise()));
+		}
+	});
 	it('cannot report a restarted web target ready without reattaching its route', async () => {
 		const sessions = store(new Date('2026-08-26T12:00:00.000Z'));
 		sessions.start(session(new Date('2026-08-26T12:00:00.000Z')), [runtime()]);
@@ -48,7 +92,7 @@ describe('development session manager', () => {
 	});
 	it('retries canonical readiness through bounded edge convergence', async () => {
 		let attempts = 0;
-		expect(await boundedRoutedHealth(async () => ++attempts === 3, 100, 1)).toBe(true);
+		expect(await boundedReadiness(async () => ++attempts === 3, 100, 1)).toBe(true);
 		expect(attempts).toBe(3);
 	});
 

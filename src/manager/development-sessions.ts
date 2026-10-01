@@ -32,21 +32,23 @@ const defaultNow = () => new Date();
 
 async function defaultDirectHealth(target: DevelopmentTarget, port: number) {
 	if (target.ready.kind === 'process') return true;
-	if (target.ready.kind === 'tcp') {
-		const timeoutSeconds = target.ready.timeoutSeconds;
-		return new Promise<boolean>((resolveResult) => {
-		const socket = connect({ host: '127.0.0.1', port });
-		socket.setTimeout(timeoutSeconds * 1_000);
-		socket.once('connect', () => { socket.destroy(); resolveResult(true); });
-		socket.once('timeout', () => { socket.destroy(); resolveResult(false); });
-		socket.once('error', () => resolveResult(false));
-		});
-	}
-	if (target.ready.kind !== 'http') return false;
-	try {
-		const response = await fetch(`http://127.0.0.1:${port}${target.ready.path}`, { signal: AbortSignal.timeout(target.ready.timeoutSeconds * 1_000) });
-		return response.status === target.ready.expectedStatus;
-	} catch { return false; }
+	if (target.ready.kind !== 'tcp' && target.ready.kind !== 'http') return false;
+	return boundedReadiness(async (remainingMs) => {
+		if (target.ready.kind === 'tcp') {
+			return new Promise<boolean>((resolveResult) => {
+				const socket = connect({ host: '127.0.0.1', port });
+				socket.setTimeout(remainingMs);
+				socket.once('connect', () => { socket.destroy(); resolveResult(true); });
+				socket.once('timeout', () => { socket.destroy(); resolveResult(false); });
+				socket.once('error', () => resolveResult(false));
+			});
+		}
+		if (target.ready.kind !== 'http') return false;
+		try {
+			const response = await fetch(`http://127.0.0.1:${port}${target.ready.path}`, { signal: AbortSignal.timeout(remainingMs) });
+			return response.status === target.ready.expectedStatus;
+		} catch { return false; }
+	}, target.ready.timeoutSeconds * 1_000);
 }
 
 export const loopbackLookup: LookupFunction = (_hostname, options, callback) => {
@@ -55,9 +57,9 @@ export const loopbackLookup: LookupFunction = (_hostname, options, callback) => 
 	else callback(null, address.address, address.family);
 };
 
-async function routedHealthAttempt(alias: string, path: string) {
+async function routedHealthAttempt(alias: string, path: string, timeoutMs: number) {
 	return new Promise<boolean>((resolveResult) => {
-		const request = httpsRequest({ hostname: alias, servername: alias, port: 443, path, method: 'GET', ca: readFileSync(`${paths.tls}/ca.crt`), lookup: loopbackLookup, timeout: 2_000 }, (response) => {
+		const request = httpsRequest({ hostname: alias, servername: alias, port: 443, path, method: 'GET', ca: readFileSync(`${paths.tls}/ca.crt`), lookup: loopbackLookup, timeout: Math.min(2_000, timeoutMs) }, (response) => {
 			response.resume(); resolveResult(Boolean(response.statusCode && response.statusCode < 500));
 		});
 		request.once('timeout', () => { request.destroy(); resolveResult(false); });
@@ -65,10 +67,10 @@ async function routedHealthAttempt(alias: string, path: string) {
 	});
 }
 
-export async function boundedRoutedHealth(check: () => Promise<boolean>, timeoutMs = 30_000, retryMs = 250) {
+export async function boundedReadiness(check: (remainingMs: number) => Promise<boolean>, timeoutMs = 30_000, retryMs = 250) {
 	const deadline = Date.now() + timeoutMs;
 	do {
-		if (await check()) return true;
+		if (await check(Math.max(1, deadline - Date.now())) && Date.now() <= deadline) return true;
 		if (Date.now() >= deadline) return false;
 		await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(retryMs, Math.max(0, deadline - Date.now()))));
 	} while (Date.now() <= deadline);
@@ -76,7 +78,7 @@ export async function boundedRoutedHealth(check: () => Promise<boolean>, timeout
 }
 
 function defaultRoutedHealth(alias: string, path: string) {
-	return boundedRoutedHealth(() => routedHealthAttempt(alias, path));
+	return boundedReadiness(remainingMs => routedHealthAttempt(alias, path, remainingMs));
 }
 
 function targetKey(projectId: string, targetId: string) { return `${projectId}.${targetId}`; }

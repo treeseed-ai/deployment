@@ -1,4 +1,13 @@
 workflow:
+  - id: direct-http-startup
+    action: { verifier: deployment.golden.direct-http-startup }
+    expect: { status: passed }
+  - id: direct-http-denial
+    action: { verifier: deployment.golden.direct-http-denial }
+    expect: { status: passed }
+  - id: direct-tcp-startup
+    action: { verifier: deployment.golden.direct-tcp-startup }
+    expect: { status: passed }
   - id: paused-runtime-recovery
     action: { verifier: deployment.golden.paused-runtime-recovery }
     expect: { status: passed }
