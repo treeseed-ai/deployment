@@ -1,6 +1,21 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.direct-http-startup:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sessions.test.ts
+    testName: waits through transient direct HTTP startup without extending the declared readiness window
+  deployment.golden.direct-http-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sessions.test.ts
+    testName: fails closed on persistent direct HTTP failure within the declared readiness window
+  deployment.golden.direct-tcp-startup:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sessions.test.ts
+    testName: waits for a direct TCP listener within the same declared startup window
   deployment.golden.paused-runtime-recovery:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
