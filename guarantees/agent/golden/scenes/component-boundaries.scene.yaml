@@ -1,4 +1,16 @@
 workflow:
+  - id: subscription-response-quarantine
+    action: { verifier: deployment.golden.subscription-response-quarantine }
+    expect: { status: passed }
+  - id: subscription-event-quarantine
+    action: { verifier: deployment.golden.subscription-event-quarantine }
+    expect: { status: passed }
+  - id: subscription-malformed-quarantine
+    action: { verifier: deployment.golden.subscription-malformed-quarantine }
+    expect: { status: passed }
+  - id: subscription-clean-output
+    action: { verifier: deployment.golden.subscription-clean-output }
+    expect: { status: passed }
   - id: direct-http-startup
     action: { verifier: deployment.golden.direct-http-startup }
     expect: { status: passed }

@@ -58,6 +58,25 @@ export function validateSubscriptionCredential(next: Buffer, current?: Buffer) {
 	return parsed.record;
 }
 
+/** Static diagnosis only: never retain a matching token, arbitrary key or preview. */
+export function subscriptionResultQuarantine(content: string, authentication: Record<string, unknown>) {
+	const tokens = authentication.tokens && typeof authentication.tokens === 'object' ? authentication.tokens as Record<string, unknown> : {};
+	const match = Object.entries(tokens).find(([, value]) => typeof value === 'string' && value.length >= 16 && content.includes(value));
+	if (!match) return null;
+	const [field, fingerprint] = match;
+	const credentialField = ['access_token', 'refresh_token', 'id_token', 'account_id'].includes(field) ? field : 'other';
+	let resultSection = 'other';
+	try {
+		const result = JSON.parse(content) as Record<string, unknown>;
+		const diagnostics = result.diagnostics && typeof result.diagnostics === 'object' ? result.diagnostics as Record<string, unknown> : {};
+		const sections = [['responseMarkdown', result.responseMarkdown], ['diagnostics.providerEvents', diagnostics.providerEvents],
+			['diagnostics.contextManifest', diagnostics.contextManifest], ['diagnostics.systemPrompt', diagnostics.systemPrompt],
+			['diagnostics.activityCompletion', diagnostics.activityCompletion]] as const;
+		resultSection = sections.find(([, value]) => JSON.stringify(value)?.includes(String(fingerprint)))?.[0] ?? 'other';
+	} catch { /* Malformed output still matches and remains quarantined. */ }
+	return { credentialField, resultSection };
+}
+
 /** Serialize custody operations, never the guest's model execution. */
 export class SubscriptionCredentialCustody {
 	private pending: Promise<unknown> = Promise.resolve();
@@ -362,9 +381,8 @@ export class KataSandboxRuntime {
 		const resultContent = await readFile(resultPath, 'utf8');
 		if (this.configuration.modelGateway?.authenticationMode === 'codex-subscription') {
 			const authentication = JSON.parse(await readFile(this.configuration.modelGateway.credentialFile, 'utf8')) as Record<string, unknown>;
-			const tokens = authentication.tokens && typeof authentication.tokens === 'object' ? authentication.tokens as Record<string, unknown> : {};
-			const fingerprints = Object.values(tokens).filter((value): value is string => typeof value === 'string' && value.length >= 16);
-			if (fingerprints.some((fingerprint) => resultContent.includes(fingerprint))) throw new Error('Sandbox output contained a Codex credential fingerprint and was quarantined.');
+			const quarantine = subscriptionResultQuarantine(resultContent, authentication);
+			if (quarantine) throw new Error(`Sandbox output contained a Codex credential fingerprint and was quarantined (${quarantine.credentialField}; ${quarantine.resultSection}).`);
 		}
 		const result = sandboxResultSchema.parse(JSON.parse(resultContent));
 		if (result.sandboxId !== sandboxId || result.assignmentId !== sandbox.assignment.assignmentId) throw new Error('Sandbox result correlation mismatch.');

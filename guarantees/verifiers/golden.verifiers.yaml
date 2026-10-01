@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.subscription-response-quarantine:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: keeps access_token fingerprint rejection with static response diagnosis
+  deployment.golden.subscription-event-quarantine:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: classifies raw diagnostic events without returning the credential or dynamic payload keys
+  deployment.golden.subscription-malformed-quarantine:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: retains fail-closed matching for malformed result JSON and short-value policy
+  deployment.golden.subscription-clean-output:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: passes clean results without modifying content or accepting malformed credentials
   deployment.golden.direct-http-startup:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
