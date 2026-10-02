@@ -79,7 +79,7 @@ export function assertDevelopmentRuntimeMounts(state:{labels:Record<string,strin
     throw new Error('Development runtime code mounts contain an overlay.');
 }
 
-export function copyDevelopmentRuntime(input: { worktree: string; workspace: string; destination: string; sourceUid: number; roots?: DevelopmentRuntimeRoot[] }) {
+export function copyDevelopmentRuntime(input: { worktree: string; workspace: string; destination: string; sourceUid: number; roots?: readonly DevelopmentRuntimeRoot[] }) {
   const workspace = realpathSync(input.workspace);
   const destination = resolve(input.destination);
   let files = 0, bytes = 0, entries = 0;

@@ -1,4 +1,10 @@
 workflow:
+  - id: runtime-public-provider-roots
+    action: { verifier: deployment.golden.runtime-public-provider-roots }
+    expect: { status: passed }
+  - id: runtime-public-provider-native
+    action: { verifier: deployment.golden.runtime-public-provider-native }
+    expect: { status: passed }
   - id: runtime-public-authority
     action: { verifier: deployment.golden.runtime-public-authority }
     expect: { status: passed }
