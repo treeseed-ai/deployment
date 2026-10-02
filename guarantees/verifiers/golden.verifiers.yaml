@@ -506,3 +506,117 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-build-recovery.test.ts
     testName: automatically discards stopped failed simulations but retains unpublished production and successful candidates
+
+  deployment.golden.component-image-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects a healthy owned component running a different selected image
+
+  deployment.golden.component-image-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects duplicate owned service instances rather than reporting aggregate readiness
+
+  deployment.golden.component-image-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects undeclared owned services instead of accepting their health
+
+  deployment.golden.component-image-4:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: requires every selected persistent service before reporting readiness
+
+  deployment.golden.component-image-5:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects malformed empty mutable and incorrectly owned selected image declarations
+
+  deployment.golden.component-image-6:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects selected service identity drift instead of dropping it from observations
+
+  deployment.golden.component-image-7:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: preserves matching selected-image readiness and stopped unhealthy non-readiness
+
+  deployment.golden.component-image-8:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: does not require completed declared one-shot services for steady-state readiness
+
+  deployment.golden.component-image-9:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: reports an absent selected override as unregistered without Docker side effects
+
+  deployment.golden.component-image-10:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects selection changes during Docker inspection before readiness
+
+  deployment.golden.component-image-11:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: binds real Docker image identity to the native selected file and rejects digest drift
+
+  deployment.golden.component-image-12:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: rejects real duplicate and incorrectly owned Docker instances without changing selection
+
+  deployment.golden.component-image-13:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: requires all native selected persistent images while preserving completed one-shot exclusion
+
+  deployment.golden.component-image-14:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: verifies real selected image custody in an independent Node process and fails closed on malformed selection
+
+  deployment.golden.component-image-15:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: rejects real Docker service identity drift and undeclared ownership while retaining unrelated services
+
+  deployment.golden.component-image-16:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects wrong images during activation readiness as well as later status
+
+  deployment.golden.component-image-17:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects duplicate and incorrectly owned activation service identities
+
+  deployment.golden.component-image-18:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: retains healthy exact-image activation readiness without another build or receipt
+
+  deployment.golden.component-image-19:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: uses the same real Docker image authority during activation readiness and subsequent status

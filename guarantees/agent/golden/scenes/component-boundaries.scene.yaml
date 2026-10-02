@@ -302,3 +302,79 @@ workflow:
   - id: recovery-preserves-work
     action: { verifier: deployment.golden.recovery-preserves-work }
     expect: { status: passed }
+
+  - id: component-image-1
+    action: { verifier: deployment.golden.component-image-1 }
+    expect: { status: passed }
+
+  - id: component-image-2
+    action: { verifier: deployment.golden.component-image-2 }
+    expect: { status: passed }
+
+  - id: component-image-3
+    action: { verifier: deployment.golden.component-image-3 }
+    expect: { status: passed }
+
+  - id: component-image-4
+    action: { verifier: deployment.golden.component-image-4 }
+    expect: { status: passed }
+
+  - id: component-image-5
+    action: { verifier: deployment.golden.component-image-5 }
+    expect: { status: passed }
+
+  - id: component-image-6
+    action: { verifier: deployment.golden.component-image-6 }
+    expect: { status: passed }
+
+  - id: component-image-7
+    action: { verifier: deployment.golden.component-image-7 }
+    expect: { status: passed }
+
+  - id: component-image-8
+    action: { verifier: deployment.golden.component-image-8 }
+    expect: { status: passed }
+
+  - id: component-image-9
+    action: { verifier: deployment.golden.component-image-9 }
+    expect: { status: passed }
+
+  - id: component-image-10
+    action: { verifier: deployment.golden.component-image-10 }
+    expect: { status: passed }
+
+  - id: component-image-11
+    action: { verifier: deployment.golden.component-image-11 }
+    expect: { status: passed }
+
+  - id: component-image-12
+    action: { verifier: deployment.golden.component-image-12 }
+    expect: { status: passed }
+
+  - id: component-image-13
+    action: { verifier: deployment.golden.component-image-13 }
+    expect: { status: passed }
+
+  - id: component-image-14
+    action: { verifier: deployment.golden.component-image-14 }
+    expect: { status: passed }
+
+  - id: component-image-15
+    action: { verifier: deployment.golden.component-image-15 }
+    expect: { status: passed }
+
+  - id: component-image-16
+    action: { verifier: deployment.golden.component-image-16 }
+    expect: { status: passed }
+
+  - id: component-image-17
+    action: { verifier: deployment.golden.component-image-17 }
+    expect: { status: passed }
+
+  - id: component-image-18
+    action: { verifier: deployment.golden.component-image-18 }
+    expect: { status: passed }
+
+  - id: component-image-19
+    action: { verifier: deployment.golden.component-image-19 }
+    expect: { status: passed }

@@ -108,13 +108,45 @@ function projectInstances(command: CommandRunner, projectName: string, runningOn
 }
 
 function observed(command: CommandRunner, projectName: string, input: Input, runningOnly = true, expectedImages?: ReadonlyMap<string, string>) {
-	return projectInstances(command, projectName, runningOnly)
-		.filter((item) => (item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`)
-			|| expectedImages?.get(item.service) === item.image);
+	const seen = new Set<string>();
+	return projectInstances(command, projectName, runningOnly).filter(item => {
+		const owned = item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`;
+		if (!expectedImages) return owned;
+		if (!owned && !expectedImages.has(item.service)) return false;
+		if (!owned || expectedImages.get(item.service) !== item.image || seen.has(item.service)
+			|| typeof item.running !== 'boolean' || !['none', 'starting', 'healthy', 'unhealthy'].includes(item.health))
+			throw new Error('Managed development actual service/image custody does not match selection.');
+		seen.add(item.service);return true;
+	});
+}
+
+/** The protected status entrypoint and native verification use the same selection authority. */
+export function managedComponentStatus(input: Input, projectName: string, override: string, command: CommandRunner) {
+	if (!existsSync(override)) return { registered: false, state: null };
+	const before = readFileSync(override, 'utf8');
+	const configured = JSON.parse(before) as { services?: Record<string, { image?: unknown; labels?: Record<string, unknown> }> };
+	if (!configured?.services || Array.isArray(configured.services) || typeof configured.services !== 'object')
+		throw new Error('Managed development selected image inventory is invalid.');
+	const images = new Map<string, string>();
+	for (const [service, value] of Object.entries(configured.services)) {
+		if (!/^[a-z][a-z0-9-]{0,127}$/u.test(service) || !value || typeof value.image !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(value.image)
+			|| value.labels?.['org.treeseed.development.session'] !== input.sessionId
+			|| value.labels?.['org.treeseed.development.target'] !== `${input.projectId}.${input.targetId}`)
+			throw new Error('Managed development selected image identity is invalid.');
+		images.set(service, value.image);
+	}
+	const required = managedPersistentServices([...images.keys()]);
+	if (!required.length) throw new Error('Managed development selected persistent image inventory is empty.');
+	const instances = observed(command, projectName, input, false, images).filter(item => required.includes(item.service));
+	if (readFileSync(override, 'utf8') !== before) throw new Error('Managed development image selection changed during inspection.');
+	return { registered: true, instances, ready: required.every(service => instances.some(item => item.service === service
+		&& item.running && item.health !== 'starting' && item.health !== 'unhealthy')) };
 }
 
 function failureEvidence(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
-	const instances = observed(command, projectName, input, false, images);
+	// Retain mismatches as failure evidence; they can never become readiness proof.
+	const instances = projectInstances(command, projectName, false).filter(item =>
+		(item.sessionId === input.sessionId && item.target === `${input.projectId}.${input.targetId}`) || images.get(item.service) === item.image);
 	const events = instances.flatMap((item) => {
 		try { return developmentDiagnosticEvents(String(command('/usr/bin/docker', ['logs', '--tail', '100', item.id]))).map((event) => ({ ...event, service: item.service })); }
 		catch { return []; }
@@ -127,7 +159,7 @@ function failureEvidence(command: CommandRunner, projectName: string, input: Inp
 	};
 }
 
-function waitForManagedReadiness(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
+export function waitForManagedReadiness(command: CommandRunner, projectName: string, input: Input, images: ReadonlyMap<string, string>) {
 	const expected = managedPersistentServices([...images.keys()]);
 	const inspect = () => {
 		const current = new Map(observed(command, projectName, input, false, images).map((item) => [item.service, item]));
@@ -174,9 +206,7 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 		return { events: retained?.events ?? [], instances: retained?.instances ?? [], logs: live };
 	}
 	if (input.action === 'status') {
-		if (!existsSync(override)) return { registered: false, state: null };
-		const instances = observed(command, component.runtime.compose.projectName, input);
-		return { registered: true, instances, ready: instances.length > 0 && instances.every((item: { running: boolean; health: string }) => item.running && item.health !== 'starting' && item.health !== 'unhealthy') };
+		return managedComponentStatus(input, component.runtime.compose.projectName, override, command);
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { rmSync(directory, { recursive: true, force: true }); return { stopped: true }; }
