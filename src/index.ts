@@ -27,6 +27,7 @@ export * from './security/custody/index.js';
 export * from './runtime/compose.js';
 export * from './supervisor/execute.js';
 export * from './supervisor/host-runtime.js';
+export { copyDevelopmentRuntime } from './supervisor/development-runtime-copy.js';
 export * from './supervisor/client.js';
 export * from './supervisor/component.js';
 export * from './supervisor/apt-helper.js';

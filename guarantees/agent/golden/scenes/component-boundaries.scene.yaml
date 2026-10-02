@@ -1,4 +1,16 @@
 workflow:
+  - id: runtime-public-authority
+    action: { verifier: deployment.golden.runtime-public-authority }
+    expect: { status: passed }
+  - id: runtime-public-native-bytes
+    action: { verifier: deployment.golden.runtime-public-native-bytes }
+    expect: { status: passed }
+  - id: runtime-public-native-policy
+    action: { verifier: deployment.golden.runtime-public-native-policy }
+    expect: { status: passed }
+  - id: runtime-public-native-denial
+    action: { verifier: deployment.golden.runtime-public-native-denial }
+    expect: { status: passed }
   - id: provider-drain-active
     action: { verifier: deployment.golden.provider-drain-active }
     expect: { status: passed }
