@@ -1,4 +1,7 @@
 workflow:
+  - id: component-metadata
+    action: { verifier: deployment.golden.component-metadata }
+    expect: { status: passed }
   - id: provider-status-session
     action: { verifier: deployment.golden.provider-status-session }
     expect: { status: passed }
@@ -8,8 +11,8 @@ workflow:
   - id: provider-status-receipt
     action: { verifier: deployment.golden.provider-status-receipt }
     expect: { status: passed }
-  - id: runtime-copy-mode
-    action: { verifier: deployment.golden.runtime-copy-mode }
+  - id: runtime-copy-normalized-mode
+    action: { verifier: deployment.golden.runtime-copy-normalized-mode }
     expect: { status: passed }
   - id: runtime-copy-readback
     action: { verifier: deployment.golden.runtime-copy-readback }

@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.component-metadata:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: parses component metadata and binds every scene step to exactly one existing owner test
   deployment.golden.provider-status-session:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
@@ -16,7 +21,7 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/development-provider-status.test.ts
     testName: rejects a running provider without its private copy receipt instead of reporting ready
-  deployment.golden.runtime-copy-mode:
+  deployment.golden.runtime-copy-normalized-mode:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
     testFile: tests/development-runtime-copy.test.ts
