@@ -1,4 +1,61 @@
 workflow:
+  - id: provider-status-session
+    action: { verifier: deployment.golden.provider-status-session }
+    expect: { status: passed }
+  - id: provider-status-writable
+    action: { verifier: deployment.golden.provider-status-writable }
+    expect: { status: passed }
+  - id: provider-status-receipt
+    action: { verifier: deployment.golden.provider-status-receipt }
+    expect: { status: passed }
+  - id: runtime-copy-mode
+    action: { verifier: deployment.golden.runtime-copy-mode }
+    expect: { status: passed }
+  - id: runtime-copy-readback
+    action: { verifier: deployment.golden.runtime-copy-readback }
+    expect: { status: passed }
+  - id: runtime-copy-bytes
+    action: { verifier: deployment.golden.runtime-copy-bytes }
+    expect: { status: passed }
+  - id: runtime-copy-deleted
+    action: { verifier: deployment.golden.runtime-copy-deleted }
+    expect: { status: passed }
+  - id: runtime-copy-added
+    action: { verifier: deployment.golden.runtime-copy-added }
+    expect: { status: passed }
+  - id: runtime-copy-hidden
+    action: { verifier: deployment.golden.runtime-copy-hidden }
+    expect: { status: passed }
+  - id: runtime-copy-mode
+    action: { verifier: deployment.golden.runtime-copy-mode }
+    expect: { status: passed }
+  - id: runtime-copy-writable
+    action: { verifier: deployment.golden.runtime-copy-writable }
+    expect: { status: passed }
+  - id: runtime-copy-alias
+    action: { verifier: deployment.golden.runtime-copy-alias }
+    expect: { status: passed }
+  - id: runtime-copy-escaped
+    action: { verifier: deployment.golden.runtime-copy-escaped }
+    expect: { status: passed }
+  - id: runtime-copy-unreadable
+    action: { verifier: deployment.golden.runtime-copy-unreadable }
+    expect: { status: passed }
+  - id: runtime-copy-invalid-receipt
+    action: { verifier: deployment.golden.runtime-copy-invalid-receipt }
+    expect: { status: passed }
+  - id: runtime-copy-roots-nodes
+    action: { verifier: deployment.golden.runtime-copy-roots-nodes }
+    expect: { status: passed }
+  - id: runtime-copy-native-process
+    action: { verifier: deployment.golden.runtime-copy-native-process }
+    expect: { status: passed }
+  - id: runtime-copy-mounts
+    action: { verifier: deployment.golden.runtime-copy-mounts }
+    expect: { status: passed }
+  - id: runtime-copy-docker
+    action: { verifier: deployment.golden.runtime-copy-docker }
+    expect: { status: passed }
   - id: complete-privileged-admission
     action: { verifier: deployment.golden.complete-privileged-admission }
     expect: { status: passed }

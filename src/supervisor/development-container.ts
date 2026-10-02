@@ -11,7 +11,7 @@ import { managedContainerDevelopmentConnectionEnvironment, componentActivationIn
 import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment } from './component.js';
 import { componentComposeArguments, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
 import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from './development-runner.js';
-import { copyDevelopmentRuntime } from './development-runtime-copy.js';
+import { copyDevelopmentRuntime, developmentRuntimeStatus, assertDevelopmentRuntimeMounts } from './development-runtime-copy.js';
 import { prepareAiStorageIdentities } from './ai/storage-identity.js';
 import { developmentCustodyReady, recoverDevelopmentCustody, recoveredVaultStartArguments } from './development-custody-recovery.js';
 import { recoverRunnerCustody } from './runner-custody-probe.js';
@@ -148,7 +148,17 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     if(targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
     rmSync(directory,{recursive:true});return {stopped:true};
   }
-  if(input.action==='status')return {registered:existsSync(file),state:existsSync(file)?command('/usr/bin/docker',[...compose,'ps','--format','json']):null};
+  if(input.action==='status') {
+    if(!existsSync(file))return {registered:false,state:null};
+    let runtime:ReturnType<typeof developmentRuntimeStatus>|undefined;
+    if(targetId==='operations-runner') {
+      const name=`treeseed-${input.sessionId}-api-${targetId}`;
+      const state=JSON.parse(String(command('/usr/bin/docker',['inspect',name,'--format','{"labels":{{json .Config.Labels}},"mounts":{{json .Mounts}}}'])));
+      assertDevelopmentRuntimeMounts(state,input.sessionId,'api.operations-runner',directory,['.']);
+      runtime=developmentRuntimeStatus(directory);
+    }
+    return {registered:true,state:command('/usr/bin/docker',[...compose,'ps','--format','json']),...(runtime?{runtime}:{})};
+  }
   if(record.session.status!=='active')throw new Error('Development session is not active.');
   const host=loadHostConfiguration(),releases=loadActiveComponents(),component=releases.find(r=>r.componentId==='api');
   if(!component)throw new Error('Installed API foundation is required for development.');
