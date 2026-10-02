@@ -1,6 +1,66 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.complete-privileged-admission:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: runs complete privileged owner prerequisites before coded scenes without a filtered substitute
+  deployment.golden.kernel-cache-quota:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-volume.integration.test.ts
+    testName: kernel rejects writes beyond the fixed trusted-host cache without filling the parent filesystem
+  deployment.golden.selected-host-files:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: reads exact selected runtime hashes rather than historical workspace bytes without mutating state
+  deployment.golden.selected-host-tampering:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects modified deleted and additional selected runtime files
+  deployment.golden.selected-host-symlinks:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects file directory and generation symlink escapes
+  deployment.golden.selected-host-generation:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects invalid selected generation ids and missing generation directories
+  deployment.golden.selected-host-states:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: does not claim selected runtime proof for installed or transitional states
+  deployment.golden.selected-host-nodes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects unsupported generation nodes instead of reporting a passing inventory
+  deployment.golden.selected-host-missing-package:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects a missing package or empty selected inventory even when a saved digest matches
+  deployment.golden.selected-host-unreadable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects unreadable selected files instead of substituting a missing sentinel
+  deployment.golden.selected-host-native-process:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: reads exact selected filesystem custody through a real isolated child process
+  deployment.golden.selected-host-protected-route:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: routes the existing fixed status operation to selected custody without adding caller-selected paths
   deployment.golden.subscription-response-quarantine:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareManagedPostgresBootstrap } from '../src/postgres/bootstrap.js';
@@ -57,7 +57,7 @@ it('rejects nonempty or aliased runtime placeholders without deleting their cont
   expect(readFileSync(join(hba, 'keep'), 'utf8')).toBe('preserved');
   rmSync(hba, { recursive: true }); symlinkSync(join(input.stateRoot, 'postgres'), hba);
   expect(() => prepareManagedPostgresBootstrap(input)).toThrow('Unsafe PostgreSQL network policy path');
-  rmSync(hba); rmSync(input.runtimeRoot, { recursive: true }); symlinkSync(input.stateRoot, input.runtimeRoot);
+  unlinkSync(hba); rmSync(input.runtimeRoot, { recursive: true }); symlinkSync(input.stateRoot, input.runtimeRoot);
   expect(() => prepareManagedPostgresBootstrap(input)).toThrow('unsafe_directory');
 });
 it.each([0o007, 0o077])('materializes exact public and private modes under supervisor umask %i', mask => {

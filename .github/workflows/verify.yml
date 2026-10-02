@@ -59,14 +59,30 @@ jobs:
         with:
           github-token: ${{ github.token }}
       - run: npm run verify:direct
-      - name: Execute coded sandbox component scenes
-        uses: treeseed-ai/reviewer/.github/actions/run-scenes@e29c5bf2db97188c47fdc67a7a098e81a95ced22
+      - name: Fetch exact existing Reviewer runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ids: guarantee.deployment.golden.component-boundaries
-      - name: Verify kernel-enforced trusted source cache quota
-        run: sudo --preserve-env=TREESEED_PRIVILEGED_CACHE_TESTS "$(command -v node)" node_modules/vitest/vitest.mjs run tests/source-cache-volume.integration.test.ts
+          repository: treeseed-ai/reviewer
+          ref: 1ce504f7e4f6824ef9a7c0570518edd67f6adaa5
+          path: .treeseed/tools/reviewer
+      - name: Execute coded sandbox component scenes
+        shell: bash
+        run: |
+          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS "$(command -v node)" --import tsx \
+            .treeseed/tools/reviewer/src/verifiers/guarantees/command.ts \
+            --workspace "$GITHUB_WORKSPACE" --environment local --ids guarantee.deployment.golden.component-boundaries \
+            --run-id "actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'
+      - name: Retain coded scene evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: scene-evidence-${{ github.sha }}-${{ github.run_attempt }}
+          path: .treeseed/guarantees/runs/actions-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
       - run: npm run verify:deb
         env:
           TREESEED_APT_SUITE: development

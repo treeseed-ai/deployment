@@ -37,7 +37,8 @@ import { containerdImageReference } from '../sandbox/image-reference.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
 import { reconcileSandboxModelPolicy } from './sandbox-model-policy.js';
 import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
-import { activateHostDevelopment, deactivateHostDevelopment, hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
+import { activateHostDevelopment, deactivateHostDevelopment, recordHostDevelopmentGuestImage } from './host-development.js';
+import { hostDevelopmentRuntimeStatus } from './host-development-custody.js';
 import { waitForStartingActivation } from './activation-wait.js';
 import { executeDevelopmentContainer } from './development-container.js';
 import { executeDevelopmentPostgresMigration } from './development-postgres-migration.js';
@@ -405,7 +406,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			if (operation.activation.guestImageDigest) bindExistingSandboxGuestTrust(operation.activation.guestImageDigest, command);
 			return activateHostDevelopment(operation.activation, command);
 		}
-		case 'host.development.status': return hostDevelopmentStatus();
+		case 'host.development.status': return hostDevelopmentRuntimeStatus();
 		case 'host.development.deactivate': return deactivateHostDevelopment(command);
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
