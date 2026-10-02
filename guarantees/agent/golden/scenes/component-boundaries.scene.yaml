@@ -1,4 +1,13 @@
 workflow:
+  - id: provider-status-build
+    action: { verifier: deployment.golden.provider-status-build }
+    expect: { status: passed }
+  - id: provider-status-ready
+    action: { verifier: deployment.golden.provider-status-ready }
+    expect: { status: passed }
+  - id: provider-status-stopped
+    action: { verifier: deployment.golden.provider-status-stopped }
+    expect: { status: passed }
   - id: component-metadata
     action: { verifier: deployment.golden.component-metadata }
     expect: { status: passed }

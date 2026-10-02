@@ -1,6 +1,21 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-status-build:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects missing duplicate and changed advertised provider builds after selected-copy verification
+  deployment.golden.provider-status-ready:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: reports readiness only with matching selected-copy build and guest trust without reflecting mount inventory
+  deployment.golden.provider-status-stopped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: preserves stopped-provider non-readiness even when private file custody and build match
   deployment.golden.component-metadata:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
