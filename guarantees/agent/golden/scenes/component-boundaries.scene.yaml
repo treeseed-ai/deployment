@@ -1,4 +1,40 @@
 workflow:
+  - id: complete-privileged-admission
+    action: { verifier: deployment.golden.complete-privileged-admission }
+    expect: { status: passed }
+  - id: kernel-cache-quota
+    action: { verifier: deployment.golden.kernel-cache-quota }
+    expect: { status: passed }
+  - id: selected-host-files
+    action: { verifier: deployment.golden.selected-host-files }
+    expect: { status: passed }
+  - id: selected-host-tampering
+    action: { verifier: deployment.golden.selected-host-tampering }
+    expect: { status: passed }
+  - id: selected-host-symlinks
+    action: { verifier: deployment.golden.selected-host-symlinks }
+    expect: { status: passed }
+  - id: selected-host-generation
+    action: { verifier: deployment.golden.selected-host-generation }
+    expect: { status: passed }
+  - id: selected-host-states
+    action: { verifier: deployment.golden.selected-host-states }
+    expect: { status: passed }
+  - id: selected-host-nodes
+    action: { verifier: deployment.golden.selected-host-nodes }
+    expect: { status: passed }
+  - id: selected-host-missing-package
+    action: { verifier: deployment.golden.selected-host-missing-package }
+    expect: { status: passed }
+  - id: selected-host-unreadable
+    action: { verifier: deployment.golden.selected-host-unreadable }
+    expect: { status: passed }
+  - id: selected-host-native-process
+    action: { verifier: deployment.golden.selected-host-native-process }
+    expect: { status: passed }
+  - id: selected-host-protected-route
+    action: { verifier: deployment.golden.selected-host-protected-route }
+    expect: { status: passed }
   - id: subscription-response-quarantine
     action: { verifier: deployment.golden.subscription-response-quarantine }
     expect: { status: passed }
