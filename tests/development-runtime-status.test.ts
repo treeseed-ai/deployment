@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -36,7 +36,10 @@ it.each(['bytes','deleted','added','hidden','mode','writable','alias','escaped',
     if(shape==='writable')chmodSync(path,0o666);
     if(shape==='unreadable')chmodSync(path,0);
     if(shape==='alias'||shape==='escaped'){
-      const alias=resolve(f.runtime,'node_modules/b');rmSync(alias);
+      const alias=resolve(f.runtime,'node_modules/b'),target=resolve(f.runtime,'node_modules/a/index.js'),before=readFileSync(target);
+      expect(lstatSync(alias).isSymbolicLink()).toBe(true);
+      // Node 24.12 rmSync reports EISDIR for a directory symlink; unlink only the alias.
+      unlinkSync(alias);expect(readFileSync(target)).toEqual(before);
       symlinkSync(shape==='alias'?'../a':'/tmp',alias);
     }
     expect(()=>developmentRuntimeStatus(f.directory,undefined,uid)).toThrow();
