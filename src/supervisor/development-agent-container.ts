@@ -14,9 +14,9 @@ import { recordHostDevelopmentGuestImage } from './host-development.js';
 const root = '/run/treeseed/development-containers';
 const projectName = 'treeseed-agent';
 const services = ['manager', 'runner'] as const;
-const runtimeRoots=[{source:'dist',target:'dist'},
+export const runtimeRoots=Object.freeze([{source:'dist',target:'dist'},
 	{source:'.treeseed/docker/runtime/shared/package.json',target:'package.json'},
-	{source:'.treeseed/docker/runtime/shared/node_modules',target:'node_modules'}];
+	{source:'.treeseed/docker/runtime/shared/node_modules',target:'node_modules'}].map(root=>Object.freeze(root)));
 
 interface AgentDevelopmentInput {
 	sessionId: string;

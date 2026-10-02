@@ -1,6 +1,36 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.runtime-public-provider-roots:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: exposes the same immutable provider runtime root mapping used by the owning manager
+  deployment.golden.runtime-public-provider-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: materializes generated provider dependencies through the public owning root mapping without duplicate recipes
+  deployment.golden.runtime-public-authority:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: exposes the identical runtime materialization authority through the package root
+  deployment.golden.runtime-public-native-bytes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: materializes exact independent private bytes through the public package root in a native process
+  deployment.golden.runtime-public-native-policy:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: retains workspace alias hidden-file filtering bin and normalized modes through the native public API
+  deployment.golden.runtime-public-native-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: fails closed on escaped dependencies and source destinations through the native public API without deleting source
   deployment.golden.provider-drain-active:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
