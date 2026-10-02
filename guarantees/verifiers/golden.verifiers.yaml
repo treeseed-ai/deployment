@@ -1,6 +1,46 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-drain-active:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: rejects active claims before draining execution and restores admissions
+  deployment.golden.provider-drain-invalid:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores admissions on unreadable claim syntax or invalid inventory
+  deployment.golden.provider-drain-idle:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: drains empty and polling inventory without invoking restoration
+  deployment.golden.provider-drain-runner-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores uncertain runner stop before reopening admissions
+  deployment.golden.provider-drain-manager-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores uncertain manager stop without draining execution
+  deployment.golden.provider-drain-stopped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: does not restart an originally stopped manager on rejected handoff
+  deployment.golden.provider-drain-restore-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: propagates restoration failure instead of claiming recovered execution
+  deployment.golden.provider-drain-owner:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: rejects unowned containers before any stop or restoration side effect
   deployment.golden.provider-handoff-ready:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

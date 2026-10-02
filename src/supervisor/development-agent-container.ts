@@ -132,7 +132,7 @@ function restoreReleasedAgent(command: CommandRunner, compose: string[]) {
 	command('/usr/bin/docker', [...compose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
 }
 
-function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
+export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
 	const running = new Set(services.filter(service => containerState(command, service).running));
 	try {
 		stopService(command, 'manager');

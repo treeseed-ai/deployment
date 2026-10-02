@@ -1,4 +1,28 @@
 workflow:
+  - id: provider-drain-active
+    action: { verifier: deployment.golden.provider-drain-active }
+    expect: { status: passed }
+  - id: provider-drain-invalid
+    action: { verifier: deployment.golden.provider-drain-invalid }
+    expect: { status: passed }
+  - id: provider-drain-idle
+    action: { verifier: deployment.golden.provider-drain-idle }
+    expect: { status: passed }
+  - id: provider-drain-runner-uncertain
+    action: { verifier: deployment.golden.provider-drain-runner-uncertain }
+    expect: { status: passed }
+  - id: provider-drain-manager-uncertain
+    action: { verifier: deployment.golden.provider-drain-manager-uncertain }
+    expect: { status: passed }
+  - id: provider-drain-stopped
+    action: { verifier: deployment.golden.provider-drain-stopped }
+    expect: { status: passed }
+  - id: provider-drain-restore-failure
+    action: { verifier: deployment.golden.provider-drain-restore-failure }
+    expect: { status: passed }
+  - id: provider-drain-owner
+    action: { verifier: deployment.golden.provider-drain-owner }
+    expect: { status: passed }
   - id: provider-handoff-ready
     action: { verifier: deployment.golden.provider-handoff-ready }
     expect: { status: passed }
