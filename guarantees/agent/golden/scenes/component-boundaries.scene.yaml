@@ -1,4 +1,73 @@
 workflow:
+  - id: provider-drain-active
+    action: { verifier: deployment.golden.provider-drain-active }
+    expect: { status: passed }
+  - id: provider-drain-invalid
+    action: { verifier: deployment.golden.provider-drain-invalid }
+    expect: { status: passed }
+  - id: provider-drain-idle
+    action: { verifier: deployment.golden.provider-drain-idle }
+    expect: { status: passed }
+  - id: provider-drain-runner-uncertain
+    action: { verifier: deployment.golden.provider-drain-runner-uncertain }
+    expect: { status: passed }
+  - id: provider-drain-manager-uncertain
+    action: { verifier: deployment.golden.provider-drain-manager-uncertain }
+    expect: { status: passed }
+  - id: provider-drain-stopped
+    action: { verifier: deployment.golden.provider-drain-stopped }
+    expect: { status: passed }
+  - id: provider-drain-restore-failure
+    action: { verifier: deployment.golden.provider-drain-restore-failure }
+    expect: { status: passed }
+  - id: provider-drain-owner
+    action: { verifier: deployment.golden.provider-drain-owner }
+    expect: { status: passed }
+  - id: provider-handoff-ready
+    action: { verifier: deployment.golden.provider-handoff-ready }
+    expect: { status: passed }
+  - id: provider-handoff-running
+    action: { verifier: deployment.golden.provider-handoff-running }
+    expect: { status: passed }
+  - id: provider-handoff-recovery
+    action: { verifier: deployment.golden.provider-handoff-recovery }
+    expect: { status: passed }
+  - id: provider-handoff-malformed
+    action: { verifier: deployment.golden.provider-handoff-malformed }
+    expect: { status: passed }
+  - id: provider-handoff-bad-claim
+    action: { verifier: deployment.golden.provider-handoff-bad-claim }
+    expect: { status: passed }
+  - id: provider-handoff-copy-failure
+    action: { verifier: deployment.golden.provider-handoff-copy-failure }
+    expect: { status: passed }
+  - id: provider-handoff-runner-stop-failure
+    action: { verifier: deployment.golden.provider-handoff-runner-stop-failure }
+    expect: { status: passed }
+  - id: provider-handoff-runner-stop-uncertain
+    action: { verifier: deployment.golden.provider-handoff-runner-stop-uncertain }
+    expect: { status: passed }
+  - id: provider-handoff-manager-stop-uncertain
+    action: { verifier: deployment.golden.provider-handoff-manager-stop-uncertain }
+    expect: { status: passed }
+  - id: provider-handoff-polling
+    action: { verifier: deployment.golden.provider-handoff-polling }
+    expect: { status: passed }
+  - id: provider-handoff-empty
+    action: { verifier: deployment.golden.provider-handoff-empty }
+    expect: { status: passed }
+  - id: provider-handoff-first-start
+    action: { verifier: deployment.golden.provider-handoff-first-start }
+    expect: { status: passed }
+  - id: provider-claims-identities
+    action: { verifier: deployment.golden.provider-claims-identities }
+    expect: { status: passed }
+  - id: provider-claims-idle
+    action: { verifier: deployment.golden.provider-claims-idle }
+    expect: { status: passed }
+  - id: provider-claims-invalid
+    action: { verifier: deployment.golden.provider-claims-invalid }
+    expect: { status: passed }
   - id: provider-status-build
     action: { verifier: deployment.golden.provider-status-build }
     expect: { status: passed }

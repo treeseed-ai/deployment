@@ -1,6 +1,121 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-drain-active:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: rejects active claims before draining execution and restores admissions
+  deployment.golden.provider-drain-invalid:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores admissions on unreadable claim syntax or invalid inventory
+  deployment.golden.provider-drain-idle:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: drains empty and polling inventory without invoking restoration
+  deployment.golden.provider-drain-runner-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores uncertain runner stop before reopening admissions
+  deployment.golden.provider-drain-manager-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores uncertain manager stop without draining execution
+  deployment.golden.provider-drain-stopped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: does not restart an originally stopped manager on rejected handoff
+  deployment.golden.provider-drain-restore-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: propagates restoration failure instead of claiming recovered execution
+  deployment.golden.provider-drain-owner:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: rejects unowned containers before any stop or restoration side effect
+  deployment.golden.provider-handoff-ready:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after ready rejection in an isolated filesystem
+  deployment.golden.provider-handoff-running:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after running rejection in an isolated filesystem
+  deployment.golden.provider-handoff-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after recovery rejection in an isolated filesystem
+  deployment.golden.provider-handoff-malformed:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after malformed rejection in an isolated filesystem
+  deployment.golden.provider-handoff-bad-claim:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after bad-claim rejection in an isolated filesystem
+  deployment.golden.provider-handoff-copy-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after copy-failure rejection in an isolated filesystem
+  deployment.golden.provider-handoff-runner-stop-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after runner-stop-failure rejection in an isolated filesystem
+  deployment.golden.provider-handoff-runner-stop-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after runner-stop-uncertain rejection in an isolated filesystem
+  deployment.golden.provider-handoff-manager-stop-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after manager-stop-uncertain rejection in an isolated filesystem
+  deployment.golden.provider-handoff-polling:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: selects the prepared provider snapshot after polling admission through the original boundary
+  deployment.golden.provider-handoff-empty:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: selects the prepared provider snapshot after empty admission through the original boundary
+  deployment.golden.provider-handoff-first-start:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: selects the prepared provider snapshot after first-start admission through the original boundary
+  deployment.golden.provider-claims-identities:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: keeps arbitrary configured identities active for ready running and recovery claims
+  deployment.golden.provider-claims-idle:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: allows only empty missing and polling state without active claims
+  deployment.golden.provider-claims-invalid:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: fails closed on invalid claim inventory and named fields without ignoring earlier active claims
   deployment.golden.provider-status-build:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

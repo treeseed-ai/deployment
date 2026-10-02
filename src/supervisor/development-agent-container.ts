@@ -1,4 +1,4 @@
-import { chmodSync, chownSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -132,14 +132,19 @@ function restoreReleasedAgent(command: CommandRunner, compose: string[]) {
 	command('/usr/bin/docker', [...compose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
 }
 
-function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
-	stopService(command, 'manager');
-	const active = activeAgentClaims(stateRoot);
-	if (active.length) {
-		restoreManager();
-		throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
+export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
+	const running = new Set(services.filter(service => containerState(command, service).running));
+	try {
+		stopService(command, 'manager');
+		const active = activeAgentClaims(stateRoot);
+		if (active.length) throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
+		stopService(command, 'runner');
+	} catch (error) {
+		// Restore only services that were running; reopen admissions last.
+		if (running.has('runner')) startService(command, 'runner');
+		if (running.has('manager')) restoreManager();
+		throw error;
 	}
-	stopService(command, 'runner');
 }
 
 interface SandboxDevelopmentReceipt {
@@ -267,30 +272,33 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 
 	if (record.session.status !== 'active') throw new Error('Development session is not active.');
 	const source = sourceFor(record);
-	mkdirSync(directory, { recursive: true, mode: 0o700 });
-	rmSync(runtimeRoot, { recursive: true, force: true });
-	const receipt = copyDevelopmentRuntime({
-		worktree: source.worktree,
-		workspace: source.workspace,
-		destination: runtimeRoot,
-		sourceUid: source.uid,
-		roots: runtimeRoots,
-	});
-	atomicJson(resolve(directory, 'runtime-receipt.json'), receipt, 0o600);
 	const host = loadHostConfiguration();
 	const environment = managedContainerDevelopmentConnectionEnvironment(host, component, releases, record.routes);
 	const manifest = (host.components.agent?.configuration?.files as Record<string, unknown> | undefined)?.['treeseed.capacity-provider.yaml'];
 	if (typeof manifest !== 'string' || !manifest.trim()) throw new Error('Managed provider development requires its desired manifest.');
+	const guestDigest = configuredSandboxGuestDigest();
 	const manifestPath = resolve(directory, 'treeseed.capacity-provider.yaml');
-	writeAgentDevelopmentManifest(manifestPath, manifest);
-	atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: configuredSandboxGuestDigest(), manifestPath }), 0o600);
-	atomicJson(handoff, { restore: true }, 0o600);
-	stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	const prepared = mkdtempSync(resolve(directory, 'prepare-'));
 	try {
-		command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
-	} catch (error) {
-		try { restoreReleasedAgent(command, dockerCompose); rmSync(directory, { recursive: true }); } catch { /* retain handoff marker for idempotent cleanup */ }
-		throw error;
+		// Materialize separately while the old immutable selection remains intact.
+		const receipt = copyDevelopmentRuntime({ worktree: source.worktree, workspace: source.workspace,
+			destination: resolve(prepared, 'runtime'), sourceUid: source.uid, roots: runtimeRoots });
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		try {
+			rmSync(runtimeRoot, { recursive: true, force: true });
+			renameSync(resolve(prepared, 'runtime'), runtimeRoot);
+			atomicJson(resolve(directory, 'runtime-receipt.json'), receipt, 0o600);
+			writeAgentDevelopmentManifest(manifestPath, manifest);
+			atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: guestDigest, manifestPath }), 0o600);
+			atomicJson(handoff, { restore: true }, 0o600);
+			command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
+		} catch (error) {
+			try { restoreReleasedAgent(command, dockerCompose); rmSync(directory, { recursive: true }); } catch { /* retain handoff marker for idempotent cleanup */ }
+			throw error;
+		}
+		return { started: true, runtime: receipt };
+	} finally {
+		rmSync(prepared, { recursive: true, force: true });
 	}
-	return { started: true, runtime: receipt };
 }
