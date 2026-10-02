@@ -1,5 +1,6 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, linkSync, statSync, truncateSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, linkSync, statSync, truncateSync, chmodSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyDevelopmentRuntime } from '../src/supervisor/development-runtime-copy.js';
@@ -61,4 +62,13 @@ it('keeps a bounded per-file limit above the current Codex guest binary size',()
   const f=fixture(),oversized=join(f.worktree,'node_modules','oversized-binary');
   writeFileSync(oversized,'');truncateSync(oversized,384*1024*1024+1);
   expect(()=>copyDevelopmentRuntime(f)).toThrow('bounded regular file');
+});
+it('binds its receipt to actual copied executable modes rather than pre-normalized source modes',()=>{
+  const f=fixture();chmodSync(join(f.worktree,'dist','entry.js'),0o641);
+  const receipt=copyDevelopmentRuntime(f),digest=createHash('sha256');
+  for(const name of ['package.json','dist/entry.js']) {
+    const path=join(f.destination,name),data=readFileSync(path);
+    digest.update(JSON.stringify([name,data.length,statSync(path).mode&0o111])).update(data);
+  }
+  expect(receipt.digest).toBe(`sha256:${digest.digest('hex')}`);
 });

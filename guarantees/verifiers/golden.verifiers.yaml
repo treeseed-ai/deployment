@@ -1,6 +1,121 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-status-build:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects missing duplicate and changed advertised provider builds after selected-copy verification
+  deployment.golden.provider-status-ready:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: reports readiness only with matching selected-copy build and guest trust without reflecting mount inventory
+  deployment.golden.provider-status-stopped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: preserves stopped-provider non-readiness even when private file custody and build match
+  deployment.golden.component-metadata:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: parses component metadata and binds every scene step to exactly one existing owner test
+  deployment.golden.provider-status-session:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects a running provider belonging to another session instead of reporting ready
+  deployment.golden.provider-status-writable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects a running provider with writable code mounts instead of reporting ready
+  deployment.golden.provider-status-receipt:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects a running provider without its private copy receipt instead of reporting ready
+  deployment.golden.runtime-copy-normalized-mode:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-copy.test.ts
+    testName: binds its receipt to actual copied executable modes rather than pre-normalized source modes
+  deployment.golden.runtime-copy-readback:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: reads the exact immutable copy and internal directory aliases without using mutable source
+  deployment.golden.runtime-copy-bytes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects bytes private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-deleted:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects deleted private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-added:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects added private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-hidden:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects hidden private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-mode:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects mode private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-writable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects writable private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-alias:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects alias private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-escaped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects escaped private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-unreadable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects unreadable private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-invalid-receipt:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects missing malformed empty wrong-owner writable and symlink receipts
+  deployment.golden.runtime-copy-roots-nodes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects changed root inventory root symlinks cycles and special files with bounded native failure
+  deployment.golden.runtime-copy-native-process:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: reads and rejects changed copy bytes through a real independent Node process
+  deployment.golden.runtime-copy-mounts:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: binds exact session target and read-only code mounts, including duplicate and overlay denial
+  deployment.golden.runtime-copy-docker:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: binds real Docker read-only mount inventory to the actual private copy and rejects subsequent byte changes
   deployment.golden.complete-privileged-admission:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

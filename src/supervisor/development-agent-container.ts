@@ -7,13 +7,16 @@ import { loadActiveComponents } from '../manager/current-state.js';
 import { composeFiles, managedContainerDevelopmentConnectionEnvironment } from '../manager/reconcile.js';
 import { componentStateRoot } from './component.js';
 import { componentComposeArguments, type CommandRunner } from './compose-runtime.js';
-import { copyDevelopmentRuntime } from './development-runtime-copy.js';
+import { copyDevelopmentRuntime, developmentRuntimeStatus, assertDevelopmentRuntimeMounts } from './development-runtime-copy.js';
 import { bindExistingSandboxGuestTrust, configuredSandboxGuestDigest, importSandboxGuestArchive } from './sandbox-guest-import.js';
 import { recordHostDevelopmentGuestImage } from './host-development.js';
 
 const root = '/run/treeseed/development-containers';
 const projectName = 'treeseed-agent';
 const services = ['manager', 'runner'] as const;
+const runtimeRoots=[{source:'dist',target:'dist'},
+	{source:'.treeseed/docker/runtime/shared/package.json',target:'package.json'},
+	{source:'.treeseed/docker/runtime/shared/node_modules',target:'node_modules'}];
 
 interface AgentDevelopmentInput {
 	sessionId: string;
@@ -97,7 +100,7 @@ export function activeAgentClaims(stateRoot: string) {
 function containerState(command: CommandRunner, service: typeof services[number]) {
 	const name = `${projectName}-${service}-1`;
 	const value = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format',
-		'{"labels":{{json .Config.Labels}},"running":{{json .State.Running}},"environment":{{json .Config.Env}}}'])));
+		'{"labels":{{json .Config.Labels}},"running":{{json .State.Running}},"environment":{{json .Config.Env}},"mounts":{{json .Mounts}}}'])));
 	if (value.labels?.['com.docker.compose.project'] !== projectName || value.labels?.['com.docker.compose.service'] !== service || typeof value.running !== 'boolean')
 		throw new Error('Agent container ownership does not match the managed component.');
 	const environment: unknown[] = Array.isArray(value.environment) ? value.environment : [];
@@ -106,7 +109,9 @@ function containerState(command: CommandRunner, service: typeof services[number]
 		.filter(([key]) => ['TREESEED_CONTROL_PLANE_URL', 'TREESEED_SERVER_PROFILE_LOCAL_URL', 'TREESEED_API_URL'].includes(key)));
 	const guestDigest = environment.map(String).find((entry) => entry.startsWith('TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST='))
 		?.slice('TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST='.length) ?? null;
-	return { name, running: value.running as boolean, labels: value.labels as Record<string, string>, connectionEnvironment, guestDigest };
+	const runtimeBuild=environment.map(String).filter(entry=>entry.startsWith('TREESEED_PROVIDER_RUNTIME_BUILD='));
+	return { name, running: value.running as boolean, labels: value.labels as Record<string, string>, connectionEnvironment, guestDigest,
+		mounts:value.mounts as unknown,runtimeBuild:runtimeBuild.length===1?runtimeBuild[0]!.slice('TREESEED_PROVIDER_RUNTIME_BUILD='.length):null };
 }
 
 export function providerGuestTrustReady(expectedDigest: string, instances: readonly { running: boolean; guestDigest: string | null }[]) {
@@ -241,9 +246,12 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
 		const states = services.map((service) => containerState(command, service));
+		for(const state of states)assertDevelopmentRuntimeMounts(state,input.sessionId,'agent.provider',directory,runtimeRoots.map(root=>root.target));
+		const runtime=developmentRuntimeStatus(directory,runtimeRoots.map(root=>root.target));
+		if(states.some(state=>state.runtimeBuild!==runtime.digest))throw new Error('Provider runtime build does not match its selected copy.');
 		const expectedDigest = configuredSandboxGuestDigest();
 		const instances = states.map(({ name, running, labels, connectionEnvironment, guestDigest }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'], connectionEnvironment, guestDigest }));
-		return { registered: true, instances, ready: providerGuestTrustReady(expectedDigest, instances), expectedGuestDigest: expectedDigest };
+		return { registered: true, instances, ready: providerGuestTrustReady(expectedDigest, instances), expectedGuestDigest: expectedDigest, runtime };
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { if (existsSync(directory)) rmSync(directory, { recursive: true }); return { stopped: true }; }
@@ -266,11 +274,7 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 		workspace: source.workspace,
 		destination: runtimeRoot,
 		sourceUid: source.uid,
-		roots: [
-			{ source: 'dist', target: 'dist' },
-			{ source: '.treeseed/docker/runtime/shared/package.json', target: 'package.json' },
-			{ source: '.treeseed/docker/runtime/shared/node_modules', target: 'node_modules' },
-		],
+		roots: runtimeRoots,
 	});
 	atomicJson(resolve(directory, 'runtime-receipt.json'), receipt, 0o600);
 	const host = loadHostConfiguration();
