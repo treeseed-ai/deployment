@@ -1,6 +1,46 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.architecture-publication-unit-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "retains current same-branch authority and matching replay without changing the attached assignment"
+  deployment.golden.architecture-publication-unit-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "denies main and foreign simulation destinations instead of changing the sole attached assignment branch"
+  deployment.golden.architecture-publication-unit-3:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "requires current publication authority even when simulation delivery has no sealed credential"
+  deployment.golden.architecture-publication-unit-4:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "retains foreign-owner moved-source analysis and stopped denials without releasing live catalog custody"
+  deployment.golden.architecture-publication-native-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "retains exact verified Git content and one publication through concurrent drains without changing SQL custody"
+  deployment.golden.architecture-publication-native-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "retains work and denies changed branch authority after real Git verification without writing foreign refs"
+  deployment.golden.architecture-publication-native-3:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "denies expired and future publication envelopes after native verification while retaining the original lease"
+  deployment.golden.architecture-publication-native-4:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "retains real verified work on publication interruption and allows exact retry without another lease or guessed teardown"
   deployment.golden.runtime-public-provider-roots:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
