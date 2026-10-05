@@ -1,29 +1,140 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { composeFailureDiagnostics } from './compose-diagnostics.js';
+import { installedComponentRelease } from './component-release.js';
+import { migratePersistentComponentInput } from './component-input-migration.js';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { supervisorOperationSchema, type SupervisorOperation } from './protocol.js';
 import { paths } from '../core/paths.js';
+import { probeRunnerCustody, recoverRunnerCustody } from './runner-custody-probe.js';
+import { verifyAiStorage } from './ai/storage-verification.js';
+import { reconcileManagedIdentityClients } from './identity-clients.js';
 import { atomicJson } from '../core/files.js';
 import { generateEdgeCertificate } from '../edge/certificates.js';
+import { writeEdgeHostNetwork } from '../edge/host-network.js';
 import { assertNewGeneration, loadHostConfiguration, tryLoadHostConfiguration } from '../core/configuration.js';
 import { enrollClient } from './pki.js';
-import { configureComponent } from './component.js';
-import { createGenerationBackup, restoreGenerationBackup } from './backup.js';
+import { componentStateRoot, configureComponent, resolveDevelopmentSecretEnvironment, restoreComponentSecretFiles } from './component.js';
+import { providerRuntimeStatus } from './provider-runtime.js';
+import { agentEnrollmentDevelopmentOverride } from './development-agent-container.js';
+import { executePostgresOperation, isPostgresOperation } from './postgres-operations.js';
+import { guardPostgresTransferOperation, activePostgresTransferJournal } from './postgres-transfer-guard.js';
+import { ensureDevelopmentCredentials } from './development-credentials.js';
+import { executeBackupOperation } from './backup-operations.js';
+import { backupConfiguration, preserveAcceptedConfiguration } from './backup-configuration.js';
 import { resetPlatformState } from './reset.js';
+import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
+import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
+import { inspectSandboxHost } from '../sandbox/doctor.js';
+import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandbox/workspace-qualification.js';
+import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
+import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
+import { workspaceStatus } from '../sandbox/workspace-status.js';
+import { collectWorkspaceCache } from '../sandbox/workspace-collection.js';
+import { recoverWorkspaceBuilds } from '../sandbox/workspace-build-recovery.js';
+import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
+import { containerdImageReference } from '../sandbox/image-reference.js';
+import { ensureSandboxNetwork } from '../sandbox/network.js';
+import { reconcileSandboxModelPolicy } from './sandbox-model-policy.js';
+import { sandboxBrokerConfigurationSchema } from '../sandbox/protocol.js';
+import { activateHostDevelopment, deactivateHostDevelopment, recordHostDevelopmentGuestImage } from './host-development.js';
+import { hostDevelopmentRuntimeStatus } from './host-development-custody.js';
+import { waitForStartingActivation } from './activation-wait.js';
+import { executeDevelopmentContainer } from './development-container.js';
+import { executeDevelopmentPostgresMigration } from './development-postgres-migration.js';
+import { resumeDevelopmentAtBoot } from './development-boot.js';
+import { ensureDevelopmentConfiguration } from './development-configuration.js';
+import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
+import { initializeHostConfiguration } from './configuration-initialize.js';
+import { componentComposeArguments, composeProjectContainerIds, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
+import { bindExistingSandboxGuestTrust, importSandboxGuestArchive } from './sandbox-guest-import.js';
+import { boundedDiagnosticFailureCode } from './development-diagnostics.js';
 
-export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => void;
-const run: CommandRunner = (executable, arguments_, input) => { execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'], ...(input === undefined ? {} : { input }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } }); };
+export type { CommandRunner } from './compose-runtime.js';
 
-function bundledComposeFiles(files: readonly string[]) {
-	return files.flatMap((file) => {
-		const absolute = resolve(paths.bundles, file), root = resolve(paths.bundles);
-		if (!absolute.startsWith(`${root}${sep}`)) throw new Error('Compose file is outside the packaged component root.');
-		return ['--file', absolute];
+const run: CommandRunner = (executable, arguments_, input) => {
+	const output = execFileSync(executable, [...arguments_], { stdio: input === undefined ? 'inherit' : ['pipe', 'pipe', 'inherit'], ...(input === undefined ? {} : { input, encoding: 'utf8' }), env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' } });
+	return typeof output === 'string' ? output : undefined;
+};
+
+const capture: CommandRunner = (executable, arguments_, input) => {
+	const result = spawnSync(executable, [...arguments_], {
+		stdio: ['pipe', 'pipe', 'pipe'], input, encoding: 'utf8', maxBuffer: 65_536,
+		env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', DEBIAN_FRONTEND: 'noninteractive' },
+	});
+	if (result.error || result.status !== 0) {
+		const code = boundedDiagnosticFailureCode(`${result.stderr ?? ''}\n${result.stdout ?? ''}`, executable, arguments_);
+		throw new Error(`Managed development diagnostic failed (${code}).`);
+	}
+	return `${result.stdout ?? ''}${result.stderr ?? ''}`;
+};
+
+function enrollmentReceipt(output: unknown, connectionId: string) {
+	if (typeof output !== 'string' || output.trim().length === 0) throw new Error('Provider enrollment returned no receipt.');
+	const receipt = JSON.parse(output) as unknown;
+	if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) throw new Error('Provider enrollment returned an invalid receipt.');
+	const result = receipt as Record<string, unknown>;
+	if (result.connectionId !== connectionId) throw new Error('Provider enrollment receipt did not match the requested connection.');
+	return result;
+}
+
+function sandboxIdentityReceipts(output: unknown) {
+	if (typeof output !== 'string' || output.trim().length === 0) throw new Error('Provider identity reconciliation returned no receipt.');
+	const receipt = JSON.parse(output) as unknown;
+	if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) throw new Error('Provider identity reconciliation returned an invalid receipt.');
+	const identities = (receipt as Record<string, unknown>).identities;
+	if (!Array.isArray(identities)) throw new Error('Provider identity reconciliation omitted its identity collection.');
+	return identities.map((identity) => {
+		if (!identity || typeof identity !== 'object' || Array.isArray(identity) || typeof (identity as Record<string, unknown>).connectionId !== 'string') throw new Error('Provider identity reconciliation returned an invalid scoped identity.');
+		return identity as Record<string, unknown>;
 	});
 }
 
-function componentComposeArguments(componentId: string, files: readonly string[]) {
-	return ['--env-file', `/etc/treeseed/components/${componentId}/environment`, ...bundledComposeFiles(files)];
+function trustProviderSandboxIdentity(receipt: Record<string, unknown>) {
+	const identity = receipt.sandboxIdentity as Record<string, unknown> | undefined, keyId = String(identity?.signingKeyId ?? ''), publicJwk = identity?.publicJwk as Record<string, unknown> | undefined;
+	if (!/^provider-[a-f0-9]{16}$/u.test(keyId) || publicJwk?.kty !== 'OKP' || publicJwk.crv !== 'Ed25519' || typeof publicJwk.x !== 'string') throw new Error('Provider enrollment omitted its valid sandbox signing identity.');
+	const path = '/etc/treeseed/sandbox/providers.json'; mkdirSync(dirname(path), { recursive: true, mode: 0o750 });
+	const current = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as { schemaVersion: 1; providers: Record<string, unknown> } : { schemaVersion: 1 as const, providers: {} };
+	const scoped = { publicJwk: { kty: 'OKP', crv: 'Ed25519', x: publicJwk.x }, providerId: String(receipt.providerId ?? ''), teamId: String(receipt.teamId ?? '') }; if (!scoped.providerId || !scoped.teamId) throw new Error('Provider enrollment omitted its provider or team scope.');
+	const prior = current.providers[keyId] as typeof scoped | undefined;
+	if (prior && (prior.providerId !== scoped.providerId || prior.teamId !== scoped.teamId || prior.publicJwk?.kty !== scoped.publicJwk.kty || prior.publicJwk.crv !== scoped.publicJwk.crv || prior.publicJwk.x !== scoped.publicJwk.x)) throw new Error('Sandbox signing key identity collision.');
+	current.providers[keyId] = scoped; atomicJson(path, current, 0o640);
+}
+
+export function bindSandboxGuestTrust(digest: string, command: CommandRunner, path = '/etc/treeseed/sandbox/broker.json') {
+	const current = sandboxBrokerConfigurationSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+	if (current.guestImages.length === 0) throw new Error('Sandbox broker has no authorized guest images to bind.');
+	const architecture = process.arch === 'arm64' ? 'linux/arm64' : process.arch === 'x64' ? 'linux/amd64' : null;
+	if (!architecture) throw new Error(`Unsupported sandbox host architecture ${process.arch}.`);
+	const images = [...new Set(current.guestImages.map((entry) => entry.image))];
+	for (const image of images) command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'pull', '--platform', architecture, containerdImageReference(image, digest)]);
+	const next = { ...current, guestImages: current.guestImages.map((entry) => ({ ...entry, digest })) };
+	atomicJson(path, next, 0o640);
+	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
+	return { changed: current.guestImages.some((entry) => entry.digest !== digest), digest, images };
+}
+
+export function importDevelopmentSandboxGuest(image: string, command: CommandRunner, options: { stateRoot?: string; brokerPath?: string } = {}) {
+	if (!/^(?:docker\.io\/)?treeseed\/sandbox-[a-z0-9._-]+:local$/u.test(image)) throw new Error('Invalid development sandbox image.');
+	const stateRoot = options.stateRoot ?? paths.managerState;
+	mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+	const directory = mkdtempSync(resolve(stateRoot, 'sandbox-image-')), archive = resolve(directory, 'guest.tar');
+	try {
+		command('/usr/bin/docker', ['image', 'save', '--output', archive, image]);
+		const metadata = lstatSync(archive);
+		if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0) throw new Error('Development sandbox archive failed bounded manager custody validation.');
+		return importSandboxGuestArchive(archive, image, command, options.brokerPath);
+	} finally { rmSync(directory, { recursive: true, force: true }); }
+}
+
+
+function expectedComposeServices(operation: Extract<SupervisorOperation, { operation: 'compose.activate' }>, command: CommandRunner) {
+	if (operation.services) return operation.services;
+	const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'config', '--services'], '');
+	if (typeof output !== 'string') throw new Error('Compose did not report its expected services.');
+	const services = [...new Set(output.trim().split(/\s+/u).filter(Boolean))];
+	if (services.length === 0 || services.some((service) => !/^[a-z][a-z0-9.-]{0,127}$/u.test(service))) throw new Error('Compose reported an invalid expected service set.');
+	return services;
 }
 
 function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: CommandRunner) {
@@ -31,11 +142,87 @@ function ensureNetwork(name: 'treeseed-platform' | 'treeseed-edge', command: Com
 	catch { command('/usr/bin/docker', ['network', 'create', '--driver', 'bridge', '--label', 'org.treeseed.manager=true', name]); }
 }
 
+const aiRuntime = {
+	inference: { componentId: 'ai-inference', projectName: 'treeseed-ai-inference', gateService: 'inference-api', gpuServices: ['inference-vllm'] },
+	training: { componentId: 'ai-training', projectName: 'treeseed-ai-training', gateService: 'training-api', gpuServices: ['training-marker', 'training-axolotl'] },
+} as const;
+
+function aiCompose(role: keyof typeof aiRuntime, files: readonly string[]) {
+	const runtime = aiRuntime[role];
+	return ['compose', ...componentComposeArguments(runtime.componentId, files), '--project-name', runtime.projectName];
+}
+
+function aiGate(role: keyof typeof aiRuntime, action: 'open' | 'close' | 'status', files: readonly string[], command: CommandRunner) {
+	const runtime = aiRuntime[role];
+	const output = command('/usr/bin/docker', [...aiCompose(role, files), 'exec', '-T', runtime.gateService, '/usr/local/bin/treeseed-ai-gpu-gate', action], '');
+	if (typeof output !== 'string') throw new Error(`AI ${role} gate returned no status.`);
+	const value = JSON.parse(output) as { admission?: unknown; active?: unknown };
+	if ((value.admission !== 'open' && value.admission !== 'closed') || !Number.isInteger(value.active) || Number(value.active) < 0) throw new Error(`AI ${role} gate returned invalid status.`);
+	return { role, admission: value.admission, active: Number(value.active) };
+}
+
+function aiWorkload(role: keyof typeof aiRuntime, action: 'start' | 'stop' | 'status' | 'warm', files: readonly string[], waitTimeoutSeconds: number, command: CommandRunner) {
+	const runtime = aiRuntime[role], compose = aiCompose(role, files);
+	if (action === 'warm') {
+		if (role !== 'inference') throw new Error('Only the inference workload supports warming.');
+		command('/usr/bin/docker', [...compose, 'exec', '-T', 'inference-vllm', '/usr/local/bin/treeseed-ai-warm'], '');
+		return { role, action, ready: true };
+	}
+	if (action === 'start') command('/usr/bin/docker', [...compose, 'up', '--detach', '--no-deps', '--wait', '--wait-timeout', String(waitTimeoutSeconds), ...runtime.gpuServices]);
+	if (action === 'stop') command('/usr/bin/docker', [...compose, 'stop', ...runtime.gpuServices]);
+	const output = command('/usr/bin/docker', [...compose, 'ps', '--status', 'running', '--services', ...runtime.gpuServices], '');
+	const running = new Set(typeof output === 'string' ? output.trim().split(/\s+/u).filter(Boolean) : []);
+	return { role, action, running: runtime.gpuServices.filter((service) => running.has(service)), ready: runtime.gpuServices.every((service) => running.has(service)) };
+}
+
 function resetUnacceptedComponentState(componentId: string) {
 	if (existsSync(`${paths.managerState}/current-receipt.json`) || existsSync(`${paths.managerState}/active-components.json`)) throw new Error('Accepted component state cannot be reset by bootstrap recovery.');
 	const root = resolve(paths.components), target = resolve(root, componentId);
 	if (!target.startsWith(`${root}${sep}`)) throw new Error('Component state reset escaped the managed state root.');
 	rmSync(target, { recursive: true, force: true });
+}
+
+function ensureAiModeCredentials(command: CommandRunner) {
+	const root = '/etc/treeseed/credentials', key = `${root}/ai-mode-client.key`, certificate = `${root}/ai-mode-client.crt`, ca = `${root}/ai-mode-ca.crt`;
+	if (!existsSync(key) || !existsSync(certificate) || !existsSync(ca)) {
+		mkdirSync(root, { recursive: true, mode: 0o700 });
+		const enrollment = enrollClient('client-ai-lab-mode', command);
+		writeFileSync(key, enrollment.privateKey, { mode: 0o600 });
+		writeFileSync(certificate, enrollment.certificate, { mode: 0o600 });
+		writeFileSync(ca, enrollment.certificateAuthority, { mode: 0o644 });
+	}
+	return { clientCommonName: 'client-ai-lab-mode', key, certificate, certificateAuthority: ca };
+}
+
+export function repairSandboxTrustAnchor(operations = { exists: existsSync, chmod: chmodSync }) {
+	const path = '/etc/treeseed/sandbox/relay-ca.crt';
+	if (!operations.exists(path)) return { repaired: false, reason: 'not_initialized' };
+	operations.chmod(path, 0o644);
+	return { repaired: true, path, mode: '0644' };
+}
+
+const r2CredentialIds = ['cloudflare-r2-account-id', 'cloudflare-r2-management-token', 'cloudflare-r2-bucket-name', 'cloudflare-r2-access-key-id', 'cloudflare-r2-secret-access-key'] as const;
+const storageSafe = (value: string) => value.replaceAll(/[^a-z0-9-]/giu, '-').toLowerCase();
+function r2StorageStatus(controlPlaneId: string) {
+	const metadata = `${paths.managerState}/storage/cloudflare-r2/control-planes/${storageSafe(controlPlaneId)}.json`;
+	const binding = existsSync(metadata) ? JSON.parse(readFileSync(metadata, 'utf8')) as Record<string, unknown> : null;
+	return { metadataReady: Boolean(binding), childCredentialsReady: r2CredentialIds.every((id) => existsSync(`/etc/treeseed/credentials/${id}`)), metadata, binding };
+}
+
+function installR2Storage(operation: SupervisorOperation & { operation: 'storage.r2.install' }, command: CommandRunner) {
+	const storage = `${paths.managerState}/storage/cloudflare-r2`, authorities = `${storage}/authorities`, controlPlanes = `${storage}/control-planes`, credentials = '/etc/treeseed/credentials';
+	mkdirSync(authorities, { recursive: true, mode: 0o700 }); mkdirSync(controlPlanes, { recursive: true, mode: 0o700 }); mkdirSync(credentials, { recursive: true, mode: 0o700 });
+	writeFileSync(`${authorities}/${operation.accountId}.token`, operation.bootstrapToken, { mode: 0o600 });
+	const values: Record<(typeof r2CredentialIds)[number], string> = {
+		'cloudflare-r2-account-id': operation.accountId, 'cloudflare-r2-management-token': operation.managementToken,
+		'cloudflare-r2-bucket-name': operation.bucket, 'cloudflare-r2-access-key-id': operation.accessKeyId,
+		'cloudflare-r2-secret-access-key': operation.secretAccessKey,
+	};
+	for (const [id, secret] of Object.entries(values)) writeFileSync(`${credentials}/${id}`, secret, { mode: 0o600 });
+	atomicJson(`${controlPlanes}/${storageSafe(operation.controlPlaneId)}.json`, { schemaVersion: 'treeseed.host-storage-binding/v2', backend: 'cloudflare-r2', controlPlaneId: operation.controlPlaneId,
+		accountId: operation.accountId, bucket: operation.bucket, tokens: { privacy: operation.privacyTokenId, publisher: operation.publisherTokenId }, updatedAt: new Date().toISOString() }, 0o600);
+	command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', storage]);
+	return r2StorageStatus(operation.controlPlaneId);
 }
 
 export function recoverInvalidConfiguration(configuration: SupervisorOperation & { operation: 'configuration.recover' }, configurationPath: string = paths.configuration, archiveRoot: string = `${paths.managerState}/invalid-configurations`) {
@@ -48,53 +235,195 @@ export function recoverInvalidConfiguration(configuration: SupervisorOperation &
 	return { recovered: true, archive };
 }
 
-export function executeSupervisorOperation(input: unknown, command: CommandRunner = run) {
+export function executeSupervisorOperation(input: unknown, command: CommandRunner = run, restoreSecrets: (componentId: string) => unknown = restoreComponentSecretFiles,
+	captureCommand: CommandRunner = command === run ? capture : command,
+	sleep: (milliseconds: number) => void = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); }, now: () => number = Date.now) {
 	if (process.getuid?.() !== 0 && command === run) throw new Error('TreeSeed supervisor must run as root.');
 	const operation: SupervisorOperation = supervisorOperationSchema.parse(input);
+	guardPostgresTransferOperation(operation);
+	if (isPostgresOperation(operation)) return executePostgresOperation(operation).catch(error => {
+		if (operation.operation !== 'postgres.component.activate') throw error;
+		const selected = operation.selections.find(component => component.componentId === operation.componentId);
+		if (!selected) throw error;
+		const component = installedComponentRelease(selected.componentId, selected.release);
+		const diagnostics = composeFailureDiagnostics(component.componentId, component.runtime.compose.projectName, command, captureCommand);
+		const stage = error instanceof Error ? /^PostgreSQL component activation failed \(([a-z-]+)\);/u.exec(error.message)?.[1] : undefined;
+		const reason = error instanceof Error && (/^PostgreSQL container operation failed: operation=[a-z]+, project=[a-zA-Z0-9._-]+, exit=(?:[0-9]+|signal), timedOut=(?:true|false)$/u.test(error.message)
+			|| ['PostgreSQL component runtime remains unhealthy', 'PostgreSQL runtime drift requires repair before activation',
+				'PostgreSQL development runtime lacks exact root custody', 'PostgreSQL development runtime snapshot is invalid',
+				'PostgreSQL runtime has competing development owners', 'Verified shared-server restore point required',
+				'PostgreSQL allocation plan is blocked'].includes(error.message)) ? error.message : undefined;
+		const systemCode = /^[A-Z0-9_]{1,20}$/u.test(String((error as { code?: unknown })?.code ?? '')) ? String((error as { code: string }).code) : undefined;
+		throw new Error(`PostgreSQL component activation failed${stage ? ` (${stage})` : ''}; reason=${reason ?? systemCode ?? 'unclassified'}; component health: ${JSON.stringify(diagnostics)}`, { cause: error });
+	});
+	if (operation.operation.startsWith('backup.') || operation.operation.startsWith('development.backup.') || operation.operation === 'recovery.restore') return executeBackupOperation(operation);
+	if (operation.operation.startsWith('provider.environment.')) return executeProviderEnvironmentOperation(operation as Parameters<typeof executeProviderEnvironmentOperation>[0]);
+	if (operation.operation === 'provider.runtime.status') return providerRuntimeStatus(componentStateRoot(loadHostConfiguration(), 'agent'));
 	switch (operation.operation) {
+		case 'postgres.transfer.status': return activePostgresTransferJournal()?.active() ?? null;
 		case 'supervisor.ping': return { ready: true };
+		case 'provider.runtime.reconcile': return (async () => {
+			const { loadActiveComponents } = await import('../manager/current-state.js');
+			const { componentActivationInputs, composeFiles } = await import('../manager/reconcile.js');
+			const host = loadHostConfiguration(), releases = loadActiveComponents();
+			const component = releases.find(value => value.componentId === 'agent');
+			if (!component || !host.components.agent?.enabled) throw new Error('No enabled accepted Agent release.');
+			const inputs = componentActivationInputs(host, component, releases);
+			configureComponent('agent', component.release, inputs.connectionEnvironment, inputs.secretFileIds,
+				inputs.optionalSecretEnvironment, component.images.find(value => value.role === 'sandbox-guest')?.digest);
+			await executeSupervisorOperation({ operation: 'compose.activate', componentId: 'agent',
+				files: composeFiles(component), projectName: component.runtime.compose.projectName, waitTimeoutSeconds: 180 }, command, restoreSecrets, captureCommand, sleep, now);
+			return { componentId: 'agent', release: component.release, configured: true };
+		})();
+		case 'custody.runner.probe': return probeRunnerCustody();
+		case 'custody.runner.recover': return recoverRunnerCustody();
+		case 'security.plan': return providerSecurityPlan();
+		case 'security.status': return providerSecurityStatus();
+		case 'security.verify': return verifyProviderSecurity(command);
+		case 'security.initialize': return initializeProviderSecurity(operation.recoveryBundle, operation.recoveryPassphrase, command);
+		case 'provider.credentials.status': return { configuredCredentialIds: operation.credentialIds.filter((credentialId) => existsSync(`/etc/treeseed/credentials/${credentialId}.cred`)) };
+		case 'provider.credential.initialize': return initializeProviderCredential(operation.initializerId, operation.sourceId, operation.secret, command);
+		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
+		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
+		case 'sandbox.status':
+		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
+		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
+		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());
+		case 'sandbox.workspace.cache.qualify': return qualifySourceCacheQuota();
+		case 'sandbox.workspace.cache.collect': return collectWorkspaceCache(loadSandboxBrokerConfiguration());
+		case 'sandbox.workspace.status': return workspaceStatus();
+		case 'sandbox.workspace.build.recover': return recoverWorkspaceBuilds(loadSandboxBrokerConfiguration());
+		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());
+		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
+		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);
+		case 'sandbox.model-policy.reconcile': return reconcileSandboxModelPolicy(loadHostConfiguration(), command);
+		case 'sandbox.guest-trust.bind': return bindSandboxGuestTrust(operation.digest, command);
+		case 'sandbox.guest-image.import': {
+			const imported = importDevelopmentSandboxGuest(operation.image, command);
+			recordHostDevelopmentGuestImage(imported.digest);
+			return imported;
+		}
 		case 'apt.refresh':
 		case 'apt.install':
 			atomicJson(`${paths.managerState}/pending-packages.json`, operation, 0o600);
 			command('/usr/bin/systemctl', ['start', 'treeseed-manager-apt-helper.service']);
 			if (operation.operation === 'apt.refresh' && existsSync(`${paths.managerState}/last-apt-result.json`)) return JSON.parse(readFileSync(`${paths.managerState}/last-apt-result.json`, 'utf8')) as unknown;
 			break;
-		case 'component.configure': configureComponent(operation.componentId, operation.connectionEnvironment); break;
+		case 'component.configure':
+			if (operation.sandboxGuestImageDigest) bindSandboxGuestTrust(operation.sandboxGuestImageDigest, command);
+			configureComponent(operation.componentId, operation.release, operation.connectionEnvironment, operation.secretFileIds ?? [], operation.optionalSecretEnvironment ?? [], operation.sandboxGuestImageDigest); break;
+		case 'identity.clients.reconcile': return reconcileManagedIdentityClients();
+		case 'development.credentials.ensure': return ensureDevelopmentCredentials(loadHostConfiguration());
+		case 'development.configuration.ensure': return ensureDevelopmentConfiguration(command);
+		case 'development.environment': return { environment: resolveDevelopmentSecretEnvironment(loadHostConfiguration(), operation.componentId, operation.secretRefs, operation.connectionEnvironment) };
+		case 'development.container': return executeDevelopmentContainer(operation);
+		case 'development.postgres.migrate': return executeDevelopmentPostgresMigration(operation, command, captureCommand);
+		case 'development.boot.resume': return resumeDevelopmentAtBoot(operation.sessionId, command);
 		case 'component.reset-unaccepted': resetUnacceptedComponentState(operation.componentId); break;
 		case 'provider.enroll': {
 			const marker = `${paths.managerState}/provider-enrollments/${operation.connectionId}.json`;
-			if (existsSync(marker)) return JSON.parse(readFileSync(marker, 'utf8')) as unknown;
+			if (existsSync(marker)) {
+				const input = `${JSON.stringify({ action: 'identity', connectionId: operation.connectionId })}\n`;
+				const identity = enrollmentReceipt(command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input), operation.connectionId);
+				trustProviderSandboxIdentity(identity);
+				const current = JSON.parse(readFileSync(marker, 'utf8')) as Record<string, unknown>;
+				const result = { ...current, sandboxSigningKeyId: (identity.sandboxIdentity as Record<string, unknown>).signingKeyId };
+				atomicJson(marker, result, 0o600);
+				return result;
+			}
 			const secretPath = `/etc/treeseed/credentials/${operation.registrationSecretId}`;
-			const enrollmentToken = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
-			if (!enrollmentToken) throw new Error('Provider registration credential is empty.');
-			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, teamId: operation.teamId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, enrollmentToken })}\n`;
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			const registrationCode = readFileSync(secretPath, 'utf8').replace(/\r?\n$/u, '');
+			if (!registrationCode) throw new Error('Provider registration credential is empty.');
+			const input = `${JSON.stringify({ action: 'begin', connectionId: operation.connectionId, controlPlaneUrl: operation.controlPlaneUrl, controlPlaneAudience: operation.controlPlaneAudience, registrationCode: registrationCode })}\n`;
+			const enrollment = enrollmentReceipt(command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input), operation.connectionId);
+			trustProviderSandboxIdentity(enrollment);
 			unlinkSync(secretPath);
-			const result = { connectionId: operation.connectionId, state: 'pending-approval', oneTimeCredentialRemoved: true };
+			const result = { connectionId: operation.connectionId, state: 'pending-approval', oneTimeCredentialRemoved: true, sandboxSigningKeyId: (enrollment.sandboxIdentity as Record<string, unknown>).signingKeyId };
 			atomicJson(marker, result, 0o600);
 			return result;
 		}
+		case 'provider.enrollment-handoff': {
+			const input = `${JSON.stringify(operation.payload)}\n`;
+			const override = agentEnrollmentDevelopmentOverride();
+			const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), ...(override ? ['--file', override] : []), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+			return enrollmentReceipt(output, operation.payload.connectionId);
+		}
 		case 'compose.activate':
 			ensureNetwork('treeseed-platform', command);
-			command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds)]);
+			try {
+				const deadline = now() + operation.waitTimeoutSeconds * 1_000;
+				try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'up', '--detach', '--remove-orphans', '--wait', '--wait-timeout', String(operation.waitTimeoutSeconds), ...(operation.services ?? [])]); }
+				catch (error) {
+					const initial = composeFailureDiagnostics(operation.componentId, operation.projectName, command, captureCommand);
+					let result = { ready: false, diagnostics: initial };
+					try {
+						const expected = expectedComposeServices(operation, command);
+						result = waitForStartingActivation(initial, expected, () => composeFailureDiagnostics(operation.componentId, operation.projectName, command, captureCommand), deadline, sleep, now);
+					} catch { /* preserve the original failure and bounded diagnostics */ }
+					if (!result.ready) {
+						if (result.diagnostics.length === 0) throw error;
+						const message = error instanceof Error ? error.message : String(error);
+						throw new Error(`${message}; component health: ${JSON.stringify(result.diagnostics)}`, { cause: error });
+					}
+				}
+			}
+			catch (error) {
+				restoreSecrets(operation.componentId);
+				throw error;
+			}
+			if (operation.componentId === 'agent' && operation.projectName === 'treeseed-agent' && (!operation.services || operation.services.includes('manager'))) {
+				const input = `${JSON.stringify({ action: 'identities' })}\n`;
+				const output = command('/usr/bin/docker', ['compose', ...componentComposeArguments('agent', operation.files), '--project-name', operation.projectName, 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json'], input);
+				for (const identity of sandboxIdentityReceipts(output)) trustProviderSandboxIdentity(identity);
+			}
 			break;
-		case 'compose.stop': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); break;
-		case 'compose.remove': command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); break;
+		case 'compose.stop': try {
+			if (composeProjectContainerIds(operation.projectName, command, true).length === 0) break;
+			try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'stop']); }
+			catch (error) {
+				const remaining = composeProjectContainerIds(operation.projectName, command, true);
+				if (remaining.length === 0) break;
+				command('/usr/bin/docker', ['stop', ...remaining]);
+				if (composeProjectContainerIds(operation.projectName, command, true).length > 0) throw error;
+			}
+		} finally { restoreSecrets(operation.componentId); } break;
+		case 'compose.status': {
+			const status = composeRuntimeStatus(operation, command);
+			const id = operation.runtime?.componentId ?? (operation.projectName === 'treeseed-postgres' ? 'postgres' : undefined);
+			return id
+				? { ...status, diagnostics: composeFailureDiagnostics(id, operation.projectName, command, captureCommand) }
+				: status;
+		}
+		case 'compose.remove': try { command('/usr/bin/docker', ['compose', ...componentComposeArguments(operation.componentId, operation.files), '--project-name', operation.projectName, 'down', '--remove-orphans']); } finally { restoreSecrets(operation.componentId); } break;
+		case 'ai.gpu.gate': return aiGate(operation.role, operation.action, operation.files, command);
+		case 'ai.gpu.workload': return aiWorkload(operation.role, operation.action, operation.files, operation.waitTimeoutSeconds, command);
+		case 'ai.mode.credentials.ensure': return ensureAiModeCredentials(command);
+		case 'ai.storage.verify': return verifyAiStorage();
+		case 'storage.r2.status': return r2StorageStatus(operation.controlPlaneId);
+		case 'storage.r2.install': return installR2Storage(operation, command);
+		case 'host.development.activate': {
+			ensureSandboxNetwork(command);
+			if (operation.activation.guestImageDigest) bindExistingSandboxGuestTrust(operation.activation.guestImageDigest, command);
+			return activateHostDevelopment(operation.activation, command);
+		}
+		case 'host.development.status': return hostDevelopmentRuntimeStatus();
+		case 'host.development.deactivate': return deactivateHostDevelopment(command);
 		case 'systemd.control': command('/usr/bin/systemctl', [operation.action, operation.unit]); break;
 		case 'edge.apply': {
 			const target = `${paths.edge}/Caddyfile`, temporary = `${target}.new`;
 			mkdirSync(dirname(target), { recursive: true, mode: 0o750 });
 			writeFileSync(temporary, operation.caddyfile, { mode: 0o640 });
 			generateEdgeCertificate(operation.aliases, command);
+			const bridge = JSON.parse(execFileSync('/usr/bin/docker', ['network','inspect','bridge'], {encoding:'utf8',timeout:10_000,maxBuffer:65536}))[0];
+			writeEdgeHostNetwork(`${paths.edge}/host-network.yml`, bridge);
 			command('/usr/bin/docker', ['compose', '--file', '/usr/share/treeseed/edge/compose.yml', 'run', '--rm', '--no-deps', 'caddy', 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile']);
 			renameSync(temporary, target);
+			command('/usr/bin/docker', ['compose','--file','/usr/share/treeseed/edge/compose.yml','--file',`${paths.edge}/host-network.yml`,'up','--detach','--wait']);
 			command('/usr/bin/systemctl', ['reload-or-restart', 'treeseed-edge.service']);
 			break;
 		}
-		case 'backup.create': return createGenerationBackup(operation.generation, command);
-		case 'recovery.restore': return restoreGenerationBackup(operation.generation, command);
 		case 'platform.reset': {
-			const result = resetPlatformState();
+			const result = resetPlatformState({ components: operation.componentDataRoot, componentConfiguration: '/etc/treeseed/components', managerState: paths.managerState, backups: paths.backups });
 			// The supervisor performs deletion as root, but reconciliation and the
 			// local manager API deliberately run as treeseed-manager. Restore their
 			// custody before the supervisor records completion or reset continues.
@@ -104,6 +433,8 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			command('/usr/bin/chown', ['-R', 'treeseed-manager:treeseed-manager', paths.managerState]);
 			return result;
 		}
+		case 'platform.uninstall.plan': return planHostUninstall();
+		case 'platform.uninstall.execute': return scheduleHostUninstall(operation.purgeSecurity);
 		case 'cli.configure': {
 			mkdirSync(paths.cli, { recursive: true, mode: 0o755 });
 			writeFileSync(`${paths.cli}/api-base-url`, `${operation.controlPlaneUrl}\n`, { encoding: 'utf8', mode: 0o644 });
@@ -111,20 +442,32 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			break;
 		}
 		case 'manager.restart': command('/usr/bin/systemctl', ['--no-block', 'start', 'treeseed-manager-restart.service']); break;
+		case 'configuration.initialize': return initializeHostConfiguration(operation, command);
+		case 'configuration.restore-accepted': {
+			const accepted = backupConfiguration(loadHostConfiguration());
+			atomicJson(paths.configuration, accepted, 0o640);
+			return { restored: true, generation: accepted.generation };
+		}
+		case 'component.inputs.migrate': return migratePersistentComponentInput(operation);
 		case 'configuration.replace': {
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
+			preserveAcceptedConfiguration(current);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}
 		case 'configuration.adopt': {
 			const current = loadHostConfiguration();
 			if (current.configurationId === operation.configuration.configurationId) throw new Error('Configuration adoption requires a different configuration identity.');
+			preserveAcceptedConfiguration(current);
 			atomicJson(`${paths.managerState}/adopted-configurations/${current.configurationId}-${current.generation}.json`, current, 0o600);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}
 		case 'configuration.recover': return recoverInvalidConfiguration(operation);
+		case 'updates.activate':
+			command('/usr/bin/systemctl', ['enable', '--now', 'treeseed-manager-stable.timer', 'treeseed-manager-development.timer']);
+			break;
 		case 'pki.enroll': return enrollClient(operation.clientId, command);
 	}
 }

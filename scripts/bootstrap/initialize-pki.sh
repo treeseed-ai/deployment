@@ -8,7 +8,8 @@ if [ ! -f "$tls/ca.key" ]; then
   openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$tls/ca.key"
   openssl req -x509 -new -key "$tls/ca.key" -sha256 -days 3650 -subj '/CN=TreeSeed Local Host CA' -out "$tls/ca.crt"
 fi
-aliases=$(jq -r '.network.manager.aliases[]' /etc/treeseed/platform.json)
+aliases=
+if [ -f /etc/treeseed/platform.json ]; then aliases=$(jq -r '.network.manager.aliases[]' /etc/treeseed/platform.json); fi
 san='DNS:localhost,IP:127.0.0.1'
 for alias in $aliases; do san="$san,DNS:$alias"; done
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$tls/server.key"

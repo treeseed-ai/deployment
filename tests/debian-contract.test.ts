@@ -1,7 +1,74 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 describe('Debian and systemd contracts', () => {
+	it.each(['publish.yml', 'publish-lab.yml'])('uses environment-scoped Docker Hub username/password in %s', (filename) => {
+		const source = readFileSync(`.github/workflows/${filename}`, 'utf8');
+		const workflow = parse(source) as { jobs: { publish: { environment: string; steps: Array<{ uses?: string; with?: Record<string, string> }> } } };
+		const job = workflow.jobs.publish;
+		expect(job.environment).toBe(filename === 'publish-lab.yml' ? 'staging' : "${{ inputs.suite == 'stable' && 'production' || 'staging' }}");
+		const logins = job.steps.filter((step) => step.uses?.startsWith('docker/login-action@'));
+		expect(logins).toHaveLength(1);
+		expect(logins[0]?.with).toEqual({ username: '${{ vars.DOCKERHUB_USERNAME }}', password: '${{ secrets.DOCKERHUB_TOKEN }}' });
+		expect(source).not.toContain('TREESEED_DOCKERHUB_USERNAME');
+	});
+
+	it('revises the repackaged CLI for every immutable composition', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packaging).toContain("`${debianVersion(cliPayload.version).replace(/-1$/u, '-2')}+deployment${deploymentVersion.replace(/-1$/u, '')}`");
+		expect(packaging).toContain('treeseed-host-runtime`, description: \'TreeSeed trsd host client payload\'');
+		expect(packaging).not.toContain('treeseed-host-runtime (= ${deploymentVersion})`, description: \'TreeSeed trsd host client payload\'');
+	});
+
+	it('keeps the Kata package small while verifying the exact runtime before atomic activation', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const postinstall = readFileSync('debian/kata-runtime/postinst', 'utf8');
+		expect(packaging).toContain("writeFileSync(resolve(stage, 'usr/share/treeseed/kata-runtime.env')");
+		expect(packaging).not.toContain("execFileSync('/usr/bin/tar', ['--extract', '--zstd'");
+		expect(postinstall).toContain('sha256sum --check --status');
+		expect(postinstall).toContain('mv -Tf /opt/kata.new /opt/kata');
+		expect(postinstall).toContain('Pinned Kata archive has an unexpected layout.');
+	});
+
+	it('accepts either distribution containerd or Docker containerd.io', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packaging.match(/containerd \(>= 2\.0\) \| containerd\.io \(>= 2\.0\)/gu)).toHaveLength(2);
+	});
+
+	it('keeps SDK-owned runtime dependencies out of the Debian CLI payload', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
+		expect(packaging).toContain("const sdkOwnedCliRuntimePaths = sdkRuntimePaths.filter((path) => path !== 'typescript')");
+		expect(packaging).toContain('for (const path of sdkOwnedCliRuntimePaths) rmSync');
+		expect(verification).toContain('both own ${path}');
+	});
+
+	it('ships and imports the manager SDK runtime closure', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
+		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod']");
+		expect(packaging).toContain("['libsodium-sumo', 'libsodium-wrappers-sumo']");
+		for (const entry of ['operator-contracts/operation-builder.js', 'secrets-capability/secret-contracts.js', 'secrets-capability/github-actions-encryption.js', 'standards/typescript/extract.js']) expect(verification).toContain(entry);
+	});
+
+	it('ships provider credential initializers as replaceable data registrations', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const brokerUnit = readFileSync('systemd/treeseed-sandbox-broker.service', 'utf8');
+		expect(brokerUnit).toContain('/var/lib/cni');
+		expect(packaging).toContain("resolve(stage, 'usr/share/treeseed/credential-initializers')");
+		expect(JSON.parse(readFileSync('credential-initializers/treeseed.codex.json', 'utf8'))).toMatchObject({ schemaVersion: 'treeseed.host-credential-initializer/v1', id: 'treeseed.codex' });
+		expect(brokerUnit).not.toContain('model-provider-auth');
+		expect(brokerUnit).toContain('RuntimeDirectoryPreserve=yes');
+	});
+
+	it('bootstraps component configuration before an upgraded manager activates it', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		expect(packaging).toContain("resolve(stage, 'DEBIAN/postinst')");
+		expect(packaging).toContain('if [ ! -e ${configurationRoot}/environment ]');
+		expect(packaging).toContain('-o root -g treeseed-manager -m 0640');
+	});
+
 	it('ships independent stable and development schedulers', () => {
 		const stable = readFileSync('systemd/treeseed-manager-stable.timer', 'utf8');
 		const development = readFileSync('systemd/treeseed-manager-development.timer', 'utf8');
@@ -15,6 +82,9 @@ describe('Debian and systemd contracts', () => {
 		const units = readdirSync('systemd').filter((name) => name.endsWith('.service'));
 		const supervisor = readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8');
 		expect(supervisor).toContain('ProtectSystem=strict');
+		expect(supervisor).toContain('ProtectHome=no');
+		expect(supervisor).toContain('workspace-visible .treeseed/data root');
+		expect(supervisor).toContain('-/etc/systemd/system/treeseed-sandbox-broker.service.d');
 		for (const unit of units.filter((name) => name.startsWith('treeseed-manager-') && !['treeseed-manager-supervisor.service', 'treeseed-manager-apt-helper.service', 'treeseed-manager-restart.service'].includes(name))) {
 			const value = readFileSync(`systemd/${unit}`, 'utf8');
 			expect(value).toContain('User=treeseed-manager');
@@ -29,7 +99,11 @@ describe('Debian and systemd contracts', () => {
 		expect(supervisor).toContain('-g treeseed-operators -m 0770 /run/treeseed/manager');
 		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
 		expect(managerPostinstall).not.toContain('try-restart');
-		expect(managerPostinstall).not.toContain('restart treeseed-manager');
+		expect(managerPostinstall).not.toMatch(/restart treeseed-manager-(?:supervisor|api|stable\.service|development\.service)/u);
+		expect(managerPostinstall).toContain('for unit in treeseed-manager-supervisor treeseed-manager-api treeseed-sandbox-broker treeseed-manager-reconcile treeseed-manager-stable treeseed-manager-development');
+		expect(managerPostinstall).toContain('"/etc/systemd/system/$unit.service.d"');
+		expect(managerPostinstall).not.toContain('model-provider-auth');
+		expect(managerPostinstall).not.toContain('20-execution-provider-credential.conf');
 		expect(readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8')).toContain('systemctl restart treeseed-manager-supervisor.service treeseed-manager-api.service');
 	});
 
@@ -45,6 +119,7 @@ describe('Debian and systemd contracts', () => {
 		expect(publication).toContain('platforms: linux/amd64,linux/arm64');
 		expect(publication).toContain('Bind and read back exact lab images');
 		expect(publication).toContain('TREESEED_REQUIRE_PUBLISHED_IMAGES=1');
+		expect(publication).toContain("require('./package.json').version");
 		expect(publication).toContain('gh release create');
 		expect(readFileSync('scripts/prepare-artifacts.ts', 'utf8')).toContain('Integration selection');
 	});
@@ -65,45 +140,51 @@ describe('Debian and systemd contracts', () => {
 		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('RuntimeDirectory=treeseed/manager');
 		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('Group=treeseed-operators');
 		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('SupplementaryGroups=treeseed-manager');
+		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('/var/lib/systemd');
+		expect(readFileSync('systemd/treeseed-manager-supervisor.service', 'utf8')).toContain('/etc/cni/net.d');
+		expect(readFileSync('debian/manager/postinst', 'utf8')).toContain('/etc/cni/net.d');
+		expect(readFileSync('debian/manager/postinst', 'utf8')).toContain('/opt/cni/bin/$plugin');
 	});
 
-	it('documents configured-package credential consumption and deletion', () => {
-		const generator = readFileSync('scripts/configure-bootstrap.ts', 'utf8');
-		const postinstall = readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8');
-		expect(generator).toContain('--consume-credentials');
-		expect(generator).toContain('unlinkSync(resolve(credentialsPath))');
-		expect(generator).not.toContain('console.log(credentials');
-		expect(generator).toContain('containsPlaintextBootstrapCredentials: credentials !== undefined');
-		expect(postinstall).toContain('rm -f "$state/seed/credentials.json"');
-		expect(postinstall).toContain('/etc/treeseed/credentials/$secret_id');
-		expect(postinstall).toContain('securely delete the downloaded configured .deb');
-		expect(postinstall).toContain('rm -f "$seed"');
+	it('publishes a generic credential-free bootstrap foundation', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const bootstrap = readFileSync('scripts/bootstrap/bootstrap.sh', 'utf8');
+		expect(packaging).toContain('Generic credential-free TreeSeed host bootstrap foundation');
+		expect(packaging).not.toContain('TREESEED_CONFIGURATION_FILE');
+		expect(packaging).not.toContain('TREESEED_CREDENTIALS_FILE');
+		expect(packaging).not.toContain("packages['treeseed-ai']");
+		expect(bootstrap).not.toContain('/etc/treeseed/platform.json');
+		expect(bootstrap).not.toContain('credentials.json');
+		expect(bootstrap).not.toContain('treeseed-component-');
+		expect(bootstrap).not.toContain('treeseed-edge');
+		expect(bootstrap).not.toContain('systemctl start treeseed-manager-reconcile.service');
+		expect(bootstrap).toContain('"foundationReady":true,"initializationRequired":true');
+		expect(bootstrap).toContain('"installerCredentialsRetained":false');
 		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('systemctl --no-block start treeseed-bootstrap.service');
 		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).not.toContain('enable --now');
 		expect(readFileSync('debian/bootstrap/postinst', 'utf8')).toContain('adduser "$operator" treeseed-operators');
-		expect(readFileSync('systemd/treeseed-bootstrap.service', 'utf8')).toContain('ConditionPathExists=/var/lib/treeseed/bootstrap/seed/platform.json');
-		expect(postinstall).toContain('treeseed-deployment-stable.sources');
-		expect(postinstall).toContain('treeseed-deployment-development.sources');
-		expect(postinstall).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
-		expect(postinstall).toContain('--target-release "$suite"');
-		expect(postinstall).toContain('$package/$suite');
-		expect(postinstall).toContain('--allow-downgrades');
-		expect(postinstall).toContain('bootstrap-status.json');
-		expect(postinstall).toContain('-o root -g treeseed-manager -m 0640');
-		expect(postinstall).toContain('"complete":true,"installerCredentialsRetained":false');
+		expect(readFileSync('systemd/treeseed-bootstrap.service', 'utf8')).toContain('ConditionPathExists=!/var/lib/treeseed/bootstrap/foundation.complete');
+		expect(readFileSync('systemd/treeseed-bootstrap.service', 'utf8')).toContain('ConditionPathExists=!/etc/treeseed/platform.json');
+		expect(bootstrap).toContain('treeseed-deployment-stable.sources');
+		expect(bootstrap).toContain('treeseed-deployment-development.sources');
+		expect(bootstrap).not.toContain('rm -f /etc/apt/sources.list.d/treeseed-deployment-');
+		expect(bootstrap).toContain('--target-release "$suite"');
+		expect(bootstrap).toContain("deployment_version=$(dpkg-query -W -f='${Version}' treeseed)");
+		expect(bootstrap).toContain('bootstrap release %s is not yet visible');
+		expect(bootstrap).toContain('treeseed-host-runtime=$deployment_version');
+		expect(bootstrap).toContain('treeseed-kata-runtime=$deployment_version');
+		expect(bootstrap).toContain('treeseed-manager=$deployment_version');
+		expect(bootstrap).toContain('treeseed-release-catalog-development=$catalog_candidate');
+		expect(bootstrap).toContain('--allow-downgrades');
+		expect(bootstrap).toContain('systemctl disable --now treeseed-manager-development.timer treeseed-manager-stable.timer');
+		expect(bootstrap).toContain('/usr/lib/treeseed/manager/dist/src/bin/wait-supervisor.js');
 		expect(readFileSync('src/manager/operations.ts', 'utf8')).not.toContain('/var/lib/treeseed/bootstrap/');
-		const workstation = readFileSync('scripts/build-workstation-bootstrap.ts', 'utf8');
-		expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['build:workstation']).toContain('artifacts:prepare');
-		expect(workstation).toContain('(authStat.mode & 0o077) !== 0');
-		expect(workstation).toContain("'--consume-credentials'");
-		expect(workstation).toContain("generateKeyPairSync('rsa', { modulusLength: 2048 })");
-		expect(workstation).toContain("'api-treedx-delegation-private-key'");
-		expect(workstation).toContain("'treedx-credential-broker-assertion'");
-		expect(workstation).not.toContain('console.log');
+		const managerPostinstall = readFileSync('debian/manager/postinst', 'utf8');
+		expect(managerPostinstall).toContain('addgroup --system treeseed-component-secrets');
+		expect(managerPostinstall).toContain('-g treeseed-component-secrets -m 0710 /var/lib/treeseed/component-secrets');
+		expect(managerPostinstall).toContain('if [ -f /etc/treeseed/platform.json ]');
+		expect(managerPostinstall).toContain('systemctl disable --now treeseed-manager-stable.timer treeseed-manager-development.timer');
 		for (const suite of ['stable', 'development']) expect(readFileSync(`deploy/bootstrap/${suite}.sources`, 'utf8')).toContain(`Signed-By: /etc/apt/keyrings/treeseed-deployment-${suite}.gpg`);
-		const readme = readFileSync('README.md', 'utf8');
-		expect(readme).toContain('install -o _apt -g root -m 0600');
-		expect(readme).not.toContain('chmod 644');
 	});
 
 	it('locks every external component and host payload through exact Platform integration releases', () => {
@@ -119,6 +200,24 @@ describe('Debian and systemd contracts', () => {
 		const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 		expect(publisher).toContain('release/apt/${suite}.fingerprint');
 		expect(publisher).toContain('does not match its published keyring');
+		expect(workflow.indexOf('Require protected publication credentials before building')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
+		expect(workflow.indexOf('Require the protected workflow ref for the selected suite')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
+		expect(workflow).toContain("refs/heads/main' || 'refs/heads/staging");
+		expect(workflow).toContain('Published release asset differs: $name');
+		expect(workflow).toContain('cmp --silent "$asset" "$existing_dir/$name"');
+		expect(workflow).not.toContain('gh release upload "${{ inputs.tag }}" release/out/*');
+		expect(workflow).toContain('Restore exact release assets for APT-only resume');
+		expect(workflow).toContain("gh release download \"${{ inputs.tag }}\" --pattern '*.deb' --pattern 'treeseed-deployment-runtime-*.tgz' --pattern exact-head.json");
+		expect(workflow).toContain('Rebuild only the generation-bound development catalog');
+		expect(workflow).toContain('node --import tsx scripts/verify-deb.ts');
+		expect(workflow).toContain('.repository == $repository and .commit == $commit and .tag == $tag and .suite == $suite');
+		expect(workflow).toContain('if: ${{ !inputs.resume_apt_only }}');
+		expect(workflow).toContain('checked_out_head="$(git rev-parse HEAD)"');
+		expect(workflow).toContain('test "$checked_out_head" = "$(git rev-list -n 1');
+		expect(workflow).not.toContain('"$GITHUB_REPOSITORY" "$GITHUB_SHA" "${{ inputs.tag }}"');
+		expect(workflow).toContain('APT Pages read-back converged');
+		expect(workflow).toContain('expected_inrelease=');
+		expect(workflow).toContain('?commit=${pages_commit}&attempt=${attempt}');
 		const stable = readFileSync('release/apt/stable.fingerprint', 'utf8').trim();
 		const development = readFileSync('release/apt/development.fingerprint', 'utf8').trim();
 		expect(stable).toMatch(/^[A-F0-9]{40}$/u);
@@ -127,14 +226,15 @@ describe('Debian and systemd contracts', () => {
 		expect(workflow).toContain('find .treeseed/artifacts/components/lab');
 		expect(workflow).not.toMatch(/components\/lab\/0\.1\.0~rc\d+-1\/component-release/u);
 		expect(workflow).toContain('TREESEED_APT_SUITE: ${{ inputs.suite }}');
-		expect(readFileSync('.github/workflows/publish-lab.yml', 'utf8')).toContain('environment: development');
+		expect(readFileSync('.github/workflows/publish-lab.yml', 'utf8')).toContain('environment: staging');
 		expect(readFileSync('scripts/package-deb.ts', 'utf8')).toContain("aptSuite !== 'stable' || name !== 'treeseed-release-catalog-development'");
 	});
 
-	it('versions stable catalog packages by immutable catalog generation', () => {
+	it('versions stable catalog packages by immutable generation and digest', () => {
 		const packager = readFileSync('scripts/package-deb.ts', 'utf8');
-		expect(packager).toContain('stableCatalog.generation');
-		expect(packager).toContain('`${stableCatalogRelease}-${stableCatalog.generation}`');
+		expect(packager).toContain('catalogDebianVersion(stableCatalog)');
+		expect(packager).toContain('version: developmentCatalogVersion');
+		expect(readFileSync('scripts/catalog-package-version.ts', 'utf8')).toContain("+catalog.${catalog.catalogDigest.slice(7, 19)}");
 		expect(packager).not.toContain('const stableCatalogVersion = `${stableCatalogRelease}-1`');
 	});
 
@@ -148,15 +248,24 @@ describe('Debian and systemd contracts', () => {
 		expect(bootstrap).not.toContain('treeseed-component-$component');
 		expect(helper).toContain("'--allow-downgrades'");
 		expect(helper).toContain("'DPkg::Lock::Timeout=600'");
+		expect(helper).toContain("'Acquire::http::No-Cache=true'");
+		expect(helper).toContain("'Acquire::https::No-Cache=true'");
+		expect(readFileSync('src/supervisor/component.ts', 'utf8')).toContain("if (componentId === 'agent') { chownSync(target, 0, 65_532); chmodSync(target, 0o640); }");
 		expect(helper).toContain("'--no-remove'");
 		expect(helper).toContain("'--target-release'");
-		expect(helper).toContain('corePackagesForTrack(operation.track, before)');
+		expect(helper).toContain("command('/usr/bin/apt-get', ['clean'])");
+		expect(helper).toContain('exactPackagesForRefresh(operation.track, before)');
 		expect(reconciliation).toContain("operation: 'apt.refresh'");
 		expect(reconciliation).toContain("operation: 'backup.create'");
 		expect(reconciliation).toContain("operation: 'recovery.restore'");
+		expect(reconciliation.indexOf('componentActivationInputs(host')).toBeLessThan(reconciliation.indexOf("operation: 'backup.create'"));
+		expect(reconciliation).toContain('!heldDevelopmentComponents.has(component.componentId)');
+		expect(backup).not.toContain("'usr/share/treeseed/components'");
 		expect(reconciliation).toContain('reconcile.rollback-complete');
 		expect(supervisor).not.toContain('/usr/lib/treeseed/manager/bin/restore-generation');
-		expect(backup).toContain("'var/lib/treeseed/components'");
+		expect(backup).toContain('requiredBackupState(host, components)');
+		expect(backup).toContain('assertNoBackupWriters(state)');
+		expect(backup).not.toContain("'usr/share/treeseed/components'");
 		expect(publisher).not.toContain('rmSync(pool');
 	});
 

@@ -5,33 +5,50 @@ import { paths } from '../core/paths.js';
 import { recordEvent } from '../core/events.js';
 import { executeSupervisorOperation } from './execute.js';
 
+export function supervisorConnectionHandler(execute: (input: unknown) => unknown = executeSupervisorOperation, event = recordEvent) {
+	return (connection: import('node:net').Socket) => {
+		let input = '';
+		connection.setEncoding('utf8');
+		connection.on('error', () => undefined);
+		connection.on('data', (chunk) => {
+			input += chunk;
+			if (input.length > 1_200_000) connection.destroy(new Error('Supervisor request exceeds its bounded request limit.'));
+		});
+		connection.on('end', async () => {
+			if (connection.destroyed) return;
+			let operation = 'unknown';
+			let componentId: string | undefined;
+			try {
+				const request = JSON.parse(input) as unknown;
+				operation = typeof (request as { operation?: unknown }).operation === 'string' ? (request as { operation: string }).operation : 'unknown';
+				const candidate = (request as { componentId?: unknown }).componentId;
+				if (typeof candidate === 'string' && /^[a-z][a-z0-9-]{0,63}$/u.test(candidate)) componentId = candidate;
+				const result = await execute(request);
+				event('supervisor.operation-complete', { operation, ...(componentId ? { componentId } : {}) });
+				connection.end(`${JSON.stringify({ ok: true, result: result ?? null })}\n`);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				event('supervisor.operation-failed', { operation, message, ...(componentId ? { componentId } : {}) });
+				const safeDevelopmentError = (operation === 'development.container' || operation === 'development.postgres.migrate') && isSafeDevelopmentError(message);
+				const operatorMessage = safeDevelopmentError || operation === 'security.initialize' || operation === 'provider.credential.initialize' || operation === 'sandbox.guest-image.import' ? message : undefined;
+				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed', operation, ...(operatorMessage ? { message: operatorMessage } : {}) })}\n`);
+			}
+		});
+	};
+}
+
 export function createSupervisorServer() {
 	if (process.getuid?.() !== 0) throw new Error('TreeSeed supervisor must run as root.');
 	mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o750 });
 	rmSync(paths.socket, { force: true });
-	return createServer((connection) => {
-		let input = '';
-		connection.setEncoding('utf8');
-		connection.on('data', (chunk) => {
-			input += chunk;
-			if (input.length > 1_048_576) connection.destroy(new Error('Supervisor request exceeds one MiB.'));
-		});
-		connection.on('end', () => {
-			try {
-				const request = JSON.parse(input) as unknown;
-				const result = executeSupervisorOperation(request);
-				recordEvent('supervisor.operation-complete', { operation: (request as { operation?: unknown }).operation });
-				connection.end(`${JSON.stringify({ ok: true, result: result ?? null })}\n`);
-			} catch (error) {
-				recordEvent('supervisor.operation-failed', { message: error instanceof Error ? error.message : String(error) });
-				connection.end(`${JSON.stringify({ ok: false, error: 'operation_failed' })}\n`);
-			}
-		});
-	});
+	return createServer({ allowHalfOpen: true }, supervisorConnectionHandler());
 }
 
 export function startSupervisor() {
 	const server = createSupervisorServer();
 	server.listen(paths.socket, () => chmodSync(paths.socket, 0o660));
 	return server;
+}
+export function isSafeDevelopmentError(message: string) {
+	return /^Managed development (?:application startup failed \([A-Z0-9_]+\)|diagnostic failed \([A-Z0-9_]+\)|[a-z_]+ \(exit (?:[0-9]+|timeout)\))\.$/.test(message);
 }

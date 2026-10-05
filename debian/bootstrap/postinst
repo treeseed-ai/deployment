@@ -1,15 +1,18 @@
 #!/bin/sh
 set -eu
 systemctl daemon-reload
-operator_file=/var/lib/treeseed/bootstrap/seed/operator
-if [ -f "$operator_file" ]; then
-  operator=$(cat "$operator_file")
-  case "$operator" in ''|root|*[!a-zA-Z0-9._-]*) exit 1;; esac
+operator=${TREESEED_OPERATOR_USER:-${SUDO_USER:-}}
+if [ -n "$operator" ]; then
+  case "$operator" in root|*[!a-zA-Z0-9._-]*) exit 1;; esac
   getent passwd "$operator" >/dev/null
   getent group treeseed-operators >/dev/null || addgroup --system treeseed-operators
   adduser "$operator" treeseed-operators >/dev/null
 fi
-systemctl enable treeseed-bootstrap.service
-systemctl --no-block start treeseed-bootstrap.service
-printf '%s\n' 'TreeSeed bootstrap scheduled. This configured installer may contain plaintext bootstrap credentials; securely delete the downloaded .deb after successful installation.'
+if [ ! -f /var/lib/treeseed/bootstrap/foundation.complete ] && [ ! -f /etc/treeseed/platform.json ]; then
+  systemctl enable treeseed-bootstrap.service
+  systemctl --no-block start treeseed-bootstrap.service
+  printf '%s\n' 'TreeSeed credential-free bootstrap foundation scheduled. Explicit profile initialization is required before activation.'
+else
+  printf '%s\n' 'TreeSeed bootstrap foundation or host configuration already exists; no host configuration or component state was changed.'
+fi
 exit 0

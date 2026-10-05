@@ -12,11 +12,16 @@ const state = vi.hoisted(() => ({
 	development: undefined as any,
 	previous: undefined as any,
 	active: [] as any[],
+	sessions: [] as any[],
+	resumeReady: true,
 	paused: false,
+	stopped: false,
+	edgeReady: true,
 	eligible: true,
 	refreshFailure: null as Error | null,
 	installFailure: null as Error | null,
 	activationFailure: null as Error | null,
+	composeStatus: null as null | { present: boolean; running: boolean; ready?: boolean; issues?: Array<{ service: string; reason: string }> },
 	operations: [] as any[],
 	events: [] as any[],
 	evidence: [] as any[],
@@ -28,20 +33,30 @@ vi.mock('node:fs', async (importOriginal) => {
 	return { ...actual, existsSync: (path: import('node:fs').PathLike) => String(path).startsWith('/etc/apt/sources.list.d/treeseed-deployment-') || actual.existsSync(path) };
 });
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.host }));
+vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
+vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => state.edgeReady }));
 vi.mock('../src/core/paths.js', () => ({ paths: { catalogs: `${state.root}/catalogs`, bundles: `${state.root}/components`, receipts: `${state.root}/receipts`, managerState: `${state.root}/manager`, cli: `${state.root}/cli` } }));
 vi.mock('../src/catalog/load.js', () => ({ loadCatalog: (path: string) => path.endsWith('stable.json') ? state.stable : state.development }));
 vi.mock('../src/core/files.js', () => ({ atomicJson: () => undefined }));
 vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
 vi.mock('../src/runtime/compose.js', () => ({ validateProductionCompose: () => undefined }));
 vi.mock('../src/manager/current-state.js', () => ({ loadCurrentReceipt: () => state.previous, loadActiveComponents: () => state.active }));
+vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class {
+	list() { return state.sessions; }
+	activeRoutes(routes: unknown[]) { return routes; }
+} }));
 vi.mock('../src/manager/update-state.js', () => ({
-	loadUpdateState: () => ({ stablePaused: false, developmentPaused: state.paused, changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } }),
+	loadUpdateState: () => ({ stablePaused: false, developmentPaused: state.paused, developmentPauseOwners: [], changedAt: new Date(0).toISOString(), metadataCheckedAt: { stable: null, development: null } }),
 	metadataChecked: () => undefined,
+	noteDevelopmentPauseOwner: () => undefined,
+	recoverDevelopmentPauseOwners: () => undefined,
 	trackPaused: () => state.paused,
+	runtimeStopped: () => state.stopped,
 }));
 vi.mock('../src/manager/update-policy.js', () => ({ activationEligible: () => state.eligible, metadataRefreshDue: () => true }));
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
 	state.operations.push(operation);
+	if (operation.operation === 'edge.apply') state.edgeReady = true;
 	if (operation.operation === 'apt.refresh') {
 		if (state.refreshFailure) throw state.refreshFailure;
 		return { coreUpdated: false, before: {}, after: {} };
@@ -52,17 +67,27 @@ vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operat
 	if (operation.operation === 'compose.activate' && state.activationFailure) {
 		const failure = state.activationFailure; state.activationFailure = null; throw failure;
 	}
+	if (operation.operation === 'compose.status') {
+		const installed = state.active.find(item => item.componentId === operation.runtime?.componentId);
+		const candidate = [...state.stable.components, ...state.development.components].find(item => item.componentId === operation.runtime?.componentId);
+		if (installed && candidate && installed.release !== candidate.release
+			&& operation.runtime.files.some((file: string) => file.startsWith(`${candidate.componentId}/${candidate.release}/`))) throw new Error('Candidate Compose file is not installed');
+		return state.composeStatus ?? undefined;
+	}
+	if (operation.operation === 'development.boot.resume') return { ready: state.resumeReady };
 	return undefined;
 } }));
 
 mkdirSync(`${state.root}/catalogs`, { recursive: true });
 writeFileSync(`${state.root}/catalogs/development.json`, '{}');
 const { reconcile } = await import('../src/manager/reconcile.js');
+const { createPlan } = await import('../src/manager/plan.js');
 
 function release(componentId: string, track: 'stable' | 'development', marker: string, version: string) {
 	const value = component(componentId, track, marker);
 	value.release = version; value.applicationVersion = version; value.runtime.version = version;
-	value.packages[0]!.version = version; value.runtimeDigest = hash(marker); value.images[0]!.digest = hash(marker);
+	value.packages[0]!.version = version; value.runtimeDigest = deploymentDigest(value.runtime); value.images[0]!.digest = hash(marker);
+	if (componentId === 'agent') value.images[0]!.role = 'agent-runner';
 	return value;
 }
 
@@ -84,10 +109,16 @@ beforeEach(() => {
 	newAgent.stableBase = { releaseRange: '^1.0.0', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: state.stable.catalogDigest };
 	oldAgent.stableBase = structuredClone(newAgent.stableBase);
 	state.development = { schemaVersion: 'treeseed.release-catalog/v1', release: '1.1.0~rc2', generation: 2, track: 'development', compatibilityId: 'treeseed-linux-amd64-v1', catalogDigest: hash('d'), stableBase: { release: state.stable.release, catalogDigest: state.stable.catalogDigest }, components: [newAgent], createdAt: '2026-08-25T00:01:00.000Z' };
-	state.active = [api, oldAgent]; state.previous = receipt(state.active); state.paused = false; state.eligible = true; state.refreshFailure = null; state.installFailure = null; state.activationFailure = null; state.operations = []; state.events = [];
+	state.active = [api, oldAgent]; state.previous = receipt(state.active); state.sessions = []; state.resumeReady = true; state.paused = false; state.stopped = false; state.eligible = true; state.refreshFailure = null; state.installFailure = null; state.activationFailure = null; state.composeStatus = null; state.operations = []; state.events = [];
 });
 
 describe('isolated update fault qualification', () => {
+	it('does not refresh metadata, install packages, or reactivate services on an intentionally stopped host', async () => {
+		state.stopped = true;
+		expect(await reconcile('development')).toBe(state.previous);
+		expect(await reconcile('stable')).toBe(state.previous);
+		expect(state.operations).toEqual([]);
+	});
 	it('serializes contenders through a real cross-process flock', async () => {
 		const root = mkdtempSync(resolve(tmpdir(), 'treeseed-lock-')), lock = resolve(root, 'reconcile.lock'), log = resolve(root, 'order');
 		const run = (label: string, delay: string) => new Promise<void>((accept, reject) => {
@@ -114,7 +145,7 @@ describe('isolated update fault qualification', () => {
 		state.activationFailure = new Error('isolated registry or health-gate failure');
 		await expect(reconcile('development')).rejects.toThrow('health-gate failure');
 		const operations = state.operations.map((item) => item.operation);
-		expect(operations).toEqual(['apt.refresh', 'compose.stop', 'backup.create', 'apt.install', 'component.configure', 'compose.activate', 'compose.stop', 'apt.install', 'recovery.restore', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'edge.apply']);
+		expect(operations).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'development.backup.begin', 'compose.stop', 'compose.stop', 'backup.create', 'apt.install', 'edge.apply', 'component.configure', 'compose.activate', 'compose.stop', 'compose.stop', 'recovery.restore', 'apt.install', 'edge.apply', 'component.configure', 'compose.activate', 'component.configure', 'compose.activate', 'development.backup.finish']);
 		expect(state.events.map((item) => item.type)).toContain('reconcile.rollback-complete');
 		state.operations = []; state.events = [];
 		const recovered = await reconcile('development');
@@ -137,7 +168,7 @@ describe('isolated update fault qualification', () => {
 		state.eligible = false;
 		const before = state.previous;
 		expect(await reconcile('stable')).toBe(before);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair']);
 		state.evidence.push({ case: 'stable-window-gate', result: 'passed', activationOutsideWindow: false, developmentIndependent: true });
 	});
 
@@ -153,32 +184,114 @@ describe('isolated update fault qualification', () => {
 		const firstActivationCount = state.operations.filter((item) => item.operation === 'compose.activate').length;
 		state.previous = accepted; state.active = [newApi, oldAgent]; state.operations = [];
 		expect(await reconcile('stable')).toBe(accepted);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
 		state.evidence.push({ case: 'stable-window-single-activation', result: 'passed', firstActivationCount, developmentReleasePreserved: oldAgent.release, secondActivationCount: 0 });
 	});
 
-	it('pauses without external work and resumes into one update followed by a no-op', async () => {
+	it('pauses release updates, checks accepted runtime health, and resumes into one update followed by a no-op', async () => {
 		state.paused = true;
+		state.composeStatus = { present: true, running: true, ready: true };
 		expect(await reconcile('development')).toBe(state.previous);
-		expect(state.operations).toEqual([]);
+		expect(state.operations.map(item => item.operation)).toEqual(['compose.status', 'compose.status']);
+		state.operations = [];
 		state.paused = false;
 		const accepted = await reconcile('development');
 		expect(accepted?.state).toBe('known-good');
 		const activationCount = state.operations.filter((item) => item.operation === 'compose.activate').length;
 		state.previous = accepted; state.active = [state.active[0], state.development.components[0]]; state.operations = [];
 		expect(await reconcile('development')).toBe(accepted);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
 		state.evidence.push({ case: 'pause-resume-noop', result: 'passed', activationCount, unchangedRestartCount: 0 });
+	});
+
+	it('recovers pinned dependencies before resuming held source even when both update tracks are paused', async () => {
+		state.paused = true;
+		state.composeStatus = { present: false, running: false, ready: false, issues: [{ service: 'api', reason: 'runtime-credential-unavailable' }] };
+		state.sessions = [{ session: { sessionId: 'dev-reboot', targets: [{ projectId: 'agent', targetId: 'provider', mode: 'live' }] },
+			runtimes: [{ project: { id: 'agent' }, targets: [{ id: 'provider', kind: 'live-api' }] }] }];
+		state.resumeReady = false;
+		for (const track of ['stable', 'development'] as const) {
+			state.operations = []; state.events = [];
+			expect(await reconcile(track)).toBe(state.previous);
+			expect(state.operations.map(item => item.operation)).toEqual(['compose.status', 'component.configure', 'compose.activate', 'compose.status', 'component.configure', 'development.boot.resume']);
+			expect(state.operations.find(item => item.operation === 'compose.activate')?.componentId).toBe('api');
+			expect(state.operations.filter(item => item.operation === 'component.configure').map(item => item.release)).toEqual(state.active.map(item => item.release));
+			expect(state.events.map(item => item.type)).toContain('development.boot-recovery-pending');
+		}
+	});
+
+	it('fails closed on recovery failure or missing health, never selecting a catalog update', async () => {
+		state.paused = true;
+		await expect(reconcile('development')).rejects.toThrow('status unavailable');
+		state.operations = [];
+		state.composeStatus = { present: false, running: false, ready: false };
+		state.activationFailure = new Error('accepted runtime recovery failed');
+		await expect(reconcile('development')).rejects.toThrow('accepted runtime recovery failed');
+		expect(state.operations.some(item => ['apt.refresh', 'apt.install', 'backup.create', 'recovery.restore'].includes(item.operation))).toBe(false);
 	});
 
 	it('repairs managed CLI custody during an otherwise unchanged tick', async () => {
 		const current = state.development.components[0];
 		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
 		unlinkSync(`${state.root}/cli/api-base-url`); unlinkSync(`${state.root}/cli/localhost-ca.crt`);
 		const unchanged = await reconcile('development');
 		expect(unchanged).toBe(state.previous);
-		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'cli.configure']);
+		expect(state.operations.map((item) => item.operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status', 'cli.configure']);
 		state.evidence.push({ case: 'post-self-update-cli-custody', result: 'passed', componentRestartCount: 0, endpointAndCaRepaired: true });
+	});
+
+	it('repairs a failed TLS listener on an unchanged generation without reinstalling packages', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.edgeReady = false;
+		expect(await reconcile('development')).toBe(state.previous);
+		expect(state.operations.filter(item => item.operation === 'edge.apply')).toHaveLength(1);
+		expect(state.operations.some(item => item.operation === 'apt.install')).toBe(false);
+		state.operations = [];
+		await reconcile('development');
+		expect(state.operations.some(item => item.operation === 'edge.apply')).toBe(false);
+	});
+
+	it('records a catalog-only generation once without restarting components', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.development.catalogDigest = hash('e'); state.operations = [];
+		const accepted = await reconcile('development');
+		expect(accepted?.catalogDigest).not.toBe(state.previous.catalogDigest);
+		expect(state.operations.filter(({ operation }) => operation === 'compose.stop' || operation === 'compose.activate')).toEqual([]);
+		state.previous = accepted; state.operations = [];
+		expect(await reconcile('development')).toBe(accepted);
+		expect(state.operations.map(({ operation }) => operation)).toEqual(['apt.refresh', 'sandbox.trust-anchor.repair', 'sandbox.model-policy.reconcile', 'compose.status']);
+	});
+
+	it('repairs an absent enabled component even when its release identity is unchanged', async () => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.composeStatus = { present: false, running: false }; state.operations = [];
+		const repaired = await reconcile('development');
+		expect(repaired?.receiptId).not.toBe(state.previous.receiptId);
+		expect(state.operations.filter(({ operation }) => operation === 'compose.activate')).toHaveLength(1);
+		expect(state.events).toContainEqual({ type: 'component.repair-required', details: { componentId: 'agent', present: false, running: false } });
+	});
+
+	it.each([
+		['missing', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'missing' }] }],
+		['stopped', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'stopped' }] }],
+		['unhealthy', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'unhealthy' }] }],
+		['wrong-image', { present: true, running: true, ready: false, issues: [{ service: 'service', reason: 'wrong-image' }] }],
+	])('repairs %s service drift even when another project service is running', async (_reason, status) => {
+		const current = state.development.components[0];
+		state.active = [state.active[0], current]; state.previous = receipt(state.active);
+		state.previous.catalogDigest = createPlan(state.host, state.stable, state.development, state.previous).plan.catalogDigest;
+		state.composeStatus = status; state.operations = [];
+		const repaired = await reconcile('development');
+		expect(repaired?.receiptId).not.toBe(state.previous.receiptId);
+		expect(state.operations.filter(({ operation }) => operation === 'compose.activate')).toHaveLength(1);
+		expect(state.events).toContainEqual({ type: 'component.repair-required', details: { componentId: 'agent', present: true, running: true, issues: status.issues } });
 	});
 });
 

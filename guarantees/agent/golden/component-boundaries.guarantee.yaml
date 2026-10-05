@@ -1,0 +1,12 @@
+schemaVersion: treeseed.guarantee/v1
+id: guarantee.deployment.golden.component-boundaries
+journey: Verify golden Kata and workspace component boundaries
+ownerPackage: "@treeseed/deployment"
+type: agent
+subtype: isolation
+status: planned
+gates: [core]
+summary: Coded isolation component scenarios; not proof of a live SDK golden workday.
+scene:
+  required: true
+  manifest: guarantees/agent/golden/scenes/component-boundaries.scene.yaml

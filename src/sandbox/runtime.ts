@@ -1,0 +1,449 @@
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createReadStream, createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFile, chmod, chown, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
+import { resolve } from 'node:path';
+import type { IncomingMessage } from 'node:http';
+import { sandboxAssignmentSchema, sandboxEventSchema, sandboxResultSchema, type SandboxAssignment, type SandboxEvent, type SandboxResult } from '@treeseed/sdk/capacity-provider/sandbox';
+import type { SandboxBrokerConfiguration } from './protocol.js';
+import type { SandboxLeaseRenewal } from '@treeseed/sdk/capacity-provider/sandbox';
+import { containerdImageReference } from './image-reference.js';
+import { WarmSandboxPool, kataWarmOperations } from './warm-sandbox-pool.js';
+import { AssignmentSourceStore } from './assignment-source-store.js';
+import type { AssignmentSource } from './assignment-source.js';
+import { z } from 'zod';
+
+interface Prepared {
+  terminationReason?: SandboxTerminationReason;
+  lastLeaseRenewal?: { issued: number; expiresAt: string };
+  closing?: boolean;
+  source?: AssignmentSource;
+  sourceInitialization?: Promise<AssignmentSource>;
+	warmSandboxId?: string;
+	executionClaimed?: boolean;
+	sandboxId: string; assignment: SandboxAssignment; directory: string; inputDirectory: string; outputDirectory: string;
+	tokenHash: Buffer; guestTokenHash: Buffer; uploaded: Set<string>; events: SandboxEvent[]; child?: ChildProcess; result?: SandboxResult;
+	toolRequests: Array<{ id:string; tool:string; arguments:Record<string,unknown>; createdAt:string }>;
+	toolWaiters: Map<string,{ resolve:(value:unknown)=>void; reject:(error:Error)=>void; timer:ReturnType<typeof setTimeout> }>;
+}
+export type SandboxTerminationReason = 'execution_deadline' | 'assignment_lease_expired' | 'source_authorization_expired' | 'cancelled';
+export function sandboxDeadline(input: { executionDeadline: number; leaseExpiresAt: string; sourceExpiresAt?: string }, now: number) {
+	const timestamp = (value: string) => { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; };
+	const deadlines = [
+		{ reason: 'execution_deadline' as const, at: input.executionDeadline },
+		{ reason: 'assignment_lease_expired' as const, at: timestamp(input.leaseExpiresAt) },
+		{ reason: 'source_authorization_expired' as const, at: input.sourceExpiresAt ? timestamp(input.sourceExpiresAt) : Infinity },
+	];
+	const first = deadlines.reduce((earliest, candidate) => candidate.at < earliest.at ? candidate : earliest);
+	return { reason: first.reason, remainingMilliseconds: first.at - now };
+}
+export const safeContainerId = (value: string) => value.replace(/[^a-zA-Z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80) || 'assignment';
+export const authorizedGuestImage = (configured: SandboxBrokerConfiguration['guestImages'], assignment: Pick<SandboxAssignment, 'guestImage' | 'guestImageDigest' | 'profile'>) => {
+	const requested = containerdImageReference(assignment.guestImage, assignment.guestImageDigest);
+	return configured.some((entry) => containerdImageReference(entry.image, entry.digest) === requested && entry.profiles.includes(assignment.profile));
+};
+const hash = (value: string | Buffer) => createHash('sha256').update(value).digest();
+export function validateSubscriptionCredential(next: Buffer, current?: Buffer) {
+	if (next.byteLength === 0 || next.byteLength > 1_048_576) throw new Error('Codex subscription authentication exceeds the broker limit.');
+	const parse = (value: Buffer) => {
+		const record = JSON.parse(value.toString('utf8')) as Record<string, unknown>;
+		const tokens = record.tokens && typeof record.tokens === 'object' && !Array.isArray(record.tokens) ? record.tokens as Record<string, unknown> : null;
+		if (record.auth_mode !== 'chatgpt' || !tokens || !['access_token', 'refresh_token', 'account_id'].every((key) => typeof tokens[key] === 'string' && String(tokens[key]).length > 0))
+			throw new Error('Codex subscription authentication is invalid.');
+		return { record, accountId: String(tokens.account_id) };
+	};
+	const parsed = parse(next);
+	if (current && parse(current).accountId !== parsed.accountId) throw new Error('Updated Codex subscription authentication changed account identity.');
+	return parsed.record;
+}
+
+/** Static diagnosis only: never retain a matching token, arbitrary key or preview. */
+export function subscriptionResultQuarantine(content: string, authentication: Record<string, unknown>) {
+	const tokens = authentication.tokens && typeof authentication.tokens === 'object' ? authentication.tokens as Record<string, unknown> : {};
+	const match = Object.entries(tokens).find(([, value]) => typeof value === 'string' && value.length >= 16 && content.includes(value));
+	if (!match) return null;
+	const [field, fingerprint] = match;
+	const credentialField = ['access_token', 'refresh_token', 'id_token', 'account_id'].includes(field) ? field : 'other';
+	let resultSection = 'other';
+	try {
+		const result = JSON.parse(content) as Record<string, unknown>;
+		const diagnostics = result.diagnostics && typeof result.diagnostics === 'object' ? result.diagnostics as Record<string, unknown> : {};
+		const sections = [['responseMarkdown', result.responseMarkdown], ['diagnostics.providerEvents', diagnostics.providerEvents],
+			['diagnostics.contextManifest', diagnostics.contextManifest], ['diagnostics.systemPrompt', diagnostics.systemPrompt],
+			['diagnostics.activityCompletion', diagnostics.activityCompletion]] as const;
+		resultSection = sections.find(([, value]) => JSON.stringify(value)?.includes(String(fingerprint)))?.[0] ?? 'other';
+	} catch { /* Malformed output still matches and remains quarantined. */ }
+	return { credentialField, resultSection };
+}
+
+/** Serialize custody operations, never the guest's model execution. */
+export class SubscriptionCredentialCustody {
+	private pending: Promise<unknown> = Promise.resolve();
+	constructor(private readonly path: string) {}
+	private serialized<T>(operation: () => Promise<T>): Promise<T> {
+		const result = this.pending.then(operation);
+		this.pending = result.catch(() => undefined);
+		return result;
+	}
+	snapshot() {
+		return this.serialized(async () => {
+			const current = await readFile(this.path);
+			validateSubscriptionCredential(current);
+			return current;
+		});
+	}
+	commit(issued: Buffer, next: Buffer) {
+		return this.serialized(async () => {
+			const current = await readFile(this.path);
+			validateSubscriptionCredential(issued, current);
+			validateSubscriptionCredential(next, current);
+			// A guest exporting its unchanged snapshot must not undo another guest's refresh.
+			if (next.equals(issued) || next.equals(current)) return;
+			// Opaque refresh tokens have no trustworthy ordering. Never guess which competing refresh won.
+			if (!current.equals(issued)) throw new Error('Concurrent Codex subscription credential rotation requires fresh authentication; canonical credentials were preserved.');
+			const temporary = `${this.path}.${randomUUID()}.new`;
+			try {
+				await writeFile(temporary, next, { mode: 0o600, flag: 'wx' });
+				await chmod(temporary, 0o600);
+				await rename(temporary, this.path);
+			} finally { await rm(temporary, { force: true }); }
+		});
+	}
+}
+
+async function materializeGuestResolver(directory: string) {
+	const candidates = ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'];
+	for (const candidate of candidates) {
+		const content = await readFile(candidate, 'utf8').catch(() => '');
+		const nameservers = content.split('\n').map((line) => /^nameserver\s+(\S+)/u.exec(line.trim())?.[1] ?? '')
+			.filter((address) => isIP(address) !== 0 && address !== '127.0.0.1' && address !== '127.0.0.53' && address !== '::1');
+		if (!nameservers.length) continue;
+		const target = resolve(directory, 'resolv.conf');
+		await writeFile(target, `${[...new Set(nameservers)].map((address) => `nameserver ${address}`).join('\n')}\noptions edns0\n`, { mode: 0o444, flag: 'wx' });
+		return target;
+	}
+	throw new Error('No non-loopback DNS resolver is available for the assignment sandbox.');
+}
+
+export class KataSandboxRuntime {
+	private readonly sandboxes = new Map<string, Prepared>();
+	private readonly subscriptionCustody: SubscriptionCredentialCustody | null;
+	private readonly warmPool: WarmSandboxPool;
+	private readonly sourceStore: AssignmentSourceStore;
+	constructor(private readonly configuration: SandboxBrokerConfiguration) {
+		this.subscriptionCustody = configuration.modelGateway?.authenticationMode === 'codex-subscription'
+			? new SubscriptionCredentialCustody(configuration.modelGateway.credentialFile) : null;
+		this.sourceStore = new AssignmentSourceStore(configuration);
+		this.warmPool = new WarmSandboxPool(kataWarmOperations(configuration, () => {
+			process.stderr.write(`${JSON.stringify({ source: 'sandbox-warm-pool', status: 'readiness-failed' })}\n`);
+		}));
+	}
+	async drainWarmPool() { await this.warmPool.drain(); }
+	private ctr(arguments_: string[], timeout = 10_000) {
+		return spawnSync('/usr/bin/ctr', ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, ...arguments_], { encoding: 'utf8', timeout });
+	}
+	private listed(kind: 'tasks' | 'containers') {
+		const result = this.ctr([kind, 'list', '--quiet'], 15_000);
+		return result.status === 0 ? new Set(result.stdout.split('\n').map((value) => value.trim()).filter(Boolean)) : null;
+	}
+	private removeContainer(sandboxId: string) {
+		this.ctr(['tasks', 'kill', '--signal', 'SIGKILL', sandboxId]);
+		this.ctr(['tasks', 'delete', '--force', sandboxId]);
+		this.ctr(['containers', 'delete', sandboxId]);
+		const tasks = this.listed('tasks'), containers = this.listed('containers');
+		return tasks !== null && containers !== null && !tasks.has(sandboxId) && !containers.has(sandboxId);
+	}
+	reconcile() {
+		const containers = this.listed('containers');
+		if (!containers) return { reconciled: false, reason: 'containerd_unavailable', quarantined: [] as string[], remaining: [] as string[] };
+		const quarantined = [...containers], remaining = quarantined.filter((sandboxId) => !this.removeContainer(sandboxId));
+		if (quarantined.length) { const audit = resolve(this.configuration.stateRoot, 'audit'); mkdirSync(audit, { recursive: true, mode: 0o700 }); writeFileSync(resolve(audit, `broker-reconcile-${Date.now()}.json`), `${JSON.stringify({ occurredAt: new Date().toISOString(), quarantined, remaining, action: remaining.length ? 'quarantined-untrusted-restart-state' : 'destroyed-untrusted-restart-state' })}\n`, { mode: 0o600 }); }
+		return { reconciled: remaining.length === 0, quarantined, remaining };
+	}
+	private async emit(sandbox: Prepared, type: SandboxEvent['type'], payload: Record<string, unknown> = {}) {
+		const event = sandboxEventSchema.parse({ schemaVersion: 'treeseed.sandbox-event/v1', sandboxId: sandbox.sandboxId, assignmentId: sandbox.assignment.assignmentId,
+			sequence: sandbox.events.length, occurredAt: new Date().toISOString(), type, payload });
+		sandbox.events.push(event); const audit = resolve(this.configuration.stateRoot, 'audit'); await mkdir(audit, { recursive: true, mode: 0o700 });
+		await appendFile(resolve(audit, `${sandbox.sandboxId}.jsonl`), `${JSON.stringify(event)}\n`, { mode: 0o600 }); return event;
+	}
+
+	async prepare(assignmentValue: unknown) {
+		const assignment = sandboxAssignmentSchema.parse(assignmentValue);
+		const modelGateway = this.configuration.modelGateway;
+		if (Date.parse(assignment.leaseExpiresAt) <= Date.now()) throw new Error('Expired assignment authority cannot create a sandbox.');
+		if (assignment.network.relayUrl !== this.configuration.relay.publicUrl) throw new Error('Sandbox assignment relay URL is not authorized by this host.');
+		const requiresModelCredential = assignment.network.allowedServices.some((service) => service === 'model-gateway' || service === 'codex-subscription');
+		if (requiresModelCredential && !modelGateway) throw new Error('The selected execution adapter has no configured credential on this capacity provider.');
+		if (modelGateway?.authenticationMode === 'codex-subscription' && !assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription authentication.');
+		if (!authorizedGuestImage(this.configuration.guestImages, assignment)) throw new Error('Sandbox guest image is not authorized by the installed release catalog.');
+		const sandboxId = `sandbox-${safeContainerId(assignment.assignmentId)}-${assignment.attempt}-${randomUUID().slice(0, 8)}`;
+		const directory = resolve(this.configuration.stateRoot, sandboxId), inputDirectory = resolve(directory, 'input'), outputDirectory = resolve(directory, 'output');
+		if (!directory.startsWith(`${this.configuration.stateRoot}/`)) throw new Error('Resolved sandbox state path escaped its root.');
+		await mkdir(inputDirectory, { recursive: true, mode: 0o700 }); await mkdir(outputDirectory, { mode: 0o700 }); await chown(inputDirectory, 65_532, 65_532); await chown(outputDirectory, 65_532, 65_532);
+		await writeFile(resolve(inputDirectory, 'assignment.json'), `${JSON.stringify(assignment)}\n`, { mode: 0o400, flag: 'wx' });
+		const token = randomBytes(32).toString('base64url'), guestToken = randomBytes(32).toString('base64url');
+		await writeFile(resolve(inputDirectory, 'operation-token'), guestToken, { mode: 0o400, flag: 'wx' });
+		await writeFile(resolve(inputDirectory, 'sandbox-id'), `${sandboxId}\n`, { mode: 0o400, flag: 'wx' });
+		const brokerFiles = ['assignment.json', 'operation-token', 'sandbox-id'];
+		// Compiled Deployment instrumentation, not caller-supplied executable input.
+		await writeFile(resolve(inputDirectory, 'startup-monitor.mjs'), await readFile(new URL('./guest-startup-monitor.js', import.meta.url)), { mode: 0o400, flag: 'wx' });
+		brokerFiles.push('startup-monitor.mjs');
+		for (const name of brokerFiles) await chown(resolve(inputDirectory, name), 65_532, 65_532);
+		const sandbox: Prepared = { sandboxId, assignment, directory, inputDirectory, outputDirectory, tokenHash: hash(token), guestTokenHash: hash(guestToken), uploaded: new Set(), events: [], toolRequests: [], toolWaiters: new Map() };
+		this.sandboxes.set(sandboxId, sandbox); await this.emit(sandbox, 'sandbox.created', { profile: assignment.profile, guestImageDigest: assignment.guestImageDigest });
+		await this.emit(sandbox, 'sandbox.ready', { requiredInputCount: assignment.inputs.length, modelAuthentication: modelGateway?.authenticationMode ?? null });
+		return { sandboxId, operationToken: token, requiredInputs: assignment.inputs.map(({ id, bytes, digest }) => ({ id, bytes, digest })) };
+	}
+
+	private authorized(sandboxId: string, token: string, allowClosing = false) {
+		const sandbox = this.sandboxes.get(sandboxId); if (!sandbox) throw new Error('Sandbox does not exist.');
+		const actual = hash(token); if (!token || actual.length !== sandbox.tokenHash.length || !timingSafeEqual(actual, sandbox.tokenHash)) throw new Error('Sandbox operation token is invalid.');
+		if (sandbox.closing && !allowClosing) throw new Error('Sandbox teardown is in progress.');
+		return sandbox;
+	}
+	private authorizedGuest(sandboxId:string,token:string) {
+		const sandbox=this.sandboxes.get(sandboxId); if(!sandbox) throw new Error('Sandbox does not exist.');
+		const actual=hash(token); if(!token||actual.length!==sandbox.guestTokenHash.length||!timingSafeEqual(actual,sandbox.guestTokenHash)) throw new Error('Sandbox guest relay token is invalid.');
+		return sandbox;
+	}
+
+	/** Only the host operation token reaches this path; the guest has a different relay token. */
+	async sourceOperation(sandboxId: string, token: string, operation: 'status' | 'prepare' | 'attach' | 'renew', value?: unknown) {
+		const sandbox = this.authorized(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before source operation.');
+		if (sandbox.executionClaimed && operation !== 'renew' && operation !== 'status') throw new Error('Executed sandbox source cannot be replaced.');
+		const source = sandbox.source ??= await (sandbox.sourceInitialization ??= this.sourceStore.create(sandboxId, sandbox.assignment));
+		if (sandbox.closing || !this.sandboxes.has(sandboxId)) { await source.stop(); throw new Error('Sandbox source initialization was cancelled.'); }
+		if (operation === 'prepare') return source.prepare(value);
+		if (operation === 'attach') {
+			const attached = await source.attach(value), path = resolve(sandbox.inputDirectory, 'source.json');
+			await writeFile(path, `${JSON.stringify({ source: attached.authorization.source, mode: attached.authorization.mode,
+				publication: attached.authorization.publication, leaseId: attached.leaseId })}\n`, { mode: 0o400 });
+			await chown(path, 65_532, 65_532);
+			return source.status();
+		}
+		if (operation === 'renew') return source.renew(value);
+		return source.status();
+	}
+
+	async sourcePublicationOperation(sandboxId: string, token: string, operation: 'start' | 'status', value?: unknown) {
+		const sandbox = this.authorized(sandboxId, token), source = sandbox.source;
+		if (!source || !sandbox.result || sandbox.result.status !== 'completed' || Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Candidate export requires a completed execution and current assignment lease.');
+		if (operation === 'start') {
+			const input = z.object({ commit: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u), authority: z.unknown() }).strict().parse(value);
+			await source.renew(input.authority);
+			this.authorized(sandboxId, token);
+			const stopped = this.removeContainer(sandboxId) && (!sandbox.warmSandboxId || this.removeContainer(sandbox.warmSandboxId));
+			if (!stopped) throw new Error('Execution teardown is uncertain; retain candidate storage.');
+			return this.sourceStore.startPublication(sandboxId, source, sandbox.assignment, input.authority, input.commit, true);
+		}
+		const job = this.sourceStore.publication(sandboxId);
+		source.attachment();
+		return job.status();
+	}
+
+	async requestTreeDxTool(sandboxId:string,token:string,value:unknown) {
+		const sandbox=this.authorizedGuest(sandboxId,token), request=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
+		if(!sandbox.assignment.network.allowedServices.includes('treedx-relay')||sandbox.assignment.treeDxHandleIds.length===0) throw new Error('Assignment does not authorize TreeDX tools.');
+		if(Date.parse(sandbox.assignment.leaseExpiresAt)<=Date.now()) throw new Error('Assignment TreeDX authority expired.');
+		const tool=String(request.tool??''), arguments_=request.arguments&&typeof request.arguments==='object'&&!Array.isArray(request.arguments)?request.arguments as Record<string,unknown>:{};
+		if(!['treeseed_time_status','treedx_build_context','treedx_read_files','treedx_search_files','treedx_list_paths','treeseed_publish_review','treeseed_publish_proposal','treeseed_publish_execution_plan'].includes(tool)) throw new Error('Assignment tool is not supported.');
+		const id=randomUUID(), createdAt=new Date().toISOString();
+		const completion=new Promise<unknown>((resolve,reject)=>{const remaining=Math.max(1,Math.min(60_000,Date.parse(sandbox.assignment.leaseExpiresAt)-Date.now()));const timer=setTimeout(()=>{sandbox.toolWaiters.delete(id);reject(new Error('TreeDX tool relay timed out.'));},remaining);sandbox.toolWaiters.set(id,{resolve,reject,timer});});
+		// The provider can reject a polled request before event persistence finishes.
+		// Observe that rejection now; the original promise still rejects for the guest.
+		void completion.catch(()=>undefined);
+		// Publish a request only after its waiter exists. The provider may poll and
+		// complete the queue while event persistence is still in flight.
+		sandbox.toolRequests.push({id,tool,arguments:arguments_,createdAt});
+		try { await this.emit(sandbox,'tool.requested',{requestId:id,tool}); }
+		catch (error) {
+			const index=sandbox.toolRequests.findIndex(candidate=>candidate.id===id); if(index>=0)sandbox.toolRequests.splice(index,1);
+			const waiter=sandbox.toolWaiters.get(id); if(waiter){clearTimeout(waiter.timer);waiter.reject(error instanceof Error?error:new Error(String(error)));} sandbox.toolWaiters.delete(id); throw error;
+		}
+		return completion;
+	}
+	nextToolRequest(sandboxId:string,token:string) { const sandbox=this.authorized(sandboxId,token); return {request:sandbox.toolRequests.shift()??null}; }
+	async completeToolRequest(sandboxId:string,token:string,requestId:string,value:unknown) {
+		const sandbox=this.authorized(sandboxId,token), waiter=sandbox.toolWaiters.get(requestId); if(!waiter) throw new Error('TreeDX tool request is not pending.');
+		const result=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}; clearTimeout(waiter.timer); sandbox.toolWaiters.delete(requestId);
+		if(result.error) waiter.reject(new Error(String(result.error))); else waiter.resolve(result.result); await this.emit(sandbox,'tool.completed',{requestId,ok:!result.error}); return {completed:true};
+	}
+
+	async upload(sandboxId: string, inputId: string, token: string, request: IncomingMessage) {
+		const sandbox = this.authorized(sandboxId, token), descriptor = sandbox.assignment.inputs.find((entry) => entry.id === inputId);
+		if (!descriptor || sandbox.uploaded.has(inputId)) throw new Error('Sandbox input is unknown or already uploaded.');
+		const target = resolve(sandbox.inputDirectory, `input-${safeContainerId(inputId)}`), stream = createWriteStream(target, { mode: 0o400, flags: 'wx' });
+		const digest = createHash('sha256'); let bytes = 0;
+		try {
+			for await (const chunk of request) { const value = Buffer.from(chunk as Buffer); bytes += value.byteLength; if (bytes > descriptor.bytes) throw new Error('Sandbox input exceeds its declared size.'); digest.update(value); if (!stream.write(value)) await new Promise<void>((accept) => stream.once('drain', () => accept())); }
+			await new Promise<void>((accept, reject) => { stream.end(accept); stream.once('error', reject); });
+			if (bytes !== descriptor.bytes || `sha256:${digest.digest('hex')}` !== descriptor.digest) throw new Error('Sandbox input digest verification failed.');
+			await chmod(target, 0o400); await chown(target, 65_532, 65_532); sandbox.uploaded.add(inputId); await this.emit(sandbox, 'execution.progress', { stage: 'input.verified', inputId, bytes }); return { sandboxId, inputId, bytes, verified: true };
+		} catch (error) { stream.destroy(); await rm(target, { force: true }); throw error; }
+	}
+
+	async execute(sandboxId: string, token: string, execution: Record<string, unknown>): Promise<SandboxResult> {
+		const sandbox = this.authorized(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired before sandbox execution.');
+		if (sandbox.assignment.inputs.some((entry) => !sandbox.uploaded.has(entry.id))) throw new Error('Sandbox execution cannot start before every signed input is verified.');
+		if (sandbox.executionClaimed) throw new Error('Sandbox execution has already been claimed.');
+		const source = sandbox.source?.attachment();
+		sandbox.executionClaimed = true;
+		await this.emit(sandbox, 'execution.started', { profile: sandbox.assignment.profile, model: sandbox.assignment.modelPolicy.model });
+		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
+		const resolverFile = await materializeGuestResolver(sandbox.directory);
+		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
+		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes });
+		if (sandbox.closing || !this.sandboxes.has(sandboxId)) {
+			if (!this.removeContainer(warm.id)) throw new Error('Cancelled sandbox VM remains quarantined.');
+			throw new Error('Sandbox was destroyed while preparing its VM.');
+		}
+		sandbox.warmSandboxId = warm.id;
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired while preparing its VM.');
+		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed });
+		if (source) {
+			sandbox.source!.attachment();
+			await this.emit(sandbox, 'execution.progress', { stage: 'source.attached', source: source.authorization.source,
+				mode: source.authorization.mode, publication: source.authorization.publication, leaseId: source.leaseId });
+		}
+		const args = ['--address', this.configuration.containerdAddress, '--namespace', this.configuration.namespace, 'run', '--rm', '--null-io', '--runtime', this.configuration.runtime,
+			'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${warm.id}`, '--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN',
+			'--cpus', String(sandbox.assignment.resources.cpuCores), '--memory-limit', String(sandbox.assignment.resources.memoryBytes),
+			'--env', `TREESEED_SANDBOX_PROCESS_LIMIT=${sandbox.assignment.resources.processLimit}`, '--env', `TREESEED_SANDBOX_DISK_LIMIT=${sandbox.assignment.resources.diskBytes}`,
+			'--env', `TREESEED_SANDBOX_OUTPUT_LIMIT=${sandbox.assignment.resources.outputBytes}`,
+			'--env', 'NODE_OPTIONS=--import=/run/treeseed-assignment/startup-monitor.mjs',
+			'--mount', `type=tmpfs,src=tmpfs,dst=/workspace,options=size=${sandbox.assignment.resources.diskBytes}:mode=0770:uid=65532:gid=65532`,
+			...(source ? ['--mount', `type=bind,src=${source.disk.device},dst=/workspace/project,options=rw:nodev:nosuid`] : []),
+			'--mount', `type=bind,src=${resolverFile},dst=/etc/resolv.conf,options=rbind:ro`,
+			'--mount', `type=bind,src=${sandbox.inputDirectory},dst=/run/treeseed-assignment,options=rbind:ro`,
+			'--mount', `type=bind,src=${sandbox.outputDirectory},dst=/run/treeseed-output,options=rbind:rw`, image, sandboxId];
+		const subscriptionCredential = this.configuration.modelGateway?.authenticationMode === 'codex-subscription'
+			? this.configuration.modelGateway.credentialFile : null;
+		const issuedCredential = this.subscriptionCustody ? await this.subscriptionCustody.snapshot() : null;
+		if (issuedCredential) {
+			const path = resolve(sandbox.inputDirectory, 'codex-auth.json');
+			await writeFile(path, issuedCredential, { mode: 0o400, flag: 'wx' }); await chown(path, 65_532, 65_532);
+		}
+		const child = spawn('/usr/bin/ctr', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); sandbox.child = child;
+		let stderr = ''; child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 16_384) stderr += chunk.toString('utf8'); });
+		let lastProgress = '';
+		const progressTimer = setInterval(() => { void readFile(resolve(sandbox.outputDirectory, 'progress.json'), 'utf8').then((value) => {
+			if (value === lastProgress) return; lastProgress = value;
+			try { const event = JSON.parse(value) as Record<string, unknown>; process.stderr.write(`${JSON.stringify({ source: 'sandbox-guest', sandboxId, assignmentId: sandbox.assignment.assignmentId, stage: event.stage, occurredAt: event.occurredAt })}\n`); } catch { /* Ignore partial progress writes. */ }
+		}).catch(() => undefined); }, 500);
+		const executionDeadline = Date.now() + sandbox.assignment.resources.durationSeconds * 1_000; let timeout: ReturnType<typeof setTimeout>;
+		const enforceDeadline = () => {
+			let sourceExpiresAt: string | undefined;
+			if (sandbox.source) { try { sourceExpiresAt = sandbox.source.attachment().authorization.expiresAt; } catch { sourceExpiresAt = new Date(0).toISOString(); } }
+			const deadline = sandboxDeadline({ executionDeadline, leaseExpiresAt: sandbox.assignment.leaseExpiresAt,
+				...(sourceExpiresAt ? { sourceExpiresAt } : {}) }, Date.now());
+			if (deadline.remainingMilliseconds <= 1) {
+				sandbox.terminationReason = deadline.reason;
+				this.ctr(['tasks', 'kill', '--signal', 'SIGKILL', sandboxId]); child.kill('SIGKILL'); return;
+			}
+			// Re-read the mutable lease when this timer fires. A renewal received while
+			// the guest is running must extend the lease boundary without extending the
+			// assignment's immutable execution-duration limit.
+			timeout = setTimeout(enforceDeadline, deadline.remainingMilliseconds);
+		}; enforceDeadline();
+		let exitCode: number | null;
+		try {
+			exitCode = await new Promise<number | null>((accept, reject) => { child.once('error', reject); child.once('exit', accept); });
+			// A guest that fails before seeding the return channel cannot rotate its
+			// credential. Preserve the guest failure below instead of masking it with
+			// an ENOENT from the rotation read.
+			if (subscriptionCredential) {
+				const nextPath = resolve(sandbox.outputDirectory, 'codex-auth.json');
+				const next = await readFile(nextPath).catch((error: unknown) => {
+					if (exitCode === 0) throw error;
+					return null;
+				});
+				if (next) {
+					try { await this.subscriptionCustody!.commit(issuedCredential!, next); }
+					catch (error) { if (exitCode === 0) throw error; }
+				}
+			}
+		} finally {
+			clearTimeout(timeout!); clearInterval(progressTimer); delete sandbox.child;
+		}
+		if (exitCode !== 0) {
+			const failureContent = await readFile(resolve(sandbox.outputDirectory, 'failure.json'), 'utf8').catch(() => '');
+			const failureDigest = `sha256:${createHash('sha256').update(failureContent).digest('hex')}`;
+			const failure = (() => { try { const value = JSON.parse(failureContent) as Record<string, unknown>; return typeof value.error === 'string' ? value.error : ''; } catch { return ''; } })()
+				.replace(/Bearer\s+\S+/giu, 'Bearer [REDACTED]').replace(/\b(?:sk|sess)-[A-Za-z0-9_-]{16,}\b/gu, '[REDACTED]');
+			await this.emit(sandbox, 'execution.failed', { exitCode, terminationReason: sandbox.terminationReason ?? 'unattributed_guest_exit', failureDigest, stderrDigest: `sha256:${createHash('sha256').update(stderr).digest('hex')}` });
+			throw new Error(`Kata guest exited ${exitCode} (${sandbox.terminationReason ?? 'unattributed_guest_exit'}): ${(failure || stderr).slice(0, 1_024)}`);
+		}
+		const resultPath = resolve(sandbox.outputDirectory, 'result.json'), resultDescriptor = sandbox.assignment.outputs.find((output) => output.id === 'result');
+		const resultBytes = (await stat(resultPath)).size; if (!resultDescriptor || resultDescriptor.path !== '/run/treeseed-output/result.json' || resultBytes > resultDescriptor.maxBytes) throw new Error('Sandbox result exceeded its authorized output contract.');
+		const resultContent = await readFile(resultPath, 'utf8');
+		if (this.configuration.modelGateway?.authenticationMode === 'codex-subscription') {
+			const authentication = JSON.parse(await readFile(this.configuration.modelGateway.credentialFile, 'utf8')) as Record<string, unknown>;
+			const quarantine = subscriptionResultQuarantine(resultContent, authentication);
+			if (quarantine) throw new Error(`Sandbox output contained a Codex credential fingerprint and was quarantined (${quarantine.credentialField}; ${quarantine.resultSection}).`);
+		}
+		const result = sandboxResultSchema.parse(JSON.parse(resultContent));
+		if (result.sandboxId !== sandboxId || result.assignmentId !== sandbox.assignment.assignmentId) throw new Error('Sandbox result correlation mismatch.');
+		const hostKernel = await readFile('/proc/version', 'utf8'); if (result.diagnostics.guestKernel === hostKernel.trim()) throw new Error('Sandbox guest did not attest a kernel boundary distinct from the host.');
+		if (result.diagnostics.guestUid !== 65_532) throw new Error('Sandbox guest did not execute as its unprivileged assignment identity.');
+		for (const artifact of result.artifacts) {
+			const descriptor = sandbox.assignment.outputs.find((output) => output.id === artifact.id);
+			if (!descriptor || descriptor.path !== artifact.path || descriptor.mediaType !== artifact.mediaType || artifact.bytes > descriptor.maxBytes) throw new Error(`Sandbox returned unauthorized artifact ${artifact.id}.`);
+			const target = resolve(sandbox.outputDirectory, artifact.path.slice('/run/treeseed-output/'.length));
+			if (!target.startsWith(`${sandbox.outputDirectory}/`)) throw new Error('Sandbox artifact escaped its output directory.');
+			const value = await readFile(target); if (value.byteLength !== artifact.bytes || `sha256:${createHash('sha256').update(value).digest('hex')}` !== artifact.digest) throw new Error(`Sandbox artifact ${artifact.id} failed broker verification.`);
+		}
+		if (resultBytes + result.artifacts.reduce((total, artifact) => total + artifact.bytes, 0) > sandbox.assignment.resources.outputBytes) throw new Error('Sandbox output exceeded its aggregate assignment limit.');
+		await this.emit(sandbox, 'execution.completed', { status: result.status, artifactCount: result.artifacts.length });
+		const correlated = sandboxResultSchema.parse({ ...result, diagnostics: { ...result.diagnostics, brokerEvents: sandbox.events } }); sandbox.result = correlated; return correlated;
+	}
+
+	inspect(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); return { sandboxId, assignmentId: sandbox.assignment.assignmentId, uploadedInputs: [...sandbox.uploaded], running: Boolean(sandbox.child), events: sandbox.events, result: sandbox.result ?? null }; }
+	modelPolicy(sandboxId: string, token: string) { const sandbox = this.authorizedGuest(sandboxId, token); if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment model authority expired.'); return sandbox.assignment.modelPolicy; }
+	authorizeSubscriptionProxy(sandboxId: string, token: string) {
+		const sandbox = this.authorizedGuest(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment subscription proxy authority expired.');
+		if (this.configuration.modelGateway?.authenticationMode !== 'codex-subscription' || !sandbox.assignment.network.allowedServices.includes('codex-subscription')) throw new Error('Assignment does not authorize subscription proxy access.');
+		return true;
+	}
+	authorizePackageRegistryProxy(sandboxId: string, token: string) {
+		const sandbox = this.authorizedGuest(sandboxId, token);
+		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment package-registry authority expired.');
+		if (!sandbox.assignment.network.allowedServices.includes('package-registry')) throw new Error('Assignment does not authorize package-registry access.');
+		return true;
+	}
+	renewLease(sandboxId: string, token: string, renewal: SandboxLeaseRenewal) {
+		const sandbox = this.authorized(sandboxId, token), next = Date.parse(renewal.leaseExpiresAt), issued = Date.parse(renewal.issuedAt);
+		if (renewal.sandboxId !== sandboxId || renewal.assignmentId !== sandbox.assignment.assignmentId || renewal.providerId !== sandbox.assignment.providerId || renewal.teamId !== sandbox.assignment.teamId) throw new Error('Sandbox lease renewal correlation mismatch.');
+		const now = Date.now();
+		if (!Number.isFinite(issued) || !Number.isFinite(next) || Math.abs(now - issued) > 60_000 || next <= now || next > now + 3_600_000 || Date.parse(sandbox.assignment.leaseExpiresAt) <= now) throw new Error('Sandbox lease renewal time window is invalid.');
+		const previous = sandbox.lastLeaseRenewal;
+		if (previous && (issued < previous.issued || (issued === previous.issued && renewal.leaseExpiresAt !== previous.expiresAt))) throw new Error('Sandbox lease renewal replay is invalid.');
+		// A fresh API renewal may retain or shorten expiry at the assignment hard deadline.
+		// Authenticity is checked at the server boundary; expiry growth is not authority.
+		sandbox.lastLeaseRenewal = { issued, expiresAt: renewal.leaseExpiresAt };
+		sandbox.assignment.leaseExpiresAt = renewal.leaseExpiresAt; return { sandboxId, leaseExpiresAt: renewal.leaseExpiresAt };
+	}
+	collect(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); if (!sandbox.result) throw new Error('Sandbox outputs are not ready.'); return sandbox.result; }
+	collectArtifact(sandboxId: string, artifactId: string, token: string) {
+		const sandbox = this.authorized(sandboxId, token), artifact = sandbox.result?.artifacts.find((entry) => entry.id === artifactId);
+		if (!artifact) throw new Error('Sandbox artifact is unavailable.');
+		const target = resolve(sandbox.outputDirectory, artifact.path.slice('/run/treeseed-output/'.length));
+		return { artifact, stream: createReadStream(target) };
+	}
+	async cancel(sandboxId: string, token: string) { const sandbox = this.authorized(sandboxId, token); sandbox.terminationReason = 'cancelled'; sandbox.child?.kill('SIGTERM'); this.ctr(['tasks', 'kill', '--signal', 'SIGTERM', sandboxId]); await this.emit(sandbox, 'execution.failed', { reason: 'cancelled' }); return { sandboxId, cancellationRequested: true }; }
+	async destroy(sandboxId: string, token: string) {
+		const sandbox = this.authorized(sandboxId, token, true); sandbox.closing = true; sandbox.child?.kill('SIGKILL');
+		const executionStopped = this.removeContainer(sandboxId);
+		const warmStopped = sandbox.warmSandboxId ? this.removeContainer(sandbox.warmSandboxId) : true;
+		const verified = executionStopped && warmStopped;
+		const source = sandbox.source ?? await sandbox.sourceInitialization;
+		const sourceTeardown = source ? await this.sourceStore.finish(sandboxId, source, sandbox.result, verified) : null;
+		for(const waiter of sandbox.toolWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Sandbox was destroyed.'));} sandbox.toolWaiters.clear();
+		await this.emit(sandbox, 'sandbox.destroyed', { verified, sourceTeardown });
+		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }
+		return { sandboxId, destroyed: verified, teardown: { verified, completedAt: new Date().toISOString() }, events: sandbox.events };
+	}
+}

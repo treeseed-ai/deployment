@@ -1,0 +1,238 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { request as httpsRequest } from 'node:https';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { affectedDevelopmentClosure, boundedReadiness, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, loopbackLookup } from '../src/manager/development-sessions.js';
+
+const roots: string[] = [];
+vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
+afterEach(() => { vi.unstubAllGlobals(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+function runtime(project = 'admin', target = 'web', dependency?: { id: string; target: string; reaction: string }, edgeHost?: string) {
+	return {
+		schemaVersion: 'treeseed.development-runtime/v1', project: { id: project, repository: `treeseed-ai/${project}` }, defaults: { leaseSeconds: 3_600, restoreOnFailure: true },
+		targets: [{ id: target, kind: project === 'agent' ? 'rebuild-restart' : project === 'sdk' ? 'package-watch' : 'live-web', platforms: ['linux-amd64'], runtimeRequirements: ['node>=22'], sourceRoots: ['src'], ignoredPaths: [],
+			operations: project === 'sdk' ? { watch: { command: 'npm', args: ['run', 'build:watch'], environment: {}, timeoutSeconds: 600 } } : { start: { command: 'npm', args: ['run', 'dev'], environment: edgeHost ? { TREESEED_DEVELOPMENT_EDGE_HOST: edgeHost } : {}, timeoutSeconds: 600 } },
+			ready: project === 'sdk' ? { kind: 'marker', path: 'dist/.complete', timeoutSeconds: 30 } : { kind: 'http', path: '/healthz', expectedStatus: 200, timeoutSeconds: 30 },
+			outputs: [], endpoints: project === 'sdk' ? [] : [{ id: 'http', protocol: 'http', port: 4322, canonicalAlias: `${project}.treeseed.localhost`, visibility: 'host', authentication: 'application' }],
+			dependencies: dependency ? [{ ...dependency, locality: 'either' }] : [], statePolicy: 'stateless', migrationPolicy: 'none', secretRefs: {}, shutdown: { graceSeconds: 30, activeWorkPolicy: 'block' }, resources: {}, logs: [], forbiddenOperations: [], promotion: { liveAdmissible: false, candidateRequiresVerification: true } }],
+	};
+}
+
+function session(now: Date, sessionId = 'session-1') {
+	const expiresAt = new Date(now.getTime() + 60_000).toISOString();
+	return { schemaVersion: 'treeseed.development-session/v1', sessionId, actor: 'developer', hostId: 'host-1', createdAt: now.toISOString(), expiresAt, status: 'planning',
+		repositories: [{ projectId: 'admin', repository: 'treeseed-ai/admin', worktree: '/workspace/admin', commit: 'a'.repeat(40), branch: 'staging', dirty: false, dirtyDigest: null, recipeDigest: `sha256:${'b'.repeat(64)}` }],
+		targets: [{ projectId: 'admin', targetId: 'web', mode: 'live', generation: 0, health: 'pending' }],
+		leases: [{ kind: 'alias', resource: 'admin.treeseed.localhost', acquiredAt: now.toISOString(), expiresAt }], restoredReceiptId: null, blockers: [] };
+}
+
+function store(now: Date) {
+	const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-sessions-')); roots.push(root);
+	return new DevelopmentSessionStore(root, { now: () => now, directHealth: async () => true, routedHealth: async () => true });
+}
+
+describe('development session manager', () => {
+	it('waits through transient direct HTTP startup without extending the declared readiness window', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
+		const now = new Date(), sessions = new DevelopmentSessionStore(root), contract = runtime();
+		contract.targets[0]!.ready.timeoutSeconds = 1;
+		sessions.start(session(now), [contract]);
+		let attempts = 0;
+		vi.stubGlobal('fetch', vi.fn(async () => {
+			if (++attempts === 1) throw new Error('ECONNREFUSED');
+			return { status: attempts === 2 ? 503 : 200 };
+		}));
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(attempts).toBe(3);
+		expect(sessions.load('session-1').session.targets[0]).toMatchObject({ health: 'ready', generation: 1 });
+	});
+	it('fails closed on persistent direct HTTP failure within the declared readiness window', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
+		const sessions = new DevelopmentSessionStore(root), contract = runtime();
+		contract.targets[0]!.ready.timeoutSeconds = 1;
+		sessions.start(session(new Date()), [contract]);
+		const fetch = vi.fn(async () => ({ status: 503 })); vi.stubGlobal('fetch', fetch);
+		await expect(sessions.attach('session-1', 'admin', 'web', 4322)).rejects.toThrow('Direct readiness failed');
+		expect(fetch.mock.calls.length).toBeGreaterThan(1);
+		expect(sessions.load('session-1').session.targets[0]).toMatchObject({ health: 'pending', generation: 0 });
+		expect(sessions.load('session-1').routes).toEqual([]);
+	});
+	it('waits for a direct TCP listener within the same declared startup window', async () => {
+		const server = createServer(socket => socket.destroy());
+		await new Promise<void>(resolvePromise => server.listen(0, '127.0.0.1', resolvePromise));
+		const address = server.address();
+		if (!address || typeof address === 'string') throw new Error('Expected ephemeral TCP port');
+		await new Promise<void>(resolvePromise => server.close(() => resolvePromise()));
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
+		const sessions = new DevelopmentSessionStore(root), contract = runtime();
+		const tcp = { ...contract, targets: contract.targets.map(target => ({ ...target, ready: { kind: 'tcp', timeoutSeconds: 1 } })) };
+		sessions.start(session(new Date()), [tcp]);
+		const startup = setTimeout(() => server.listen(address.port, '127.0.0.1'), 30);
+		try {
+			await sessions.attach('session-1', 'admin', 'web', address.port);
+			expect(sessions.load('session-1').session.targets[0]!.health).toBe('ready');
+		} finally {
+			clearTimeout(startup);
+			if (server.listening) await new Promise<void>(resolvePromise => server.close(() => resolvePromise()));
+		}
+	});
+	it('cannot report a restarted web target ready without reattaching its route', async () => {
+		const sessions = store(new Date('2026-08-26T12:00:00.000Z'));
+		sessions.start(session(new Date('2026-08-26T12:00:00.000Z')), [runtime()]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		sessions.setMode('session-1', 'admin', 'web', 'released');
+		sessions.setMode('session-1', 'admin', 'web', 'live');
+		expect(() => sessions.markReady('session-1', 'admin', 'web')).toThrow('attached canonical route');
+		expect(sessions.load('session-1').session.targets[0]!.health).toBe('pending');
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(sessions.markReady('session-1', 'admin', 'web').session.targets[0]!.health).toBe('ready');
+	});
+	it('retries canonical readiness through bounded edge convergence', async () => {
+		let attempts = 0;
+		expect(await boundedReadiness(async () => ++attempts === 3, 100, 1)).toBe(true);
+		expect(attempts).toBe(3);
+	});
+
+	it('restoring one degraded target keeps the development session active', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		const record = sessions.start(session(now), [runtime()]);
+		record.session.status = 'degraded'; record.session.targets[0]!.health = 'degraded'; sessions.save(record);
+		const restored = sessions.setMode('session-1', 'admin', 'web', 'released');
+		expect(restored.session.status).toBe('active'); expect(restored.session.targets[0]!.health).toBe('ready');
+	});
+
+	it('refreshes contracts in place and registers new targets as released', () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		const refreshed = runtime();
+		refreshed.targets.push({ ...structuredClone(refreshed.targets[0]!), id: 'worker', endpoints: [] });
+		const record = sessions.refreshRuntimes('session-1', [refreshed]);
+		expect(record.session.targets).toContainEqual({ projectId: 'admin', targetId: 'worker', mode: 'released', generation: 0, health: 'ready' });
+		expect(record.runtimes[0]?.targets.map((target) => target.id)).toEqual(['web', 'worker']);
+	});
+
+	it('returns an address list when the HTTPS client requests all lookup results', async () => {
+		const server = createServer((socket) => socket.destroy());
+		await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+		const address = server.address();
+		if (!address || typeof address === 'string') throw new Error('Expected an ephemeral TCP port.');
+		let allAddressesRequested = false;
+		const error = await new Promise<Error>((resolvePromise) => {
+			const request = httpsRequest({
+				hostname: 'readiness.treeseed.localhost', port: address.port, rejectUnauthorized: false,
+				lookup: (hostname, options, callback) => {
+					allAddressesRequested = options.all === true;
+					loopbackLookup(hostname, options, callback);
+				},
+			}, () => resolvePromise(new Error('Plain TCP test server unexpectedly completed TLS.')));
+			request.once('error', resolvePromise); request.end();
+		});
+		await new Promise<void>((resolvePromise, rejectPromise) => server.close((closeError) => closeError ? rejectPromise(closeError) : resolvePromise()));
+		expect(allAddressesRequested).toBe(true);
+		expect((error as NodeJS.ErrnoException).code).not.toBe('ERR_INVALID_IP_ADDRESS');
+	});
+
+	it('leases a canonical route only after direct readiness', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(sessions.activeRoutes([{ alias: 'admin.treeseed.localhost', upstream: 'admin:4322', authentication: 'application' }])).toEqual([
+			{ alias: 'admin.treeseed.localhost', upstream: 'http://host.docker.internal:4322', authentication: 'application' },
+		]);
+		expect(await sessions.verifyRouted('session-1', 'admin', 'web')).toBe(true);
+	});
+
+	it('rejects a conflicting canonical lease and restores the base route on stop', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		expect(() => sessions.start(session(now, 'session-2'), [runtime()])).toThrow(/conflict/i);
+		await sessions.attach('session-1', 'admin', 'web', 4322); sessions.stop('session-1');
+		expect(sessions.activeRoutes([{ alias: 'admin.treeseed.localhost', upstream: 'admin:4322', authentication: 'application' }])[0]?.upstream).toBe('admin:4322');
+	});
+
+	it('routes a declared source container through its private edge-network identity', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime('admin', 'web', undefined, 'admin-live')]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		expect(sessions.activeRoutes([])[0]?.upstream).toBe('http://admin-live:4322');
+	});
+
+	it('adopts installed component routes only for manager-custody source containers', () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		const managed = runtime('treedx', 'service');
+		Object.assign(managed.targets[0]!, { kind: 'rebuild-restart', operations: { start: { command: 'manager-runtime', args: [], environment: {}, timeoutSeconds: 30 } } });
+		const selected = session(now); selected.repositories[0]!.projectId = 'treedx'; selected.targets[0] = { projectId: 'treedx', targetId: 'service', mode: 'candidate', generation: 0, health: 'pending' };
+		sessions.start(selected, [managed]);
+		const result = sessions.attachManaged('session-1', 'treedx', 'service', [{ alias: 'treedx.treeseed.localhost', upstream: 'http://treedx:4000', authentication: 'application' }]);
+		expect(result.routes).toEqual([{ alias: 'treedx.treeseed.localhost', upstream: 'http://treedx:4000', authentication: 'application', projectId: 'treedx', targetId: 'service' }]);
+		expect(result.session.targets[0]).toMatchObject({ health: 'ready', generation: 1 });
+	});
+
+	it('rejects an unsafe development edge host', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime('admin', 'web', undefined, '127.0.0.1')]);
+		await expect(sessions.attach('session-1', 'admin', 'web', 4322)).rejects.toThrow(/private container DNS identity/u);
+	});
+
+	it('migrates persisted v1 sessions once while preserving an external-to-active-list rollback record', () => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-sessions-')); roots.push(root);
+		const old = { session: { ...session(new Date('2020-01-01T00:00:00.000Z')), status: 'active' }, runtimes: [runtime()], routes: [], candidates: [] };
+		writeFileSync(join(root, 'session-1.json'), JSON.stringify(old));
+		const sessions = new DevelopmentSessionStore(root);
+		const migrated = sessions.load('session-1');
+		expect(migrated.session.status).toBe('active');
+		expect(migrated.session.schemaVersion).toBe('treeseed.development-session/v2');
+		expect(JSON.parse(readFileSync(join(root, 'migrations/persistent-sessions/session-1.json'), 'utf8'))).toEqual(old);
+		expect(sessions.load('session-1')).toEqual(migrated);
+		expect(sessions.list()).toHaveLength(1);
+	});
+
+	it('retains routes and ownership across elapsed time until explicitly stopped', async () => {
+		const started = new Date('2026-08-26T12:00:00.000Z'); let now = started;
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-sessions-')); roots.push(root);
+		const sessions = new DevelopmentSessionStore(root, { now: () => now, directHealth: async () => true, routedHealth: async () => true });
+		sessions.start(session(started), [runtime()]); await sessions.attach('session-1', 'admin', 'web', 4322);
+		now = new Date('2040-01-01T00:00:00.000Z');
+		expect(sessions.activeRoutes([])).toHaveLength(1);
+		expect(sessions.load('session-1').session.status).toBe('active');
+		expect(sessions.list()).toHaveLength(1);
+		expect(JSON.stringify(sessions.load('session-1'))).not.toContain('expiresAt');
+		sessions.stop('session-1');
+		expect(sessions.activeRoutes([])).toEqual([]);
+		expect(sessions.list()).toEqual([]);
+		expect(sessions.load('session-1').session.status).toBe('stopped');
+	});
+
+	it('suspends routes but retains exact live selection for host restart', async () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		await sessions.attach('session-1', 'admin', 'web', 4322);
+		const before = sessions.load('session-1').session.targets[0];
+		const suspended = sessions.suspend('session-1');
+		expect(suspended.session.status).toBe('suspended');
+		expect(suspended.session.targets[0]).toMatchObject({ mode: before?.mode, generation: before?.generation, health: 'stopped' });
+		expect(sessions.activeRoutes([])).toEqual([]);
+		expect(sessions.suspend('session-1')).toEqual(suspended);
+		expect(sessions.list()).toHaveLength(1);
+		expect(sessions.setMode('session-1', 'admin', 'web', 'live').session.status).toBe('active');
+	});
+
+	it('keeps an explicitly registered target eligible for migration after a failed live activation restores released mode', () => {
+		const now = new Date('2026-08-26T12:00:00.000Z'), sessions = store(now);
+		sessions.start(session(now), [runtime()]);
+		const record = sessions.load('session-1');
+		record.session.targets[0]!.mode = 'released';
+		sessions.save(record);
+		expect(hasRegisteredDevelopmentTarget(sessions.load('session-1'), 'admin', 'web')).toBe(true);
+		sessions.stop('session-1');
+		expect(hasRegisteredDevelopmentTarget(sessions.load('session-1'), 'admin', 'web')).toBe(false);
+	});
+
+	it('computes only directional declared consumers', () => {
+		const closure = affectedDevelopmentClosure([runtime('sdk', 'package'), runtime('admin', 'web', { id: 'sdk', target: 'package', reaction: 'reload' }), runtime('agent', 'service')], ['sdk.package']);
+		expect(closure).toEqual([{ key: 'sdk.package', reaction: 'none' }, { key: 'admin.web', reaction: 'reload' }]);
+	});
+});

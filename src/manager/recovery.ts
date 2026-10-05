@@ -1,0 +1,225 @@
+import {
+	componentReleaseSchema,
+	hostConfigurationSchema,
+	hostReceiptSchema,
+	type ComponentRelease,
+	type HostConfiguration,
+	type HostReceipt,
+} from '@treeseed/sdk/deployment';
+import { atomicJson } from '../core/files.js';
+import { recordEvent } from '../core/events.js';
+import { paths } from '../core/paths.js';
+import { activateWithRoutes } from './routed-activation.js';
+import { requestSupervisor } from '../supervisor/client.js';
+import { loadHostConfiguration } from '../core/configuration.js';
+import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
+import {
+	activateComponent,
+	configureComponentForActivation,
+	rollbackRoutes,
+	stopComponent,
+	reconcile,
+	composeFiles,
+} from './reconcile.js';
+import { componentActivationOrder, componentStopOrder } from './component-order.js';
+import { DevelopmentSessionStore, type ManagedDevelopmentSession } from './development-sessions.js';
+import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions } from './development-handoff.js';
+import { verifiedComponentRelease } from '../catalog/component-integrity.js';
+import { aiModeActivationServices } from './ai-mode.js';
+import { edgeReadiness } from '../edge/readiness.js';
+import { renderCaddyfile, subjectAlternativeNames } from '../edge/caddy.js';
+
+/** Pausing release selection must not pause recovery of the accepted runtime. */
+export async function recoverAcceptedRuntime(host: HostConfiguration, records: readonly ManagedDevelopmentSession[]) {
+	const installed = loadActiveComponents();
+	const enabled = installed.filter(component => host.components[component.componentId]?.enabled === true);
+	const held = developmentHeldComponentIds(records);
+	for (const component of enabled) verifiedComponentRelease(component);
+	for (const component of componentActivationOrder(host, enabled)) {
+		const services = aiModeActivationServices(component) ?? component.runtime.services.map(({ composeService }) => composeService);
+		const status = await requestSupervisor<{ ready: boolean; issues?: Array<{ reason: string }> }>({
+			operation: 'compose.status', projectName: component.runtime.compose.projectName,
+			runtime: { componentId: component.componentId, files: composeFiles(component), services },
+		});
+		if (!status) throw new Error(`Accepted runtime status unavailable for ${component.componentId}.`);
+		if (held.has(component.componentId)) {
+			if (heldDevelopmentCredentialsMissing(status)) await configureComponentForActivation(host, component, installed);
+		} else if (!status.ready) {
+			await activateComponent(host, component, installed);
+			recordEvent('component.accepted-runtime-repaired', { componentId: component.componentId });
+		}
+	}
+	const routes = new DevelopmentSessionStore().activeRoutes(rollbackRoutes(host, enabled));
+	if (routes.length && !await edgeReadiness(subjectAlternativeNames(routes))) {
+		await requestSupervisor({ operation: 'edge.apply', caddyfile: renderCaddyfile(routes), aliases: subjectAlternativeNames(routes) });
+		if (!await edgeReadiness(subjectAlternativeNames(routes))) throw new Error('Managed edge TLS readiness failed after recovery.');
+	}
+	if (!await resumeDevelopmentSessions(records)) recordEvent('development.boot-recovery-pending', {});
+}
+
+export interface RecoveryBackupInspection {
+	generation: number;
+	sha256: string;
+	configuration: unknown;
+	receipt: unknown;
+	components: unknown;
+}
+
+export interface RecoveryBackupSummary {
+	generation: number;
+	sha256?: string;
+	valid: boolean;
+	error?: string;
+	receipt?: unknown;
+	components?: unknown;
+}
+
+function parsedInspection(value: RecoveryBackupInspection) {
+	return {
+		generation: value.generation,
+		sha256: value.sha256,
+		configuration: hostConfigurationSchema.parse(value.configuration),
+		receipt: hostReceiptSchema.parse(value.receipt),
+		components: componentReleaseSchema.array().parse(value.components),
+	};
+}
+
+function packageSelections(receipt: HostReceipt) {
+	return receipt.packages
+		.sort((left, right) => left.order - right.order)
+		.map(({ name, version }) => `${name}=${version}`);
+}
+
+async function activateRestoredGeneration(host: HostConfiguration, components: ComponentRelease[], backupGeneration?: number) {
+	const enabled = components.filter(component => host.components[component.componentId]?.enabled === true);
+	const held = developmentHeldComponentIds(new DevelopmentSessionStore().list());
+	const base = rollbackRoutes(host, enabled);
+	const routes = host.runtime.environment === 'development' ? new DevelopmentSessionStore().activeRoutes(base) : base;
+	await activateWithRoutes(routes, async () => {
+		// Activate only enabled components, but verify database requirements against
+		// the complete installed inventory, including disabled components.
+		for (const component of componentActivationOrder(host, enabled).filter(component => !held.has(component.componentId)))
+			await activateComponent(host, component, components, backupGeneration);
+	});
+}
+
+async function stopGeneration(host: HostConfiguration, components: ComponentRelease[]) {
+	for (const component of componentStopOrder(host, components)) await stopComponent(component);
+}
+
+function persistRestoredReceipt(target: HostReceipt, components: ComponentRelease[]) {
+	const receipt = hostReceiptSchema.parse({
+		...target,
+		receiptId: `receipt-${Date.now()}`,
+		state: 'known-good',
+		completedAt: new Date().toISOString(),
+	});
+	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
+	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);
+	atomicJson(`${paths.managerState}/active-components.json`, components);
+	return receipt;
+}
+
+
+export async function listRecoveryBackups() {
+	const backups = await requestSupervisor<RecoveryBackupSummary[]>({ operation: 'backup.list' });
+	return backups.map((backup) => {
+		if (!backup.valid) return { generation: backup.generation, valid: false, error: backup.error };
+		const receipt = hostReceiptSchema.safeParse(backup.receipt);
+		const components = componentReleaseSchema.array().safeParse(backup.components);
+		return {
+			generation: backup.generation,
+			valid: receipt.success && components.success,
+			sha256: backup.sha256,
+			receipt: receipt.success ? {
+				receiptId: receipt.data.receiptId,
+				catalogDigest: receipt.data.catalogDigest,
+				completedAt: receipt.data.completedAt,
+				packages: receipt.data.packages,
+			} : null,
+			components: components.success ? components.data.map(({ componentId, release }) => ({ componentId, release })) : [],
+			...(!receipt.success || !components.success ? { error: 'Backup does not contain a complete managed generation.' } : {}),
+		};
+	});
+}
+
+export async function inspectRecoveryBackup(generation: number) {
+	return parsedInspection(await requestSupervisor<RecoveryBackupInspection>({ operation: 'backup.inspect', generation }));
+}
+
+/** Retry accepted restored state; do not recapture/restore a database already restored. */
+export async function retryManagedRecovery() {
+	const held = await requestSupervisor<{ generation: number; phase: string } | null>({ operation: 'development.backup.status' });
+	if (!held) return reconcile();
+	if (held.phase !== 'restored') throw new Error('An authenticated exact backup restore is required before recovery retry.');
+	if (await requestSupervisor({ operation: 'postgres.transfer.status' })) throw new Error('Exact coordinated PostgreSQL transfer recovery is required.');
+	const host = loadHostConfiguration(), components = loadActiveComponents(), receipt = loadCurrentReceipt();
+	if (!receipt) throw new Error('A current known-good receipt is required before recovery retry.');
+	await requestSupervisor({ operation: 'development.backup.fence', generation: held.generation,
+		apiRuntimeDigest: components.find(component => component.componentId === 'api')?.runtimeDigest });
+	await activateRestoredGeneration(host, components, held.generation);
+	await requestSupervisor({ operation: 'development.backup.finish', generation: held.generation });
+	await restoreHeldComponentCredentials(components, developmentHeldComponentIds(new DevelopmentSessionStore().list()),
+		component => configureComponentForActivation(host, component, components));
+	if (!await resumeDevelopmentSessions(new DevelopmentSessionStore().list()))
+		throw new Error('Restored development runtime did not resume; retry ordinary reconciliation.');
+	recordEvent('recovery.retry-complete', { generation: held.generation, receiptId: receipt.receiptId });
+	return { generation: held.generation, recovered: true, receiptId: receipt.receiptId };
+}
+
+export async function restoreManagedGeneration(generation: number) {
+	const target = await inspectRecoveryBackup(generation);
+	const currentHost = loadHostConfiguration(), currentComponents = loadActiveComponents(), currentReceipt = loadCurrentReceipt();
+	if (!currentReceipt) throw new Error('A current known-good receipt is required before manual recovery.');
+	const reenabled = Object.entries(target.configuration.components)
+		.filter(([id, selection]) => selection.enabled && currentHost.components[id]?.enabled === false)
+		.map(([id]) => id);
+	if (reenabled.length) throw new Error(`Recovery would enable explicitly disabled components: ${reenabled.join(', ')}. Review and change the current host selection before restoring this generation.`);
+	const safetyGeneration = Date.now();
+	const held = await requestSupervisor<{ generation: number } | null>({ operation: 'development.backup.status' });
+	const transfer = await requestSupervisor<{ restoreGeneration: number; restoreDigest: string } | null>({ operation: 'postgres.transfer.status' });
+	if (transfer && (transfer.restoreGeneration !== generation || transfer.restoreDigest !== `sha256:${target.sha256}`)) throw new Error('Exact coordinated PostgreSQL restore point required');
+	const holdGeneration = held?.generation ?? safetyGeneration;
+	const apiRuntimeDigest = target.components.find(component => component.componentId === 'api')?.runtimeDigest;
+	if (held) await requestSupervisor({ operation: 'development.backup.fence', generation: holdGeneration, apiRuntimeDigest });
+	else if (!transfer) await requestSupervisor({ operation: 'development.backup.begin', generation: holdGeneration, apiRuntimeDigest });
+	// A raw database archive is recoverable only after its writers are stopped.
+	// If capture fails, resume the current generation; no usable safety image exists yet.
+	try {
+		await stopGeneration(currentHost, currentComponents);
+		await requestSupervisor({ operation: 'backup.create', generation: safetyGeneration });
+	} catch (error) {
+		if (transfer) throw error; // Never restart a partially migrated current generation.
+		await activateRestoredGeneration(currentHost, currentComponents);
+		// A pre-existing interrupted hold may not yet have a verified restore;
+		// retain it instead of claiming its old runtime is safe to resume.
+		if (!held) await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
+		throw error;
+	}
+	recordEvent('recovery.restore-started', { generation, targetReceiptId: target.receipt.receiptId, safetyGeneration });
+	try {
+		const packages = packageSelections(target.receipt);
+		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
+		await requestSupervisor({ operation: 'recovery.restore', generation });
+		await activateRestoredGeneration(target.configuration, target.components);
+		const receipt = persistRestoredReceipt(target.receipt, target.components);
+		if (held || !transfer) await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
+		recordEvent('recovery.restore-complete', { generation, receiptId: receipt.receiptId, targetReceiptId: target.receipt.receiptId });
+		return { generation, restored: true, safetyGeneration, targetReceiptId: target.receipt.receiptId, receipt };
+	} catch (error) {
+		if (transfer) {
+			try { await stopGeneration(target.configuration, target.components); } catch { /* retain containment failure for explicit recovery */ }
+			recordEvent('recovery.transfer-restore-failed', { generation, safetyGeneration });
+			throw error; // Safety snapshot may contain incompatible partial transfer data.
+		}
+		recordEvent('recovery.restore-rollback-started', { generation, safetyGeneration, message: error instanceof Error ? error.message : String(error) });
+		try { await stopGeneration(target.configuration, target.components); } catch { /* continue restoring the safety generation */ }
+		await requestSupervisor({ operation: 'recovery.restore', generation: safetyGeneration });
+		const packages = packageSelections(currentReceipt);
+		if (packages.length) await requestSupervisor({ operation: 'apt.install', packages });
+		await activateRestoredGeneration(currentHost, currentComponents);
+		await requestSupervisor({ operation: 'development.backup.finish', generation: holdGeneration });
+		recordEvent('recovery.restore-rollback-complete', { generation, safetyGeneration, receiptId: currentReceipt.receiptId });
+		throw error;
+	}
+}

@@ -1,0 +1,652 @@
+schemaVersion: treeseed.guarantee-verifiers/v1
+ownerPackage: "@treeseed/deployment"
+verifiers:
+  deployment.golden.runtime-public-provider-roots:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: exposes the same immutable provider runtime root mapping used by the owning manager
+  deployment.golden.runtime-public-provider-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: materializes generated provider dependencies through the public owning root mapping without duplicate recipes
+  deployment.golden.runtime-public-authority:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: exposes the identical runtime materialization authority through the package root
+  deployment.golden.runtime-public-native-bytes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: materializes exact independent private bytes through the public package root in a native process
+  deployment.golden.runtime-public-native-policy:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: retains workspace alias hidden-file filtering bin and normalized modes through the native public API
+  deployment.golden.runtime-public-native-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-public.test.ts
+    testName: fails closed on escaped dependencies and source destinations through the native public API without deleting source
+  deployment.golden.provider-drain-active:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: rejects active claims before draining execution and restores admissions
+  deployment.golden.provider-drain-invalid:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores admissions on unreadable claim syntax or invalid inventory
+  deployment.golden.provider-drain-idle:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: drains empty and polling inventory without invoking restoration
+  deployment.golden.provider-drain-runner-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores uncertain runner stop before reopening admissions
+  deployment.golden.provider-drain-manager-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: restores uncertain manager stop without draining execution
+  deployment.golden.provider-drain-stopped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: does not restart an originally stopped manager on rejected handoff
+  deployment.golden.provider-drain-restore-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: propagates restoration failure instead of claiming recovered execution
+  deployment.golden.provider-drain-owner:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-drain.test.ts
+    testName: rejects unowned containers before any stop or restoration side effect
+  deployment.golden.provider-handoff-ready:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after ready rejection in an isolated filesystem
+  deployment.golden.provider-handoff-running:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after running rejection in an isolated filesystem
+  deployment.golden.provider-handoff-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after recovery rejection in an isolated filesystem
+  deployment.golden.provider-handoff-malformed:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after malformed rejection in an isolated filesystem
+  deployment.golden.provider-handoff-bad-claim:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after bad-claim rejection in an isolated filesystem
+  deployment.golden.provider-handoff-copy-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after copy-failure rejection in an isolated filesystem
+  deployment.golden.provider-handoff-runner-stop-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after runner-stop-failure rejection in an isolated filesystem
+  deployment.golden.provider-handoff-runner-stop-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after runner-stop-uncertain rejection in an isolated filesystem
+  deployment.golden.provider-handoff-manager-stop-uncertain:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves selected provider bytes and execution after manager-stop-uncertain rejection in an isolated filesystem
+  deployment.golden.provider-handoff-polling:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: selects the prepared provider snapshot after polling admission through the original boundary
+  deployment.golden.provider-handoff-empty:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: selects the prepared provider snapshot after empty admission through the original boundary
+  deployment.golden.provider-handoff-first-start:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: selects the prepared provider snapshot after first-start admission through the original boundary
+  deployment.golden.provider-claims-identities:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: keeps arbitrary configured identities active for ready running and recovery claims
+  deployment.golden.provider-claims-idle:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: allows only empty missing and polling state without active claims
+  deployment.golden.provider-claims-invalid:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: fails closed on invalid claim inventory and named fields without ignoring earlier active claims
+  deployment.golden.provider-status-build:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects missing duplicate and changed advertised provider builds after selected-copy verification
+  deployment.golden.provider-status-ready:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: reports readiness only with matching selected-copy build and guest trust without reflecting mount inventory
+  deployment.golden.provider-status-stopped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: preserves stopped-provider non-readiness even when private file custody and build match
+  deployment.golden.component-metadata:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: parses component metadata and binds every scene step to exactly one existing owner test
+  deployment.golden.provider-status-session:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects a running provider belonging to another session instead of reporting ready
+  deployment.golden.provider-status-writable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects a running provider with writable code mounts instead of reporting ready
+  deployment.golden.provider-status-receipt:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-status.test.ts
+    testName: rejects a running provider without its private copy receipt instead of reporting ready
+  deployment.golden.runtime-copy-normalized-mode:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-copy.test.ts
+    testName: binds its receipt to actual copied executable modes rather than pre-normalized source modes
+  deployment.golden.runtime-copy-readback:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: reads the exact immutable copy and internal directory aliases without using mutable source
+  deployment.golden.runtime-copy-bytes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects bytes private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-deleted:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects deleted private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-added:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects added private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-hidden:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects hidden private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-mode:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects mode private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-writable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects writable private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-alias:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects alias private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-escaped:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects escaped private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-unreadable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects unreadable private-copy mutation instead of echoing the saved digest
+  deployment.golden.runtime-copy-invalid-receipt:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects missing malformed empty wrong-owner writable and symlink receipts
+  deployment.golden.runtime-copy-roots-nodes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: rejects changed root inventory root symlinks cycles and special files with bounded native failure
+  deployment.golden.runtime-copy-native-process:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: reads and rejects changed copy bytes through a real independent Node process
+  deployment.golden.runtime-copy-mounts:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: binds exact session target and read-only code mounts, including duplicate and overlay denial
+  deployment.golden.runtime-copy-docker:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-status.test.ts
+    testName: binds real Docker read-only mount inventory to the actual private copy and rejects subsequent byte changes
+  deployment.golden.complete-privileged-admission:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: runs complete privileged owner prerequisites before coded scenes without a filtered substitute
+  deployment.golden.kernel-cache-quota:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-volume.integration.test.ts
+    testName: kernel rejects writes beyond the fixed trusted-host cache without filling the parent filesystem
+  deployment.golden.selected-host-files:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: reads exact selected runtime hashes rather than historical workspace bytes without mutating state
+  deployment.golden.selected-host-tampering:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects modified deleted and additional selected runtime files
+  deployment.golden.selected-host-symlinks:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects file directory and generation symlink escapes
+  deployment.golden.selected-host-generation:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects invalid selected generation ids and missing generation directories
+  deployment.golden.selected-host-states:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: does not claim selected runtime proof for installed or transitional states
+  deployment.golden.selected-host-nodes:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects unsupported generation nodes instead of reporting a passing inventory
+  deployment.golden.selected-host-missing-package:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects a missing package or empty selected inventory even when a saved digest matches
+  deployment.golden.selected-host-unreadable:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: rejects unreadable selected files instead of substituting a missing sentinel
+  deployment.golden.selected-host-native-process:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: reads exact selected filesystem custody through a real isolated child process
+  deployment.golden.selected-host-protected-route:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development-custody.test.ts
+    testName: routes the existing fixed status operation to selected custody without adding caller-selected paths
+  deployment.golden.subscription-response-quarantine:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: keeps access_token fingerprint rejection with static response diagnosis
+  deployment.golden.subscription-event-quarantine:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: classifies raw diagnostic events without returning the credential or dynamic payload keys
+  deployment.golden.subscription-malformed-quarantine:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: retains fail-closed matching for malformed result JSON and short-value policy
+  deployment.golden.subscription-clean-output:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-output-quarantine.test.ts
+    testName: passes clean results without modifying content or accepting malformed credentials
+  deployment.golden.direct-http-startup:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sessions.test.ts
+    testName: waits through transient direct HTTP startup without extending the declared readiness window
+  deployment.golden.direct-http-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sessions.test.ts
+    testName: fails closed on persistent direct HTTP failure within the declared readiness window
+  deployment.golden.direct-tcp-startup:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sessions.test.ts
+    testName: waits for a direct TCP listener within the same declared startup window
+  deployment.golden.paused-runtime-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/update-fault-qualification.test.ts
+    testName: recovers pinned dependencies before resuming held source even when both update tracks are paused
+  deployment.golden.paused-recovery-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/update-fault-qualification.test.ts
+    testName: fails closed on recovery failure or missing health, never selecting a catalog update
+  deployment.golden.development-database-reboot-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-container.test.ts
+    testName: restores missing development database custody from the installed runtime allocation after reboot
+  deployment.golden.runtime-bind-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/secret-custody.test.ts
+    testName: repairs only owner-owned ephemeral bind roots while persistent custody and foreign ownership stay fail-closed
+  deployment.golden.identity-reboot-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/identity-bootstrap.test.ts
+    testName: restores Identity reboot placeholders from unchanged protected custody
+  deployment.golden.postgres-reboot-custody:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/postgres-bootstrap.test.ts
+    testName: recovers Docker-created reboot placeholders and permissions without changing credentials or database data
+  deployment.golden.postgres-reboot-denial:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/postgres-bootstrap.test.ts
+    testName: rejects nonempty or aliased runtime placeholders without deleting their contents
+  deployment.golden.development-held-host-start:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/reconcile-runtime-repair-targets.test.ts
+    testName: never activates an older released writer held by development during configuration start
+  deployment.golden.development-held-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/managed-recovery.test.ts
+    testName: recovers dependencies without starting a development-held released API writer
+  deployment.golden.development-credential-restore:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-handoff.test.ts
+    testName: restores ephemeral credentials only for held runtimes, in dependency order
+  deployment.golden.ordinary-component-activation:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/reconcile-runtime-repair-targets.test.ts
+    testName: keeps ordinary component activation tied to changed targets and configuration impact
+  deployment.golden.subscription-concurrency:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: admits five independent snapshots without holding custody during guest execution
+  deployment.golden.subscription-stale-return:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: preserves a refresh against four stale unchanged exports and permits subsequent refresh
+  deployment.golden.subscription-rotation-conflict:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: rejects ambiguous competing rotations without overwrite and recovers custody after rejection
+  deployment.golden.subscription-account-isolation:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/subscription-concurrency.test.ts
+    testName: rejects invalid or changed-account returns and external account replacement even for unchanged exports
+  deployment.golden.provider-snapshot-permissions:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-container.test.ts
+    testName: makes the root snapshot provider-readable without relying on supervisor umask
+  deployment.golden.provider-development-parity:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-container.test.ts
+    testName: binds the desired provider manifest and enrolls through the same exact development snapshot
+  deployment.golden.enrolled-concurrency:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-enrollment-contract.test.ts
+    testName: updates only bounded concurrency through the existing completion handoff
+  deployment.golden.warm-pool:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: atomically assigns each VM once, replenishes only pristine capacity and bounds idle memory
+  deployment.golden.image-isolation:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: never substitutes an incompatible image or resource shape
+  deployment.golden.pool-drain:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: does not recycle failed readiness and rejects admission after drain
+  deployment.golden.source-custody:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: constructs exact Git source, preserves history across incremental bundles and rejects dirty parents
+  deployment.golden.analysis-overlay:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-nbd-service.test.ts
+    testName: gives analysis a writable private overlay without tying NBD to the supervisor cgroup
+  deployment.golden.device-denial:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-nbd-service.test.ts
+    testName: rejects caller paths, unrelated devices, image formats and IDs
+  deployment.golden.candidate-verification:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate.test.ts
+    testName: journals ownership before independent verification and never represents verification as publication
+  deployment.golden.lease-deadline:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-deadline.test.ts
+    testName: reads renewed lease and source authority without extending productive time
+  deployment.golden.deadline-diagnostics:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-deadline.test.ts
+    testName: identifies the first limiting deadline without mistaking it for guest OOM
+  deployment.golden.credential-custody:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-model-policy.test.ts
+    testName: updates policy without replacing credential custody or guest trust and repeats noop
+  deployment.golden.cleanup-authority:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-collection.test.ts
+    testName: does not unlink while a build or active/quarantined lease exists
+  deployment.golden.cleanup-replay:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-collection.test.ts
+    testName: deletes only leaves, bounds each batch and repeats as noop
+  deployment.golden.crash-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: requires both guest and lease absence
+  deployment.golden.expired-analysis-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: durably records interruption, releases only analysis, deletes disk, and replays as noop
+  deployment.golden.recovery-preserves-work:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: preserves work disks and current analysis authority
+  deployment.golden.automatic-released-cleanup:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: automatically finishes normal-result deletion without touching active or work leases
+  deployment.golden.expired-simulation-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-analysis-recovery.test.ts
+    testName: retires expired simulation work durably but preserves production and current simulation work
+  deployment.golden.failed-simulation-cleanup:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: automatically discards stopped failed simulations but retains unpublished production and successful candidates
+
+  deployment.golden.component-image-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects a healthy owned component running a different selected image
+
+  deployment.golden.component-image-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects duplicate owned service instances rather than reporting aggregate readiness
+
+  deployment.golden.component-image-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects undeclared owned services instead of accepting their health
+
+  deployment.golden.component-image-4:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: requires every selected persistent service before reporting readiness
+
+  deployment.golden.component-image-5:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects malformed empty mutable and incorrectly owned selected image declarations
+
+  deployment.golden.component-image-6:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects selected service identity drift instead of dropping it from observations
+
+  deployment.golden.component-image-7:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: preserves matching selected-image readiness and stopped unhealthy non-readiness
+
+  deployment.golden.component-image-8:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: does not require completed declared one-shot services for steady-state readiness
+
+  deployment.golden.component-image-9:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: reports an absent selected override as unregistered without Docker side effects
+
+  deployment.golden.component-image-10:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects selection changes during Docker inspection before readiness
+
+  deployment.golden.component-image-11:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: binds real Docker image identity to the native selected file and rejects digest drift
+
+  deployment.golden.component-image-12:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: rejects real duplicate and incorrectly owned Docker instances without changing selection
+
+  deployment.golden.component-image-13:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: requires all native selected persistent images while preserving completed one-shot exclusion
+
+  deployment.golden.component-image-14:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: verifies real selected image custody in an independent Node process and fails closed on malformed selection
+
+  deployment.golden.component-image-15:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: rejects real Docker service identity drift and undeclared ownership while retaining unrelated services
+
+  deployment.golden.component-image-16:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects wrong images during activation readiness as well as later status
+
+  deployment.golden.component-image-17:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: rejects duplicate and incorrectly owned activation service identities
+
+  deployment.golden.component-image-18:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: retains healthy exact-image activation readiness without another build or receipt
+
+  deployment.golden.component-image-19:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: uses the same real Docker image authority during activation readiness and subsequent status

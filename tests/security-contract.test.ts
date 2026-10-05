@@ -1,0 +1,242 @@
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { createRecoveryBundle, verifyRecoveryBundle } from '../src/security/recovery-bundle.js';
+import { providerSecuritySettings, selectedSandboxGuestImages } from '../src/security/provider-volume.js';
+import { verifySandboxAssignment, verifySandboxLeaseRenewal } from '../src/sandbox/trust.js';
+import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider';
+import type { HostConfiguration } from '@treeseed/sdk/deployment';
+import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
+import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
+import { serializedSecurityInitializeArguments, type SerializedSecurityOperation } from '../src/manager/serialized-security.js';
+import { containerdImageReference } from '../src/sandbox/image-reference.js';
+import { credentialInitializerStatus, loadCredentialInitializers } from '../src/security/credential-initializers.js';
+import { safeContainerId, validateSubscriptionCredential } from '../src/sandbox/runtime.js';
+import { bindSandboxGuestImageDigest, configuredSandboxGuestImageDigests } from '../src/supervisor/component.js';
+import { bindSandboxGuestTrust, importDevelopmentSandboxGuest } from '../src/supervisor/execute.js';
+import { bindExistingSandboxGuestTrust } from '../src/supervisor/sandbox-guest-import.js';
+import { authorizedGuestImage } from '../src/sandbox/runtime.js';
+import { allowedPackageRegistryHost, allowedSubscriptionProxyHost, assignmentProxyService } from '../src/sandbox/server.js';
+import { sandboxCniConfiguration, sandboxNetworkRules } from '../src/sandbox/network.js';
+
+const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
+	? `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}` : JSON.stringify(value);
+
+describe('host security contracts', () => {
+	it('keeps full synchronous diagnosis off the concurrent sandbox-create route', () => {
+		const source = readFileSync(new URL('../src/sandbox/server.ts', import.meta.url), 'utf8');
+		const create = source.split("request.method === 'POST' && request.url === '/v1/sandboxes'")[1]?.split('const input =')[0];
+		expect(create).toContain('verifySandboxAssignment(assignment, configuration.trustedProvidersPath)');
+		expect(create).toContain('runtime.prepare(assignment)');
+		expect(create).not.toContain('inspectSandboxHost(');
+		expect(source).toContain("request.method === 'GET' && request.url === '/v1/status'");
+	});
+	it('preserves the active development guest trust while credentials are reconfigured', () => {
+		const released = `sha256:${'a'.repeat(64)}`, development = `sha256:${'b'.repeat(64)}`;
+		const profiles = [
+			{ id: 'read', guestImage: 'treeseed/sandbox-codex', guestImageDigest: released },
+			{ id: 'work', guestImage: 'treeseed/sandbox-codex', guestImageDigest: released },
+		] as Parameters<typeof selectedSandboxGuestImages>[0];
+		expect(selectedSandboxGuestImages(profiles, { status: 'active', guestImageDigest: development })).toEqual([
+			{ image: 'treeseed/sandbox-codex', digest: development, profiles: ['read', 'work'] },
+		]);
+		expect(selectedSandboxGuestImages(profiles, { status: 'installed', guestImageDigest: development })).toEqual([
+			{ image: 'treeseed/sandbox-codex', digest: released, profiles: ['read', 'work'] },
+		]);
+	});
+
+	it('accepts rotated subscription credentials only for the same account', () => {
+		const credential = (accountId: string, refreshToken: string) => Buffer.from(JSON.stringify({ auth_mode: 'chatgpt', tokens: {
+			account_id: accountId, access_token: 'access-token', refresh_token: refreshToken,
+		} }));
+		const current = credential('account-one', 'refresh-one'), rotated = credential('account-one', 'refresh-two');
+		expect(validateSubscriptionCredential(rotated, current)).toMatchObject({ auth_mode: 'chatgpt' });
+		expect(() => validateSubscriptionCredential(credential('account-two', 'refresh-three'), current)).toThrow(/changed account identity/u);
+		expect(() => validateSubscriptionCredential(Buffer.from('{}'))).toThrow(/invalid/u);
+	});
+
+	it('authorizes equivalent Docker Hub guest image names without weakening digest or profile checks', () => {
+		const digest = `sha256:${'a'.repeat(64)}`;
+		const configured = [{ image: 'docker.io/treeseed/sandbox-codex', digest, profiles: ['read'] }];
+		expect(authorizedGuestImage(configured, { guestImage: 'treeseed/sandbox-codex', guestImageDigest: digest, profile: 'read' })).toBe(true);
+		expect(authorizedGuestImage(configured, { guestImage: 'treeseed/sandbox-codex', guestImageDigest: `sha256:${'b'.repeat(64)}`, profile: 'read' })).toBe(false);
+		expect(authorizedGuestImage(configured, { guestImage: 'treeseed/sandbox-codex', guestImageDigest: digest, profile: 'unit' })).toBe(false);
+	});
+
+	it('restricts subscription proxy tunnels to OpenAI-operated HTTPS hosts', () => {
+		expect(allowedSubscriptionProxyHost('chatgpt.com')).toBe(true);
+		expect(allowedSubscriptionProxyHost('api.openai.com')).toBe(true);
+		expect(allowedSubscriptionProxyHost('sdmntprcentralus.oaiusercontent.com')).toBe(true);
+		expect(allowedSubscriptionProxyHost('openai.com.attacker.invalid')).toBe(false);
+		expect(allowedSubscriptionProxyHost('github.com')).toBe(false);
+		expect(allowedPackageRegistryHost('registry.npmjs.org')).toBe(true);
+		expect(allowedPackageRegistryHost('npmjs.org')).toBe(false);
+		expect(allowedPackageRegistryHost('registry.npmjs.org.attacker.invalid')).toBe(false);
+		expect(assignmentProxyService('registry.npmjs.org')).toBe('package-registry');
+		expect(assignmentProxyService('chatgpt.com')).toBe('codex-subscription');
+		expect(assignmentProxyService('example.com')).toBeNull();
+	});
+
+	it('routes guests only to the host bridge without public masquerading', () => {
+		const bridge = sandboxCniConfiguration().plugins[0] as Record<string, unknown>;
+		expect(bridge.ipMasq).toBe(false);
+		expect((bridge.ipam as { routes: unknown[] }).routes).toEqual([{ dst: '0.0.0.0/0', gw: '10.89.0.1' }]);
+		expect(sandboxNetworkRules).toContain('tcp dport { 7443, 7444 } accept');
+		expect(sandboxNetworkRules).not.toContain('tcp dport { 53, 443 } accept');
+	});
+	it('uses canonical containerd registry references for sandbox images', () => {
+		const digest = `sha256:${'a'.repeat(64)}`;
+		expect(containerdImageReference('treeseed/sandbox-codex', digest)).toBe(`docker.io/treeseed/sandbox-codex@${digest}`);
+		expect(containerdImageReference('ubuntu', digest)).toBe(`docker.io/library/ubuntu@${digest}`);
+		expect(containerdImageReference('registry.example/private/guest', digest)).toBe(`registry.example/private/guest@${digest}`);
+		expect(containerdImageReference('localhost:5000/private/guest', digest)).toBe(`localhost:5000/private/guest@${digest}`);
+		expect(() => containerdImageReference('treeseed/sandbox-codex@latest', digest)).toThrow(/must not contain a digest/u);
+	});
+
+	it('canonicalizes assignment IDs and binds the selected release guest digest', () => {
+		expect(safeContainerId('assignment__XAp7B_dMzIY-S15CjjB40W87HDsCyZm')).toBe('assignment-XAp7B-dMzIY-S15CjjB40W87HDsCyZm');
+		expect(safeContainerId('___')).toBe('assignment');
+		const current = `sha256:${'a'.repeat(64)}`, selected = `sha256:${'b'.repeat(64)}`;
+		const manifest = `sandbox:\n  profiles:\n    - guestImageDigest: ${current}\n    - guestImageDigest: ${current}\n`;
+		expect(bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', manifest, selected).match(new RegExp(selected, 'gu'))).toHaveLength(2);
+		expect(() => bindSandboxGuestImageDigest('agent', 'treeseed.capacity-provider.yaml', 'sandbox: {}\n', selected)).toThrow(/does not declare/u);
+		expect(supervisorOperationSchema.parse({ operation: 'component.configure', release: '1.0.0', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: selected })).toMatchObject({ sandboxGuestImageDigest: selected });
+		expect(() => supervisorOperationSchema.parse({ operation: 'component.configure', release: '1.0.0', componentId: 'agent', connectionEnvironment: {}, sandboxGuestImageDigest: 'latest' })).toThrow();
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-agent-manifest-')), path = resolve(directory, 'manifest.yaml');
+		try { writeFileSync(path, manifest); expect(configuredSandboxGuestImageDigests(path)).toEqual([current, current]); }
+		finally { rmSync(directory, { recursive: true, force: true }); }
+		expect(supervisorOperationSchema.parse({ operation: 'sandbox.guest-trust.digests' })).toEqual({ operation: 'sandbox.guest-trust.digests' });
+		expect(supervisorOperationSchema.parse({ operation: 'sandbox.guest-trust.bind', digest: selected })).toEqual({ operation: 'sandbox.guest-trust.bind', digest: selected });
+	});
+
+	it('updates broker trust and pulls the exact catalog-selected guest image', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-broker-binding-')), path = resolve(directory, 'broker.json'), digest = `sha256:${'c'.repeat(64)}`;
+		const configuration = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json', relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [{ image: 'docker.io/treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['read'] }] };
+		const calls: string[][] = [];
+		try { writeFileSync(path, JSON.stringify(configuration)); bindSandboxGuestTrust(digest, (_executable, arguments_) => { calls.push([...arguments_]); }, path); expect(JSON.parse(readFileSync(path, 'utf8')).guestImages[0].digest).toBe(digest); expect(calls.some((arguments_) => arguments_.includes(`docker.io/treeseed/sandbox-codex@${digest}`))).toBe(true); expect(calls.at(-1)).toEqual(['restart', 'treeseed-sandbox-broker.service']); }
+		finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+
+	it('binds an imported development guest without a registry pull', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-development-guest-binding-'));
+		const path = resolve(directory, 'broker.json'), digest = `sha256:${'e'.repeat(64)}`;
+		const configuration = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json', relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [{ image: 'docker.io/treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['read'] }] };
+		const calls: string[][] = [];
+		try {
+			writeFileSync(path, JSON.stringify(configuration));
+			bindExistingSandboxGuestTrust(digest, (_executable, arguments_) => { calls.push([...arguments_]); }, path);
+			expect(calls.some((arguments_) => arguments_.includes('inspect') && arguments_.includes(`docker.io/treeseed/sandbox-codex@${digest}`))).toBe(true);
+			expect(calls.some((arguments_) => arguments_.includes('pull'))).toBe(false);
+			expect(calls.at(-1)).toEqual(['restart', 'treeseed-sandbox-broker.service']);
+		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+
+	it('imports a locally built development guest through bounded host custody', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-guest-import-'));
+		const stateRoot = resolve(directory, 'manager'), brokerPath = resolve(directory, 'broker.json');
+		const digest = `sha256:${'d'.repeat(64)}`;
+		const configuration = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json', relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [{ image: 'docker.io/treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['read'] }] };
+		const calls: string[][] = [];
+		try {
+			writeFileSync(brokerPath, JSON.stringify(configuration));
+			const result = importDevelopmentSandboxGuest('treeseed/sandbox-codex:local', (_executable, arguments_) => {
+				calls.push([...arguments_]);
+				if (arguments_.includes('save')) writeFileSync(arguments_[arguments_.indexOf('--output') + 1]!, Buffer.alloc(2_048), { mode: 0o600 });
+				return arguments_.includes('inspect') ? `docker.io/treeseed/sandbox-codex:local application/vnd.oci.image.index.v1+json ${digest}` : undefined;
+			}, { stateRoot, brokerPath });
+			expect(result).toMatchObject({ digest, architecture: expect.stringMatching(/^linux\/(?:amd64|arm64)$/u), imported: true });
+			expect(calls.some((arguments_) => arguments_.includes('save') && arguments_.includes('treeseed/sandbox-codex:local'))).toBe(true);
+			expect(calls.some((arguments_) => arguments_.includes('import') && arguments_.some((argument) => argument.endsWith('/guest.tar')))).toBe(true);
+			expect(calls.some((arguments_) => arguments_.includes('tag') && arguments_.includes(`docker.io/treeseed/sandbox-codex@${digest}`))).toBe(true);
+			expect(JSON.parse(readFileSync(brokerPath, 'utf8')).guestImages[0].digest).toBe(digest);
+			expect(supervisorOperationSchema.parse({ operation: 'sandbox.guest-image.import', image: 'treeseed/sandbox-codex:local' })).toMatchObject({ image: 'treeseed/sandbox-codex:local' });
+			expect(() => supervisorOperationSchema.parse({ operation: 'sandbox.guest-image.import', archivePath: '/tmp/guest.tar', image: 'treeseed/sandbox-codex:local' })).toThrow();
+		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+
+	it('checks containerd readiness from the quiet ready-image inventory', () => {
+		const doctor = readFileSync(resolve(process.cwd(), 'src/sandbox/doctor.ts'), 'utf8');
+		const runtime = readFileSync(resolve(process.cwd(), 'src/sandbox/runtime.ts'), 'utf8');
+		expect(doctor).toContain("'images', 'check', '--quiet'");
+		expect(doctor).toContain('readyImageReferences.has(containerdImageReference');
+		expect(doctor).not.toContain("'images', 'check', containerdImageReference");
+		expect(runtime).toContain("'--null-io'");
+		expect(runtime).not.toContain("'--fifo-dir'");
+		expect(runtime).toContain('destroyed: verified');
+		expect(runtime).toContain("'failure.json'");
+		expect(runtime).toContain('failureDigest');
+		expect(runtime).toContain('type=tmpfs,src=tmpfs,dst=/workspace');
+		expect(runtime).toContain('materializeGuestResolver');
+		expect(runtime).toContain('dst=/etc/resolv.conf');
+		expect(runtime).toContain("address !== '127.0.0.53'");
+	});
+	it('waits for broker readiness and leaves a failed completion resumable', () => {
+		const initialization = readFileSync(resolve(process.cwd(), 'src/security/provider-volume.ts'), 'utf8');
+		expect(initialization).toContain('const readinessDeadline = Date.now() + 30_000');
+		expect(initialization).toContain("priorReceipt?.state !== 'known-good'");
+		expect(initialization).toContain('The initialized security state is resumable.');
+		expect(initialization).toContain("chmodSync('/etc/treeseed/sandbox/relay-ca.crt', 0o644)");
+		expect(readFileSync(resolve(process.cwd(), 'src/supervisor/component.ts'), 'utf8')).toContain("chmodSync('/etc/treeseed/sandbox/relay-ca.crt', 0o644)");
+	});
+	it('serializes initialization with reconciliation without putting secrets in argv', () => {
+		const arguments_ = serializedSecurityInitializeArguments();
+		expect(arguments_.slice(0, 5)).toEqual(['--exclusive', '--close', '--wait', '3500', '/run/treeseed/manager/reconcile.lock']);
+		expect(arguments_.join(' ')).not.toMatch(/passphrase|auth\.json|modelProviderKey/u);
+		expect(arguments_.at(-1)).toMatch(/security-initialize\.js$/u);
+		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain('serializedSecurityInitialize({');
+		const credentialOperation: SerializedSecurityOperation = { operation: 'provider.credential.initialize', initializerId: 'treeseed.codex', sourceId: 'service-api-key', secret: 'private-service-credential' };
+		expect(credentialOperation.operation).toBe('provider.credential.initialize');
+		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain('serializedSecurityOperation({ operation: \'provider.credential.initialize\'');
+	});
+	it('separates host security from registered execution-provider credentials', () => {
+		expect(supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', confirm: true })).not.toHaveProperty('modelProviderKey');
+		expect(() => supervisorOperationSchema.parse({ operation: 'security.initialize', recoveryBundle: '/tmp/recovery', recoveryPassphrase: 'correct horse battery staple', modelProviderKey: 'sk-test-service-key-value', confirm: true })).toThrow();
+		expect(supervisorOperationSchema.parse({ operation: 'provider.credential.initialize', initializerId: 'treeseed.codex', sourceId: 'service-api-key', secret: 'sk-test-service-key-value' })).toMatchObject({ initializerId: 'treeseed.codex' });
+		expect(supervisorOperationSchema.parse({ operation: 'provider.credentials.status', credentialIds: ['execution-provider-codex-auth'] })).toMatchObject({ credentialIds: ['execution-provider-codex-auth'] });
+		const registered = loadCredentialInitializers(resolve(process.cwd(), 'credential-initializers'));
+		expect(registered.map(({ id }) => id)).toContain('treeseed.codex');
+		expect(credentialInitializerStatus(['execution-provider-codex-auth'], resolve(process.cwd(), 'credential-initializers'))).toContainEqual(expect.objectContaining({ id: 'treeseed.codex', configured: true }));
+		expect(readFileSync(resolve(process.cwd(), 'src/manager/operations.ts'), 'utf8')).toContain("requestSupervisor({ operation: 'provider.credentials.status'");
+		const base = { socketPath: '/run/treeseed/sandbox/broker.sock', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes', runtime: 'io.containerd.kata.v2', stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
+			relay: { listenHost: '10.89.0.1', port: 7443, publicUrl: 'https://10.89.0.1:7443', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay-tls-key' }, guestImages: [] };
+		expect(sandboxBrokerConfigurationSchema.parse(base).modelGateway).toBeUndefined();
+		expect(sandboxBrokerConfigurationSchema.parse({ ...base, modelGateway: { upstreamBaseUrl: 'https://api.openai.com', authenticationMode: 'codex-subscription', credentialFile: '/run/credentials/execution-provider-codex-auth', allowedProviders: ['openai'], allowedModels: ['gpt-5.4'] } }).modelGateway?.authenticationMode).toBe('codex-subscription');
+	});
+	it('classifies integrated development hosts by runtime environment', () => {
+		const configuration = { host: { role: 'integrated' }, runtime: { environment: 'development' }, security: {
+			providerVolume: { backingPath: '/work/platform/.treeseed/data/.encrypted/provider-data.luks', mountPath: '/work/platform/.treeseed/data/agent' },
+		} } as unknown as HostConfiguration;
+		expect(configuration.host.role).toBe('integrated');
+		expect(providerSecuritySettings(configuration)).toMatchObject({ production: false, backing: expect.stringContaining('/.treeseed/data/.encrypted/provider-data.luks') });
+	});
+
+	it('authenticates recovery bundles and rejects ciphertext tampering', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-recovery-')), path = resolve(directory, 'recovery.bundle');
+		try {
+			createRecoveryBundle(path, 'correct horse battery staple', { volumeRecoveryKey: 'v'.repeat(48), applicationKeks: { 'credentials-v1': 'c'.repeat(48) } });
+			expect(verifyRecoveryBundle(path, 'correct horse battery staple')).toMatchObject({ authenticated: true, keyGenerations: ['credentials-v1'] });
+			const value = JSON.parse(readFileSync(path, 'utf8')) as { ciphertext: string }; const replacement = value.ciphertext.endsWith('A') ? 'B' : 'A'; value.ciphertext = `${value.ciphertext.slice(0, -1)}${replacement}`; writeFileSync(path, JSON.stringify(value));
+			expect(() => verifyRecoveryBundle(path, 'correct horse battery staple')).toThrow();
+		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+
+	it('accepts only assignments signed by a trusted provider key', () => {
+		const directory = mkdtempSync(resolve(tmpdir(), 'treeseed-sandbox-trust-')), registry = resolve(directory, 'providers.json');
+		try {
+			const keys = generateKeyPairSync('ed25519'), publicJwk = keys.publicKey.export({ format: 'jwk' });
+			writeFileSync(registry, JSON.stringify({ schemaVersion: 1, providers: { 'provider-test': { publicJwk: { crv: 'Ed25519', kty: 'OKP', x: publicJwk.x }, providerId: 'provider-1', teamId: 'team-1' } } }));
+			const unsigned = { schemaVersion: 'treeseed.sandbox-assignment/v1', assignmentId: 'assignment-1', attempt: 1, runnerId: 'runner-1', providerId: 'provider-1', teamId: 'team-1', projectId: 'project-1', profile: 'read',
+				guestImage: 'registry.example/guest', guestImageDigest: `sha256:${'a'.repeat(64)}`, identityManifestDigest: `sha256:${'b'.repeat(64)}`, contextManifestDigest: `sha256:${'c'.repeat(64)}`,
+				resources: { cpuCores: 1, memoryBytes: 1_073_741_824, diskBytes: 2_147_483_648, durationSeconds: 300, processLimit: 128, outputBytes: 1_048_576 }, inputs: [], outputs: [],
+				network: { defaultDeny: true, relayUrl: 'https://10.89.0.1:7443', allowedServices: ['model-gateway'] }, modelPolicy: { provider: 'openai', model: 'gpt-5.4', capabilities: ['communication'] }, credentialHandles: [], treeDxHandleIds: [], leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() };
+			const assignment = sandboxAssignmentSchema.parse({ ...unsigned, signature: { keyId: 'provider-test', algorithm: 'Ed25519', value: sign(null, Buffer.from(canonical(unsigned)), keys.privateKey).toString('base64url') } });
+			expect(() => verifySandboxAssignment(assignment, registry)).not.toThrow();
+			expect(() => verifySandboxAssignment({ ...assignment, projectId: 'project-other' }, registry)).toThrow(/signature/u);
+			const renewalUnsigned = { schemaVersion: 'treeseed.sandbox-lease-renewal/v1', sandboxId: 'sandbox-1', assignmentId: assignment.assignmentId, providerId: assignment.providerId, teamId: assignment.teamId, leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(), issuedAt: new Date().toISOString() };
+			const renewal = sandboxLeaseRenewalSchema.parse({ ...renewalUnsigned, signature: { keyId: 'provider-test', algorithm: 'Ed25519', value: sign(null, Buffer.from(canonical(renewalUnsigned)), keys.privateKey).toString('base64url') } });
+			expect(() => verifySandboxLeaseRenewal(renewal, registry)).not.toThrow(); expect(() => verifySandboxLeaseRenewal({ ...renewal, assignmentId: 'assignment-other' }, registry)).toThrow(/signature/u);
+		} finally { rmSync(directory, { recursive: true, force: true }); }
+	});
+});

@@ -1,0 +1,15 @@
+[Unit]
+Description=TreeSeed encrypted provider data volume
+After=local-fs.target systemd-udev-settle.service
+Before=treeseed-sandbox-broker.service treeseed-manager-reconcile.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/provider-volume.js mount
+ExecStop=/usr/lib/treeseed/runtime/bin/node /usr/lib/treeseed/manager/dist/src/bin/provider-volume.js unmount
+TimeoutStartSec=180
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

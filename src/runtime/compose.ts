@@ -12,14 +12,37 @@ const managedBindRoots = ['/etc/treeseed', '/run/treeseed', '/var/lib/treeseed']
 
 function volumeSource(volume: string | ComposeVolume) {
 	if (typeof volume !== 'string') return volume.type === 'bind' ? volume.source : undefined;
-	const source = volume.split(':', 1)[0];
-	return source?.startsWith('.') || source?.startsWith('/') ? source : undefined;
+	let expressionDepth = 0, separator = -1;
+	for (let index = 0; index < volume.length; index += 1) {
+		if (volume[index] === '$' && volume[index + 1] === '{') {
+			expressionDepth += 1;
+			index += 1;
+			continue;
+		}
+		if (volume[index] === '}' && expressionDepth > 0) {
+			expressionDepth -= 1;
+			continue;
+		}
+		if (volume[index] === ':' && expressionDepth === 0) {
+			separator = index;
+			break;
+		}
+	}
+	const source = separator === -1 ? volume : volume.slice(0, separator);
+	return source?.startsWith('.') || source?.startsWith('/') || source?.startsWith('$') ? source : undefined;
 }
 
-function validateVolumes(serviceName: string, volumes: Array<string | ComposeVolume> = []) {
+function validateVolumes(componentId: string, serviceName: string, volumes: Array<string | ComposeVolume> = []) {
 	for (const volume of volumes) {
 		const source = volumeSource(volume);
 		if (!source) continue;
+		const managedVariable = /^\$\{TREESEED_COMPONENT_DATA_ROOT:-\/var\/lib\/treeseed\/components\}(\/[a-z0-9._-]+)+$/u.exec(source);
+		if (managedVariable) {
+			if (source.includes('/../') || source.endsWith('/..')) throw new Error(`${serviceName} uses an unsafe managed component source mount.`);
+			continue;
+		}
+		if (source === '${TREESEED_COMPONENT_DATA_ROOT:?TREESEED_COMPONENT_DATA_ROOT is required}' && componentId === 'agent') continue;
+		if (source.startsWith('$')) throw new Error(`${serviceName} uses an unrecognized variable source mount: ${source}.`);
 		if (!isAbsolute(source)) throw new Error(`${serviceName} uses a forbidden relative source mount: ${source}.`);
 		const absolute = resolve(source);
 		if (!managedBindRoots.some((root) => absolute === root || absolute.startsWith(`${root}${sep}`))) throw new Error(`${serviceName} uses a source mount outside manager-owned roots: ${source}.`);
@@ -47,7 +70,7 @@ export function validateProductionCompose(release: ComponentRelease, bundleRoot:
 			if ('ports' in service) throw new Error(`${name} publishes a host port; manager-owned edge routing is required.`);
 			if (service.network_mode === 'host') throw new Error(`${name} uses forbidden host networking.`);
 			if (!service.healthcheck && service.restart !== 'no') throw new Error(`${name} has neither a Compose health gate nor a one-shot completion gate.`);
-			validateVolumes(name, service.volumes);
+			validateVolumes(release.componentId, name, service.volumes);
 		}
 		for (const service of services) if (!document.services[service]) throw new Error(`Declared service ${service} is absent from ${file}.`);
 	}

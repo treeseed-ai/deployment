@@ -5,6 +5,7 @@ const roots = ['src', 'scripts', 'tests'];
 const files: string[] = [];
 function walk(path: string) {
 	for (const name of readdirSync(path)) {
+		if (name === 'node_modules') continue;
 		const child = resolve(path, name), stat = statSync(child);
 		if (stat.isDirectory()) walk(child); else if (/\.(?:ts|js)$/u.test(name)) files.push(child);
 	}

@@ -1,0 +1,398 @@
+workflow:
+  - id: runtime-public-provider-roots
+    action: { verifier: deployment.golden.runtime-public-provider-roots }
+    expect: { status: passed }
+  - id: runtime-public-provider-native
+    action: { verifier: deployment.golden.runtime-public-provider-native }
+    expect: { status: passed }
+  - id: runtime-public-authority
+    action: { verifier: deployment.golden.runtime-public-authority }
+    expect: { status: passed }
+  - id: runtime-public-native-bytes
+    action: { verifier: deployment.golden.runtime-public-native-bytes }
+    expect: { status: passed }
+  - id: runtime-public-native-policy
+    action: { verifier: deployment.golden.runtime-public-native-policy }
+    expect: { status: passed }
+  - id: runtime-public-native-denial
+    action: { verifier: deployment.golden.runtime-public-native-denial }
+    expect: { status: passed }
+  - id: provider-drain-active
+    action: { verifier: deployment.golden.provider-drain-active }
+    expect: { status: passed }
+  - id: provider-drain-invalid
+    action: { verifier: deployment.golden.provider-drain-invalid }
+    expect: { status: passed }
+  - id: provider-drain-idle
+    action: { verifier: deployment.golden.provider-drain-idle }
+    expect: { status: passed }
+  - id: provider-drain-runner-uncertain
+    action: { verifier: deployment.golden.provider-drain-runner-uncertain }
+    expect: { status: passed }
+  - id: provider-drain-manager-uncertain
+    action: { verifier: deployment.golden.provider-drain-manager-uncertain }
+    expect: { status: passed }
+  - id: provider-drain-stopped
+    action: { verifier: deployment.golden.provider-drain-stopped }
+    expect: { status: passed }
+  - id: provider-drain-restore-failure
+    action: { verifier: deployment.golden.provider-drain-restore-failure }
+    expect: { status: passed }
+  - id: provider-drain-owner
+    action: { verifier: deployment.golden.provider-drain-owner }
+    expect: { status: passed }
+  - id: provider-handoff-ready
+    action: { verifier: deployment.golden.provider-handoff-ready }
+    expect: { status: passed }
+  - id: provider-handoff-running
+    action: { verifier: deployment.golden.provider-handoff-running }
+    expect: { status: passed }
+  - id: provider-handoff-recovery
+    action: { verifier: deployment.golden.provider-handoff-recovery }
+    expect: { status: passed }
+  - id: provider-handoff-malformed
+    action: { verifier: deployment.golden.provider-handoff-malformed }
+    expect: { status: passed }
+  - id: provider-handoff-bad-claim
+    action: { verifier: deployment.golden.provider-handoff-bad-claim }
+    expect: { status: passed }
+  - id: provider-handoff-copy-failure
+    action: { verifier: deployment.golden.provider-handoff-copy-failure }
+    expect: { status: passed }
+  - id: provider-handoff-runner-stop-failure
+    action: { verifier: deployment.golden.provider-handoff-runner-stop-failure }
+    expect: { status: passed }
+  - id: provider-handoff-runner-stop-uncertain
+    action: { verifier: deployment.golden.provider-handoff-runner-stop-uncertain }
+    expect: { status: passed }
+  - id: provider-handoff-manager-stop-uncertain
+    action: { verifier: deployment.golden.provider-handoff-manager-stop-uncertain }
+    expect: { status: passed }
+  - id: provider-handoff-polling
+    action: { verifier: deployment.golden.provider-handoff-polling }
+    expect: { status: passed }
+  - id: provider-handoff-empty
+    action: { verifier: deployment.golden.provider-handoff-empty }
+    expect: { status: passed }
+  - id: provider-handoff-first-start
+    action: { verifier: deployment.golden.provider-handoff-first-start }
+    expect: { status: passed }
+  - id: provider-claims-identities
+    action: { verifier: deployment.golden.provider-claims-identities }
+    expect: { status: passed }
+  - id: provider-claims-idle
+    action: { verifier: deployment.golden.provider-claims-idle }
+    expect: { status: passed }
+  - id: provider-claims-invalid
+    action: { verifier: deployment.golden.provider-claims-invalid }
+    expect: { status: passed }
+  - id: provider-status-build
+    action: { verifier: deployment.golden.provider-status-build }
+    expect: { status: passed }
+  - id: provider-status-ready
+    action: { verifier: deployment.golden.provider-status-ready }
+    expect: { status: passed }
+  - id: provider-status-stopped
+    action: { verifier: deployment.golden.provider-status-stopped }
+    expect: { status: passed }
+  - id: component-metadata
+    action: { verifier: deployment.golden.component-metadata }
+    expect: { status: passed }
+  - id: provider-status-session
+    action: { verifier: deployment.golden.provider-status-session }
+    expect: { status: passed }
+  - id: provider-status-writable
+    action: { verifier: deployment.golden.provider-status-writable }
+    expect: { status: passed }
+  - id: provider-status-receipt
+    action: { verifier: deployment.golden.provider-status-receipt }
+    expect: { status: passed }
+  - id: runtime-copy-normalized-mode
+    action: { verifier: deployment.golden.runtime-copy-normalized-mode }
+    expect: { status: passed }
+  - id: runtime-copy-readback
+    action: { verifier: deployment.golden.runtime-copy-readback }
+    expect: { status: passed }
+  - id: runtime-copy-bytes
+    action: { verifier: deployment.golden.runtime-copy-bytes }
+    expect: { status: passed }
+  - id: runtime-copy-deleted
+    action: { verifier: deployment.golden.runtime-copy-deleted }
+    expect: { status: passed }
+  - id: runtime-copy-added
+    action: { verifier: deployment.golden.runtime-copy-added }
+    expect: { status: passed }
+  - id: runtime-copy-hidden
+    action: { verifier: deployment.golden.runtime-copy-hidden }
+    expect: { status: passed }
+  - id: runtime-copy-mode
+    action: { verifier: deployment.golden.runtime-copy-mode }
+    expect: { status: passed }
+  - id: runtime-copy-writable
+    action: { verifier: deployment.golden.runtime-copy-writable }
+    expect: { status: passed }
+  - id: runtime-copy-alias
+    action: { verifier: deployment.golden.runtime-copy-alias }
+    expect: { status: passed }
+  - id: runtime-copy-escaped
+    action: { verifier: deployment.golden.runtime-copy-escaped }
+    expect: { status: passed }
+  - id: runtime-copy-unreadable
+    action: { verifier: deployment.golden.runtime-copy-unreadable }
+    expect: { status: passed }
+  - id: runtime-copy-invalid-receipt
+    action: { verifier: deployment.golden.runtime-copy-invalid-receipt }
+    expect: { status: passed }
+  - id: runtime-copy-roots-nodes
+    action: { verifier: deployment.golden.runtime-copy-roots-nodes }
+    expect: { status: passed }
+  - id: runtime-copy-native-process
+    action: { verifier: deployment.golden.runtime-copy-native-process }
+    expect: { status: passed }
+  - id: runtime-copy-mounts
+    action: { verifier: deployment.golden.runtime-copy-mounts }
+    expect: { status: passed }
+  - id: runtime-copy-docker
+    action: { verifier: deployment.golden.runtime-copy-docker }
+    expect: { status: passed }
+  - id: complete-privileged-admission
+    action: { verifier: deployment.golden.complete-privileged-admission }
+    expect: { status: passed }
+  - id: kernel-cache-quota
+    action: { verifier: deployment.golden.kernel-cache-quota }
+    expect: { status: passed }
+  - id: selected-host-files
+    action: { verifier: deployment.golden.selected-host-files }
+    expect: { status: passed }
+  - id: selected-host-tampering
+    action: { verifier: deployment.golden.selected-host-tampering }
+    expect: { status: passed }
+  - id: selected-host-symlinks
+    action: { verifier: deployment.golden.selected-host-symlinks }
+    expect: { status: passed }
+  - id: selected-host-generation
+    action: { verifier: deployment.golden.selected-host-generation }
+    expect: { status: passed }
+  - id: selected-host-states
+    action: { verifier: deployment.golden.selected-host-states }
+    expect: { status: passed }
+  - id: selected-host-nodes
+    action: { verifier: deployment.golden.selected-host-nodes }
+    expect: { status: passed }
+  - id: selected-host-missing-package
+    action: { verifier: deployment.golden.selected-host-missing-package }
+    expect: { status: passed }
+  - id: selected-host-unreadable
+    action: { verifier: deployment.golden.selected-host-unreadable }
+    expect: { status: passed }
+  - id: selected-host-native-process
+    action: { verifier: deployment.golden.selected-host-native-process }
+    expect: { status: passed }
+  - id: selected-host-protected-route
+    action: { verifier: deployment.golden.selected-host-protected-route }
+    expect: { status: passed }
+  - id: subscription-response-quarantine
+    action: { verifier: deployment.golden.subscription-response-quarantine }
+    expect: { status: passed }
+  - id: subscription-event-quarantine
+    action: { verifier: deployment.golden.subscription-event-quarantine }
+    expect: { status: passed }
+  - id: subscription-malformed-quarantine
+    action: { verifier: deployment.golden.subscription-malformed-quarantine }
+    expect: { status: passed }
+  - id: subscription-clean-output
+    action: { verifier: deployment.golden.subscription-clean-output }
+    expect: { status: passed }
+  - id: direct-http-startup
+    action: { verifier: deployment.golden.direct-http-startup }
+    expect: { status: passed }
+  - id: direct-http-denial
+    action: { verifier: deployment.golden.direct-http-denial }
+    expect: { status: passed }
+  - id: direct-tcp-startup
+    action: { verifier: deployment.golden.direct-tcp-startup }
+    expect: { status: passed }
+  - id: paused-runtime-recovery
+    action: { verifier: deployment.golden.paused-runtime-recovery }
+    expect: { status: passed }
+  - id: paused-recovery-denial
+    action: { verifier: deployment.golden.paused-recovery-denial }
+    expect: { status: passed }
+  - id: development-database-reboot-custody
+    action: { verifier: deployment.golden.development-database-reboot-custody }
+    expect: { status: passed }
+  - id: runtime-bind-custody
+    action: { verifier: deployment.golden.runtime-bind-custody }
+    expect: { status: passed }
+  - id: identity-reboot-custody
+    action: { verifier: deployment.golden.identity-reboot-custody }
+    expect: { status: passed }
+  - id: postgres-reboot-custody
+    action: { verifier: deployment.golden.postgres-reboot-custody }
+    expect: { status: passed }
+  - id: postgres-reboot-denial
+    action: { verifier: deployment.golden.postgres-reboot-denial }
+    expect: { status: passed }
+  - id: development-held-host-start
+    action: { verifier: deployment.golden.development-held-host-start }
+    expect: { status: passed }
+  - id: development-held-recovery
+    action: { verifier: deployment.golden.development-held-recovery }
+    expect: { status: passed }
+  - id: development-credential-restore
+    action: { verifier: deployment.golden.development-credential-restore }
+    expect: { status: passed }
+  - id: ordinary-component-activation
+    action: { verifier: deployment.golden.ordinary-component-activation }
+    expect: { status: passed }
+  - id: subscription-concurrency
+    action: { verifier: deployment.golden.subscription-concurrency }
+    expect: { status: passed }
+  - id: subscription-stale-return
+    action: { verifier: deployment.golden.subscription-stale-return }
+    expect: { status: passed }
+  - id: subscription-rotation-conflict
+    action: { verifier: deployment.golden.subscription-rotation-conflict }
+    expect: { status: passed }
+  - id: subscription-account-isolation
+    action: { verifier: deployment.golden.subscription-account-isolation }
+    expect: { status: passed }
+  - id: provider-snapshot-permissions
+    action: { verifier: deployment.golden.provider-snapshot-permissions }
+    expect: { status: passed }
+  - id: provider-development-parity
+    action: { verifier: deployment.golden.provider-development-parity }
+    expect: { status: passed }
+  - id: enrolled-concurrency
+    action: { verifier: deployment.golden.enrolled-concurrency }
+    expect: { status: passed }
+  - id: expired-simulation-recovery
+    action: { verifier: deployment.golden.expired-simulation-recovery }
+    expect: { status: passed }
+  - id: failed-simulation-cleanup
+    action: { verifier: deployment.golden.failed-simulation-cleanup }
+    expect: { status: passed }
+  - id: automatic-released-cleanup
+    action: { verifier: deployment.golden.automatic-released-cleanup }
+    expect: { status: passed }
+  - id: warm-pool
+    action: { verifier: deployment.golden.warm-pool }
+    expect: { status: passed }
+  - id: image-isolation
+    action: { verifier: deployment.golden.image-isolation }
+    expect: { status: passed }
+  - id: pool-drain
+    action: { verifier: deployment.golden.pool-drain }
+    expect: { status: passed }
+  - id: source-custody
+    action: { verifier: deployment.golden.source-custody }
+    expect: { status: passed }
+  - id: analysis-overlay
+    action: { verifier: deployment.golden.analysis-overlay }
+    expect: { status: passed }
+  - id: device-denial
+    action: { verifier: deployment.golden.device-denial }
+    expect: { status: passed }
+  - id: candidate-verification
+    action: { verifier: deployment.golden.candidate-verification }
+    expect: { status: passed }
+  - id: lease-deadline
+    action: { verifier: deployment.golden.lease-deadline }
+    expect: { status: passed }
+  - id: deadline-diagnostics
+    action: { verifier: deployment.golden.deadline-diagnostics }
+    expect: { status: passed }
+  - id: credential-custody
+    action: { verifier: deployment.golden.credential-custody }
+    expect: { status: passed }
+  - id: cleanup-authority
+    action: { verifier: deployment.golden.cleanup-authority }
+    expect: { status: passed }
+  - id: cleanup-replay
+    action: { verifier: deployment.golden.cleanup-replay }
+    expect: { status: passed }
+  - id: crash-recovery
+    action: { verifier: deployment.golden.crash-recovery }
+    expect: { status: passed }
+  - id: expired-analysis-recovery
+    action: { verifier: deployment.golden.expired-analysis-recovery }
+    expect: { status: passed }
+  - id: recovery-preserves-work
+    action: { verifier: deployment.golden.recovery-preserves-work }
+    expect: { status: passed }
+
+  - id: component-image-1
+    action: { verifier: deployment.golden.component-image-1 }
+    expect: { status: passed }
+
+  - id: component-image-2
+    action: { verifier: deployment.golden.component-image-2 }
+    expect: { status: passed }
+
+  - id: component-image-3
+    action: { verifier: deployment.golden.component-image-3 }
+    expect: { status: passed }
+
+  - id: component-image-4
+    action: { verifier: deployment.golden.component-image-4 }
+    expect: { status: passed }
+
+  - id: component-image-5
+    action: { verifier: deployment.golden.component-image-5 }
+    expect: { status: passed }
+
+  - id: component-image-6
+    action: { verifier: deployment.golden.component-image-6 }
+    expect: { status: passed }
+
+  - id: component-image-7
+    action: { verifier: deployment.golden.component-image-7 }
+    expect: { status: passed }
+
+  - id: component-image-8
+    action: { verifier: deployment.golden.component-image-8 }
+    expect: { status: passed }
+
+  - id: component-image-9
+    action: { verifier: deployment.golden.component-image-9 }
+    expect: { status: passed }
+
+  - id: component-image-10
+    action: { verifier: deployment.golden.component-image-10 }
+    expect: { status: passed }
+
+  - id: component-image-11
+    action: { verifier: deployment.golden.component-image-11 }
+    expect: { status: passed }
+
+  - id: component-image-12
+    action: { verifier: deployment.golden.component-image-12 }
+    expect: { status: passed }
+
+  - id: component-image-13
+    action: { verifier: deployment.golden.component-image-13 }
+    expect: { status: passed }
+
+  - id: component-image-14
+    action: { verifier: deployment.golden.component-image-14 }
+    expect: { status: passed }
+
+  - id: component-image-15
+    action: { verifier: deployment.golden.component-image-15 }
+    expect: { status: passed }
+
+  - id: component-image-16
+    action: { verifier: deployment.golden.component-image-16 }
+    expect: { status: passed }
+
+  - id: component-image-17
+    action: { verifier: deployment.golden.component-image-17 }
+    expect: { status: passed }
+
+  - id: component-image-18
+    action: { verifier: deployment.golden.component-image-18 }
+    expect: { status: passed }
+
+  - id: component-image-19
+    action: { verifier: deployment.golden.component-image-19 }
+    expect: { status: passed }

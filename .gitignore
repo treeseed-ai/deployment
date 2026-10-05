@@ -1,7 +1,9 @@
 dist/
 node_modules/
+**/.terraform/
 release/out/
 .treeseed/
 *.deb
 *.buildinfo
 *.changes
+.fixtures/

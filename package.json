@@ -1,35 +1,119 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.42",
+  "version": "0.1.0-rc.321",
   "private": true,
+  "treeseed": {
+    "hostRuntimeAssets": [
+      "node_modules/@treeseed/identity/themes/treeseed/login/theme.properties",
+      "node_modules/@treeseed/identity/themes/treeseed/login/template.ftl",
+      "node_modules/@treeseed/identity/themes/treeseed/login/messages/messages_en.properties",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/css/tokens.css",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/css/auth.css",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/css/treeseed.css",
+      "node_modules/@treeseed/identity/themes/treeseed/login/resources/img/treeseed-logo.svg"
+    ],
+    "hostRuntimeDependencies": [
+      "@treeseed/sdk",
+      "@treeseed/identity",
+      "pg",
+      "yaml",
+      "zod"
+    ]
+  },
   "description": "TreeSeed host bootstrap, deployment manager, edge, and Debian packaging",
   "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    "./security/source": {
+      "types": "./dist/src/security/services/source-credential-delivery.d.ts",
+      "import": "./dist/src/security/services/source-credential-delivery.js"
+    },
+    "./identity/transport": {
+      "types": "./dist/src/identity/transport.d.ts",
+      "import": "./dist/src/identity/transport.js"
+    },
+    "./postgres/reconciliation": {
+      "types": "./dist/src/postgres/plan.d.ts",
+      "import": "./dist/src/postgres/plan.js"
+    },
+    "./postgres/runtime": {
+      "types": "./dist/src/postgres/compose.d.ts",
+      "import": "./dist/src/postgres/compose.js"
+    },
+    "./identity/runtime": {
+      "types": "./dist/src/identity/compose.d.ts",
+      "import": "./dist/src/identity/compose.js"
+    },
+    "./infrastructure/capacity/ssh": {
+      "types": "./dist/src/infrastructure/capacity/ssh-preflight.d.ts",
+      "import": "./dist/src/infrastructure/capacity/ssh-preflight.js"
+    },
+    "./security/ai-storage": {
+      "types": "./dist/src/security/services/ai-storage.d.ts",
+      "import": "./dist/src/security/services/ai-storage.js"
+    },
+    "./security/services": {
+      "types": "./dist/src/security/services/validate.d.ts",
+      "import": "./dist/src/security/services/validate.js"
+    },
+    "./security/custody": {
+      "types": "./dist/src/security/custody/index.d.ts",
+      "import": "./dist/src/security/custody/index.js"
+    },
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./infrastructure/opentofu": {
+      "types": "./dist/src/infrastructure/opentofu/index.d.ts",
+      "import": "./dist/src/infrastructure/opentofu/index.js"
+    }
+  },
+  "files": [
+    "dist/src/**",
+    "infrastructure/cloudflare/**",
+    "infrastructure/opentofu/hosted-topology/**",
+    "LICENSE",
+    "NOTICE"
+  ],
   "engines": {
     "node": "24.x",
     "npm": ">=11"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-backup-stream.mjs",
+    "package:runtime": "node --import tsx scripts/package-runtime.ts",
     "check:source-shape": "node --import tsx scripts/check-source-shape.ts",
     "test": "vitest run",
-    "verify:direct": "npm run check:source-shape && npm run build && npm test",
+    "verify:direct": "npm run check:source-shape && npm run build && npm test && npm run verify:opentofu",
+    "verify:opentofu": "node --import tsx scripts/verify-opentofu.ts",
     "artifacts:fetch": "node --import tsx scripts/fetch-artifacts.ts",
     "artifacts:prepare": "npm run artifacts:fetch && node --import tsx scripts/prepare-artifacts.ts",
+    "verify:treeai-activation": "node --import tsx scripts/verify-treeai-activation.ts",
     "build:deb": "npm run artifacts:prepare && npm run build && node --import tsx scripts/package-deb.ts all",
-    "verify:deb": "npm run build:deb && node --import tsx scripts/verify-deb.ts",
-    "build:configured": "npm run build && node --import tsx scripts/configure-bootstrap.ts",
-    "build:workstation": "npm run artifacts:prepare && npm run build && node --import tsx scripts/build-workstation-bootstrap.ts",
-    "catalog:compile": "node --import tsx scripts/compile-catalog.ts"
+    "verify:deb": "npm run build:deb && npm run package:runtime && node --import tsx scripts/verify-deb.ts && node --import tsx scripts/create-postgres-release.ts && node --import tsx scripts/create-identity-release.ts",
+    "catalog:compile": "node --import tsx scripts/compile-catalog.ts",
+    "r2-replication:provision": "node --import tsx scripts/provision-r2-replication.ts"
   },
   "dependencies": {
-    "@treeseed/sdk": "0.13.0-rc.34",
+    "@treeseed/identity": "0.1.0-rc.23",
+    "@treeseed/sdk": "0.13.0-rc.121",
+    "pg": "8.22.0",
+    "tar": "7.5.22",
+    "wrangler": "4.128.0",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "@types/pg": "8.23.1",
+    "esbuild": "0.28.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "4.1.11"
+  },
+  "overrides": {
+    "sharp": "0.35.4"
   }
 }

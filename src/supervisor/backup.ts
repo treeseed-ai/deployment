@@ -1,36 +1,142 @@
-import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { paths } from '../core/paths.js';
-import type { CommandRunner } from './execute.js';
+import { loadHostConfiguration } from '../core/configuration.js';
+import { assertBackupEntries, assertBackupStatePaths, requiredBackupState } from './backup-coverage.js';
+import { backupKeyId, decryptBackupStream, encryptBackupStream, inspectBackupStream } from './backup-stream.js';
+import { assertNoBackupWriters } from './backup-writers.js';
+import { backupConfiguration, selectBackupConfiguration } from './backup-configuration.js';
+import { withReplacedBackupState } from './backup-state-replacement.js';
+import { postgresTransferJournal } from './postgres-transfer-guard.js';
 
-const run: CommandRunner = (executable, arguments_) => { execFileSync(executable, [...arguments_], { stdio: 'inherit', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }); };
-
-function archivePath(generation: number) { return `${paths.backups}/generation-${generation}.tar.gz`; }
-
-export function createGenerationBackup(generation: number, command: CommandRunner = run) {
-	mkdirSync(paths.backups, { recursive: true, mode: 0o700 });
-	const archive = archivePath(generation), temporary = `${archive}.new`;
-	const members = ['etc/treeseed', 'var/lib/treeseed/components', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json'].filter((member) => existsSync(`/${member}`));
-	if (members.length === 0) throw new Error('No managed TreeSeed state exists to back up.');
-	command('/usr/bin/tar', ['--create', '--gzip', '--file', temporary, '--directory', '/', '--numeric-owner', ...members]);
-	renameSync(temporary, archive);
-	const sha256 = createHash('sha256').update(readFileSync(archive)).digest('hex');
-	writeFileSync(`${archive}.sha256`, `${sha256}  generation-${generation}.tar.gz\n`, { mode: 0o600 });
-	const retained = readdirSync(paths.backups).filter((name) => /^generation-[1-9][0-9]*\.tar\.gz$/u.test(name)).sort((left, right) => Number(right.slice(11, -7)) - Number(left.slice(11, -7)));
-	for (const stale of retained.slice(10)) {
-		rmSync(`${paths.backups}/${stale}`, { force: true });
-		rmSync(`${paths.backups}/${stale}.sha256`, { force: true });
-	}
-	return { generation, archive, sha256 };
+const credentialPath = `/etc/treeseed/credentials/${backupKeyId}.cred`;
+export function retiredBackupArchives(names: string[], pinnedGeneration?: number) {
+	if (pinnedGeneration !== undefined && (!Number.isSafeInteger(pinnedGeneration) || pinnedGeneration < 1)) throw new Error('Invalid pinned recovery generation');
+	return names.flatMap(name => {
+		const match = /^generation-([1-9][0-9]*)\.tar\.gz\.enc$/u.exec(name), generation = match ? Number(match[1]) : NaN;
+		return Number.isSafeInteger(generation) && generation !== pinnedGeneration ? [{name,generation}] : [];
+	}).sort((a,b) => b.generation-a.generation).slice(10).map(item => item.name);
+}
+export const backupArchiveArguments = (configurationMember: string, members: string[], sourceRoot = '/') =>
+	['--create', '--use-compress-program=/usr/bin/gzip -1', '--file', '-', '--directory', sourceRoot, '--numeric-owner', '--exclude=etc/treeseed/platform.json', `--transform=s|^${configurationMember}$|etc/treeseed/platform.json|`, ...members];
+function archivePath(generation: number, root: string = paths.backups) {
+	if (!Number.isSafeInteger(generation) || generation < 1) throw new Error('Backup generation is invalid.');
+	return `${root}/generation-${generation}.tar.gz.enc`;
+}
+function loadKey(override?: Buffer) {
+	if (override) { if (override.length !== 32) throw new Error('Backup encryption key must contain exactly 32 bytes.'); return Buffer.from(override); }
+	const plaintext = execFileSync('/usr/bin/systemd-creds', ['decrypt', `--name=${backupKeyId}`, credentialPath, '-'], { stdio: ['ignore', 'pipe', 'pipe'] });
+	try { const key = Buffer.from(plaintext.toString('utf8').trim(), 'base64url'); if (key.length !== 32) { key.fill(0); throw new Error('Backup encryption credential is invalid.'); } return key; }
+	finally { plaintext.fill(0); }
+}
+/** Internal protected use of the existing application recovery KEK. No new key
+ * store or wire export; every caller-owned working copy is cleared on return.
+ */
+export async function withApplicationBackupKey<T>(run: (key: Buffer) => Promise<T>): Promise<T> {
+	const key = loadKey();
+	try { return await run(key); } finally { key.fill(0); }
+}
+function checksum(path: string) { return execFileSync('/usr/bin/sha256sum', [path], { encoding: 'utf8' }).split(/\s/u)[0]!; }
+function checkedArchive(generation: number, root?: string) {
+	const path = archivePath(generation, root);
+	if (!existsSync(path) || !existsSync(`${path}.sha256`)) throw new Error(`Recovery generation ${generation} does not exist.`);
+	if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) throw new Error('Recovery archive is not a regular file.');
+	const sha256 = checksum(path), expected = readFileSync(`${path}.sha256`, 'utf8').split(/\s/u)[0];
+	if (sha256 !== expected) throw new Error(`Recovery generation ${generation} failed checksum verification.`);
+	return { path, sha256 };
 }
 
-export function restoreGenerationBackup(generation: number, command: CommandRunner = run) {
-	const archive = archivePath(generation), checksum = `${archive}.sha256`;
-	if (!existsSync(archive) || !existsSync(checksum)) throw new Error(`Recovery generation ${generation} does not exist.`);
-	const expected = readFileSync(checksum, 'utf8').split(/\s+/u)[0];
-	const actual = createHash('sha256').update(readFileSync(archive)).digest('hex');
-	if (expected !== actual) throw new Error(`Recovery generation ${generation} failed checksum verification.`);
-	command('/usr/bin/tar', ['--extract', '--gzip', '--file', archive, '--directory', '/', '--numeric-owner', '--no-overwrite-dir']);
-	return { generation, restored: true, sha256: actual };
+async function inspectGenerationBackupWithEntries(generation: number, options: { backupRoot?: string; key?: Buffer } = {}) {
+	const { path, sha256 } = checkedArchive(generation, options.backupRoot), key = loadKey(options.key);
+	try {
+		const { entries, ...state } = await inspectBackupStream(path, generation, key);
+		selectBackupConfiguration(state.configuration, state.receipt as {configurationDigest?: unknown});
+		const coverage = assertBackupEntries(state.configuration, state.components, entries);
+		return { generation, sha256, encrypted: true as const, ...state, coverage, entries };
+	} finally { key.fill(0); }
+}
+export async function inspectGenerationBackup(generation: number, options: { backupRoot?: string; key?: Buffer } = {}) {
+	const { entries: _entries, ...inspection } = await inspectGenerationBackupWithEntries(generation, options);
+	return inspection;
+}
+
+/** Internal authenticated ciphertext snapshot. Consumers select only verified
+ * members and never reopen the replaceable source archive during extraction. */
+export async function withVerifiedGenerationBackup<T>(generation: number,
+	options: { backupRoot: string; key: Buffer; expectedSha256?: string },
+	run: (inspection: Awaited<ReturnType<typeof inspectGenerationBackupWithEntries>>, snapshot: string) => Promise<T>) {
+	const source = checkedArchive(generation, options.backupRoot);
+	const snapshotRoot = mkdtempSync(`${options.backupRoot}/restore-`);
+	const snapshot = archivePath(generation, snapshotRoot);
+	try {
+		copyFileSync(source.path, snapshot, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+		writeFileSync(`${snapshot}.sha256`, source.sha256, { mode: 0o600 });
+		const inspection = await inspectGenerationBackupWithEntries(generation, { backupRoot: snapshotRoot, key: options.key });
+		if (options.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(options.expectedSha256) || inspection.sha256 !== options.expectedSha256))
+			throw new Error('Coordinated recovery archive identity changed; live state unchanged.');
+		return await run(inspection, snapshot);
+	} finally { rmSync(snapshotRoot, { recursive: true, force: true }); }
+}
+export async function listGenerationBackups(options: { backupRoot?: string; key?: Buffer } = {}) {
+	const root = options.backupRoot ?? paths.backups; if (!existsSync(root)) return [];
+	const generations = readdirSync(root).flatMap(name => { const match = /^generation-([1-9][0-9]*)\.tar\.gz\.enc$/u.exec(name); return match ? [Number(match[1])] : []; }).sort((a, b) => b - a);
+	const results = [];
+	for (const generation of generations) {
+		try { results.push({ ...await inspectGenerationBackup(generation, options), valid: true as const }); }
+		catch (error) { results.push({ generation, valid: false as const, error: error instanceof Error ? error.message : String(error) }); }
+	}
+	return results;
+}
+export async function createGenerationBackup(generation: number) {
+	const host = backupConfiguration(loadHostConfiguration()), components = JSON.parse(readFileSync(`${paths.managerState}/active-components.json`, 'utf8'));
+	const state = requiredBackupState(host, components); assertBackupStatePaths(state);
+	assertNoBackupWriters(state);
+	const configurationMember = `var/lib/treeseed/manager/backup-configuration-${generation}.json`;
+	const members = ['etc/treeseed', 'var/lib/treeseed/manager/current-receipt.json', 'var/lib/treeseed/manager/active-components.json', configurationMember, ...state];
+	mkdirSync(paths.backups, { recursive: true, mode: 0o700 });
+	const archive = archivePath(generation), temporary = `${archive}.new`, key = loadKey();
+	if (existsSync(archive) || existsSync(temporary)) { key.fill(0); throw new Error('Recovery generation already exists or has an unfinished staging file.'); }
+	writeFileSync(`/${configurationMember}`, JSON.stringify(host), { mode: 0o640, flag: 'wx' });
+	const child = spawn('/usr/bin/tar', backupArchiveArguments(configurationMember, members), { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
+	child.stderr.resume();
+	try {
+		const [exit] = await Promise.all([once(child, 'exit'), encryptBackupStream(child.stdout, temporary, generation, key)]);
+		if (exit[0] !== 0) throw new Error('Required managed state could not be archived consistently.');
+		renameSync(temporary, archive);
+		const sha256 = checksum(archive); writeFileSync(`${archive}.sha256`, `${sha256}  generation-${generation}.tar.gz.enc\n`, { mode: 0o600 });
+		// Share the transfer's OS lock: a new intent cannot pin an archive in the
+		// interval between retention inspection and deletion.
+		const journal = postgresTransferJournal();
+		await journal.locked(async () => {
+			const pinnedGeneration = journal.active()?.restoreGeneration;
+			for (const stale of retiredBackupArchives(readdirSync(paths.backups), pinnedGeneration)) { rmSync(`${paths.backups}/${stale}`, { force: true }); rmSync(`${paths.backups}/${stale}.sha256`, { force: true }); }
+		});
+		return { generation, archive, sha256, encrypted: true as const, stateDirectories: state };
+	} finally { child.kill(); key.fill(0); rmSync(temporary, { force: true }); rmSync(`/${configurationMember}`, { force: true }); }
+}
+export async function restoreVerifiedBackup(generation: number, options: { backupRoot: string; destinationRoot: string; key: Buffer; checkWriters: (members: string[]) => void; expectedSha256?: string }) {
+	// Inspect and extract the same private encrypted snapshot. Never stream newly
+	// opened, potentially replaced ciphertext into the live filesystem.
+	return withVerifiedGenerationBackup(generation, options, async (inspected, path) => {
+	options.checkWriters(inspected.coverage.stateDirectories);
+	return await withReplacedBackupState(options.destinationRoot, inspected.coverage.stateDirectories, async () => {
+	const sha256 = inspected.sha256;
+	const key = Buffer.from(options.key);
+	const child = spawn('/usr/bin/tar', ['--extract', '--gzip', '--file', '-', '--directory', options.destinationRoot, '--numeric-owner', '--no-overwrite-dir'], { stdio: ['pipe', 'ignore', 'pipe'], env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
+	child.stderr.resume();
+	try {
+		const [exit] = await Promise.all([once(child, 'exit'), decryptBackupStream(path, generation, key, child.stdin)]);
+		if (exit[0] !== 0) throw new Error('Managed recovery extraction failed.');
+		// The unprivileged manager must retain its established group-read access.
+		chmodSync(`${options.destinationRoot}/etc/treeseed/platform.json`, 0o640);
+		return { generation, restored: true, sha256, encrypted: true as const };
+	} finally { child.kill(); key.fill(0); }
+	});
+	});
+}
+export async function restoreGenerationBackup(generation: number, expectedSha256?: string) {
+	const key = loadKey();
+	try { return await restoreVerifiedBackup(generation, { backupRoot: paths.backups, destinationRoot: '/', key, checkWriters: assertNoBackupWriters, ...(expectedSha256 ? { expectedSha256 } : {}) }); }
+	finally { key.fill(0); }
 }

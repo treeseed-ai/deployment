@@ -1,5 +1,6 @@
 import { collectTopologyBlockers, deploymentDigest, hostPlanSchema, resolveMixedTrackCatalog, type HostConfiguration, type HostPlan, type HostReceipt, type ReleaseCatalog } from '@treeseed/sdk/deployment';
 import { edgeRoutes } from '../edge/caddy.js';
+import { verifiedComponentRelease } from '../catalog/component-integrity.js';
 
 export interface AcceptedPlan { plan: HostPlan; components: ReturnType<typeof resolveMixedTrackCatalog>['components']; routes: ReturnType<typeof edgeRoutes> }
 
@@ -12,7 +13,11 @@ export function createPlan(host: HostConfiguration, stable: ReleaseCatalog, deve
 	});
 	const configurationDigest = deploymentDigest(host);
 	const catalogDigest = development ? deploymentDigest({ stable: stable.catalogDigest, development: development.catalogDigest }) : stable.catalogDigest;
-	const blockers = collectTopologyBlockers(host, resolution.components).map(({ code, message }) => ({ code, message }));
+	const blockers: HostPlan['blockers'] = collectTopologyBlockers(host, resolution.components).map(({ code, message }) => ({ code, message }));
+	for (const component of resolution.components) {
+		try { verifiedComponentRelease(component); }
+		catch { blockers.push({ code: 'component-runtime-digest-mismatch', message: `Component ${component.componentId}@${component.release} has invalid runtime integrity; select a corrected immutable release before activation.` }); }
+	}
 	const plan = hostPlanSchema.parse({ schemaVersion: 'treeseed.host-plan/v1', planId: `plan-${configurationDigest.slice(7, 19)}`, configurationDigest, catalogDigest, changes, blockers });
 	const overrides = Object.fromEntries(Object.values(host.components).flatMap((component) => Object.entries(component.aliases)));
 	const routes = edgeRoutes(resolution.components, overrides);

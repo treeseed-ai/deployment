@@ -1,0 +1,206 @@
+import { mkdirSync } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { deploymentDigest } from '@treeseed/sdk/deployment';
+import { component, hash, host } from './fixtures.js';
+
+const state = vi.hoisted(() => ({
+	operations: [] as any[], events: [] as any[], writes: [] as any[], lifecycle: [] as string[],
+	currentHost: undefined as any, currentComponents: [] as any[], currentReceipt: undefined as any,
+	target: undefined as any, activationFailure: false, backupFailure: false, activationInventories: [] as string[][],
+	transfer: null as { restoreGeneration: number; restoreDigest: string } | null,
+	hold: null as { generation: number; phase: string } | null,
+	developmentSessions: [] as any[],
+}));
+
+vi.mock('../src/core/paths.js', () => ({ paths: { receipts: '/tmp/treeseed-recovery-test/receipts', managerState: '/tmp/treeseed-recovery-test/manager' } }));
+vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => state.currentHost }));
+vi.mock('../src/manager/current-state.js', () => ({ loadActiveComponents: () => state.currentComponents, loadCurrentReceipt: () => state.currentReceipt }));
+vi.mock('../src/core/files.js', () => ({ atomicJson: (path: string, value: unknown) => state.writes.push({ path, value }) }));
+vi.mock('../src/core/events.js', () => ({ recordEvent: (type: string, details: unknown) => state.events.push({ type, details }) }));
+vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { activeRoutes(base: unknown) { return base; } list() { return state.developmentSessions; } } }));
+vi.mock('../src/edge/caddy.js', () => ({ renderCaddyfile: () => 'managed routes', subjectAlternativeNames: () => ['api.treeseed.localhost'] }));
+vi.mock('../src/edge/readiness.js', () => ({ edgeReadiness: async () => true }));
+vi.mock('../src/manager/component-order.js', () => ({
+	componentActivationOrder: (_host: unknown, components: any[]) => components,
+	componentStopOrder: (_host: unknown, components: any[]) => [...components].reverse(),
+}));
+vi.mock('../src/manager/reconcile.js', () => ({
+	reconcile: async () => ({ action: 'noop' }),
+	stopComponent: async (item: any) => state.lifecycle.push(`stop:${item.release}`),
+	activateComponent: async (_host: unknown, item: any, components: any[], backupGeneration?: number) => {
+		state.activationInventories.push(components.map(component => component.componentId));
+		state.lifecycle.push(`activate:${item.release}`);
+		if (backupGeneration !== undefined) state.lifecycle.push(`backup:${backupGeneration}`);
+		if (state.activationFailure) { state.activationFailure = false; throw new Error('target health failed'); }
+	},
+	configureComponentForActivation: async (_host: unknown, item: any) => state.lifecycle.push(`configure:${item.release}`),
+	enrollProvider: async (_host: unknown, item: any) => state.lifecycle.push(`enroll:${item.release}`),
+	rollbackRoutes: () => [{ alias: 'api.treeseed.localhost', upstream: 'http://api:8787', authentication: 'none' }],
+}));
+vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: async (operation: any) => {
+	state.operations.push(operation);
+	if (operation.operation === 'development.backup.status') return state.hold;
+	if (operation.operation === 'postgres.transfer.status') return state.transfer;
+	if (operation.operation === 'backup.inspect') return state.target;
+	if (operation.operation === 'development.boot.resume') return { ready: true };
+	if (operation.operation === 'backup.create') {
+		if (state.lifecycle.length !== state.currentComponents.length || state.lifecycle.some(item => !item.startsWith('stop:'))) throw new Error('Backup attempted before all current writers stopped');
+		if (state.backupFailure) throw new Error('Safety backup failed');
+	}
+	return {};
+} }));
+
+const { inspectRecoveryBackup, restoreManagedGeneration, retryManagedRecovery } = await import('../src/manager/recovery.js');
+afterEach(() => { state.hold = null; state.transfer = null; state.backupFailure = false; state.activationFailure = false; state.developmentSessions = []; });
+
+it('recovers dependencies without starting a development-held released API writer', async () => {
+	state.currentHost = host();
+	state.currentHost.components.postgres = { enabled: true, track: 'development', aliases: {}, configuration: {} };
+	state.currentComponents = [component('postgres', 'development', 'b'), component('api', 'development', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.developmentSessions = [{ session: { sessionId: 'dev-test', targets: [{ projectId: 'api', targetId: 'service', mode: 'live' }] },
+		runtimes: [{ project: { id: 'api' }, targets: [{ id: 'service', kind: 'service' }] }] }];
+	state.operations = []; state.lifecycle = []; state.hold = { generation: 75, phase: 'restored' };
+	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:75', `configure:${state.currentComponents[1].release}`]);
+	expect(state.operations.map(({ operation }) => operation)).toContain('development.boot.resume');
+});
+
+it('retries restored runtime custody without another database archive or package installation', async () => {
+	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.operations = []; state.lifecycle = [];
+	state.hold = { generation: 73, phase: 'captured' };
+	await expect(retryManagedRecovery()).rejects.toThrow('exact backup restore');
+	expect(state.lifecycle).toEqual([]);
+	state.operations = []; state.hold.phase = 'restored';
+	expect(await retryManagedRecovery()).toMatchObject({ generation: 73, recovered: true });
+	expect(state.operations.map(({ operation }) => operation)).toEqual([
+		'development.backup.status', 'postgres.transfer.status', 'development.backup.fence', 'edge.apply', 'development.backup.finish',
+	]);
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:73']);
+});
+
+it('does not reactivate installed components disabled by the current host selection during retry', async () => {
+	state.currentHost = host();
+	state.currentHost.components['ai-inference'] = { enabled: false, track: 'development', aliases: {}, configuration: {} };
+	state.currentComponents = [component('api', 'development', 'a'), component('ai-inference', 'development', 'b')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.operations = []; state.lifecycle = []; state.activationInventories = []; state.hold = { generation: 74, phase: 'restored' };
+	expect(await retryManagedRecovery()).toMatchObject({ recovered: true });
+	expect(state.lifecycle).toEqual([`activate:${state.currentComponents[0].release}`, 'backup:74']);
+	expect(state.activationInventories).toEqual([['api', 'ai-inference']]);
+	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(true);
+});
+
+it('rejects a whole-generation restore that would undo an explicit component disable before mutation', async () => {
+	state.currentHost = host();
+	state.currentHost.components.lab = { enabled: false, track: 'stable', aliases: {}, configuration: {} };
+	const targetHost = structuredClone(state.currentHost);
+	targetHost.components.lab.enabled = true;
+	state.currentComponents = [component('api', 'stable', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.target = { generation: 73, sha256: hash('e'), configuration: targetHost,
+		receipt: receipt(targetHost, state.currentComponents, 'receipt-target'), components: state.currentComponents };
+	state.operations = []; state.lifecycle = [];
+	await expect(restoreManagedGeneration(73)).rejects.toThrow('explicitly disabled components: lab');
+	expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect']);
+	expect(state.lifecycle).toEqual([]);
+});
+
+it('keeps the restored fence when runtime retry fails and reconciles normally without a hold', async () => {
+	state.currentHost = host(); state.currentComponents = [component('api', 'development', 'a')];
+	state.currentReceipt = receipt(state.currentHost, state.currentComponents, 'receipt-current');
+	state.operations = []; state.lifecycle = []; state.hold = { generation: 73, phase: 'restored' }; state.activationFailure = true;
+	await expect(retryManagedRecovery()).rejects.toThrow('target health failed');
+	expect(state.operations.some(({ operation }) => operation === 'development.backup.finish')).toBe(false);
+	state.hold = null;
+	expect(await retryManagedRecovery()).toEqual({ action: 'noop' });
+});
+
+function receipt(configuration: any, components: any[], id: string) {
+	return {
+		schemaVersion: 'treeseed.host-receipt/v1', receiptId: id, planId: `${id}-plan`, state: 'known-good', hostId: configuration.host.id,
+		role: configuration.host.role, rolloutGroup: configuration.fleet.rolloutGroup, configurationDigest: deploymentDigest(configuration), catalogDigest: hash(id === 'receipt-current' ? 'c' : 'd'),
+		packages: components.flatMap((item) => item.packages), images: components.flatMap((item) => item.images),
+		runtimes: components.map((item) => ({ componentId: item.componentId, release: item.release, runtimeDigest: item.runtimeDigest })),
+		completedAt: '2026-08-27T00:00:00.000Z',
+	};
+}
+
+describe('complete managed generation recovery', () => {
+	it.each(['backup', 'activation', 'wrong-generation'])('never resumes partial-transfer safety data after %s failure', async failure => {
+		state.currentHost = host(); const current = component('api', 'stable', 'a');
+		state.currentComponents = [current]; state.currentReceipt = receipt(state.currentHost, [current], 'receipt-current');
+		state.target = { generation: 73, sha256: 'e'.repeat(64), configuration: state.currentHost, receipt: state.currentReceipt, components: [current] };
+		state.operations = []; state.events = []; state.writes = []; state.lifecycle = [];
+		state.transfer = { restoreGeneration: failure === 'wrong-generation' ? 74 : 73, restoreDigest: `sha256:${'e'.repeat(64)}` };
+		state.backupFailure = failure === 'backup'; state.activationFailure = failure === 'activation';
+		await expect(restoreManagedGeneration(73)).rejects.toThrow();
+		const restores = state.operations.filter(item => item.operation === 'recovery.restore');
+		expect(restores.map(item => item.generation)).toEqual(failure === 'activation' ? [73] : []);
+		expect(state.operations.some(item => item.operation === 'development.backup.begin')).toBe(false);
+		if (failure !== 'activation') expect(state.lifecycle.some(item => item.startsWith('activate:'))).toBe(false);
+		if (failure === 'wrong-generation') expect(state.lifecycle).toEqual([]);
+	});
+	it('resumes current services without restore or package changes when safety capture fails', async () => {
+		state.currentHost = host();
+		const current = component('api', 'stable', 'a');
+		state.currentComponents = [current]; state.currentReceipt = receipt(state.currentHost, [current], 'receipt-current');
+		state.target = { generation: 73, sha256: hash('e'), configuration: state.currentHost, receipt: state.currentReceipt, components: [current] };
+		state.operations = []; state.events = []; state.writes = []; state.lifecycle = []; state.activationFailure = false; state.backupFailure = true;
+		try {
+			await expect(restoreManagedGeneration(73)).rejects.toThrow('Safety backup failed');
+			expect(state.operations.map(({ operation }) => operation)).toEqual(['backup.inspect', 'development.backup.status', 'postgres.transfer.status', 'development.backup.begin', 'backup.create', 'edge.apply', 'development.backup.finish']);
+			expect(state.lifecycle).toEqual(['stop:1.0.0', 'activate:1.0.0']);
+			expect(state.writes).toEqual([]);
+		} finally { state.backupFailure = false; }
+	});
+	it('validates the target before mutation and restores packages, services, routes, and receipt custody', async () => {
+		mkdirSync('/tmp/treeseed-recovery-test/receipts', { recursive: true });
+		state.currentHost = host();
+		const current = component('api', 'development', 'a'); current.release = '2.0.0-1'; current.applicationVersion = current.release; current.runtime.version = current.release; current.packages[0]!.version = current.release;
+		const target = component('api', 'development', 'b'); target.release = '1.0.0-1'; target.applicationVersion = target.release; target.runtime.version = target.release; target.packages[0]!.version = target.release;
+		state.currentComponents = [current]; state.currentReceipt = receipt(state.currentHost, [current], 'receipt-current');
+		state.target = { generation: 73, sha256: hash('backup'), configuration: state.currentHost, receipt: receipt(state.currentHost, [target], 'receipt-generation-73'), components: [target] };
+		state.operations = []; state.events = []; state.writes = []; state.lifecycle = []; state.activationFailure = false;
+
+		expect((await inspectRecoveryBackup(73)).receipt.receiptId).toBe('receipt-generation-73');
+		state.operations = [];
+		const restored = await restoreManagedGeneration(73);
+		expect(restored).toMatchObject({ generation: 73, restored: true, targetReceiptId: 'receipt-generation-73' });
+		expect(state.operations.map(({ operation }) => operation)).toEqual([
+			'backup.inspect', 'development.backup.status', 'postgres.transfer.status', 'development.backup.begin', 'backup.create', 'apt.install', 'recovery.restore', 'edge.apply', 'development.backup.finish',
+		]);
+		expect(state.operations.find(({ operation }) => operation === 'apt.install').packages).toEqual(['treeseed-component-api=1.0.0-1']);
+		expect(state.lifecycle).toEqual(['stop:2.0.0-1', 'activate:1.0.0-1']);
+		expect(state.writes.map(({ path }) => path)).toEqual([
+			expect.stringMatching(/receipts\/receipt-/u),
+			'/tmp/treeseed-recovery-test/manager/current-receipt.json',
+			'/tmp/treeseed-recovery-test/manager/active-components.json',
+		]);
+		expect(state.events.map(({ type }) => type).at(-1)).toBe('recovery.restore-complete');
+	});
+
+	it('automatically restores the safety generation when target health fails', async () => {
+		state.currentHost = host();
+		const current = component('api', 'stable', 'a'), target = component('api', 'stable', 'b');
+		state.currentComponents = [current]; state.currentReceipt = receipt(state.currentHost, [current], 'receipt-current');
+		state.target = { generation: 73, sha256: hash('e'), configuration: state.currentHost, receipt: receipt(state.currentHost, [target], 'receipt-generation-73'), components: [target] };
+		state.operations = []; state.events = []; state.writes = []; state.lifecycle = []; state.activationFailure = true;
+
+		await expect(restoreManagedGeneration(73)).rejects.toThrow(/target health failed/u);
+		const safety = state.operations.find(({ operation }) => operation === 'backup.create').generation;
+		expect(state.operations.filter(({ operation }) => operation === 'apt.install').map(({ packages }) => packages)).toEqual([
+			['treeseed-component-api=1.0.0'], ['treeseed-component-api=1.0.0'],
+		]);
+		expect(state.operations.some(({ operation, generation }) => operation === 'recovery.restore' && generation === safety)).toBe(true);
+		const safetyRestore = state.operations.findIndex(({ operation, generation }) => operation === 'recovery.restore' && generation === safety);
+		const rollbackInstall = state.operations.map(({ operation }) => operation).lastIndexOf('apt.install');
+		expect(safetyRestore).toBeLessThan(rollbackInstall);
+		expect(state.lifecycle).toEqual([
+			'stop:1.0.0', 'activate:1.0.0', 'stop:1.0.0', 'activate:1.0.0',
+		]);
+		expect(state.events.map(({ type }) => type).at(-1)).toBe('recovery.restore-rollback-complete');
+	});
+});
