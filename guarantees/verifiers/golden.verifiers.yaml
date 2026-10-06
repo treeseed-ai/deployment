@@ -650,3 +650,69 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/development-component-status-native.test.ts
     testName: uses the same real Docker image authority during activation readiness and subsequent status
+
+  deployment.golden.execution-source-publication-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-job.test.ts
+    testName: publishes only the exact current destination and preserves supplied authority and verification bytes
+  deployment.golden.execution-source-publication-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-job.test.ts
+    testName: retains every changed missing or malformed destination receipt rather than announcing a published candidate
+  deployment.golden.execution-source-publication-unit-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/assignment-source.test.ts
+    testName: denies expired future and changed simulation publication authority after attachment without rewriting the original lease
+  deployment.golden.execution-source-publication-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate-guest.test.ts
+    testName: native verified simulation publication preserves exact candidate bytes through overlapping replay and independent rebuild
+  deployment.golden.execution-source-publication-native-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate-guest.test.ts
+    testName: native missing corrupt and competing simulation publications retain the original ref failed input bytes and allocated-directory cleanup
+  deployment.golden.execution-source-nbd-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-nbd-service.test.ts
+    testName: binds each work disk to one independently owned collected service socket and kill group without changing its input
+  deployment.golden.execution-source-nbd-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-block-store.test.ts
+    testName: native original disk attachment retains denied teardown and image bytes across retry before removing only its own service process socket and fence
+  deployment.golden.execution-warm-teardown-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: retains failed warm teardown ownership across concurrent drain and exact retry without recycling or recreating an assigned VM
+  deployment.golden.execution-warm-teardown-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: native original Kata warm admission assigns distinct pinned VMs and verifies exact task container and readiness-child absence after duplicate teardown
+  deployment.golden.execution-source-vm-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate.test.ts
+    testName: retains exact native verifier and child identities in the original verified journal and denies absent malformed or unrelated physical custody
+  deployment.golden.execution-source-vm-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/assignment-source.test.ts
+    testName: retains the original cold builder and verifier VM identities through source attachment and stop without exposing them as public authority or recreating the cold build
+  deployment.golden.execution-source-vm-unit-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-job.test.ts
+    testName: preserves exact native verifier ownership in the same durable publication journal instead of overwriting it with a boolean or public Git reference
+  deployment.golden.execution-source-vm-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate-guest.test.ts
+    testName: native original source image builder and isolated verifier retain exact VM identities for independent task and container absence without changing Git or published image bytes

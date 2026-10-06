@@ -1,0 +1,18 @@
+schemaVersion: treeseed.guarantee-verifiers/v1
+ownerPackage: "@treeseed/deployment"
+verifiers:
+  deployment.golden.execution-selected-code-live-1:
+    kind: nodeTestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance/source-publication.ts
+    testName: Actual selected provider copy binds freshly compiled held source exact native read-only entrypoints and immutable completed managed results instead of saved source labels or registry hints
+  deployment.golden.execution-source-publication-live-1:
+    kind: nodeTestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance/source-publication.ts
+    testName: Actual managed source publications retain native Git bytes released lease usage and host absence beside unchanged failed execution history
+  deployment.golden.execution-warm-teardown-live-1:
+    kind: nodeTestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance/source-publication.ts
+    testName: Native owning warm pool drains only its idle Kata VM and caller-owned execution VM beside immutable actual SDK terminal Workday

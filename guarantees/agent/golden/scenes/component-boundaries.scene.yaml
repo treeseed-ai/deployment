@@ -396,3 +396,43 @@ workflow:
   - id: component-image-19
     action: { verifier: deployment.golden.component-image-19 }
     expect: { status: passed }
+
+  - id: execution-source-publication-unit-1
+    action: { verifier: deployment.golden.execution-source-publication-unit-1 }
+    expect: { status: passed }
+  - id: execution-source-publication-unit-2
+    action: { verifier: deployment.golden.execution-source-publication-unit-2 }
+    expect: { status: passed }
+  - id: execution-source-publication-unit-3
+    action: { verifier: deployment.golden.execution-source-publication-unit-3 }
+    expect: { status: passed }
+  - id: execution-source-publication-native-1
+    action: { verifier: deployment.golden.execution-source-publication-native-1 }
+    expect: { status: passed }
+  - id: execution-source-publication-native-2
+    action: { verifier: deployment.golden.execution-source-publication-native-2 }
+    expect: { status: passed }
+  - id: execution-source-nbd-unit-1
+    action: { verifier: deployment.golden.execution-source-nbd-unit-1 }
+    expect: { status: passed }
+  - id: execution-source-nbd-native-1
+    action: { verifier: deployment.golden.execution-source-nbd-native-1 }
+    expect: { status: passed }
+  - id: execution-warm-teardown-unit-1
+    action: { verifier: deployment.golden.execution-warm-teardown-unit-1 }
+    expect: { status: passed }
+  - id: execution-warm-teardown-native-1
+    action: { verifier: deployment.golden.execution-warm-teardown-native-1 }
+    expect: { status: passed }
+  - id: execution-source-vm-unit-1
+    action: { verifier: deployment.golden.execution-source-vm-unit-1 }
+    expect: { status: passed }
+  - id: execution-source-vm-unit-2
+    action: { verifier: deployment.golden.execution-source-vm-unit-2 }
+    expect: { status: passed }
+  - id: execution-source-vm-unit-3
+    action: { verifier: deployment.golden.execution-source-vm-unit-3 }
+    expect: { status: passed }
+  - id: execution-source-vm-native-1
+    action: { verifier: deployment.golden.execution-source-vm-native-1 }
+    expect: { status: passed }

@@ -12,7 +12,9 @@ function fixture() {
     commit: 'b'.repeat(40), maxBytes: 4096, executionStopped: true };
   const result = { verification: { baseCommit: authorization.source.commit, commit: input.commit, bytes: 1024,
     clean: true as const, objectClosure: true as const, ancestry: true as const, isolatedVerifier: true as const },
-    bundlePath: '/private/disk/candidate/source.bundle', digest: `sha256:${'c'.repeat(64)}`, verifierStopped: true };
+    bundlePath: '/private/disk/candidate/source.bundle', digest: `sha256:${'c'.repeat(64)}`, verifierStopped: true,
+    verifierId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab',
+    verifierChildId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab-candidate' };
   const operations: CandidateOperations = { now: () => now, journal: vi.fn(async () => undefined), verify: vi.fn(async () => result) };
   return { input, operations, result };
 }
@@ -57,5 +59,32 @@ describe('source candidate custody transition', () => {
     const { input, operations } = fixture(); operations.verify = vi.fn(async () => { throw new Error('private backend details'); });
     await expect(verifyWorkspaceCandidate(input, operations)).rejects.toThrow();
     expect(JSON.stringify(vi.mocked(operations.journal).mock.calls)).not.toContain('private backend');
+  });
+  it('retains exact native verifier and child identities in the original verified journal and denies absent malformed or unrelated physical custody', async () => {
+    const verifierId = 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab', verifierChildId = `${verifierId}-candidate`;
+    const positive = fixture();
+    const result = Object.assign(positive.result, { verifierId, verifierChildId });
+    const original = structuredClone({ input: positive.input, result });
+    expect(await verifyWorkspaceCandidate(positive.input, positive.operations)).toEqual(result);
+    expect(vi.mocked(positive.operations.journal).mock.calls.at(-1)?.[0]).toMatchObject({
+      state: 'verified', leaseId: positive.input.leaseId, diskId: positive.input.disk.id,
+      verifierId, verifierChildId, verifierStopped: true,
+    });
+    expect({ input: positive.input, result }).toEqual(original);
+    const invalid: Array<Record<string, unknown>> = [ {}, { verifierId }, { verifierChildId },
+      { verifierId: undefined, verifierChildId }, { verifierId: null, verifierChildId },
+      { verifierId: '', verifierChildId }, { verifierId: 'unowned', verifierChildId },
+      { verifierId, verifierChildId: undefined }, { verifierId, verifierChildId: null },
+      { verifierId, verifierChildId: '' }, { verifierId, verifierChildId: `${verifierId}-source` },
+      { verifierId, verifierChildId: 'sandbox-warm-11234567-89ab-4cde-8fab-0123456789ab-candidate' } ];
+    for (const fields of invalid) {
+      const negative = fixture(), supplied = Object.assign(negative.result, { verifierId: undefined, verifierChildId: undefined }, fields), held = structuredClone(supplied);
+      await expect(verifyWorkspaceCandidate(negative.input, negative.operations)).rejects.toThrow('verification');
+      expect(vi.mocked(negative.operations.journal).mock.calls.some(([value]) => value.state === 'verified')).toBe(false);
+      expect(vi.mocked(negative.operations.journal).mock.calls.at(-1)?.[0]).toMatchObject({
+        state: 'retained', reason: 'candidate_verification_failed',
+      });
+      expect(supplied).toEqual(held);
+    }
   });
 });
