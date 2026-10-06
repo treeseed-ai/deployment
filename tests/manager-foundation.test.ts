@@ -3,9 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { activationEligible, aptPreferencesForTrack, aptSuiteForRefresh, assertTreeDxResetSafe, availableCatalogSummary, catalogPackagesForTrack, componentActivationOrder, componentStateDirectories, componentStateRoot, componentStopOrder, corePackagesForTrack, createPlan, developmentEnvironmentPayloadSchema, edgeRoutes, executeSupervisorOperation, hostCommandRequestSchema, installPackages, managedCliControlPlaneUrl, managedConnectionEnvironment, managedContainerDevelopmentConnectionEnvironment, managedDevelopmentConnectionEnvironment, metadataRefreshDue, packageFromTrack, pollIntervalSeconds, recoverInvalidConfiguration, renderCaddyfile, renderComponentEnvironment, resetPlatformState, resolveDevelopmentSecretEnvironment, rollbackRoutes, serializedReconcileArguments, serializedResetArguments, stableActivationWindow, subjectAlternativeNames, supervisorOperationSchema, tryLoadHostConfiguration, updateTrack, validateProductionCompose, withCoreUpgradeHandoff, withDeferredManagerRestart } from '../src/index.js';
 import { loadActiveComponents, loadCurrentReceipt } from '../src/manager/current-state.js';
+import { DevelopmentSessionStore } from '../src/manager/development-sessions.js';
 import { catalogs, component, hash, host } from './fixtures.js';
 
 describe('unified host manager foundation', () => {
@@ -238,15 +239,20 @@ describe('unified host manager foundation', () => {
 	});
 
 	it('hands provider enrollment to the fixed packaged Agent entrypoint without token arguments', () => {
-		const calls: Array<{ executable: string; arguments: readonly string[]; input: string | undefined }> = [];
-		const result = executeSupervisorOperation({ operation: 'provider.enrollment-handoff', payload: { action: 'begin', connectionId: 'local-team', teamId: 'team-id', controlPlaneUrl: 'http://api:3000', controlPlaneAudience: 'https://api.treeseed.localhost', registrationCode: 'one-time-secret' }, files: ['agent/release/compose.yml'], projectName: 'treeseed-agent' }, (executable, arguments_, input) => {
-			calls.push({ executable, arguments: arguments_, input });
-			return JSON.stringify({ ok: true, connectionId: 'local-team', state: 'pending-approval', requestId: 'request-123' });
-		});
-		expect(result).toEqual({ ok: true, connectionId: 'local-team', state: 'pending-approval', requestId: 'request-123' });
-		expect(calls[0]?.arguments).toEqual(['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/release/compose.yml', '--project-name', 'treeseed-agent', 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json']);
-		expect(calls[0]?.arguments.join(' ')).not.toContain('one-time-secret');
-		expect(JSON.parse(calls[0]!.input!)).toMatchObject({ action: 'begin', connectionId: 'local-team', registrationCode: 'one-time-secret' });
+		// This UNIT supplies released selection; it must not consume the operator's live host sessions.
+		const selection = vi.spyOn(DevelopmentSessionStore.prototype, 'list').mockReturnValue([]);
+		try {
+			const calls: Array<{ executable: string; arguments: readonly string[]; input: string | undefined }> = [];
+			const result = executeSupervisorOperation({ operation: 'provider.enrollment-handoff', payload: { action: 'begin', connectionId: 'local-team', teamId: 'team-id', controlPlaneUrl: 'http://api:3000', controlPlaneAudience: 'https://api.treeseed.localhost', registrationCode: 'one-time-secret' }, files: ['agent/release/compose.yml'], projectName: 'treeseed-agent' }, (executable, arguments_, input) => {
+				calls.push({ executable, arguments: arguments_, input });
+				return JSON.stringify({ ok: true, connectionId: 'local-team', state: 'pending-approval', requestId: 'request-123' });
+			});
+			expect(result).toEqual({ ok: true, connectionId: 'local-team', state: 'pending-approval', requestId: 'request-123' });
+			expect(calls[0]?.arguments).toEqual(['compose', '--env-file', '/etc/treeseed/components/agent/environment', '--file', '/usr/share/treeseed/components/agent/release/compose.yml', '--project-name', 'treeseed-agent', 'run', '--rm', '--no-deps', '-T', 'manager', 'enroll', '--json']);
+			expect(calls[0]?.arguments.join(' ')).not.toContain('one-time-secret');
+			expect(JSON.parse(calls[0]!.input!)).toMatchObject({ action: 'begin', connectionId: 'local-team', registrationCode: 'one-time-secret' });
+			expect(selection).toHaveBeenCalledTimes(1);
+		} finally { selection.mockRestore(); }
 	});
 	it('accepts only bounded host commands and fixed configuration or enrollment mutations', () => {
 		expect(hostCommandRequestSchema.parse({ handlerId: 'local.host.component.enable', arguments: ['agent'], options: { plan: true } })).toMatchObject({ handlerId: 'local.host.component.enable' });
