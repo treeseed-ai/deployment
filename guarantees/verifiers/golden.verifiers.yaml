@@ -791,3 +791,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: native installer subprocess rejects a non Actions caller without touching held configuration or candidate bytes
+  deployment.golden.execution-manager-closure-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: includes the capacity manager schema dependency and verifies its actual supervisor API and broker entrypoints
+  deployment.golden.execution-manager-closure-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: extracted original capacity manager answers a native supervisor ping with its packaged private Node and exact SDK closure

@@ -481,3 +481,9 @@ workflow:
   - id: execution-native-ci-native-1
     action: { verifier: deployment.golden.execution-native-ci-native-1 }
     expect: { status: passed }
+  - id: execution-manager-closure-unit-1
+    action: { verifier: deployment.golden.execution-manager-closure-unit-1 }
+    expect: { status: passed }
+  - id: execution-manager-closure-native-1
+    action: { verifier: deployment.golden.execution-manager-closure-native-1 }
+    expect: { status: passed }
