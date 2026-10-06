@@ -496,3 +496,6 @@ workflow:
   - id: execution-fresh-recovery-native-1
     action: { verifier: deployment.golden.execution-fresh-recovery-native-1 }
     expect: { status: passed }
+  - id: execution-manager-tools-unit-1
+    action: { verifier: deployment.golden.execution-manager-tools-unit-1 }
+    expect: { status: passed }

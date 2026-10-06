@@ -816,3 +816,8 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-build-recovery.test.ts
     testName: native independent recovery process initializes fresh canonical storage and retains interrupted build ownership on retry
+  deployment.golden.execution-manager-tools-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: declares native image and NBD tools as capacity manager installation dependencies

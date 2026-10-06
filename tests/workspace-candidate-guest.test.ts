@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,6 +30,8 @@ describe('independent source candidate verifier', () => {
     const f = fixture(), brokerPath = '/etc/treeseed/sandbox/broker.json', brokerBytes = readFileSync(brokerPath);
     const configuration = sandboxBrokerConfigurationSchema.parse(JSON.parse(brokerBytes.toString('utf8')));
     const catalog = new WorkspaceCatalog(join(f.directory, 'catalog.db'));
+    const bundleRoot = join(workspaceStorageRoot, 'bundles');
+    let bundleDirectoryOwned = false;
     let bundlePath: string | undefined, imageId: string | undefined, bundleOwned = false, imageOwned = false, nativeStarted = false;
     let disk: Awaited<ReturnType<typeof createWorkspaceDisk>> | undefined, stopped = false;
     try {
@@ -45,6 +47,10 @@ describe('independent source candidate verifier', () => {
       f.git(['bundle', 'create', originalBundle, 'refs/heads/treeseed-source']);
       const bytes = readFileSync(originalBundle), bundleDigest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
       bundlePath = join(workspaceStorageRoot, 'bundles', `${bundleDigest.slice(7)}.bundle`);
+      // Only the supplied fixture input needs a bundle directory; ordinary source
+      // acquisition creates this directory itself. Never assume prior host traffic.
+      try { mkdirSync(bundleRoot, { mode: 0o700 }); bundleDirectoryOwned = true; }
+      catch (error) { if (!error || typeof error !== 'object' || Reflect.get(error, 'code') !== 'EEXIST') throw error; }
       // Exclusive creation: this callback must never replace any pre-existing cache input.
       writeFileSync(bundlePath, bytes, { flag: 'wx', mode: 0o400 });
       bundleOwned = true;
@@ -106,7 +112,11 @@ describe('independent source candidate verifier', () => {
         rmSync(workspaceImagePath(imageId)); catalog.finishDeletion(imageId);
       }
       catalog.close();
-      if (!nativeStarted || stopped) { if (bundleOwned && bundlePath) rmSync(bundlePath); f.cleanup(); }
+      if (!nativeStarted || stopped) {
+        if (bundleOwned && bundlePath) rmSync(bundlePath);
+        if (bundleDirectoryOwned && readdirSync(bundleRoot).length === 0) rmdirSync(bundleRoot);
+        f.cleanup();
+      }
       // Failed native ownership/teardown keeps the allocated catalog and inputs with
       // the uncertain disk; this is an explicit failed quarantine, never a pass.
     }

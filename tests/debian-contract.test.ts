@@ -61,6 +61,11 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging).toContain("'zod-to-json-schema'");
 		for (const entry of ['supervisor/server.js', 'manager/api.js', 'sandbox/server.js']) expect(verification).toContain(entry);
 	});
+	it('declares native image and NBD tools as capacity manager installation dependencies', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const manager = packaging.split("'treeseed-manager':")[1]?.split("'treeseed-sdk':")[0];
+		expect(manager).toContain('qemu-utils');
+	});
 
 	it('extracted original capacity manager answers a native supervisor ping with its packaged private Node and exact SDK closure', () => {
 		if (process.getuid?.() !== 0 || process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1') {
@@ -76,6 +81,8 @@ describe('Debian and systemd contracts', () => {
 			expect(result.error).toBeUndefined(); expect(result.signal).toBeNull(); expect(result.status, String(result.stderr)).toBe(0);
 		};
 		try {
+			const dependencies = spawnSync('dpkg-deb', ['--field', selected[0]!, 'Depends'], { encoding: 'utf8', timeout: 10_000 });
+			passed(dependencies); expect(dependencies.stdout.split(',').map(value => value.trim())).toContain('qemu-utils');
 			for (const file of selected) passed(spawnSync('dpkg-deb', ['--extract', file, root], { encoding: 'utf8', timeout: 10_000 }));
 			const modules = resolve(root, 'usr/lib/treeseed/manager/dist/src');
 			const program = `import { createConnection, createServer } from 'node:net'; import { once } from 'node:events';
@@ -93,7 +100,7 @@ console.log(JSON.stringify({response:JSON.parse(output), events}));
 				events: [{ type: 'supervisor.operation-complete', details: { operation: 'supervisor.ping' } }] });
 			expect(readFileSync(resolve(modules, 'supervisor/server.js'))).toEqual(readFileSync('dist/src/supervisor/server.js'));
 			expect(readFileSync(resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/package.json'))).toEqual(readFileSync('node_modules/@treeseed/sdk/package.json'));
-			for (const [path, bytes] of held) expect(readFileSync(path)).toEqual(bytes);
+			for (const [path, bytes] of held) expect(readFileSync(path).equals(bytes), `Exact original archive bytes: ${path}`).toBe(true);
 		} finally { rmSync(root, { recursive: true, force: true }); expect(existsSync(root)).toBe(false); }
 	});
 
