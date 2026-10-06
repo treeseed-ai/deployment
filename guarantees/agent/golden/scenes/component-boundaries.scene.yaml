@@ -487,3 +487,12 @@ workflow:
   - id: execution-manager-closure-native-1
     action: { verifier: deployment.golden.execution-manager-closure-native-1 }
     expect: { status: passed }
+  - id: execution-fresh-recovery-unit-1
+    action: { verifier: deployment.golden.execution-fresh-recovery-unit-1 }
+    expect: { status: passed }
+  - id: execution-fresh-recovery-unit-2
+    action: { verifier: deployment.golden.execution-fresh-recovery-unit-2 }
+    expect: { status: passed }
+  - id: execution-fresh-recovery-native-1
+    action: { verifier: deployment.golden.execution-fresh-recovery-native-1 }
+    expect: { status: passed }

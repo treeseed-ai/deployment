@@ -801,3 +801,18 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/debian-contract.test.ts
     testName: extracted original capacity manager answers a native supervisor ping with its packaged private Node and exact SDK closure
+  deployment.golden.execution-fresh-recovery-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: initializes empty recovery inventory through the original catalog and replays without inventing work
+  deployment.golden.execution-fresh-recovery-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: retains corrupt recovery catalog bytes and denies initialization instead of replacing failed history
+  deployment.golden.execution-fresh-recovery-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: native independent recovery process initializes fresh canonical storage and retains interrupted build ownership on retry
