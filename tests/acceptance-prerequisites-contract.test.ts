@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
 
 it('native original Vitest retains controlled phase criteria alongside real assertion and watchdog failures without widening the test allowance', () => {
@@ -31,6 +32,23 @@ it('native original Vitest retains controlled phase criteria alongside real asse
     expect(rows[1]?.failureMessages.join('\n')).toContain('Error: STACK_TRACE_ERROR');
     expect(rows[1]?.duration).toBeGreaterThanOrEqual(20);
     expect(rows[1]?.failureMessages.join('\n')).toContain('ACCEPTANCE_NATIVE_COLD_BUILD_WATCHDOG:');
+    const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
+    const steps=workflow.jobs.verify.steps as {with?:Record<string,string>}[];
+    const checkout=steps.find(step=>step.with?.repository==='treeseed-ai/reviewer')!.with!;
+    const reviewer=resolve(checkout.path!);
+    const head=spawnSync('git',['-C',reviewer,'rev-parse','HEAD'],{encoding:'utf8',timeout:5000});
+    expect(head.status).toBe(0);expect(head.stdout.trim()).toBe(checkout.ref);
+    const bytes=readFileSync(resolve(root,'report.json'));
+    const consumed=spawnSync(process.execPath,['--import','tsx','--input-type=module','--eval',
+      "import {readFileSync} from 'node:fs';const {fullSuiteFailures}=await import(process.argv[1]);console.log(JSON.stringify(fullSuiteFailures(JSON.parse(readFileSync(process.argv[2],'utf8')))));",
+      pathToFileURL(resolve(reviewer,'src/verifiers/guarantees/prerequisites.ts')).href,resolve(root,'report.json')],
+      {encoding:'utf8',timeout:10_000});
+    expect(consumed.error).toBeUndefined();expect(consumed.signal).toBeNull();expect(consumed.status).toBe(0);
+    expect(JSON.parse(consumed.stdout)).toEqual([
+      {title:'actual native failure',status:'failed',criterion:'ACCEPTANCE_NATIVE_COLD_VERIFY_FAILURE'},
+      {title:'actual watchdog failure',status:'failed',criterion:'ACCEPTANCE_NATIVE_COLD_BUILD_WATCHDOG'},
+    ]);
+    expect(readFileSync(resolve(root,'report.json'))).toEqual(bytes);
   } finally {rmSync(root,{recursive:true,force:true});expect(existsSync(root)).toBe(false);}
 });
 
