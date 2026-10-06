@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sourceCacheVolumeBytes, withSourceCacheVolume } from '../src/sandbox/source-cache-volume.js';
 
-it.skipIf(process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1' || process.getuid?.() !== 0)(
+it(
   'kernel rejects writes beyond the fixed trusted-host cache without filling the parent filesystem', async () => {
+    if (process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1' || process.getuid?.() !== 0) {
+      throw new Error('Explicit TREESEED_PRIVILEGED_CACHE_TESTS=1 on the owning trusted root host is required; native cache quota coverage cannot be skipped.');
+    }
     const root = await mkdtemp(join(tmpdir(), 'treeseed-kernel-cache-quota-'));
     const capacity = sourceCacheVolumeBytes(1_048_576);
     let unmounted = false;

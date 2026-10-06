@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SourceWorkspaceAuthorization } from '@treeseed/sdk/capacity-provider/sandbox';
+import type { SourceWorkspaceAuthorization, SourceWorkspaceResponse } from '@treeseed/sdk/capacity-provider/sandbox';
 import { AssignmentSource, type AssignmentSourceOperations } from '../src/sandbox/assignment-source.js';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
 import { sealSourceCredential } from '../src/security/services/source-credential-delivery.js';
@@ -20,7 +20,7 @@ function fixture() {
   const operations: AssignmentSourceOperations = { catalog, now: () => now, build: vi.fn(async () => { publish(); }),
     createDisk: vi.fn(async () => disk), attachDisk: vi.fn(async () => ({ ...disk, device: '/dev/nbd0', unit: 'owned.service' })), journal: vi.fn(async () => undefined) };
   const controller = new AssignmentSource(owner, 1_073_741_824, operations);
-  const response = (authorization = authority) => ({ authorization, repository: { provider: 'github', owner: 'treeseed-ai', name: 'sdk', cloneUrl: 'https://github.com/treeseed-ai/sdk.git', ref: 'staging' },
+  const response = (authorization = authority): SourceWorkspaceResponse => ({ authorization, repository: { provider: 'github', owner: 'treeseed-ai', name: 'sdk', cloneUrl: 'https://github.com/treeseed-ai/sdk.git', ref: 'staging' },
     credential: sealSourceCredential({ authorization, recipientPublicKey: controller.status().recipientPublicKey, credential: { username: 'x-access-token', token: 'private-token' } }, now) });
   return { controller, operations, response, publish };
 }
@@ -100,5 +100,71 @@ describe('assignment source authority and job lifecycle', () => {
     expect(controller.status().state).toBe('stopped');
     await expect(controller.attach(response())).rejects.toThrow('stopped');
     expect(operations.createDisk).not.toHaveBeenCalled();
+  });
+  it('denies expired future and changed simulation publication authority after attachment without rewriting the original lease', async () => {
+    const input = fixture();
+    const { credentialBindingId: _binding, ...original } = authority;
+    const authorization: SourceWorkspaceAuthorization = { ...original, mode: 'work', acquisition: 'simulation-local',
+      publication: 'simulation-branch', publicationRef: 'simulation/campaign/workday/assignment' };
+    const envelope: SourceWorkspaceResponse = { authorization, repository: input.response().repository, credential: null };
+    input.controller.prepare(envelope); await vi.waitFor(() => expect(input.controller.status().state).toBe('ready'));
+    await input.controller.attach(envelope);
+    const attached = structuredClone(input.controller.attachment()), before = structuredClone(envelope);
+    expect(input.controller.publicationCredential(envelope)).toEqual({ response: envelope, credential: undefined });
+    const invalid = [
+      { ...authorization, publicationRef: 'simulation/foreign/workday/assignment' },
+      { ...authorization, issuedAt: new Date(+now + 1_000).toISOString() },
+      { ...authorization, expiresAt: now.toISOString(), issuedAt: new Date(+now - 1_000).toISOString() },
+    ];
+    for (const supplied of invalid) {
+      const value = { ...envelope, authorization: supplied }, bytes = structuredClone(value);
+      expect(() => input.controller.publicationCredential(value)).toThrow();
+      expect(input.controller.attachment()).toEqual(attached);
+      expect(value).toEqual(bytes);
+    }
+    // Controlled UNIT clock: verification finishing at exact original expiry
+    // does not grant another publication interval or a renewed envelope.
+    input.operations.now = () => new Date(authorization.expiresAt);
+    expect(() => input.controller.publicationCredential(envelope)).toThrow();
+    expect(input.controller.status().expiresAt).toBe(authorization.expiresAt);
+    expect(envelope).toEqual(before);
+    await input.controller.stop();
+    expect(() => input.controller.publicationCredential(envelope)).toThrow('stopped');
+    expect(input.operations.createDisk).toHaveBeenCalledOnce();
+    expect(input.operations.attachDisk).toHaveBeenCalledOnce();
+  });
+  it('retains the original cold builder and verifier VM identities through source attachment and stop without exposing them as public authority or recreating the cold build', async () => {
+    const input = fixture(), builderIds = ['sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab',
+      'sandbox-warm-11234567-89ab-4cde-8fab-0123456789ab'];
+    const supplied = { builderIds }, held = structuredClone(supplied);
+    // Controlled future build return extends only the already-owned native IDs;
+    // no public SDK result, new receipt, table, alternate builder or runtime policy.
+    Object.assign(input.operations, { build: vi.fn(async () => { input.publish(); return supplied; }) });
+    const response = input.response(); input.controller.prepare(response);
+    await vi.waitFor(() => expect(input.controller.status().state).toBe('ready'));
+    await input.controller.attach(response); const attached = structuredClone(input.controller.attachment());
+    await input.controller.stop();
+    const journal = vi.mocked(input.operations.journal).mock.calls.at(-1)?.[0];
+    expect(journal).toMatchObject({ state: 'stopped', builderIds, disk: attached.disk, leaseId: attached.leaseId });
+    expect(input.controller.status()).not.toHaveProperty('builderIds');
+    expect(input.operations.build).toHaveBeenCalledOnce(); expect(supplied).toEqual(held);
+    expect(response.authorization.source).toEqual(authority.source);
+    expect(JSON.stringify(journal)).not.toMatch(/private-token|ciphertext|privateKey/u);
+    const last = structuredClone(journal); await input.controller.stop();
+    expect(vi.mocked(input.operations.journal).mock.calls.at(-1)?.[0]).toEqual(last);
+    expect(supplied).toEqual(held);
+    for (const value of [null, 'unowned', [], ['unowned'], [builderIds[0]], [builderIds[0], builderIds[0]],
+      [builderIds[0], undefined], [builderIds[0], `${builderIds[1]}-ready`]]) {
+      const denied = fixture(), output = { builderIds: value }, original = structuredClone(output);
+      Object.assign(denied.operations, { build: vi.fn(async () => { denied.publish(); return output; }) });
+      denied.controller.prepare(denied.response());
+      await vi.waitFor(() => expect(denied.controller.status().state).toBe('failed'));
+      await expect(denied.controller.attach(denied.response())).rejects.toThrow('not ready');
+      expect(denied.operations.attachDisk).not.toHaveBeenCalled(); expect(output).toEqual(original);
+      const history = structuredClone(vi.mocked(denied.operations.journal).mock.calls);
+      expect(() => denied.controller.prepare(denied.response())).toThrow('recovery');
+      expect(vi.mocked(denied.operations.journal).mock.calls).toEqual(history);
+      await denied.controller.stop(); expect(output).toEqual(original);
+    }
   });
 });

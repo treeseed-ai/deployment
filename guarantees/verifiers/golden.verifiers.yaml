@@ -1,6 +1,46 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.architecture-publication-unit-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "retains current same-branch authority and matching replay without changing the attached assignment"
+  deployment.golden.architecture-publication-unit-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "denies main and foreign simulation destinations instead of changing the sole attached assignment branch"
+  deployment.golden.architecture-publication-unit-3:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "requires current publication authority even when simulation delivery has no sealed credential"
+  deployment.golden.architecture-publication-unit-4:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: "retains foreign-owner moved-source analysis and stopped denials without releasing live catalog custody"
+  deployment.golden.architecture-publication-native-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "retains exact verified Git content and one publication through concurrent drains without changing SQL custody"
+  deployment.golden.architecture-publication-native-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "retains work and denies changed branch authority after real Git verification without writing foreign refs"
+  deployment.golden.architecture-publication-native-3:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "denies expired and future publication envelopes after native verification while retaining the original lease"
+  deployment.golden.architecture-publication-native-4:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox/architecture/publication-persistence.test.ts
+    testName: "retains real verified work on publication interruption and allows exact retry without another lease or guessed teardown"
   deployment.golden.runtime-public-provider-roots:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
@@ -650,3 +690,139 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/development-component-status-native.test.ts
     testName: uses the same real Docker image authority during activation readiness and subsequent status
+
+  deployment.golden.execution-source-publication-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-job.test.ts
+    testName: publishes only the exact current destination and preserves supplied authority and verification bytes
+  deployment.golden.execution-source-publication-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-job.test.ts
+    testName: retains every changed missing or malformed destination receipt rather than announcing a published candidate
+  deployment.golden.execution-source-publication-unit-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/assignment-source.test.ts
+    testName: denies expired future and changed simulation publication authority after attachment without rewriting the original lease
+  deployment.golden.execution-source-publication-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate-guest.test.ts
+    testName: native verified simulation publication preserves exact candidate bytes through overlapping replay and independent rebuild
+  deployment.golden.execution-source-publication-native-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate-guest.test.ts
+    testName: native missing corrupt and competing simulation publications retain the original ref failed input bytes and allocated-directory cleanup
+  deployment.golden.execution-source-nbd-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-nbd-service.test.ts
+    testName: binds each work disk to one independently owned collected service socket and kill group without changing its input
+  deployment.golden.execution-source-nbd-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-block-store.test.ts
+    testName: native original disk attachment retains denied teardown and image bytes across retry before removing only its own service process socket and fence
+  deployment.golden.execution-warm-teardown-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: retains failed warm teardown ownership across concurrent drain and exact retry without recycling or recreating an assigned VM
+  deployment.golden.execution-warm-teardown-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: native original Kata warm admission assigns distinct pinned VMs and verifies exact task container and readiness-child absence after duplicate teardown
+  deployment.golden.execution-source-vm-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate.test.ts
+    testName: retains exact native primary verifier identity in the original verified journal and denies absent malformed unrelated or retired child custody
+  deployment.golden.execution-source-vm-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/assignment-source.test.ts
+    testName: retains the original cold builder and verifier VM identities through source attachment and stop without exposing them as public authority or recreating the cold build
+  deployment.golden.execution-source-vm-unit-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-job.test.ts
+    testName: preserves exact native verifier ownership in the same durable publication journal instead of overwriting it with a boolean or public Git reference
+  deployment.golden.execution-source-vm-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-candidate-guest.test.ts
+    testName: native original source image builder and isolated verifier retain exact VM identities for independent task and container absence without changing Git or published image bytes
+  deployment.golden.execution-cold-primary-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: runs each cold source guest as one pinned resource-bounded primary process without sleeping or readiness children
+  deployment.golden.execution-cold-primary-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: denies malformed cold guest ownership device entry mode and write access before forming a native command
+  deployment.golden.execution-sdk-closure-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer
+  deployment.golden.execution-sdk-closure-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native capacity execution package install retains exact held SDK bytes and requires one valid tree and nonempty SBOM before scene admission
+  deployment.golden.execution-native-ci-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: provisions only a disposable native Actions host through the original installer before complete privileged prerequisites
+  deployment.golden.execution-native-ci-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: disposable native installer denies missing malformed nonroot foreign and existing host authority before any installation
+  deployment.golden.execution-native-ci-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native installer subprocess rejects a non Actions caller without touching held configuration or candidate bytes
+  deployment.golden.execution-manager-closure-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: includes the capacity manager schema dependency and verifies its actual supervisor API and broker entrypoints
+  deployment.golden.execution-manager-closure-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: extracted original capacity manager answers a native supervisor ping with its packaged private Node and exact SDK closure
+  deployment.golden.execution-fresh-recovery-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: initializes empty recovery inventory through the original catalog and replays without inventing work
+  deployment.golden.execution-fresh-recovery-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: retains corrupt recovery catalog bytes and denies initialization instead of replacing failed history
+  deployment.golden.execution-fresh-recovery-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-build-recovery.test.ts
+    testName: native independent recovery process initializes fresh canonical storage and retains interrupted build ownership on retry
+  deployment.golden.execution-manager-tools-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: declares native image and NBD tools as capacity manager installation dependencies
+  deployment.golden.execution-reviewer-checkout-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native pinned Reviewer checkout plans every original capacity component case without executing or rewriting candidate evidence

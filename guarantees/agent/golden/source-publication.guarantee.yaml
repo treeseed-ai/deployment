@@ -1,0 +1,12 @@
+schemaVersion: treeseed.guarantee/v1
+id: guarantee.deployment.golden.source-publication
+journey: Read exact managed source publication and native execution closeout
+ownerPackage: "@treeseed/deployment"
+type: agent
+subtype: isolation
+status: planned
+gates: [core]
+summary: Actual manager-owned source-result and released catalog lease joined to native Git objects public usage and exact represented execution builder verifier and NBD absence; original owning warm-pool drain beside immutable terminal SDK Workday. Not unrelated warm capacity provider-session external-billing or full selected-build closure.
+scene:
+  required: true
+  manifest: guarantees/agent/golden/scenes/source-publication.scene.yaml

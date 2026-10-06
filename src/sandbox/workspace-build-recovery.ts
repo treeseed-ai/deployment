@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
@@ -18,6 +19,22 @@ export function assertWorkspaceRecoveryIdle(tasks: string, activeLeases: number)
   if (tasks.trim() || activeLeases !== 0) throw new Error('Workspace recovery requires no guests or active workspace leases.');
 }
 
+/** The original owning inventory reader, exposed for allocated native database tests. */
+export function workspaceRecoveryInventory(root: string) {
+  // First boot has no source jobs yet. Reuse the one canonical catalog schema;
+  // a corrupt existing catalog still fails and is never removed or recreated.
+  const database = join(root, 'catalog.db'), catalog = new WorkspaceCatalog(database);
+  catalog.close();
+  for (const name of ['leases', 'jobs']) mkdirSync(join(root, name), { recursive: true, mode: 0o700 });
+  const db = new DatabaseSync(database, { readOnly: true });
+  try {
+    const leases = db.prepare("SELECT expires_at FROM workspace_leases WHERE state!='released'").all();
+    return { active: leases.filter(lease => !Number.isFinite(Date.parse(String(lease.expires_at)))
+      || Date.parse(String(lease.expires_at)) > Date.now()).length,
+      builds: db.prepare("SELECT id,job_id FROM workspace_images WHERE state='building'").all() as { id: string; job_id: string }[] };
+  } finally { db.close(); }
+}
+
 /** Serialized supervisor maintenance. Retains unpublished work; retires expired analysis.
  * No guest filesystem is read or mounted, and no task is force-killed for recovery. */
 export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfiguration, brokerAlreadyFenced = false) {
@@ -25,15 +42,7 @@ export async function recoverWorkspaceBuilds(configuration: SandboxBrokerConfigu
   const database = join(workspaceStorageRoot, 'catalog.db');
   const tasks = () => run('/usr/bin/ctr', ['--address', configuration.containerdAddress,
     '--namespace', configuration.namespace, 'tasks', 'list', '--quiet']);
-  const inspect = () => {
-    const db = new DatabaseSync(database, { readOnly: true });
-    try {
-      const leases = db.prepare("SELECT expires_at FROM workspace_leases WHERE state!='released'").all();
-      return { active: leases.filter(lease => !Number.isFinite(Date.parse(String(lease.expires_at)))
-        || Date.parse(String(lease.expires_at)) > Date.now()).length,
-        builds: db.prepare("SELECT id,job_id FROM workspace_images WHERE state='building'").all() as { id: string; job_id: string }[] };
-    } finally { db.close(); }
-  };
+  const inspect = () => workspaceRecoveryInventory(workspaceStorageRoot);
   const runningTasks = await tasks(), initial = inspect();
   if (brokerAlreadyFenced && (runningTasks.trim() || initial.active !== 0)) return { skipped: 'active_workspace_authority' };
   assertWorkspaceRecoveryIdle(runningTasks, initial.active);
