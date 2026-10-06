@@ -472,3 +472,12 @@ workflow:
   - id: execution-sdk-closure-native-1
     action: { verifier: deployment.golden.execution-sdk-closure-native-1 }
     expect: { status: passed }
+  - id: execution-native-ci-unit-1
+    action: { verifier: deployment.golden.execution-native-ci-unit-1 }
+    expect: { status: passed }
+  - id: execution-native-ci-unit-2
+    action: { verifier: deployment.golden.execution-native-ci-unit-2 }
+    expect: { status: passed }
+  - id: execution-native-ci-native-1
+    action: { verifier: deployment.golden.execution-native-ci-native-1 }
+    expect: { status: passed }

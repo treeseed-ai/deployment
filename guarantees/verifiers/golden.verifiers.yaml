@@ -776,3 +776,18 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: native capacity execution package install retains exact held SDK bytes and requires one valid tree and nonempty SBOM before scene admission
+  deployment.golden.execution-native-ci-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: provisions only a disposable native Actions host through the original installer before complete privileged prerequisites
+  deployment.golden.execution-native-ci-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: disposable native installer denies missing malformed nonroot foreign and existing host authority before any installation
+  deployment.golden.execution-native-ci-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native installer subprocess rejects a non Actions caller without touching held configuration or candidate bytes

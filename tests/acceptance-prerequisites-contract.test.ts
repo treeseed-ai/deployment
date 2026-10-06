@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { resolve } from 'node:path';
+import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
 
 it('parses component metadata and binds every scene step to exactly one existing owner test',()=>{
   const root=resolve(import.meta.dirname,'..');
@@ -39,6 +40,23 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   expect(steps.some(step=>step.name==='Retain coded scene evidence'&&step.with?.['if-no-files-found']==='error')).toBe(true);
 });
 
+it('provisions only a disposable native Actions host through the original installer before complete privileged prerequisites', () => {
+  const bytes=readFileSync('.github/workflows/verify.yml');
+  const workflow=parse(bytes.toString()),job=workflow.jobs.verify;
+  const steps=job.steps as {name?:string;run?:string;env?:Record<string,string>}[];
+  expect(job['runs-on']).toBe('ubuntu-26.04');
+  const native=steps.find(step=>step.name==='Initialize disposable native capacity host');
+  expect(native).toBeDefined();
+  expect(native?.run).toContain('scripts/verify-native-host.ts');
+  expect(native?.run).toContain('sudo --preserve-env=');
+  expect(native?.env?.TREESEED_PRIVILEGED_CACHE_TESTS).toBe('1');
+  const prerequisite=steps.find(step=>step.run?.includes('npm run verify:direct'));
+  expect(prerequisite).toBeDefined();expect(prerequisite?.run).toContain('sudo --preserve-env=');
+  expect(prerequisite?.env?.TREESEED_PRIVILEGED_CACHE_TESTS).toBe('1');
+  expect(steps.indexOf(native!)).toBeLessThan(steps.indexOf(prerequisite!));
+  expect(readFileSync('.github/workflows/verify.yml')).toEqual(bytes);
+});
+
 it('capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer', () => {
   const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
   const manifest=JSON.parse(inputs.get('package.json')!.toString()),lock=JSON.parse(inputs.get('package-lock.json')!.toString());
@@ -54,7 +72,8 @@ it('capacity execution packaging binds one exact SDK dependency to its original 
   expect(installers[0]?.env?.NODE_ENV).toBe('production');
   const prune=steps.findIndex(step=>step.run==='npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
   expect(prune).toBeGreaterThan(steps.indexOf(installers[0]!));
-  expect(prune).toBeLessThan(steps.findIndex(step=>step.run==='npm run verify:direct'));
+  const complete=steps.findIndex(step=>step.run?.includes('npm run verify:direct'));
+  expect(complete).toBeGreaterThan(-1);expect(prune).toBeLessThan(complete);
   for(const [path,bytes] of inputs)expect(readFileSync(path)).toEqual(bytes);
 });
 
@@ -92,3 +111,27 @@ it('native capacity execution package install retains exact held SDK bytes and r
     expect(readFileSync('node_modules/@treeseed/sdk/package.json')).toEqual(sdkBytes);
   } finally {rmSync(root,{recursive:true,force:true});expect(existsSync(root)).toBe(false);}
 },30_000);
+
+it('disposable native installer denies missing malformed nonroot foreign and existing host authority before any installation', () => {
+  const root=resolve('.'),env={GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted',GITHUB_REPOSITORY:'treeseed-ai/deployment',
+    TREESEED_PRIVILEGED_CACHE_TESTS:'1',GITHUB_WORKSPACE:root},held=structuredClone(env);
+  expect(()=>assertDisposableNativeHost(env,0,root,()=>false)).not.toThrow();
+  for(const key of Object.keys(env))for(const value of [undefined,'','false','foreign']){
+    const invalid={...env,[key]:value};expect(()=>assertDisposableNativeHost(invalid,0,root,()=>false)).toThrow();
+  }
+  for(const uid of [undefined,1,1000,-1,NaN])expect(()=>assertDisposableNativeHost(env,uid,root,()=>false)).toThrow();
+  for(const path of ['/etc/treeseed','/var/lib/treeseed','/usr/lib/treeseed','/dev/mapper/treeseed-provider-data']){
+    expect(()=>assertDisposableNativeHost(env,0,root,candidate=>candidate===path)).toThrow('refuses existing TreeSeed state');
+  }
+  expect(env).toEqual(held);
+});
+
+it('native installer subprocess rejects a non Actions caller without touching held configuration or candidate bytes', () => {
+  const paths=['scripts/verify-native-host.ts','.github/workflows/verify.yml','dist/src/sandbox/workspace-image-builder.js'];
+  const held=new Map(paths.map(path=>[path,readFileSync(path)]));
+  const actual=spawnSync(process.execPath,['--import','tsx','scripts/verify-native-host.ts'],{
+    env:{PATH:process.env.PATH??'/usr/bin:/bin',GITHUB_ACTIONS:'false'},encoding:'utf8',timeout:5000});
+  expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status).toBe(1);
+  expect(actual.stderr).toContain('An explicitly authorized root GitHub-hosted Deployment workspace is required.');
+  expect(actual.stdout).toBe('');for(const [path,bytes] of held)expect(readFileSync(path)).toEqual(bytes);
+});

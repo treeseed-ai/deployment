@@ -49,7 +49,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -63,6 +63,15 @@ jobs:
         with:
           github-token: ${{ github.token }}
       - run: npm prune --ignore-scripts --no-audit --no-fund --workspaces=false
+      - name: Build original capacity host installer
+        run: npm run build:deb
+        env:
+          TREESEED_APT_SUITE: development
+          TREESEED_INTEGRATION_RELEASES: https://raw.githubusercontent.com/treeseed-ai/platform/be36cd24299c0381a4e1c81c420823f6340ca136/config/integrations/stable.release.json,https://raw.githubusercontent.com/treeseed-ai/platform/be36cd24299c0381a4e1c81c420823f6340ca136/config/integrations/development.release.json
+      - name: Initialize disposable native capacity host
+        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,PATH "$(command -v node)" --import tsx scripts/verify-native-host.ts
+        env:
+          TREESEED_PRIVILEGED_CACHE_TESTS: '1'
       - name: Prepare native development image before timed tests
         run: |
           node node_modules/tsx/dist/cli.mjs --eval '
@@ -71,7 +80,9 @@ jobs:
             resolveDevelopmentRuntimeImage((executable: string, args: readonly string[]) =>
               execFileSync(executable, [...args], {encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]}));
           '
-      - run: npm run verify:direct
+      - run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,PATH bash -euo pipefail -c 'npm run verify:direct'
+        env:
+          TREESEED_PRIVILEGED_CACHE_TESTS: '1'
       - name: Fetch exact existing Reviewer runner
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
