@@ -1,4 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { resolve } from 'node:path';
@@ -35,3 +38,57 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
     /^[a-f0-9]{40}$/u.test(step.with.ref??'')&&step.with.path==='.treeseed/tools/reviewer')).toBe(true);
   expect(steps.some(step=>step.name==='Retain coded scene evidence'&&step.with?.['if-no-files-found']==='error')).toBe(true);
 });
+
+it('capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer', () => {
+  const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
+  const manifest=JSON.parse(inputs.get('package.json')!.toString()),lock=JSON.parse(inputs.get('package-lock.json')!.toString());
+  const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>}[];
+  const installers=steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
+  expect(installers).toHaveLength(1);
+  const commit=installers[0]!.uses!.split('@').at(-1); expect(commit).toMatch(/^[a-f0-9]{40}$/u);
+  expect(manifest.dependencies['@treeseed/sdk']).toBe(`git+https://github.com/treeseed-ai/sdk.git#${commit}`);
+  expect(manifest.overrides['@treeseed/sdk']).toBe('$@treeseed/sdk');
+  expect(Object.keys(lock.packages).filter(path=>path.endsWith('node_modules/@treeseed/sdk'))).toEqual(['node_modules/@treeseed/sdk']);
+  expect(lock.packages[''].dependencies['@treeseed/sdk']).toBe(manifest.dependencies['@treeseed/sdk']);
+  expect(lock.packages['node_modules/@treeseed/sdk'].resolved.split('#').at(-1)).toBe(commit);
+  expect(installers[0]?.env?.NODE_ENV).toBe('production');
+  const prune=steps.findIndex(step=>step.run==='npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
+  expect(prune).toBeGreaterThan(steps.indexOf(installers[0]!));
+  expect(prune).toBeLessThan(steps.findIndex(step=>step.run==='npm run verify:direct'));
+  for(const [path,bytes] of inputs)expect(readFileSync(path)).toEqual(bytes);
+});
+
+it('native capacity execution package install retains exact held SDK bytes and requires one valid tree and nonempty SBOM before scene admission', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'deployment-capacity-sdk-'));
+  const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
+  const sdkBytes=readFileSync('node_modules/@treeseed/sdk/package.json');
+  const run=(command:string,args:string[],cwd=root,env:NodeJS.ProcessEnv=process.env)=>spawnSync(command,args,{cwd,env,encoding:'utf8',timeout:15_000,maxBuffer:8*1024*1024});
+  const passed=(result:ReturnType<typeof run>)=>{expect(result.error).toBeUndefined();expect(result.signal).toBeNull();expect(result.status,result.stdout+result.stderr).toBe(0);};
+  try {
+    passed(run('npm',['ls','--all','--json'],process.cwd()));
+    for(const [path,bytes] of inputs){mkdirSync(resolve(root,path,'..'),{recursive:true});writeFileSync(resolve(root,path),bytes);}
+    const packed=run('npm',['pack','--ignore-scripts','--json','--pack-destination',root,'./node_modules/@treeseed/sdk'],process.cwd());passed(packed);
+    const inventory=JSON.parse(packed.stdout) as {name:string;version:string;filename:string}[];
+    expect(inventory).toHaveLength(1);expect(inventory[0]?.name).toBe('@treeseed/sdk');expect(inventory[0]?.version).toBe(JSON.parse(sdkBytes.toString()).version);
+    const archive=resolve(root,inventory[0]!.filename),archiveBytes=readFileSync(archive);
+    passed(run('npm',['ci','--ignore-scripts','--no-audit','--no-fund','--workspaces=false']));
+    const destination=resolve(root,'node_modules/@treeseed/sdk');rmSync(destination,{recursive:true});mkdirSync(destination);
+    passed(run('tar',['-xzf',archive,'--strip-components=1','-C',destination]));
+    const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>}[];
+    const installer=steps.find(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
+    expect(installer?.env?.NODE_ENV).toBe('production');
+    passed(run('npm',['install','--prefix',destination,'--ignore-scripts','--no-save','--package-lock=false','--no-audit','--no-fund'],root,{...process.env,NODE_ENV:installer!.env!.NODE_ENV}));
+    const prune=steps.find(step=>step.run==='npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');expect(prune).toBeDefined();
+    passed(run('bash',['-euo','pipefail','-c',prune!.run!]));passed(run('npm',['ls','--all','--json']));
+    const publicEntry=createRequire(resolve(root,'package.json')).resolve('@treeseed/sdk/agent-capacity');
+    expect(createRequire(resolve(root,'node_modules/@treeseed/identity/package.json')).resolve('@treeseed/sdk/agent-capacity')).toBe(publicEntry);
+    const sbom=run('npm',['sbom','--sbom-format','cyclonedx']);passed(sbom);
+    const components=JSON.parse(sbom.stdout).components as {name:string;group?:string;version:string}[];
+    expect(Array.isArray(components)).toBe(true);expect(components.length).toBeGreaterThan(0);
+    expect(components.filter(component=>component.name==='@treeseed/sdk'||component.name==='sdk'&&component.group==='@treeseed')).toMatchObject([{version:inventory[0]!.version}]);
+    expect(components.filter(component=>component.name==='@treeseed/sdk'||component.name==='sdk'&&component.group==='@treeseed')).toHaveLength(1);
+    expect(readFileSync(resolve(destination,'package.json'))).toEqual(sdkBytes);expect(readFileSync(archive)).toEqual(archiveBytes);
+    for(const [path,bytes] of inputs){expect(readFileSync(path)).toEqual(bytes);expect(readFileSync(resolve(root,path))).toEqual(bytes);}
+    expect(readFileSync('node_modules/@treeseed/sdk/package.json')).toEqual(sdkBytes);
+  } finally {rmSync(root,{recursive:true,force:true});expect(existsSync(root)).toBe(false);}
+},30_000);

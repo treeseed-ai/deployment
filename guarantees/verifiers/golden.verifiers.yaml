@@ -766,3 +766,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-builder.test.ts
     testName: denies malformed cold guest ownership device entry mode and write access before forming a native command
+  deployment.golden.execution-sdk-closure-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer
+  deployment.golden.execution-sdk-closure-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native capacity execution package install retains exact held SDK bytes and requires one valid tree and nonempty SBOM before scene admission

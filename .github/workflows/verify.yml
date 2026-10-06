@@ -24,6 +24,8 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
+        env:
+          NODE_ENV: production
         with:
           github-token: ${{ github.token }}
       - name: Fetch digest-pinned disposable OpenBao
@@ -56,8 +58,11 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
+        env:
+          NODE_ENV: production
         with:
           github-token: ${{ github.token }}
+      - run: npm prune --ignore-scripts --no-audit --no-fund --workspaces=false
       - name: Prepare native development image before timed tests
         run: |
           node node_modules/tsx/dist/cli.mjs --eval '
@@ -115,6 +120,8 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
+        env:
+          NODE_ENV: production
         with:
           github-token: ${{ github.token }}
       - name: Verify current and legacy uninstall on disposable VM
