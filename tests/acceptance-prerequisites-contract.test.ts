@@ -37,6 +37,11 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   expect(scene?.run).not.toContain('source-cache-volume.integration.test.ts');
   expect(steps.some(step=>step.uses?.startsWith('actions/checkout@')&&step.with?.repository==='treeseed-ai/reviewer'&&
     /^[a-f0-9]{40}$/u.test(step.with.ref??'')&&step.with.path==='.treeseed/tools/reviewer')).toBe(true);
+  const checkout=steps.findIndex(step=>step.with?.repository==='treeseed-ai/reviewer');
+  const privileged=steps.findIndex(step=>step.run?.includes('npm run verify:direct'));
+  expect(privileged).toBeGreaterThan(-1);
+  expect(checkout).toBeLessThan(privileged);
+  expect(checkout).toBeLessThan(steps.findIndex(step=>step.run?.startsWith('sudo ')));
   expect(steps.some(step=>step.name==='Retain coded scene evidence'&&step.with?.['if-no-files-found']==='error')).toBe(true);
 });
 
@@ -134,4 +139,32 @@ it('native installer subprocess rejects a non Actions caller without touching he
   expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status).toBe(1);
   expect(actual.stderr).toContain('An explicitly authorized root GitHub-hosted Deployment workspace is required.');
   expect(actual.stdout).toBe('');for(const [path,bytes] of held)expect(readFileSync(path)).toEqual(bytes);
+});
+
+it('native pinned Reviewer checkout plans every original capacity component case without executing or rewriting candidate evidence', () => {
+  const root=process.cwd(),workflow=parse(readFileSync('.github/workflows/verify.yml','utf8'));
+  const steps=workflow.jobs.verify.steps as {with?:Record<string,string>}[];
+  const checkout=steps.find(step=>step.with?.repository==='treeseed-ai/reviewer')!.with!;
+  const reviewer=resolve(root,checkout.path!),command=resolve(reviewer,'src/verifiers/guarantees/command.ts');
+  const held=new Map(['.github/workflows/verify.yml','guarantees/verifiers/golden.verifiers.yaml',
+    'guarantees/agent/golden/scenes/component-boundaries.scene.yaml',command].map(path=>[path,readFileSync(path)]));
+  const git=(args:string[])=>spawnSync('git',['-C',reviewer,...args],{encoding:'utf8',timeout:5000});
+  const head=git(['rev-parse','HEAD']);expect(head.error).toBeUndefined();expect(head.signal).toBeNull();
+  expect(head.status,head.stderr).toBe(0);expect(head.stdout.trim()).toBe(checkout.ref);
+  const source=git(['show',`${checkout.ref}:src/verifiers/guarantees/command.ts`]);
+  expect(source.error).toBeUndefined();expect(source.signal).toBeNull();expect(source.status,source.stderr).toBe(0);
+  expect(source.stdout).toBe(held.get(command)!.toString());
+  const scene=parse(held.get('guarantees/agent/golden/scenes/component-boundaries.scene.yaml')!.toString());
+  const ids=scene.workflow.map((step:{action:{verifier:string}})=>step.action.verifier) as string[];
+  const actual=spawnSync(process.execPath,['--import','tsx',command,'--workspace',root,'--environment','local',
+    '--ids','guarantee.deployment.golden.component-boundaries','--plan'],{encoding:'utf8',timeout:15_000,maxBuffer:8*1024*1024});
+  expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status,actual.stderr).toBe(0);
+  const plan=JSON.parse(actual.stdout);expect(plan.ok).toBe(true);expect(plan.diagnostics).toEqual([]);
+  expect(plan.entries).toHaveLength(1);expect(plan.entries[0].scope).toBe('local-component-tests');
+  expect(plan.entries[0].id).toBe('guarantee.deployment.golden.component-boundaries');
+  expect(new Set(plan.entries[0].verifierRefs)).toEqual(new Set(ids));
+  expect(new Set(plan.entries[0].sceneVerifierRefs)).toEqual(new Set(ids));
+  expect(ids.length).toBeGreaterThan(0);expect(new Set(ids).size).toBe(ids.length);
+  for(const [path,bytes] of held)expect(readFileSync(path).equals(bytes)).toBe(true);
+  expect(git(['rev-parse','HEAD']).stdout).toBe(head.stdout);
 });

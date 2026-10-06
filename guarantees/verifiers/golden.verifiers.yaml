@@ -821,3 +821,8 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/debian-contract.test.ts
     testName: declares native image and NBD tools as capacity manager installation dependencies
+  deployment.golden.execution-reviewer-checkout-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native pinned Reviewer checkout plans every original capacity component case without executing or rewriting candidate evidence

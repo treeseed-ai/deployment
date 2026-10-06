@@ -63,6 +63,12 @@ jobs:
         with:
           github-token: ${{ github.token }}
       - run: npm prune --ignore-scripts --no-audit --no-fund --workspaces=false
+      - name: Fetch exact existing Reviewer runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: treeseed-ai/reviewer
+          ref: 1ce504f7e4f6824ef9a7c0570518edd67f6adaa5
+          path: .treeseed/tools/reviewer
       - name: Build original capacity host installer
         run: npm run build:deb
         env:
@@ -83,12 +89,6 @@ jobs:
       - run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,PATH bash -euo pipefail -c 'npm run verify:direct'
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'
-      - name: Fetch exact existing Reviewer runner
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: treeseed-ai/reviewer
-          ref: 1ce504f7e4f6824ef9a7c0570518edd67f6adaa5
-          path: .treeseed/tools/reviewer
       - name: Execute coded sandbox component scenes
         shell: bash
         run: |

@@ -499,3 +499,6 @@ workflow:
   - id: execution-manager-tools-unit-1
     action: { verifier: deployment.golden.execution-manager-tools-unit-1 }
     expect: { status: passed }
+  - id: execution-reviewer-checkout-native-1
+    action: { verifier: deployment.golden.execution-reviewer-checkout-native-1 }
+    expect: { status: passed }
