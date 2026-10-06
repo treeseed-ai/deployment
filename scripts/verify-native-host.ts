@@ -82,7 +82,22 @@ async function initialize() {
   const { loadUpdateState } = await import('../src/manager/update-state.js');
   const state = loadUpdateState();
   if (state.runtimeStopped !== true) throw new Error('Disposable capacity host must retain its original stopped-runtime fence.');
-  await cli(['host', 'security', 'initialize', '--confirm', '--recovery-bundle', '/var/lib/treeseed/manager/security/native-ci-recovery.json']);
+  try {
+    await cli(['host', 'security', 'initialize', '--confirm', '--recovery-bundle', '/var/lib/treeseed/manager/security/native-ci-recovery.json']);
+  } catch (error) {
+    // Read only original public boolean readiness facts, never helper stderr,
+    // configuration, key files, recovery material or credential-bearing events.
+    const { providerSecurityStatus } = await import('../src/security/provider-volume.js');
+    const { loadSandboxBrokerConfiguration } = await import('../src/sandbox/configuration.js');
+    const { inspectSandboxHost } = await import('../src/sandbox/doctor.js');
+    const checks = existsSync('/etc/treeseed/sandbox/broker.json')
+      ? inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true }).checks : null;
+    console.error(JSON.stringify({ security: providerSecurityStatus(), sandboxChecks: checks }));
+    for (const service of ['treeseed-manager-supervisor', 'treeseed-manager-api', 'treeseed-provider-volume', 'treeseed-sandbox-broker']) {
+      console.error(command('/usr/bin/systemctl', ['show', `${service}.service`, '--property=ActiveState,SubState,Result,ExecMainStatus']));
+    }
+    throw error;
+  }
   const receipt: unknown = JSON.parse(readFileSync('/var/lib/treeseed/manager/security/security-receipt.json', 'utf8'));
   if (!receipt || typeof receipt !== 'object' || !('state' in receipt) || receipt.state !== 'known-good'
     || !verifyProviderSecurity(command).verified || !loadUpdateState().runtimeStopped) throw new Error('Actual encrypted native host readiness with stopped runtime required.');
