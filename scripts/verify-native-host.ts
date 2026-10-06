@@ -96,6 +96,15 @@ async function initialize() {
     for (const service of ['treeseed-manager-supervisor', 'treeseed-manager-api', 'treeseed-provider-volume', 'treeseed-sandbox-broker']) {
       console.error(command('/usr/bin/systemctl', ['show', `${service}.service`, '--property=ActiveState,SubState,Result,ExecMainStatus']));
     }
+    const brokerJournal = command('/usr/bin/journalctl', ['--unit=treeseed-sandbox-broker.service', '--no-pager', '--output=cat', '--lines=100']);
+    console.error(JSON.stringify({ brokerStartup: {
+      catalogExists: existsSync('/var/lib/treeseed/agent/workspaces/catalog.db'),
+      leasesDirectoryExists: existsSync('/var/lib/treeseed/agent/workspaces/leases'),
+      sqliteOpenFailure: brokerJournal.includes('unable to open database file'),
+      moduleMissing: brokerJournal.includes('ERR_MODULE_NOT_FOUND'),
+      readOnlyFilesystem: brokerJournal.includes('EROFS'), permissionDenied: brokerJournal.includes('EACCES'),
+      startupFrames: [...new Set(brokerJournal.match(/\/usr\/lib\/treeseed\/manager\/dist\/src\/[a-zA-Z0-9/_.-]+\.js:[0-9]+:[0-9]+/gu) ?? [])],
+    } }));
     throw error;
   }
   const receipt: unknown = JSON.parse(readFileSync('/var/lib/treeseed/manager/security/security-receipt.json', 'utf8'));
