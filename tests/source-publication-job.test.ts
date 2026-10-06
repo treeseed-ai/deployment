@@ -24,8 +24,7 @@ function fixture() {
 		verify: vi.fn(async () => ({ verification: { baseCommit: authorization.source.commit, commit, bytes: 10,
 			clean: true as const, objectClosure: true as const, ancestry: true as const, isolatedVerifier: true as const },
 			bundlePath: '/private/source.bundle', digest: `sha256:${'c'.repeat(64)}`, verifierStopped: true,
-			verifierId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab',
-			verifierChildId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab-candidate' })),
+			verifierId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab' })),
 		publish: vi.fn(async () => reference),
 	};
 	const assignment = { providerId: 'provider', assignmentId: 'assignment', attempt: 1 };
@@ -74,7 +73,7 @@ it('publishes only the exact current destination and preserves supplied authorit
 	const published = vi.mocked(input.operations.journal).mock.calls.filter(([value]) => value.state === 'published');
 	expect(published).toEqual([[{ state: 'published', assignmentId: 'assignment', attempt: 1, providerId: 'provider', reference,
 		verifierId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab',
-		verifierChildId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab-candidate', verifierStopped: true }]]);
+		verifierStopped: true }]]);
 });
 
 it('retains every changed missing or malformed destination receipt rather than announcing a published candidate', async () => {
@@ -97,11 +96,11 @@ it('retains every changed missing or malformed destination receipt rather than a
 
 it('preserves exact native verifier ownership in the same durable publication journal instead of overwriting it with a boolean or public Git reference', async () => {
 	const input = fixture(), current = input.operations.current();
-	const verifierId = 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab', verifierChildId = `${verifierId}-candidate`;
+	const verifierId = 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab';
 	const verification = { baseCommit: current.authorization.source.commit, commit: input.reference.commit, bytes: 10,
 		clean: true as const, objectClosure: true as const, ancestry: true as const, isolatedVerifier: true as const };
 	const returned = { verification, bundlePath: '/private/source.bundle', digest: `sha256:${'c'.repeat(64)}`,
-		verifierStopped: true, verifierId, verifierChildId }, held = structuredClone(returned);
+		verifierStopped: true, verifierId }, held = structuredClone(returned);
 	input.operations.verify = vi.fn(async () => returned);
 	const reference = { ...input.reference, branch: current.authorization.publicationRef! };
 	vi.mocked(input.operations.publish).mockResolvedValue(reference);
@@ -109,8 +108,9 @@ it('preserves exact native verifier ownership in the same durable publication jo
 	expect(job.status()).toEqual({ state: 'published', reference });
 	expect(vi.mocked(input.operations.journal).mock.calls.at(-1)?.[0]).toMatchObject({
 		state: 'published', assignmentId: 'assignment', providerId: 'provider', attempt: 1,
-		verifierId, verifierChildId, verifierStopped: true, reference,
-	});
+		verifierId, verifierStopped: true, reference,
+    });
+	expect(vi.mocked(input.operations.journal).mock.calls.at(-1)?.[0]).not.toHaveProperty('verifierChildId');
 	expect(returned).toEqual(held); expect(reference).not.toHaveProperty('verifierId');
 	const original = structuredClone(vi.mocked(input.operations.journal).mock.calls);
 	await job.drain(); expect(vi.mocked(input.operations.journal).mock.calls).toEqual(original);

@@ -37,7 +37,7 @@ export class SourcePublicationJob {
 			|| !this.reference.branch || this.reference.branch !== current.authorization.publicationRef) throw new Error('Published source reference changed the verified destination.');
 		await this.operations.journal({ state: 'published', assignmentId: this.assignment.assignmentId,
 			attempt: this.assignment.attempt, providerId: this.assignment.providerId, reference: this.reference,
-			verifierId: result.verifierId, verifierChildId: result.verifierChildId, verifierStopped: result.verifierStopped });
+			verifierId: result.verifierId, verifierStopped: result.verifierStopped });
 		this.state = 'published';
 	}
 	publishedReference() { return this.state === 'published' ? this.reference : undefined; }

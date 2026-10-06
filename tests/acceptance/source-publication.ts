@@ -266,7 +266,7 @@ test('Actual managed source publications retain native Git bytes released lease 
         assert.equal(candidate.state, 'published'); assert.equal(candidate.assignmentId, attempt.id);
         assert.equal(candidate.providerId, attempt.provider.providerId); assert.equal(candidate.attempt, attempt.attempt);
         const verifierId = ownVm(candidate.verifierId);
-        assert.equal(candidate.verifierChildId, `${verifierId}-candidate`); assert.equal(candidate.verifierStopped, true);
+        assert.equal(Object.hasOwn(candidate, 'verifierChildId'), false); assert.equal(candidate.verifierStopped, true);
         assert.deepEqual(candidate.reference, receipt.sourceReference); verifiedCandidates++;
       }
       assert.ok(typeof disk.id === 'string' && /^workspace-lease-[a-f0-9-]{36}$/u.test(disk.id));

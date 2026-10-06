@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chmod, chown, copyFile, link, lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -9,10 +9,47 @@ import type { SourceWorkspaceKey } from '@treeseed/sdk/capacity-provider/sandbox
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { WorkspaceCatalog } from './workspace-catalog.js';
 import { attachWorkspaceDisk, createWorkspaceDisk, detachWorkspaceDisk, workspaceImagePath, workspaceStorageRoot, type WorkspaceDisk } from './workspace-block-store.js';
-import { kataWarmOperations } from './warm-sandbox-pool.js';
 import { containerdImageReference } from './image-reference.js';
 
 const exec = promisify(execFile);
+export function workspaceGuestArguments(configuration: Pick<SandboxBrokerConfiguration, 'runtime'> & {
+	guestImages: ReadonlyArray<Pick<SandboxBrokerConfiguration['guestImages'][number], 'image' | 'digest'>>;
+}, input: { id: string; device: string; incoming: string; outgoing: string; entry: string; readOnly: boolean; mode?: string }) {
+	if (!/^sandbox-warm-[a-f0-9-]{36}$/u.test(input.id) || !/^\/dev\/nbd[0-9]+$/u.test(input.device)
+		|| typeof input.readOnly !== 'boolean' || !['builder.mjs', 'verifier.mjs'].includes(input.entry)
+		|| (input.entry === 'verifier.mjs' && (!input.readOnly || input.mode !== undefined))
+		|| (input.entry === 'builder.mjs' && (input.mode !== (input.readOnly ? 'verify' : 'build')))) throw new Error('Invalid source guest command.');
+	const configured = configuration.guestImages[0];
+	if (!configured) throw new Error('Source guest requires a trusted pinned image.');
+	const mount = input.entry === 'builder.mjs' ? '/run/treeseed-builder' : '/run/treeseed-verifier';
+	return ['run', '--rm', '--null-io', '--runtime', configuration.runtime,
+		'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', '1',
+		'--annotation', 'io.katacontainers.config.hypervisor.default_memory=1024', '--memory-limit', '1073741824',
+		'--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN', '--user', '65532:65532',
+		'--mount', `type=bind,src=${input.device},dst=/workspace/project,options=${input.readOnly ? 'ro' : 'rw'}:nodev:nosuid`,
+		'--mount', `type=bind,src=${input.incoming},dst=${mount},options=rbind:ro`,
+		'--mount', `type=bind,src=${input.outgoing},dst=/run/treeseed-output,options=rbind:rw`,
+		containerdImageReference(configured.image, configured.digest), input.id, 'node', `${mount}/${input.entry}`, ...(input.mode ? [input.mode] : [])];
+}
+
+/** A fixed source command is itself readiness: never create a sleeping warm VM or an extra child. */
+export async function runWorkspaceGuest(configuration: SandboxBrokerConfiguration, input: Parameters<typeof workspaceGuestArguments>[1]) {
+	const args = workspaceGuestArguments(configuration, input);
+	const ctr = async (values: string[]) => (await exec('/usr/bin/ctr', ['--address', configuration.containerdAddress,
+		'--namespace', configuration.namespace, ...values], { encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536,
+			env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } })).stdout;
+	let executionError: unknown;
+	try { await ctr(args); } catch (error) { executionError = error; }
+	finally {
+		await ctr(['tasks', 'kill', '--signal', 'SIGKILL', input.id]).catch(() => undefined);
+		await ctr(['tasks', 'delete', '--force', input.id]).catch(() => undefined);
+		await ctr(['containers', 'delete', input.id]).catch(() => undefined);
+		for (const kind of ['tasks', 'containers']) {
+			if ((await ctr([kind, 'list', '--quiet'])).split(/\s+/u).includes(input.id)) throw new Error('Source guest teardown is uncertain; storage is quarantined.');
+		}
+	}
+	return executionError;
+}
 function safeBuilderMessage(value: unknown) {
 	return typeof value === 'string' ? value.replace(/https?:\/\/\S+/gu, '[redacted-url]').replace(/[\r\n\t]+/gu, ' ').slice(0, 512) : 'Builder receipt unavailable.';
 }
@@ -50,46 +87,27 @@ export async function buildWorkspaceImage(configuration: SandboxBrokerConfigurat
 		for (const name of ['source.bundle', 'builder.mjs', 'build.json']) {
 			await chmod(join(incoming, name), 0o400); await chown(join(incoming, name), 65532, 65532);
 		}
-		const configured = configuration.guestImages[0];
-		if (!configured) throw new Error('Workspace builder has no trusted guest image.');
-		const guestImage = containerdImageReference(configured.image, configured.digest);
-		const operations = kataWarmOperations(configuration, () => undefined);
-		const ctr = async (args: string[]) => (await exec('/usr/bin/ctr', ['--address', configuration.containerdAddress,
-			'--namespace', configuration.namespace, ...args], { encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536,
-				env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } })).stdout;
 		for (const verify of [false, true]) {
 			transportUncertain = true;
 			attached = await attachWorkspaceDisk(disk, verify);
-			const vm = await operations.create({ image: guestImage, cpuCores: 1, memoryBytes: 1_073_741_824, network: 'none' });
+			const vm = `sandbox-warm-${randomUUID()}`;
 			builderIds.push(vm);
-			const child = `${vm}-source`;
 			guestStopped = false;
 			try {
-				try {
-					await ctr(['run', '--rm', '--null-io', '--runtime', configuration.runtime,
-						'--label', 'io.kubernetes.cri.container-type=container', '--label', `io.kubernetes.cri.sandbox-id=${vm}`,
-						'--user', '65532:65532',
-						'--mount', `type=bind,src=${attached.device},dst=/workspace/project,options=${verify ? 'ro' : 'rw'}:nodev:nosuid`,
-						'--mount', `type=bind,src=${incoming},dst=/run/treeseed-builder,options=rbind:ro`,
-						'--mount', `type=bind,src=${outgoing},dst=/run/treeseed-output,options=rbind:rw`,
-						guestImage, child, 'node', '/run/treeseed-builder/builder.mjs', verify ? 'verify' : 'build']);
-				} catch (error) {
-					const receipt = await readFile(join(outgoing, 'source-verification.json'), 'utf8').then(value => JSON.parse(value) as Record<string, unknown>).catch((): Record<string, unknown> => ({}));
-					console.error(JSON.stringify({ event: 'source.builder.failed', phase: verify ? 'verify' : 'build', message: safeBuilderMessage(receipt['message']) }));
-					throw error;
-				}
-				const path = join(outgoing, 'source-verification.json'), details = await lstat(path);
-				if (!details.isFile() || details.size > 8192) throw new Error('Invalid isolated source verification receipt.');
-				const receipt = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
-				if (receipt.commit !== input.source.commit || receipt.clean !== true || receipt.objectClosure !== true || receipt.sourceOnly !== true) throw new Error('Isolated source verification failed.');
-				await rm(path);
-			} finally {
-				await operations.destroy(vm);
-				await ctr(['tasks', 'delete', '--force', child]).catch(() => undefined);
-				await ctr(['containers', 'delete', child]).catch(() => undefined);
-				if ((await ctr(['tasks', 'list', '--quiet'])).split(/\s+/u).includes(child)) throw new Error('Source builder remains active; storage is quarantined.');
+				const error = await runWorkspaceGuest(configuration, { id: vm, device: attached.device, incoming, outgoing,
+					entry: 'builder.mjs', readOnly: verify, mode: verify ? 'verify' : 'build' });
 				guestStopped = true;
+				if (error) throw error;
+			} catch (error) {
+				const receipt = await readFile(join(outgoing, 'source-verification.json'), 'utf8').then(value => JSON.parse(value) as Record<string, unknown>).catch((): Record<string, unknown> => ({}));
+				console.error(JSON.stringify({ event: 'source.builder.failed', phase: verify ? 'verify' : 'build', message: safeBuilderMessage(receipt['message']) }));
+				throw error;
 			}
+			const path = join(outgoing, 'source-verification.json'), details = await lstat(path);
+			if (!details.isFile() || details.size > 8192) throw new Error('Invalid isolated source verification receipt.');
+			const receipt = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+			if (receipt.commit !== input.source.commit || receipt.clean !== true || receipt.objectClosure !== true || receipt.sourceOnly !== true) throw new Error('Isolated source verification failed.');
+			await rm(path);
 			await detachWorkspaceDisk(attached, guestStopped); attached = undefined; transportUncertain = false;
 		}
 		await exec('/usr/bin/qemu-img', ['check', '-f', 'qcow2', disk.image], { timeout: 120_000, maxBuffer: 65_536 });

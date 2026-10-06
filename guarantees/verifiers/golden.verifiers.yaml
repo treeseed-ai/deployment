@@ -740,7 +740,7 @@ verifiers:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-candidate.test.ts
-    testName: retains exact native verifier and child identities in the original verified journal and denies absent malformed or unrelated physical custody
+    testName: retains exact native primary verifier identity in the original verified journal and denies absent malformed unrelated or retired child custody
   deployment.golden.execution-source-vm-unit-2:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
@@ -756,3 +756,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-candidate-guest.test.ts
     testName: native original source image builder and isolated verifier retain exact VM identities for independent task and container absence without changing Git or published image bytes
+  deployment.golden.execution-cold-primary-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: runs each cold source guest as one pinned resource-bounded primary process without sleeping or readiness children
+  deployment.golden.execution-cold-primary-unit-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: denies malformed cold guest ownership device entry mode and write access before forming a native command

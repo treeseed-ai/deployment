@@ -81,7 +81,7 @@ describe('independent source candidate verifier', () => {
         expect(typeof id).toBe('string'); if (typeof id !== 'string') throw new Error('Malformed native builder identity'); ids.push(id);
       }
       ids.push(verified.verifierId); expect(new Set(ids).size).toBe(3);
-      expect(verified.verifierChildId).toBe(`${verified.verifierId}-candidate`);
+      expect(verified).not.toHaveProperty('verifierChildId');
       const observe = (kind: 'tasks' | 'containers') => execFileSync('/usr/bin/ctr',
         ['--address', configuration.containerdAddress, '--namespace', configuration.namespace, kind, 'list', '--quiet'],
         { encoding: 'utf8', timeout: 5000, maxBuffer: 65_536, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }).trim().split(/\s+/u).filter(Boolean);

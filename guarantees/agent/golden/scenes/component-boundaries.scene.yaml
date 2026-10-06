@@ -460,3 +460,9 @@ workflow:
   - id: execution-source-vm-native-1
     action: { verifier: deployment.golden.execution-source-vm-native-1 }
     expect: { status: passed }
+  - id: execution-cold-primary-unit-1
+    action: { verifier: deployment.golden.execution-cold-primary-unit-1 }
+    expect: { status: passed }
+  - id: execution-cold-primary-unit-2
+    action: { verifier: deployment.golden.execution-cold-primary-unit-2 }
+    expect: { status: passed }
