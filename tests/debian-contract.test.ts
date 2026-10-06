@@ -1,4 +1,8 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
@@ -50,6 +54,54 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod']");
 		expect(packaging).toContain("['libsodium-sumo', 'libsodium-wrappers-sumo']");
 		for (const entry of ['operator-contracts/operation-builder.js', 'secrets-capability/secret-contracts.js', 'secrets-capability/github-actions-encryption.js', 'standards/typescript/extract.js']) expect(verification).toContain(entry);
+	});
+
+	it('includes the capacity manager schema dependency and verifies its actual supervisor API and broker entrypoints', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8'), verification = readFileSync('scripts/verify-deb.ts', 'utf8');
+		expect(packaging).toContain("'zod-to-json-schema'");
+		for (const entry of ['supervisor/server.js', 'manager/api.js', 'sandbox/server.js']) expect(verification).toContain(entry);
+	});
+	it('declares native image and NBD tools as capacity manager installation dependencies', () => {
+		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
+		const manager = packaging.split("'treeseed-manager':")[1]?.split("'treeseed-sdk':")[0];
+		expect(manager).toContain('qemu-utils');
+	});
+
+	it('extracted original capacity manager answers a native supervisor ping with its packaged private Node and exact SDK closure', () => {
+		if (process.getuid?.() !== 0 || process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1') {
+			throw new Error('Explicit TREESEED_PRIVILEGED_CACHE_TESTS=1 on the owning trusted root host is required; packaged supervisor acceptance cannot be skipped.');
+		}
+		const root = mkdtempSync(resolve(tmpdir(), 'deployment-manager-ping-'));
+		const selected = ['treeseed-manager', 'treeseed-host-runtime'].map(name => {
+			const files = readdirSync('release/out').filter(file => file.startsWith(`${name}_`) && file.endsWith('.deb'));
+			expect(files).toHaveLength(1); return resolve('release/out', files[0]!);
+		});
+		const held = new Map(selected.map(path => [path, readFileSync(path)]));
+		const passed = (result: ReturnType<typeof spawnSync>) => {
+			expect(result.error).toBeUndefined(); expect(result.signal).toBeNull(); expect(result.status, String(result.stderr)).toBe(0);
+		};
+		try {
+			const dependencies = spawnSync('dpkg-deb', ['--field', selected[0]!, 'Depends'], { encoding: 'utf8', timeout: 10_000 });
+			passed(dependencies); expect(dependencies.stdout.split(',').map(value => value.trim())).toContain('qemu-utils');
+			for (const file of selected) passed(spawnSync('dpkg-deb', ['--extract', file, root], { encoding: 'utf8', timeout: 10_000 }));
+			const modules = resolve(root, 'usr/lib/treeseed/manager/dist/src');
+			const program = `import { createConnection, createServer } from 'node:net'; import { once } from 'node:events';
+const { supervisorConnectionHandler } = await import(process.argv[1] + '/supervisor/server.js');
+await import(process.argv[1] + '/manager/api.js'); await import(process.argv[1] + '/sandbox/server.js');
+const events = [], server = createServer({allowHalfOpen:true}, supervisorConnectionHandler(undefined, (type, details) => events.push({type, details})));
+let client; try { server.listen(process.argv[2]); await once(server, 'listening');
+client = createConnection(process.argv[2]); let output = ''; client.setEncoding('utf8'); client.on('data', chunk => output += chunk);
+await once(client, 'connect'); client.end(JSON.stringify({operation:'supervisor.ping'})); await once(client, 'end');
+console.log(JSON.stringify({response:JSON.parse(output), events}));
+} finally { client?.destroy(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }`;
+			const actual = spawnSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', program,
+				pathToFileURL(modules).href, resolve(root, 'supervisor.sock')], { cwd: root, env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 10_000 });
+			passed(actual); expect(JSON.parse(actual.stdout)).toEqual({ response: { ok: true, result: { ready: true } },
+				events: [{ type: 'supervisor.operation-complete', details: { operation: 'supervisor.ping' } }] });
+			expect(readFileSync(resolve(modules, 'supervisor/server.js'))).toEqual(readFileSync('dist/src/supervisor/server.js'));
+			expect(readFileSync(resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/package.json'))).toEqual(readFileSync('node_modules/@treeseed/sdk/package.json'));
+			for (const [path, bytes] of held) expect(readFileSync(path).equals(bytes), `Exact original archive bytes: ${path}`).toBe(true);
+		} finally { rmSync(root, { recursive: true, force: true }); expect(existsSync(root)).toBe(false); }
 	});
 
 	it('ships provider credential initializers as replaceable data registrations', () => {

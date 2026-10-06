@@ -98,7 +98,7 @@
   },
   "dependencies": {
     "@treeseed/identity": "0.1.0-rc.23",
-    "@treeseed/sdk": "0.13.0-rc.121",
+    "@treeseed/sdk": "git+https://github.com/treeseed-ai/sdk.git#cbc03314871d271bce7275c5cee71d950397a0c3",
     "pg": "8.22.0",
     "tar": "7.5.22",
     "wrangler": "4.128.0",
@@ -114,6 +114,7 @@
     "vitest": "4.1.11"
   },
   "overrides": {
+    "@treeseed/sdk": "$@treeseed/sdk",
     "sharp": "0.35.4"
   }
 }

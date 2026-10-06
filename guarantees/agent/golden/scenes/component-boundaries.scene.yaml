@@ -1,4 +1,28 @@
 workflow:
+  - id: architecture-publication-unit-1
+    action: { verifier: deployment.golden.architecture-publication-unit-1 }
+    expect: { status: passed }
+  - id: architecture-publication-unit-2
+    action: { verifier: deployment.golden.architecture-publication-unit-2 }
+    expect: { status: passed }
+  - id: architecture-publication-unit-3
+    action: { verifier: deployment.golden.architecture-publication-unit-3 }
+    expect: { status: passed }
+  - id: architecture-publication-unit-4
+    action: { verifier: deployment.golden.architecture-publication-unit-4 }
+    expect: { status: passed }
+  - id: architecture-publication-native-1
+    action: { verifier: deployment.golden.architecture-publication-native-1 }
+    expect: { status: passed }
+  - id: architecture-publication-native-2
+    action: { verifier: deployment.golden.architecture-publication-native-2 }
+    expect: { status: passed }
+  - id: architecture-publication-native-3
+    action: { verifier: deployment.golden.architecture-publication-native-3 }
+    expect: { status: passed }
+  - id: architecture-publication-native-4
+    action: { verifier: deployment.golden.architecture-publication-native-4 }
+    expect: { status: passed }
   - id: runtime-public-provider-roots
     action: { verifier: deployment.golden.runtime-public-provider-roots }
     expect: { status: passed }
@@ -395,4 +419,86 @@ workflow:
 
   - id: component-image-19
     action: { verifier: deployment.golden.component-image-19 }
+    expect: { status: passed }
+
+  - id: execution-source-publication-unit-1
+    action: { verifier: deployment.golden.execution-source-publication-unit-1 }
+    expect: { status: passed }
+  - id: execution-source-publication-unit-2
+    action: { verifier: deployment.golden.execution-source-publication-unit-2 }
+    expect: { status: passed }
+  - id: execution-source-publication-unit-3
+    action: { verifier: deployment.golden.execution-source-publication-unit-3 }
+    expect: { status: passed }
+  - id: execution-source-publication-native-1
+    action: { verifier: deployment.golden.execution-source-publication-native-1 }
+    expect: { status: passed }
+  - id: execution-source-publication-native-2
+    action: { verifier: deployment.golden.execution-source-publication-native-2 }
+    expect: { status: passed }
+  - id: execution-source-nbd-unit-1
+    action: { verifier: deployment.golden.execution-source-nbd-unit-1 }
+    expect: { status: passed }
+  - id: execution-source-nbd-native-1
+    action: { verifier: deployment.golden.execution-source-nbd-native-1 }
+    expect: { status: passed }
+  - id: execution-warm-teardown-unit-1
+    action: { verifier: deployment.golden.execution-warm-teardown-unit-1 }
+    expect: { status: passed }
+  - id: execution-warm-teardown-native-1
+    action: { verifier: deployment.golden.execution-warm-teardown-native-1 }
+    expect: { status: passed }
+  - id: execution-source-vm-unit-1
+    action: { verifier: deployment.golden.execution-source-vm-unit-1 }
+    expect: { status: passed }
+  - id: execution-source-vm-unit-2
+    action: { verifier: deployment.golden.execution-source-vm-unit-2 }
+    expect: { status: passed }
+  - id: execution-source-vm-unit-3
+    action: { verifier: deployment.golden.execution-source-vm-unit-3 }
+    expect: { status: passed }
+  - id: execution-source-vm-native-1
+    action: { verifier: deployment.golden.execution-source-vm-native-1 }
+    expect: { status: passed }
+  - id: execution-cold-primary-unit-1
+    action: { verifier: deployment.golden.execution-cold-primary-unit-1 }
+    expect: { status: passed }
+  - id: execution-cold-primary-unit-2
+    action: { verifier: deployment.golden.execution-cold-primary-unit-2 }
+    expect: { status: passed }
+  - id: execution-sdk-closure-unit-1
+    action: { verifier: deployment.golden.execution-sdk-closure-unit-1 }
+    expect: { status: passed }
+  - id: execution-sdk-closure-native-1
+    action: { verifier: deployment.golden.execution-sdk-closure-native-1 }
+    expect: { status: passed }
+  - id: execution-native-ci-unit-1
+    action: { verifier: deployment.golden.execution-native-ci-unit-1 }
+    expect: { status: passed }
+  - id: execution-native-ci-unit-2
+    action: { verifier: deployment.golden.execution-native-ci-unit-2 }
+    expect: { status: passed }
+  - id: execution-native-ci-native-1
+    action: { verifier: deployment.golden.execution-native-ci-native-1 }
+    expect: { status: passed }
+  - id: execution-manager-closure-unit-1
+    action: { verifier: deployment.golden.execution-manager-closure-unit-1 }
+    expect: { status: passed }
+  - id: execution-manager-closure-native-1
+    action: { verifier: deployment.golden.execution-manager-closure-native-1 }
+    expect: { status: passed }
+  - id: execution-fresh-recovery-unit-1
+    action: { verifier: deployment.golden.execution-fresh-recovery-unit-1 }
+    expect: { status: passed }
+  - id: execution-fresh-recovery-unit-2
+    action: { verifier: deployment.golden.execution-fresh-recovery-unit-2 }
+    expect: { status: passed }
+  - id: execution-fresh-recovery-native-1
+    action: { verifier: deployment.golden.execution-fresh-recovery-native-1 }
+    expect: { status: passed }
+  - id: execution-manager-tools-unit-1
+    action: { verifier: deployment.golden.execution-manager-tools-unit-1 }
+    expect: { status: passed }
+  - id: execution-reviewer-checkout-native-1
+    action: { verifier: deployment.golden.execution-reviewer-checkout-native-1 }
     expect: { status: passed }

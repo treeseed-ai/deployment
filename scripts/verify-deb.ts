@@ -67,6 +67,7 @@ try {
 	execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), [resolve(root, 'usr/lib/treeseed/cli/dist/cli/main.js'), 'host', 'status', '--help'], { encoding: 'utf8' });
 	execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/cli/dist/cli/commands/development.js')}`)})`], { encoding: 'utf8' });
 	for (const module of ['operator-contracts/operation-builder.js', 'secrets-capability/secret-contracts.js', 'secrets-capability/github-actions-encryption.js', 'standards/typescript/extract.js']) execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/manager/node_modules/@treeseed/sdk/dist', module)}`)})`], { encoding: 'utf8' });
+	for (const module of ['supervisor/server.js', 'manager/api.js', 'sandbox/server.js']) execFileSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval', `await import(${JSON.stringify(`file://${resolve(root, 'usr/lib/treeseed/manager/dist/src', module)}`)})`], { encoding: 'utf8' });
 	const verifiedCatalog = (path: string) => {
 		const catalog = releaseCatalogSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
 		const declared = catalog.catalogDigest;

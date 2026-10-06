@@ -4,8 +4,41 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildSourceWorkspace, sourceBuilderGitArgs } from '../src/sandbox/workspace-builder-guest.js';
+import { workspaceGuestArguments } from '../src/sandbox/workspace-image-builder.js';
 
 describe('source-only guest workspace builder', () => {
+	it('runs each cold source guest as one pinned resource-bounded primary process without sleeping or readiness children', () => {
+		const configuration = { runtime: 'io.containerd.kata.v2' as const, guestImages: [{ image: 'treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}` }] };
+		const id = 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab';
+		const directory = '/var/lib/treeseed/agent/workspaces/leases/workspace-lease-01234567-89ab-4cde-8fab-0123456789ab';
+		for (const [entry, readOnly, mode] of [['builder.mjs', false, 'build'], ['builder.mjs', true, 'verify'], ['verifier.mjs', true, undefined]] as const) {
+			const input = { id, device: '/dev/nbd0', incoming: `${directory}/input`, outgoing: `${directory}/output`, entry, readOnly, ...(mode ? {mode} : {}) };
+			const held = structuredClone(input), args = workspaceGuestArguments(configuration, input);
+			const mount = entry === 'builder.mjs' ? '/run/treeseed-builder' : '/run/treeseed-verifier';
+			expect(args).toEqual(['run', '--rm', '--null-io', '--runtime', configuration.runtime,
+				'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', '1',
+				'--annotation', 'io.katacontainers.config.hypervisor.default_memory=1024', '--memory-limit', '1073741824',
+				'--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN', '--user', '65532:65532',
+				'--mount', `type=bind,src=/dev/nbd0,dst=/workspace/project,options=${readOnly ? 'ro' : 'rw'}:nodev:nosuid`,
+				'--mount', `type=bind,src=${input.incoming},dst=${mount},options=rbind:ro`,
+				'--mount', `type=bind,src=${input.outgoing},dst=/run/treeseed-output,options=rbind:rw`,
+				`docker.io/treeseed/sandbox-codex@${configuration.guestImages[0]!.digest}`, id, 'node', `${mount}/${entry}`, ...(mode ? [mode] : [])]);
+			expect(args).not.toContain('--cni'); expect(args).not.toContain('--detach');
+			expect(args).not.toContain('/bin/sleep'); expect(args).not.toContain(`${id}-ready`);
+			expect(input).toEqual(held);
+		}
+	});
+	it('denies malformed cold guest ownership device entry mode and write access before forming a native command', () => {
+		const configuration = { runtime: 'io.containerd.kata.v2' as const, guestImages: [{ image: 'treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}` }] };
+		const input = { id: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab', device: '/dev/nbd0',
+			incoming: '/private/input', outgoing: '/private/output', entry: 'verifier.mjs' as const, readOnly: true };
+		for (const fields of [{id: ''}, {id: 'foreign'}, {id: `${input.id}-candidate`}, {device: '/dev/sda'},
+			{entry: '../verifier.mjs'}, {entry: ''}, {readOnly: false}, {readOnly: undefined}, {mode: 'build'}, {mode: 'unknown'}]) {
+			const supplied = Object.assign({}, input, fields), held = structuredClone(supplied);
+			expect(() => workspaceGuestArguments(configuration, supplied)).toThrow('guest'); expect(supplied).toEqual(held);
+		}
+		expect(() => workspaceGuestArguments({...configuration,guestImages:[]},input)).toThrow('guest');
+	});
 	it('disables background object mutation for builder and verifier commands', () => {
 		for (const operation of [['fetch', 'source.bundle'], ['fsck', '--strict'], ['checkout', '--detach', 'HEAD']]) {
 			const args = sourceBuilderGitArgs('/workspace/project', operation);

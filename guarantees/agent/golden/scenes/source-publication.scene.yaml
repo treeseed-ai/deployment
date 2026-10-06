@@ -1,0 +1,14 @@
+schemaVersion: treeseed.scene/v1
+id: deployment.golden.source-publication
+title: Native managed source publication and execution closeout readback
+scope: local-integrated-runtime
+workflow:
+  - id: execution-selected-code-live-1
+    action: { verifier: deployment.golden.execution-selected-code-live-1 }
+    expect: { status: passed }
+  - id: execution-source-publication-live-1
+    action: { verifier: deployment.golden.execution-source-publication-live-1 }
+    expect: { status: passed }
+  - id: execution-warm-teardown-live-1
+    action: { verifier: deployment.golden.execution-warm-teardown-live-1 }
+    expect: { status: passed }
