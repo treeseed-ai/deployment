@@ -20,7 +20,7 @@ function fixture() {
   const operations: AssignmentSourceOperations = { catalog, now: () => now, build: vi.fn(async () => { publish(); }),
     createDisk: vi.fn(async () => disk), attachDisk: vi.fn(async () => ({ ...disk, device: '/dev/nbd0', unit: 'owned.service' })), journal: vi.fn(async () => undefined) };
   const controller = new AssignmentSource(owner, 1_073_741_824, operations);
-  const response = (authorization = authority) => ({ authorization, repository: { provider: 'github', owner: 'treeseed-ai', name: 'sdk', cloneUrl: 'https://github.com/treeseed-ai/sdk.git', ref: 'staging' },
+  const response = (authorization = authority): SourceWorkspaceResponse => ({ authorization, repository: { provider: 'github', owner: 'treeseed-ai', name: 'sdk', cloneUrl: 'https://github.com/treeseed-ai/sdk.git', ref: 'staging' },
     credential: sealSourceCredential({ authorization, recipientPublicKey: controller.status().recipientPublicKey, credential: { username: 'x-access-token', token: 'private-token' } }, now) });
   return { controller, operations, response, publish };
 }

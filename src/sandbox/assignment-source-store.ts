@@ -81,7 +81,7 @@ export class AssignmentSourceStore {
           if (image?.state === 'ready') return;
           const bundle = await acquireSourceBundle({ authorization: response.authorization, repository: response.repository,
             ...(credential ? { credential } : {}), maxBundleBytes: Math.min(virtualBytes, 8_589_934_592) });
-          await buildWorkspaceImage(this.configuration, catalog, { source: response.authorization.source, bundleDigest: bundle.bundleDigest, virtualBytes });
+          return buildWorkspaceImage(this.configuration, catalog, { source: response.authorization.source, bundleDigest: bundle.bundleDigest, virtualBytes });
         } finally { if (credential) { credential.token = ''; credential.username = ''; } }
       }),
     });

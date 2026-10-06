@@ -15,6 +15,7 @@ export interface CandidateOperations {
   journal(value: Record<string, unknown>): Promise<void>;
   verify(input: { disk: WorkspaceDisk; baseCommit: string; additionalCommits: string[]; commit: string; maxBytes: number }): Promise<{
     verification: CandidateVerification; bundlePath: string; digest: string; verifierStopped: boolean;
+    verifierId: string; verifierChildId: string;
   }>;
 }
 
@@ -40,12 +41,15 @@ export async function verifyWorkspaceCandidate(input: {
       additionalCommits: authority.source.additionalCommits ?? [],
       commit: input.commit, maxBytes: input.maxBytes });
     const verification = result.verification;
-    if (!result.verifierStopped || verification.baseCommit !== authority.source.commit || verification.commit !== input.commit
+    if (!result.verifierStopped || typeof result.verifierId !== 'string' || !/^sandbox-warm-[a-f0-9-]{36}$/u.test(result.verifierId)
+      || result.verifierChildId !== `${result.verifierId}-candidate`
+      || verification.baseCommit !== authority.source.commit || verification.commit !== input.commit
       || verification.clean !== true || verification.objectClosure !== true || verification.ancestry !== true
       || verification.isolatedVerifier !== true || !Number.isSafeInteger(verification.bytes) || verification.bytes < 1
       || verification.bytes > input.maxBytes || !/^sha256:[a-f0-9]{64}$/u.test(result.digest)) throw new Error('Independent candidate verification failed.');
     // Verification can outlive a lease; this result never grants publication by itself.
-    await operations.journal({ ...custody, state: 'verified', verification, digest: result.digest, verifierStopped: true });
+    await operations.journal({ ...custody, state: 'verified', verification, digest: result.digest, verifierStopped: true,
+      verifierId: result.verifierId, verifierChildId: result.verifierChildId });
     return result;
   } catch (error) {
     await operations.journal({ ...custody, state: 'retained', reason: 'candidate_verification_failed' });

@@ -33,9 +33,11 @@ export class SourcePublicationJob {
 		await this.operations.detachExecution(current.disk);
 		const result = await verifyWorkspaceCandidate({ ...current, commit: this.commit, maxBytes: maximum, executionStopped }, this.operations);
 		this.reference = await this.operations.publish(result.bundlePath);
-		if (this.reference.commit !== this.commit) throw new Error('Published source reference changed the verified commit.');
+		if (this.reference.commit !== this.commit || typeof this.reference.branch !== 'string'
+			|| !this.reference.branch || this.reference.branch !== current.authorization.publicationRef) throw new Error('Published source reference changed the verified destination.');
 		await this.operations.journal({ state: 'published', assignmentId: this.assignment.assignmentId,
-			attempt: this.assignment.attempt, providerId: this.assignment.providerId, reference: this.reference });
+			attempt: this.assignment.attempt, providerId: this.assignment.providerId, reference: this.reference,
+			verifierId: result.verifierId, verifierChildId: result.verifierChildId, verifierStopped: result.verifierStopped });
 		this.state = 'published';
 	}
 	publishedReference() { return this.state === 'published' ? this.reference : undefined; }

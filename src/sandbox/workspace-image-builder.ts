@@ -36,6 +36,7 @@ export async function buildWorkspaceImage(configuration: SandboxBrokerConfigurat
 	let attached: WorkspaceDisk | undefined;
 	let guestStopped = true;
 	let transportUncertain = false;
+	const builderIds: string[] = [];
 	try {
 		disk = await createWorkspaceDisk(input.parentId ?? null, input.virtualBytes);
 		const incoming = join(disk.directory, 'input'), outgoing = join(disk.directory, 'output');
@@ -60,6 +61,7 @@ export async function buildWorkspaceImage(configuration: SandboxBrokerConfigurat
 			transportUncertain = true;
 			attached = await attachWorkspaceDisk(disk, verify);
 			const vm = await operations.create({ image: guestImage, cpuCores: 1, memoryBytes: 1_073_741_824, network: 'none' });
+			builderIds.push(vm);
 			const child = `${vm}-source`;
 			guestStopped = false;
 			try {
@@ -101,7 +103,7 @@ export async function buildWorkspaceImage(configuration: SandboxBrokerConfigurat
 		catalog.publish(image.id, jobId, { digest: imageDigest, bytes, commit: input.source.commit,
 			clean: true, filesystemVerified: true, builderStopped: guestStopped });
 		await rm(disk.directory, { recursive: true });
-		return { imageId: image.id, digest: imageDigest, bytes, noop: false };
+		return { imageId: image.id, digest: imageDigest, bytes, noop: false, builderIds };
 	} catch (error) {
 		if (attached && guestStopped) { await detachWorkspaceDisk(attached, true); attached = undefined; transportUncertain = false; }
 		// Uncertain transport/VM state keeps the build owner and its ancestor pins, never automatic GC.

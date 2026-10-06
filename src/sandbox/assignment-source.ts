@@ -10,7 +10,7 @@ type State = 'awaiting-authority' | 'building' | 'ready' | 'attaching' | 'attach
 export interface AssignmentSourceOperations {
   catalog: WorkspaceCatalog;
   now(): Date;
-  build(response: SourceWorkspaceResponse, privateKey: KeyObject, virtualBytes: number): Promise<void>;
+  build(response: SourceWorkspaceResponse, privateKey: KeyObject, virtualBytes: number): Promise<void | { builderIds?: string[] }>;
   createDisk(imageId: string, virtualBytes: number): Promise<Pick<WorkspaceDisk, 'id' | 'directory' | 'image'>>;
   attachDisk(disk: Pick<WorkspaceDisk, 'id' | 'directory' | 'image'>): Promise<WorkspaceDisk>;
   journal(value: Record<string, unknown>): Promise<void>;
@@ -29,6 +29,7 @@ export class AssignmentSource {
   private stopped = false;
   private pending?: Promise<void>;
   private failure?: string;
+  private builderIds?: string[];
   constructor(private readonly owner: Owner, private readonly virtualBytes: number, private readonly operations: AssignmentSourceOperations) {
     if (!Number.isSafeInteger(virtualBytes) || virtualBytes < 67_108_864 || virtualBytes > 137_438_953_472) throw new Error('Invalid assignment source disk limit.');
   }
@@ -44,6 +45,8 @@ export class AssignmentSource {
     if (authorization.assignmentId !== this.owner.assignmentId || authorization.providerId !== this.owner.providerId
       || authorization.source.teamId !== this.owner.teamId || authorization.source.projectId !== this.owner.projectId
       || authorization.attempt !== this.owner.attempt) throw new Error('Source authorization does not match the signed assignment.');
+    const now = this.operations.now().getTime(), issued = Date.parse(authorization.issuedAt), expires = Date.parse(authorization.expiresAt);
+    if (![now, issued, expires].every(Number.isFinite) || issued > now || expires <= now) throw new Error('Source authorization is not current.');
     if (response.credential) {
       const opened = openSourceCredential({ authorization, delivery: response.credential, privateKey: this.recipient.privateKey }, this.operations.now());
       // Authenticate the sealed delivery even on a cache hit or renewal. Never retain plaintext.
@@ -51,10 +54,13 @@ export class AssignmentSource {
     }
     if (this.authority && (sourceWorkspaceId(this.authority.source) !== sourceWorkspaceId(authorization.source)
       || this.authority.credentialBindingId !== authorization.credentialBindingId || this.authority.mode !== authorization.mode
-      || this.authority.publication !== authorization.publication)) throw new Error('Source authorization changed the pinned assignment scope.');
+      || this.authority.publication !== authorization.publication
+      || this.authority.publicationRef !== authorization.publicationRef)) throw new Error('Source authorization changed the pinned assignment scope.');
     return response;
   }
   publicationCredential(value: unknown) {
+    if (this.stopped) throw new Error('Assignment source is stopped.');
+    this.attachment();
     const response = this.validate(value);
     if (this.state !== 'attached' || response.authorization.mode !== 'work'
       || !['assignment-branch', 'simulation-branch'].includes(response.authorization.publication)) throw new Error('Source publication authority is unavailable.');
@@ -71,7 +77,15 @@ export class AssignmentSource {
     this.pending = (async () => {
       try {
         await this.persist();
-        if (!this.stopped) await this.operations.build(response, this.recipient.privateKey, this.virtualBytes);
+        if (!this.stopped) {
+          const built = await this.operations.build(response, this.recipient.privateKey, this.virtualBytes);
+          if (built && Object.hasOwn(built, 'builderIds')) {
+            const ids = built.builderIds;
+            if (!Array.isArray(ids) || ids.length !== 2 || new Set(ids).size !== 2
+              || ids.some(id => typeof id !== 'string' || !/^sandbox-warm-[a-f0-9-]{36}$/u.test(id))) throw new Error('Source builder ownership is invalid.');
+            this.builderIds = [...ids];
+          }
+        }
         if (!this.stopped) this.state = 'ready';
       } catch (error) {
         // Backend failures may contain transport details. Only bounded diagnostic codes leave this boundary.
@@ -122,7 +136,8 @@ export class AssignmentSource {
   }
   private snapshot() {
     return { schemaVersion: 'treeseed.assignment-source-job/v1', owner: this.owner, state: this.state,
-      authority: this.authority, leaseId: this.leaseId, disk: this.disk ?? this.allocatedDisk, failure: this.failure };
+      authority: this.authority, leaseId: this.leaseId, disk: this.disk ?? this.allocatedDisk, failure: this.failure,
+      ...(this.builderIds ? { builderIds: this.builderIds } : {}) };
   }
   private persist() { return this.operations.journal(this.snapshot()); }
   /** Drain in-flight preparation before teardown. Never detach or delete here: caller must prove VM exit. */

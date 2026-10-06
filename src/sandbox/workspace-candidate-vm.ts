@@ -80,6 +80,8 @@ export function candidateVmVerifier(configuration: SandboxBrokerConfiguration): 
     } finally { await handle.close(); }
     await chown(bundlePath, 0, 0); await chmod(bundlePath, 0o400);
     const parent = await open(outgoing, 'r'); try { await parent.sync(); } finally { await parent.close(); }
-    return { verification, bundlePath, digest: `sha256:${hash.digest('hex')}`, verifierStopped: stopped };
+    if (!vm || !child) throw new Error('Candidate verifier ownership was not retained.');
+    return { verification, bundlePath, digest: `sha256:${hash.digest('hex')}`, verifierStopped: stopped,
+      verifierId: vm, verifierChildId: child };
   };
 }

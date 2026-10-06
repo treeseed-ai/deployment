@@ -15,6 +15,7 @@ export interface WarmOperations {
 export class WarmSandboxPool {
 	private idle: Idle[] = [];
 	private stopped = false;
+	private draining?: Promise<void>;
 	constructor(private readonly operations: WarmOperations, private readonly limit = 1) {
 		if (!Number.isSafeInteger(limit) || limit < 0 || limit > 4) throw new Error('Invalid warm sandbox pool limit.');
 	}
@@ -40,12 +41,19 @@ export class WarmSandboxPool {
 	}
 	async drain() {
 		this.stopped = true;
-		const entries = this.idle.splice(0);
-		await Promise.all(entries.map(async entry => {
-			let id: string;
-			try { id = await entry.resource; } catch { return; }
-			await this.operations.destroy(id);
-		}));
+		if (this.draining) return this.draining;
+		const entries = [...this.idle];
+		this.draining = (async () => {
+			const outcomes = await Promise.allSettled(entries.map(async entry => {
+				let id: string;
+				try { id = await entry.resource; } catch { return; }
+				await this.operations.destroy(id);
+				const index = this.idle.indexOf(entry);
+				if (index >= 0) this.idle.splice(index, 1);
+			}));
+			for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
+		})();
+		try { await this.draining; } finally { delete this.draining; }
 	}
 }
 

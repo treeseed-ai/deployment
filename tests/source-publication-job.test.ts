@@ -15,7 +15,7 @@ function fixture() {
 		issuedAt: now.toISOString(), expiresAt: new Date(+now + 60_000).toISOString(),
 	};
 	const disk = { id: 'disk', directory: '/private', image: '/private/work.qcow2', device: '/dev/nbd0', unit: 'owned.service' };
-	const reference = { kind: 'git' as const, repository: 'treeseed-ai/sdk', commit, branch: 'treeseed/assignments/hash/1' };
+	const reference = { kind: 'git' as const, repository: 'treeseed-ai/sdk', commit, branch: authorization.publicationRef! };
 	const operations: SourcePublicationOperations = {
 		now: () => now,
 		current: vi.fn(() => ({ authorization, leaseId: 'lease', disk })),

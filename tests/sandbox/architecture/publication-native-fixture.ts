@@ -44,7 +44,9 @@ export async function nativePublicationFixture() {
 				const bundlePath = join(directory, `candidate-${verified++}.bundle`);
 				const verification = await verifySourceCandidate({ root, baseCommit: input.baseCommit,
 					additionalCommits: input.additionalCommits, commit: input.commit, maxBytes: input.maxBytes, output: bundlePath, scratch: join(directory, 'scratch') });
-				return { verification, bundlePath, digest: `sha256:${createHash('sha256').update(await readFile(bundlePath)).digest('hex')}`, verifierStopped: true };
+				return { verification, bundlePath, digest: `sha256:${createHash('sha256').update(await readFile(bundlePath)).digest('hex')}`, verifierStopped: true,
+					verifierId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab',
+					verifierChildId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab-candidate' };
 			}, publish: async bundlePath => {
 				const authority = f.source.publicationCredential(response), branch = authority.response.authorization.publicationRef;
 				if (!branch) throw new Error('Fixture requires parsed publication destination');
