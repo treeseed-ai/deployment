@@ -826,3 +826,8 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: native pinned Reviewer checkout plans every original capacity component case without executing or rewriting candidate evidence
+  deployment.golden.execution-native-failure-custody-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native original Vitest retains controlled phase criteria alongside real assertion and watchdog failures without widening the test allowance
