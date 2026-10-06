@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,33 @@ import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { resolve } from 'node:path';
 import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
+
+it('native original Vitest retains controlled phase criteria alongside real assertion and watchdog failures without widening the test allowance', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'deployment-native-failure-'));
+  try {
+    symlinkSync(resolve('node_modules'),resolve(root,'node_modules'),'dir');
+    writeFileSync(resolve(root,'vitest.config.ts'),"export default {test:{include:['phase.test.ts']}};\n");
+    writeFileSync(resolve(root,'phase.test.ts'),[
+      "import {it,onTestFailed} from 'vitest';",
+      "it('actual native failure',({signal})=>{onTestFailed(()=>{throw new Error('ACCEPTANCE_NATIVE_COLD_VERIFY_'+(signal.aborted?'WATCHDOG':'FAILURE')+': controlled');});throw new Error('original native failure');});",
+      "it('actual watchdog failure',async({signal})=>{onTestFailed(()=>{throw new Error('ACCEPTANCE_NATIVE_COLD_BUILD_'+(signal.aborted?'WATCHDOG':'FAILURE')+': controlled');});await new Promise(()=>{});},20);",
+    ].join('\n'));
+    const actual=spawnSync(process.execPath,[resolve('node_modules/vitest/vitest.mjs'),'run','--config',resolve(root,'vitest.config.ts'),
+      '--reporter=json','--outputFile='+resolve(root,'report.json')],{cwd:root,encoding:'utf8',timeout:10_000});
+    expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status).toBe(1);
+    const report=JSON.parse(readFileSync(resolve(root,'report.json'),'utf8')) as {numTotalTests:number;numFailedTests:number;numPendingTests:number;numTodoTests:number;
+      testResults:{assertionResults:{title:string;status:string;duration:number;failureMessages:string[]}[]}[]};
+    expect(report.numTotalTests).toBe(2);expect(report.numFailedTests).toBe(2);expect(report.numPendingTests).toBe(0);expect(report.numTodoTests).toBe(0);
+    const rows=report.testResults.flatMap(file=>file.assertionResults);expect(rows.map(row=>row.status)).toEqual(['failed','failed']);
+    expect(rows[0]?.failureMessages.join('\n')).toContain('original native failure');
+    expect(rows[0]?.failureMessages.join('\n')).toContain('ACCEPTANCE_NATIVE_COLD_VERIFY_FAILURE:');
+    // This pinned Vitest JSON reporter retains the watchdog's stack-trace error,
+    // not the human-readable timeout text. The unresolved callback cannot pass.
+    expect(rows[1]?.failureMessages.join('\n')).toContain('Error: STACK_TRACE_ERROR');
+    expect(rows[1]?.duration).toBeGreaterThanOrEqual(20);
+    expect(rows[1]?.failureMessages.join('\n')).toContain('ACCEPTANCE_NATIVE_COLD_BUILD_WATCHDOG:');
+  } finally {rmSync(root,{recursive:true,force:true});expect(existsSync(root)).toBe(false);}
+});
 
 it('parses component metadata and binds every scene step to exactly one existing owner test',()=>{
   const root=resolve(import.meta.dirname,'..');
