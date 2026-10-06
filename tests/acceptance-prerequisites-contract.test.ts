@@ -24,6 +24,8 @@ it('parses component metadata and binds every scene step to exactly one existing
 it('runs complete privileged owner prerequisites before coded scenes without a filtered substitute', () => {
   const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
   const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>}[];
+  expect(steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))
+    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3']);
   const scene=steps.find(step=>step.name==='Execute coded sandbox component scenes');
   expect(scene?.run).toContain('sudo --preserve-env=');
   expect(scene?.run).toContain('src/verifiers/guarantees/command.ts');
