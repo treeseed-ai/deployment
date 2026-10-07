@@ -5,7 +5,7 @@ import {Writable} from 'node:stream';
 import {developmentSessionSchema} from '@treeseed/sdk/development';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
-import {expect,it} from 'vitest';
+import {expect,it,onTestFailed} from 'vitest';
 import {managedComponentStatus,renderManagedComponentOverride,waitForManagedReadiness} from '../src/supervisor/development-component-container.js';
 import {resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {beginDevelopmentBackup,finishDevelopmentBackup,planDevelopmentBackup,type DevelopmentBackupDependencies} from '../src/supervisor/development-backup.js';
@@ -14,11 +14,15 @@ import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
 import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
 import {component} from './fixtures.js';
 
-function fixture() {
+function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
  const input={sessionId:`dev-native-${process.pid}`,projectId:'treedx' as const,targetId:'service' as const,action:'status' as const};
  const override=resolve(root,'compose.json'),ids:string[]=[];
- const docker=(_executable:string,args:readonly string[])=>execFileSync('/usr/bin/docker',[...args],{encoding:'utf8',timeout:180000,stdio:['ignore','pipe','pipe']});
+ const docker=(_executable:string,args:readonly string[])=>{
+  const start=performance.now();
+  try{return execFileSync('/usr/bin/docker',[...args],{encoding:'utf8',timeout:180000,stdio:['ignore','pipe','pipe']});}
+  finally{timings.push({operation:args[0]!,milliseconds:Math.round(performance.now()-start)});}
+ };
  const image=resolveDevelopmentRuntimeImage(docker);
  const select=(images=new Map([['treedx',image]]))=>writeFileSync(override,JSON.stringify(renderManagedComponentOverride(input,images)),{mode:0o600});
  select();
@@ -34,8 +38,12 @@ function fixture() {
   close(){try{for(const id of ids)docker('/usr/bin/docker',['rm','--force',id]);}finally{rmSync(root,{recursive:true,force:true});}}};
 }
 
-it('binds real Docker image identity to the native selected file and rejects digest drift',()=>{
- const f=fixture();try {
+it('binds real Docker image identity to the native selected file and rejects digest drift',({signal})=>{
+ const timings:{operation:string;milliseconds:number}[]=[];
+ // Preserve the original failure and watchdog. Observe only Docker operation
+ // names and native elapsed time, never arguments, output or credentials.
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify(timings)}`);});
+ const f=fixture(timings);try {
   f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
  }finally{f.close();}

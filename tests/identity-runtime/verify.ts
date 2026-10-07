@@ -278,6 +278,7 @@ try {
   checks.push(...(await browsers.verify(first.issuer, humanPassword)).map(check => `restored-${check}`));
   console.log(JSON.stringify({ ok: true, images, checks, deferred: ['live-application-sso', 'federation-reconciliation-revocation', 'transitive-trust-negative', 'railway-workload-authentication', 'spire', 'live-migration'] }));
 } catch (error) {
+  if (error instanceof Error && /^Managed Identity application reconciliation failed; verify custody and authoritative client configuration \[(custody|workload-authentication|login-policy|client-registration|cli-session-policy|workload-subject)\](; Identity application drift in [A-Za-z]+ requires a reconciliation plan)?$/u.test(error.message)) console.error(error.message);
   if (error instanceof Error && /^Device acceptance failed \([a-z-]+\)$/u.test(error.message)) console.error(error.message);
   if (error instanceof Error && /^Managed PostgreSQL operation failed \([A-Za-z0-9_]+\)$/u.test(error.message)) console.error(error.message);
   if (error instanceof Error && /^Identity application drift in [A-Za-z]+ requires a reconciliation plan$/u.test(error.message)) console.error(error.message);
