@@ -841,6 +841,11 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: native pinned Reviewer checkout plans every original capacity component case without executing or rewriting candidate evidence
+  deployment.golden.execution-workflow-sdk-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: every native execution workflow installs the same declared exact SDK before compiling its owning acceptance sources
   deployment.golden.execution-native-failure-custody-native-1:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
