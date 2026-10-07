@@ -466,6 +466,9 @@ workflow:
   - id: execution-cold-primary-unit-2
     action: { verifier: deployment.golden.execution-cold-primary-unit-2 }
     expect: { status: passed }
+  - id: execution-cold-primary-unit-3
+    action: { verifier: deployment.golden.execution-cold-primary-unit-3 }
+    expect: { status: passed }
   - id: execution-sdk-closure-unit-1
     action: { verifier: deployment.golden.execution-sdk-closure-unit-1 }
     expect: { status: passed }
@@ -501,6 +504,18 @@ workflow:
     expect: { status: passed }
   - id: execution-reviewer-checkout-native-1
     action: { verifier: deployment.golden.execution-reviewer-checkout-native-1 }
+    expect: { status: passed }
+  - id: execution-backup-managed-unit-1
+    action: { verifier: deployment.golden.execution-backup-managed-unit-1 }
+    expect: { status: passed }
+  - id: execution-backup-managed-unit-2
+    action: { verifier: deployment.golden.execution-backup-managed-unit-2 }
+    expect: { status: passed }
+  - id: execution-backup-managed-native-1
+    action: { verifier: deployment.golden.execution-backup-managed-native-1 }
+    expect: { status: passed }
+  - id: execution-workflow-sdk-unit
+    action: { verifier: deployment.golden.execution-workflow-sdk-unit }
     expect: { status: passed }
   - id: execution-native-failure-custody-native-1
     action: { verifier: deployment.golden.execution-native-failure-custody-native-1 }

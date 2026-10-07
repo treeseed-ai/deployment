@@ -2,11 +2,61 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildSourceWorkspace, sourceBuilderGitArgs } from '../src/sandbox/workspace-builder-guest.js';
-import { workspaceGuestArguments } from '../src/sandbox/workspace-image-builder.js';
+import { runWorkspaceGuest, workspaceGuestArguments } from '../src/sandbox/workspace-image-builder.js';
+import { sandboxBrokerConfigurationSchema } from '../src/sandbox/protocol.js';
+
+const nativeCommand = vi.hoisted(() => ({ ctr: vi.fn() }));
+vi.mock('node:child_process', async importOriginal => {
+	const original = await importOriginal<typeof import('node:child_process')>();
+	const { promisify } = await import('node:util');
+	const command = vi.fn(original.execFile);
+	Object.defineProperty(command, promisify.custom, { value: async (file: string, args: string[], options: import('node:child_process').ExecFileOptions) =>
+		file === '/usr/bin/ctr' ? nativeCommand.ctr(file, args, options) : promisify(original.execFile)(file, args, options) });
+	return { ...original, execFile: command };
+});
 
 describe('source-only guest workspace builder', () => {
+	it('verifies successful primary guest absence without redundant destructive calls and retains failed uncertain teardown through exact retry', async () => {
+		const configuration = sandboxBrokerConfigurationSchema.parse({ socketPath: '/run/treeseed/sandbox/broker.sock',
+			runtime: 'io.containerd.kata.v2', containerdAddress: '/run/containerd/containerd.sock', namespace: 'treeseed-sandboxes',
+			stateRoot: '/var/lib/treeseed/sandboxes', trustedProvidersPath: '/etc/treeseed/sandbox/providers.json',
+			relay: { listenHost: '127.0.0.1', port: 8443, publicUrl: 'https://relay.invalid', certificateFile: '/etc/treeseed/sandbox/relay.crt', privateKeyFile: '/run/credentials/relay.key' },
+			guestImages: [{ image: 'treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}`, profiles: ['fixture'] }] });
+		const input = { id: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab', device: '/dev/nbd0',
+			incoming: '/private/input', outgoing: '/private/output', entry: 'verifier.mjs', readOnly: true };
+		const held = structuredClone({ configuration, input }), prefix = ['--address', configuration.containerdAddress, '--namespace', configuration.namespace];
+		const observe = ['tasks', 'containers'].map(kind => [...prefix, kind, 'list', '--quiet']);
+		const cleanup = [['tasks', 'kill', '--signal', 'SIGKILL', input.id], ['tasks', 'delete', '--force', input.id], ['containers', 'delete', input.id]];
+		const start = [...prefix, ...workspaceGuestArguments(configuration, input)];
+		for (const scenario of ['absent', 'residue', 'failed', 'retained', 'unreadable'] as const) {
+			const failure = new Error('Original native command failure'), history: string[][] = [];
+			nativeCommand.ctr.mockReset();
+			nativeCommand.ctr.mockImplementation(async (file: string, args: string[], options: import('node:child_process').ExecFileOptions) => {
+				expect(file).toBe('/usr/bin/ctr'); expect(args.slice(0, prefix.length)).toEqual(prefix);
+				expect(options).toMatchObject({ encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } });
+				history.push([...args]);
+				if (args[prefix.length] === 'run') { if (scenario === 'failed') throw failure; return {stdout:'',stderr:''}; }
+				if (args.includes('list')) {
+					if (scenario === 'unreadable') throw failure;
+					const cleaned = history.some(command => command[prefix.length] === 'containers' && command[prefix.length + 1] === 'delete');
+					return { stdout: `sandbox-warm-ffffffff-ffff-ffff-ffff-ffffffffffff\n${scenario === 'retained' || (scenario === 'residue' && !cleaned) ? `${input.id}\n` : ''}`, stderr: '' };
+				}
+				throw failure; // Failed cleanup is not proof of either presence or absence.
+			});
+			if (scenario === 'retained' || scenario === 'unreadable') await expect(runWorkspaceGuest(configuration, input)).rejects.toThrow();
+			else expect(await runWorkspaceGuest(configuration, input)).toBe(scenario === 'failed' ? failure : undefined);
+			if (scenario === 'absent') expect(history).toEqual([start, ...observe]);
+			if (scenario === 'residue') expect(history).toEqual([start, ...observe, ...cleanup.map(command => [...prefix, ...command]), ...observe]);
+			if (scenario === 'failed') expect(history).toEqual([start, ...cleanup.map(command => [...prefix, ...command]), ...observe]);
+			expect({ configuration, input }).toEqual(held);
+		}
+		// A new invocation must read absence afresh; no previous successful observation is reused.
+		nativeCommand.ctr.mockReset(); nativeCommand.ctr.mockResolvedValue({stdout:'',stderr:''});
+		expect(await runWorkspaceGuest(configuration,input)).toBeUndefined();
+		expect(nativeCommand.ctr.mock.calls.map(call => call[1])).toEqual([start,...observe]);
+	});
 	it('runs each cold source guest as one pinned resource-bounded primary process without sleeping or readiness children', () => {
 		const configuration = { runtime: 'io.containerd.kata.v2' as const, guestImages: [{ image: 'treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}` }] };
 		const id = 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab';
