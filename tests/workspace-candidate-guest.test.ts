@@ -115,7 +115,9 @@ describe('independent source candidate verifier', () => {
       }
       stopped = true;
       enter('READBACK');
-      expect(readFileSync(workspaceImagePath(imageId))).toEqual(imageBytes);
+      // Buffer.equals compares every byte and the length without enumerating
+      // millions of numeric object keys inside the original native watchdog.
+      expect(readFileSync(workspaceImagePath(imageId)).equals(imageBytes)).toBe(true);
       expect(readFileSync(bundlePath)).toEqual(bytes); expect(input).toEqual(held);
       paths.forEach((path, index) => expect(readFileSync(path)).toEqual(heldBuild[index]));
       expect(readFileSync(brokerPath)).toEqual(brokerBytes); expect(f.git(['rev-parse', 'HEAD'])).toBe(f.input.commit);
