@@ -14,7 +14,7 @@ import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
 import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
 import {component} from './fixtures.js';
 
-function fixture(timings: {operation:string;milliseconds:number}[] = []) {
+function fixture(timings: {operation:string;milliseconds:number}[] = [], observeCold=false) {
  const started=Date.now()/1000;
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
  const input={sessionId:`dev-native-${process.pid}`,projectId:'treedx' as const,targetId:'service' as const,action:'status' as const};
@@ -25,6 +25,26 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
   finally{timings.push({operation:args[0]!,milliseconds:Math.round(performance.now()-start)});}
  };
  const image=resolveDevelopmentRuntimeImage(docker);
+ const coldReadiness=()=>{
+  let apparmorLoaded:boolean|null=null,imageUnpacked:boolean|null=null,driver:string|null=null;
+  try{apparmorLoaded=readFileSync('/sys/kernel/security/apparmor/profiles','utf8').split('\n').includes('docker-default (enforce)');}catch{/* unavailable, not false */}
+  try{
+   // ctr check is read-only: it reports local content and unpacked snapshots,
+   // never unpacks an image or starts a container to warm the measured path.
+   const info:unknown=JSON.parse(docker('/usr/bin/docker',['info','--format','{"driver":{{json .Driver}},"containerd":{{json .Containerd}}}']));
+   if(info&&typeof info==='object'&&'driver' in info&&typeof info.driver==='string')driver=info.driver;
+   const runtime=info&&typeof info==='object'&&'containerd' in info?info.containerd:null;
+   if(driver==='overlayfs'&&runtime&&typeof runtime==='object'&&'Address' in runtime&&runtime.Address==='/run/containerd/containerd.sock'
+    &&'Namespaces' in runtime&&runtime.Namespaces&&typeof runtime.Namespaces==='object'
+    &&'Containers' in runtime.Namespaces&&runtime.Namespaces.Containers==='moby'){
+    imageUnpacked=execFileSync('/usr/bin/ctr',['--address',runtime.Address,'--namespace','moby','images','check','--quiet','--snapshotter',driver,
+     'name==docker.io/library/node:24-bookworm-slim'],{encoding:'utf8',timeout:10_000,stdio:['ignore','pipe','pipe']})
+     .trim().split('\n').includes('docker.io/library/node:24-bookworm-slim');
+   }
+  }catch{/* unavailable, not false */}
+  return {driver,apparmorLoaded,imageUnpacked};
+ };
+ const before=observeCold?coldReadiness():null;
  const select=(images=new Map([['treedx',image]]))=>writeFileSync(override,JSON.stringify(renderManagedComponentOverride(input,images)),{mode:0o600});
  select();
  const create=(service='treedx',sessionId=input.sessionId,writableRoot?:string)=>{
@@ -56,6 +76,7 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
     }catch{return {unavailable:true};}
    });
   },
+  failureReadiness(){return {before,after:coldReadiness()};},
   close(){try{for(const id of ids)docker('/usr/bin/docker',['rm','--force',id]);}finally{rmSync(root,{recursive:true,force:true});}}};
 }
 
@@ -64,8 +85,8 @@ it('binds real Docker image identity to the native selected file and rejects dig
  // Preserve the original failure and watchdog. Observe only Docker operation
  // names and native elapsed time, never arguments, output or credentials.
  let f:ReturnType<typeof fixture>|undefined;
- onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null})}`);});
- f=fixture(timings);try {
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null})}`);});
+ f=fixture(timings,true);try {
   f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
  }finally{f.close();}
