@@ -24,9 +24,15 @@ function fixture() {
 describe('independent source candidate verifier', () => {
   it('native original source image builder and isolated verifier retain exact VM identities for independent task and container absence without changing Git or published image bytes', async ({signal}) => {
     let phase: 'AUTHORITY' | 'BUILD' | 'DISK' | 'VERIFY' | 'ABSENCE' | 'READBACK' | 'CLOSE' = 'AUTHORITY';
+    const started = performance.now();
+    const timings: { phase: typeof phase; elapsedMs: number }[] = [];
+    let interrupted: typeof phase | undefined;
+    const capture = () => { interrupted = phase; timings.push({phase,elapsedMs:Math.round(performance.now()-started)}); };
+    signal.addEventListener('abort', capture, {once:true});
+    const enter = (next: typeof phase) => { timings.push({phase,elapsedMs:Math.round(performance.now()-started)}); phase=next; };
     // The original Reviewer retains controlled criteria, never arbitrary native
     // assertion values or broker configuration. Keep the original error as well.
-    onTestFailed(() => { throw new Error(`ACCEPTANCE_NATIVE_COLD_${phase}_${signal.aborted ? 'WATCHDOG' : 'FAILURE'}: native failure retained`); });
+    onTestFailed(() => { throw new Error(`ACCEPTANCE_NATIVE_COLD_${interrupted ?? phase}_${signal.aborted ? 'WATCHDOG' : 'FAILURE'}_${timings.map(row=>`${row.phase}_${row.elapsedMs}`).join('_')}: native failure retained`); });
     if (process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1' || process.getuid?.() !== 0) {
       throw new Error('Existing privileged owning-host authorization required; native builder and verifier cannot be skipped');
     }
@@ -64,18 +70,18 @@ describe('independent source candidate verifier', () => {
       imageId = catalog.ensure(source).id;
       // Existing held generated guest entries are required. This case never builds or installs them.
       nativeStarted = true;
-      phase = 'BUILD';
+      enter('BUILD');
       const built: Record<string, unknown> = { ...await builder.buildWorkspaceImage(configuration, catalog, input) };
       expect(built.imageId).toBe(imageId); expect(built.noop).toBe(false);
       imageOwned = built.imageId === imageId && built.noop === false;
       const imageBytes = readFileSync(workspaceImagePath(imageId)), nativeImage = catalog.image(imageId);
       expect(nativeImage?.state).toBe('ready'); expect(nativeImage?.digest).toBe(built.digest);
-      phase = 'DISK';
+      enter('DISK');
       disk = await createWorkspaceDisk(imageId, input.virtualBytes);
       const attached = await attachWorkspaceDisk(disk, true);
       await detachWorkspaceDisk(attached, true);
       // Real guest verifier examines actual Git objects on its read-only native NBD disk.
-      phase = 'VERIFY';
+      enter('VERIFY');
       const verified: Record<string, unknown> = { ...await verifier.candidateVmVerifier(configuration)({
         disk: attached,
         baseCommit: f.input.baseCommit, additionalCommits: [], commit: f.input.commit, maxBytes: f.input.maxBytes,
@@ -98,7 +104,7 @@ describe('independent source candidate verifier', () => {
       const observe = (kind: 'tasks' | 'containers') => execFileSync('/usr/bin/ctr',
         ['--address', configuration.containerdAddress, '--namespace', configuration.namespace, kind, 'list', '--quiet'],
         { encoding: 'utf8', timeout: 5000, maxBuffer: 65_536, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } }).trim().split(/\s+/u).filter(Boolean);
-      phase = 'ABSENCE';
+      enter('ABSENCE');
       for (const id of ids) {
         expect(id).toMatch(/^sandbox-warm-[a-f0-9-]{36}$/u);
         for (const kind of ['tasks', 'containers'] as const) {
@@ -107,13 +113,13 @@ describe('independent source candidate verifier', () => {
         }
       }
       stopped = true;
-      phase = 'READBACK';
+      enter('READBACK');
       expect(readFileSync(workspaceImagePath(imageId))).toEqual(imageBytes);
       expect(readFileSync(bundlePath)).toEqual(bytes); expect(input).toEqual(held);
       paths.forEach((path, index) => expect(readFileSync(path)).toEqual(heldBuild[index]));
       expect(readFileSync(brokerPath)).toEqual(brokerBytes); expect(f.git(['rev-parse', 'HEAD'])).toBe(f.input.commit);
       expect(f.git(['show', `${f.input.baseCommit}:code.ts`])).toBe('export const value = 1;');
-      phase = 'CLOSE';
+      enter('CLOSE');
     } finally {
       // Only the disposable catalog's exact image and this callback's allocated overlay/bundle are eligible.
       // An uncertain verifier retains its native disk instead of fabricating teardown.
@@ -129,6 +135,7 @@ describe('independent source candidate verifier', () => {
       }
       // Failed native ownership/teardown keeps the allocated catalog and inputs with
       // the uncertain disk; this is an explicit failed quarantine, never a pass.
+      signal.removeEventListener('abort',capture);
     }
   }, 30_000);
   it('verifies ancestry, committed work and a portable history bundle', async () => {

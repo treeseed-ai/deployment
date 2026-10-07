@@ -781,6 +781,11 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-builder.test.ts
     testName: denies malformed cold guest ownership device entry mode and write access before forming a native command
+  deployment.golden.execution-cold-primary-unit-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: verifies successful primary guest absence without redundant destructive calls and retains failed uncertain teardown through exact retry
   deployment.golden.execution-sdk-closure-unit-1:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
