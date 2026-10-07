@@ -23,13 +23,14 @@ function fixture() {
 }
 describe('independent source candidate verifier', () => {
   it('native original source image builder and isolated verifier retain exact VM identities for independent task and container absence without changing Git or published image bytes', async ({signal}) => {
-    let phase: 'AUTHORITY' | 'BUILD' | 'DISK' | 'VERIFY' | 'ABSENCE' | 'READBACK' | 'CLOSE' = 'AUTHORITY';
+    type Phase = 'AUTHORITY' | 'BUILD' | 'DISK' | 'VERIFY' | 'ABSENCE' | 'READBACK' | 'CLOSE';
+    let phase: Phase = 'AUTHORITY';
     const started = performance.now();
-    const timings: { phase: typeof phase; elapsedMs: number }[] = [];
-    let interrupted: typeof phase | undefined;
+    const timings: { phase: Phase; elapsedMs: number }[] = [];
+    let interrupted: Phase | undefined;
     const capture = () => { interrupted = phase; timings.push({phase,elapsedMs:Math.round(performance.now()-started)}); };
     signal.addEventListener('abort', capture, {once:true});
-    const enter = (next: typeof phase) => { timings.push({phase,elapsedMs:Math.round(performance.now()-started)}); phase=next; };
+    const enter = (next: Phase) => { timings.push({phase,elapsedMs:Math.round(performance.now()-started)}); phase=next; };
     // The original Reviewer retains controlled criteria, never arbitrary native
     // assertion values or broker configuration. Keep the original error as well.
     onTestFailed(() => { throw new Error(`ACCEPTANCE_NATIVE_COLD_${interrupted ?? phase}_${signal.aborted ? 'WATCHDOG' : 'FAILURE'}_${timings.map(row=>`${row.phase}_${row.elapsedMs}`).join('_')}: native failure retained`); });
