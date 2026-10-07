@@ -81,7 +81,10 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
   f.docker('/usr/bin/docker',['start',id]);expect(f.status()).toMatchObject({ready:true});
   expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.Image}}']).trim()).toBe(f.image);
   expect(readFileSync(path)).toEqual(spec);expect(JSON.stringify(record)).toBe(selection);expect(existsSync(deps.holdPath)).toBe(false);
- }finally{key.fill(0);f.close();expect(existsSync(f.root)).toBe(false);}
+ }finally{
+  key.fill(0);f.close();expect(existsSync(f.root)).toBe(false);
+  for(const id of f.ids)expect(f.docker('/usr/bin/docker',['ps','--all','--quiet','--filter',`id=${id}`]).trim()).toBe('');
+ }
 });
 it('rejects real duplicate and incorrectly owned Docker instances without changing selection',()=>{
  const f=fixture();try{

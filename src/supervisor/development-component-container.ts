@@ -54,12 +54,12 @@ function aiBuilds(worktree: string, targetId: Exclude<ManagedTarget, 'service'>)
 	});
 }
 
-function recipe(input: Input): Recipe {
+export function managedComponentRecipe(input: Pick<Input, 'projectId' | 'targetId'>): Recipe {
 	if (input.projectId === 'treedx' && input.targetId === 'service') return {
 		componentId: 'treedx', projectId: 'treedx', targetId: 'service',
 		builds: () => [{ role: 'treedx', services: ['treedx'], dockerfile: 'Dockerfile', target: 'prod' }],
 	};
-	if (input.projectId === 'ai' && input.targetId !== 'service') return {
+	if (input.projectId === 'ai' && (input.targetId === 'ai-inference' || input.targetId === 'ai-training' || input.targetId === 'ai-lab')) return {
 		componentId: input.targetId, projectId: 'ai', targetId: input.targetId,
 		builds: (worktree) => aiBuilds(worktree, input.targetId as Exclude<ManagedTarget, 'service'>),
 	};
@@ -189,7 +189,7 @@ function waitForReleasedReadiness(command: CommandRunner, projectName: string, s
 
 /** Build and switch only fixed, installed TreeSeed component recipes; no caller-supplied Docker option crosses this boundary. */
 export function executeManagedComponentDevelopment(input: Input, command: CommandRunner) {
-	const selectedRecipe = recipe(input), record = new DevelopmentSessionStore().load(input.sessionId);
+	const selectedRecipe = managedComponentRecipe(input), record = new DevelopmentSessionStore().load(input.sessionId);
 	if (!record.session.targets.some((target) => target.projectId === input.projectId && target.targetId === input.targetId))
 		throw new Error('Managed component development is outside the registered session.');
 	const component = loadActiveComponents().find((entry) => entry.componentId === selectedRecipe.componentId);

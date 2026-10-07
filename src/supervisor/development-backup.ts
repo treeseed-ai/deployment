@@ -12,6 +12,8 @@ import { backupConfiguration } from './backup-configuration.js';
 import { requiredBackupState } from './backup-coverage.js';
 import { drainCandidateRunner, drainReleasedRunner } from './development-runner.js';
 import type { CommandRunner } from './compose-runtime.js';
+import { developmentContainerSchema } from './development-container-contract.js';
+import { managedComponentRecipe, managedComponentStatus } from './development-component-container.js';
 
 const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const entrySchema = z.object({ sessionId: z.string().regex(/^dev-[a-z0-9-]{1,64}$/u),
@@ -89,6 +91,36 @@ function validate(deps: DevelopmentBackupDependencies, entries: Entry[]) {
   }
 }
 
+/** These writers belong to the installed component's ordinary quiescence path,
+ * not the separate API candidate drain. Reuse its fixed recipe and image status;
+ * development labels alone never authorize an otherwise unknown writer. */
+function validateManagedWriter(deps: DevelopmentBackupDependencies, record: ManagedDevelopmentSession,
+  state: z.infer<typeof containerSchema>, components: ComponentRelease[]) {
+  const labels = state.Config.Labels ?? {}, [projectId, targetId] = (labels['org.treeseed.development.target'] ?? '').split('.');
+  const input = developmentContainerSchema.parse({ operation: 'development.container', sessionId: record.session.sessionId,
+    projectId, targetId, action: 'status' });
+  if (input.projectId !== 'treedx' && input.projectId !== 'ai')
+    throw new Error('Unknown managed backup writer target.');
+  // The existing fixed recipe rejects invalid project/target pairs as well.
+  const target = input.targetId;
+  if (target !== 'service' && target !== 'ai-inference' && target !== 'ai-training' && target !== 'ai-lab')
+    throw new Error('Unknown managed backup writer target.');
+  const selected = { sessionId: input.sessionId, projectId: input.projectId, targetId: target, action: 'status' as const };
+  const component = components.find(item => item.componentId === managedComponentRecipe(selected).componentId);
+  if (!component || record.session.status !== 'active' || !record.session.targets.some(item => item.projectId === input.projectId
+    && item.targetId === target && (item.mode === 'live' || item.mode === 'candidate'))
+    || component.runtime.compose.projectName !== labels['com.docker.compose.project']
+    || !component.runtime.services.some(item => item.composeService === labels['com.docker.compose.service']))
+    throw new Error('Managed backup writer is outside the active component selection.');
+  const path = resolve(deps.runtimeRoot, input.sessionId, input.projectId, target, 'compose.json');
+  const before = ownedFile(path, deps.ownerUid), selection = deploymentDigest(record);
+  const status = managedComponentStatus(selected, component.runtime.compose.projectName, path, deps.command);
+  if (!status.ready || !status.instances?.some(item => /^[a-f0-9]{12,64}$/u.test(item.id) && state.Id.startsWith(item.id))
+    || !ownedFile(path, deps.ownerUid).equals(before)
+    || deploymentDigest(deps.records().find(item => item.session.sessionId === input.sessionId)) !== selection)
+    throw new Error('Managed backup writer image or selection changed during inspection.');
+}
+
 /** Fixed registered live/candidate snapshot only. Labels alone never authorize a stop: the
  * active selection, root snapshot and immutable running image must all match.
  * Unrecognized writers are rejected before any released component is stopped.
@@ -112,6 +144,10 @@ export function planDevelopmentBackup(deps: DevelopmentBackupDependencies, targe
     const labels = state.Config.Labels ?? {}, sessionId = labels['org.treeseed.development.session'];
     if (sessionId !== undefined) {
       const record = records.find(item => item.session.sessionId === sessionId);
+      if (record && labels['org.treeseed.development.target'] !== 'api.operations-runner') {
+        validateManagedWriter(deps, record, state, components);
+        continue; // The manager stops this installed component before capture.
+      }
       if (!record || labels['org.treeseed.development.target'] !== 'api.operations-runner'
         || state.Name !== `/${candidateName(sessionId)}` || !api || api.runtimeDigest !== targetApiRuntimeDigest)
         throw new Error(`Backup writer ${state.Name} is not a compatible registered development candidate (target=${labels['org.treeseed.development.target'] ?? 'missing'}, registered=${Boolean(record)}, apiRuntimeMatches=${Boolean(api && api.runtimeDigest === targetApiRuntimeDigest)}).`);
