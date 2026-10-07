@@ -152,3 +152,58 @@ describe.each(['candidate', 'live'] as const)('registered %s backup hold', (mode
     expect(developmentBackupStatus(f.deps)?.phase).toBe('held');
   });
 });
+
+function managedWriterFixture() {
+  const f = createFixture('live'), installed = component('treedx', 'development', 'd');
+  installed.runtime.services[0]!.composeService = 'treedx';
+  f.record.session.targets[0]!.projectId = 'treedx'; f.record.session.targets[0]!.targetId = 'service';
+  f.state.Name = '/treeseed-treedx-treedx-1';
+  f.state.Config.Labels = { 'org.treeseed.development.session': f.record.session.sessionId,
+    'org.treeseed.development.target': 'treedx.service', 'com.docker.compose.project': installed.runtime.compose.projectName,
+    'com.docker.compose.service': 'treedx' };
+  const dir = join(f.deps.runtimeRoot, f.record.session.sessionId, 'treedx', 'service'); mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'compose.json');
+  writeFileSync(path, JSON.stringify({ services: { treedx: { image: f.state.Image, labels: {
+    'org.treeseed.development.session': f.record.session.sessionId, 'org.treeseed.development.target': 'treedx.service' } } } }), { mode: 0o600 });
+  const originalCommand = f.deps.command;
+  f.deps.command = (exe, args) => args[0] === 'inspect' && args.includes('inspect') && args.some(arg => arg.includes('"service":'))
+    ? JSON.stringify({ service: 'treedx', sessionId: f.state.Config.Labels['org.treeseed.development.session'],
+      target: f.state.Config.Labels['org.treeseed.development.target'], image: f.state.Image, running: f.state.State.Running, health: 'healthy' })
+    : originalCommand(exe, args);
+  f.deps.components = () => [f.api, installed];
+  return { ...f, installed, path };
+}
+
+it('admits an exact registered managed component writer to ordinary quiescence without treating it as an API candidate', () => {
+  const f = managedWriterFixture(), original = readFileSync(f.path), selection = JSON.stringify(f.record);
+  expect(planDevelopmentBackup(f.deps, f.api.runtimeDigest)).toEqual([]);
+  expect(beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toEqual({ held: true, generation: 1, targets: 0 });
+  expect(f.state.State.Running).toBe(true); // The owning component stop follows preparation.
+  expect(f.calls.some(call => call.startsWith('kill ') || call.includes(' down '))).toBe(false);
+  expect(finishDevelopmentBackup(1, f.deps)).toEqual({ resumed: true, generation: 1, targets: 0 });
+  expect(readFileSync(f.path)).toEqual(original); expect(JSON.stringify(f.record)).toBe(selection);
+  expect(existsSync(f.deps.holdPath)).toBe(false);
+});
+
+it('rejects missing moved mutable and foreign managed writer authority before any backup outage', () => {
+  const mutations = [
+    (f: ReturnType<typeof managedWriterFixture>) => { f.record.session.status = 'stopped'; },
+    (f: ReturnType<typeof managedWriterFixture>) => { f.record.session.targets[0]!.mode = 'released'; },
+    (f: ReturnType<typeof managedWriterFixture>) => { f.record.session.targets[0]!.targetId = 'foreign'; },
+    (f: ReturnType<typeof managedWriterFixture>) => { f.state.Config.Labels['com.docker.compose.project'] = 'foreign'; },
+    (f: ReturnType<typeof managedWriterFixture>) => { f.state.Config.Labels['com.docker.compose.service'] = 'foreign'; },
+    (f: ReturnType<typeof managedWriterFixture>) => { f.state.Config.Labels['org.treeseed.development.target'] = 'treedx.unknown'; },
+    (f: ReturnType<typeof managedWriterFixture>) => { f.state.Image = `sha256:${'c'.repeat(64)}`; },
+    (f: ReturnType<typeof managedWriterFixture>) => { rmSync(f.path); },
+    (f: ReturnType<typeof managedWriterFixture>) => { writeFileSync(f.path, '{'); },
+    (f: ReturnType<typeof managedWriterFixture>) => { chmodSync(f.path, 0o666); },
+    (f: ReturnType<typeof managedWriterFixture>) => { rmSync(f.path); symlinkSync(join(f.dir, 'compose.json'), f.path); },
+  ];
+  for (const mutate of mutations) {
+    const f = managedWriterFixture(); mutate(f); const selection = JSON.stringify(f.record);
+    expect(() => beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toThrow();
+    expect(f.state.State.Running).toBe(true); expect(existsSync(f.deps.holdPath)).toBe(false);
+    expect(f.calls.some(call => call.startsWith('kill ') || call.includes(' down '))).toBe(false);
+    expect(JSON.stringify(f.record)).toBe(selection);
+  }
+});

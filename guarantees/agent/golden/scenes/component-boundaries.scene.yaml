@@ -502,6 +502,15 @@ workflow:
   - id: execution-reviewer-checkout-native-1
     action: { verifier: deployment.golden.execution-reviewer-checkout-native-1 }
     expect: { status: passed }
+  - id: execution-backup-managed-unit-1
+    action: { verifier: deployment.golden.execution-backup-managed-unit-1 }
+    expect: { status: passed }
+  - id: execution-backup-managed-unit-2
+    action: { verifier: deployment.golden.execution-backup-managed-unit-2 }
+    expect: { status: passed }
+  - id: execution-backup-managed-native-1
+    action: { verifier: deployment.golden.execution-backup-managed-native-1 }
+    expect: { status: passed }
   - id: execution-native-failure-custody-native-1
     action: { verifier: deployment.golden.execution-native-failure-custody-native-1 }
     expect: { status: passed }

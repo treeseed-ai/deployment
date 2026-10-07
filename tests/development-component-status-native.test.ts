@@ -1,10 +1,18 @@
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {randomBytes} from 'node:crypto';
+import {Writable} from 'node:stream';
+import {developmentSessionSchema} from '@treeseed/sdk/development';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {expect,it} from 'vitest';
 import {managedComponentStatus,renderManagedComponentOverride,waitForManagedReadiness} from '../src/supervisor/development-component-container.js';
 import {resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
+import {beginDevelopmentBackup,finishDevelopmentBackup,planDevelopmentBackup,type DevelopmentBackupDependencies} from '../src/supervisor/development-backup.js';
+import {quiescedBackup} from '../src/manager/quiesced-backup.js';
+import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
+import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
+import {component} from './fixtures.js';
 
 function fixture() {
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
@@ -14,10 +22,11 @@ function fixture() {
  const image=resolveDevelopmentRuntimeImage(docker);
  const select=(images=new Map([['treedx',image]]))=>writeFileSync(override,JSON.stringify(renderManagedComponentOverride(input,images)),{mode:0o600});
  select();
- const create=(service='treedx',sessionId=input.sessionId)=>{
+ const create=(service='treedx',sessionId=input.sessionId,writableRoot?:string)=>{
   const id=docker('/usr/bin/docker',['run','--detach','--read-only','--network','none','--cap-drop','ALL','--security-opt','no-new-privileges:true',
    '--label',`com.docker.compose.project=${project}`,'--label',`com.docker.compose.service=${service}`,
    '--label',`org.treeseed.development.session=${sessionId}`,'--label','org.treeseed.development.target=treedx.service',
+   ...(writableRoot?['--mount',`type=bind,source=${writableRoot},target=/data`]:[]),
    image,'node','-e','setInterval(()=>{},1000)']).trim();ids.push(id);return id;
  };
  const status=()=>managedComponentStatus(input,project,override,docker);
@@ -30,6 +39,49 @@ it('binds real Docker image identity to the native selected file and rejects dig
   f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
  }finally{f.close();}
+});
+
+it('native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue',async()=>{
+ const f=fixture(),key=randomBytes(32);try{
+  const data=resolve(f.root,'data'),dir=resolve(f.root,f.input.sessionId,'treedx','service');mkdirSync(data);mkdirSync(dir,{recursive:true});
+  const payload=Buffer.from('native managed state\n\0retained bytes'),file=resolve(data,'state');writeFileSync(file,payload);
+  const path=resolve(dir,'compose.json'),spec=readFileSync(f.override);writeFileSync(path,spec,{mode:0o600});
+  const id=f.create('treedx',f.input.sessionId,data),installed=component('treedx','development','d');
+  installed.runtime.compose.projectName=f.project;installed.runtime.services[0]!.composeService='treedx';
+  const session=developmentSessionSchema.parse({schemaVersion:'treeseed.development-session/v1',sessionId:f.input.sessionId,
+   actor:'native-test',hostId:'native-host',createdAt:new Date().toISOString(),status:'active',repositories:[],
+   targets:[{projectId:'treedx',targetId:'service',mode:'live',generation:1,health:'ready'}],leases:[],restoredReceiptId:null,blockers:[]});
+  const record={session,runtimes:[],routes:[],candidates:[]};
+  const deps:DevelopmentBackupDependencies={command:f.docker,records:()=>[record],components:()=>[installed],members:()=>[data.slice(1)],
+   holdPath:resolve(f.root,'hold.json'),runtimeRoot:f.root,ownerUid:process.getuid!()};
+  expect(f.status()).toMatchObject({ready:true});expect(()=>assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args))).toThrow();
+  expect(planDevelopmentBackup(deps)).toEqual([]);
+  const selection=JSON.stringify(record);
+  for(const mutate of [()=>{session.targets[0]!.mode='released';},()=>{writeFileSync(path,'not json');},
+   ()=>{writeFileSync(path,JSON.stringify(renderManagedComponentOverride(f.input,new Map([['treedx',`sha256:${'0'.repeat(64)}`]]))),{mode:0o600});}]){
+   mutate();expect(()=>beginDevelopmentBackup(1,deps)).toThrow();expect(existsSync(deps.holdPath)).toBe(false);
+   expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.State.Running}}']).trim()).toBe('true');
+   session.targets[0]!.mode='live';writeFileSync(path,spec,{mode:0o600});
+  }
+  await quiescedBackup([installed],[installed],{
+   prepare:async()=>beginDevelopmentBackup(1,deps),
+   stop:async()=>{f.docker('/usr/bin/docker',['stop','--time','1',id]);},
+   start:async()=>{f.docker('/usr/bin/docker',['start',id]);},
+   capture:async()=>{
+    assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args));
+    expect(()=>beginDevelopmentBackup(2,deps)).toThrow('interrupted');
+    const encrypted=resolve(f.root,'state.enc'),chunks:Buffer[]=[];
+    await encryptBackupStream(createReadStream(file),encrypted,1,key);
+    await decryptBackupStream(encrypted,1,key,new Writable({write(chunk:Buffer,_encoding,next){chunks.push(Buffer.from(chunk));next();}}));
+    expect(Buffer.concat(chunks)).toEqual(payload);expect(readFileSync(file)).toEqual(payload);
+   },
+  });
+  expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.State.Running}}']).trim()).toBe('false');
+  expect(finishDevelopmentBackup(1,deps)).toEqual({resumed:true,generation:1,targets:0});
+  f.docker('/usr/bin/docker',['start',id]);expect(f.status()).toMatchObject({ready:true});
+  expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.Image}}']).trim()).toBe(f.image);
+  expect(readFileSync(path)).toEqual(spec);expect(JSON.stringify(record)).toBe(selection);expect(existsSync(deps.holdPath)).toBe(false);
+ }finally{key.fill(0);f.close();expect(existsSync(f.root)).toBe(false);}
 });
 it('rejects real duplicate and incorrectly owned Docker instances without changing selection',()=>{
  const f=fixture();try{

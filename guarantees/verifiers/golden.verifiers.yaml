@@ -1,6 +1,21 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.execution-backup-managed-unit-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-backup.test.ts
+    testName: admits an exact registered managed component writer to ordinary quiescence without treating it as an API candidate
+  deployment.golden.execution-backup-managed-unit-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-backup.test.ts
+    testName: rejects missing moved mutable and foreign managed writer authority before any backup outage
+  deployment.golden.execution-backup-managed-native-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-component-status-native.test.ts
+    testName: native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue
   deployment.golden.architecture-publication-unit-1:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
