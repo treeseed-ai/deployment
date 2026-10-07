@@ -15,6 +15,7 @@ import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-
 import {component} from './fixtures.js';
 
 function fixture(timings: {operation:string;milliseconds:number}[] = []) {
+ const started=Date.now()/1000;
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
  const input={sessionId:`dev-native-${process.pid}`,projectId:'treedx' as const,targetId:'service' as const,action:'status' as const};
  const override=resolve(root,'compose.json'),ids:string[]=[];
@@ -35,6 +36,26 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  };
  const status=()=>managedComponentStatus(input,project,override,docker);
  return {root,project,input,override,image,ids,docker,create,select,status,
+  failureLifecycle(){
+   // Failure-only native daemon observations remain scoped to this allocation.
+   // The original watchdog and every status/cleanup assertion remain unchanged.
+   const until=String(Date.now()/1000);
+   return ids.map(id=>{
+    try{
+     const bytes=execFileSync('/usr/bin/docker',['events','--since',String(started),'--until',until,
+      '--filter','type=container','--filter',`container=${id}`,
+      '--format','{"action":{{json .Action}},"timeNano":{{json .TimeNano}}}'],
+      {encoding:'utf8',timeout:10_000,stdio:['ignore','pipe','pipe']});
+     return bytes.trim().split('\n').filter(Boolean).map(line=>{
+      const value:unknown=JSON.parse(line);
+      if(!value||typeof value!=='object'||!('action' in value)||typeof value.action!=='string'
+       ||!('timeNano' in value)||typeof value.timeNano!=='number'||!Number.isFinite(value.timeNano))
+       throw new Error('Malformed native lifecycle observation.');
+      return {action:value.action,elapsedMs:Math.round(value.timeNano/1e6-started*1000)};
+     });
+    }catch{return {unavailable:true};}
+   });
+  },
   close(){try{for(const id of ids)docker('/usr/bin/docker',['rm','--force',id]);}finally{rmSync(root,{recursive:true,force:true});}}};
 }
 
@@ -42,8 +63,9 @@ it('binds real Docker image identity to the native selected file and rejects dig
  const timings:{operation:string;milliseconds:number}[]=[];
  // Preserve the original failure and watchdog. Observe only Docker operation
  // names and native elapsed time, never arguments, output or credentials.
- onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify(timings)}`);});
- const f=fixture(timings);try {
+ let f:ReturnType<typeof fixture>|undefined;
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null})}`);});
+ f=fixture(timings);try {
   f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
  }finally{f.close();}
