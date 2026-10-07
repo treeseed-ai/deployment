@@ -49,6 +49,8 @@ it.each(['missing', 'environment', 'origin', 'key', 'certificate'] as const)('re
 it('redacts provider errors without treating them as success', async () => {
   mocks.ensure.mockRejectedValue(new Error('private-test-token'));
   await expect(createManagedIdentityApplications(options).ensure(application)).rejects.toThrow('Managed Identity application reconciliation failed');
+  await expect(createManagedIdentityApplications(options).ensure(application)).rejects.toThrow(
+    /^Managed Identity application reconciliation failed; verify custody and authoritative client configuration \[client-registration\]$/u);
 });
 
 it('returns only the authoritative workload subject and rejects redirected read-back', async () => {

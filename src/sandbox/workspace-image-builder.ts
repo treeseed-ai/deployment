@@ -40,14 +40,17 @@ export async function runWorkspaceGuest(configuration: SandboxBrokerConfiguratio
 			env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } })).stdout;
 	let executionError: unknown;
 	try { await ctr(args); } catch (error) { executionError = error; }
-	finally {
-		await ctr(['tasks', 'kill', '--signal', 'SIGKILL', input.id]).catch(() => undefined);
-		await ctr(['tasks', 'delete', '--force', input.id]).catch(() => undefined);
-		await ctr(['containers', 'delete', input.id]).catch(() => undefined);
-		for (const kind of ['tasks', 'containers']) {
-			if ((await ctr([kind, 'list', '--quiet'])).split(/\s+/u).includes(input.id)) throw new Error('Source guest teardown is uncertain; storage is quarantined.');
-		}
+	const absent = async () => (await Promise.all(['tasks', 'containers'].map(kind => ctr([kind, 'list', '--quiet']))))
+		.every(stdout => !stdout.split(/\s+/u).includes(input.id));
+	// A successful --rm owns teardown. Independently read both inventories before
+	// avoiding redundant kill/delete RPCs; command success alone never proves absence.
+	if (!executionError) {
+		try { if (await absent()) return; } catch (error) { executionError = error; }
 	}
+	await ctr(['tasks', 'kill', '--signal', 'SIGKILL', input.id]).catch(() => undefined);
+	await ctr(['tasks', 'delete', '--force', input.id]).catch(() => undefined);
+	await ctr(['containers', 'delete', input.id]).catch(() => undefined);
+	if (!await absent()) throw new Error('Source guest teardown is uncertain; storage is quarantined.');
 	return executionError;
 }
 function safeBuilderMessage(value: unknown) {

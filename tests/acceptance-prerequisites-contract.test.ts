@@ -127,6 +127,22 @@ it('capacity execution packaging binds one exact SDK dependency to its original 
   for(const [path,bytes] of inputs)expect(readFileSync(path)).toEqual(bytes);
 });
 
+it('every native execution workflow installs the same declared exact SDK before compiling its owning acceptance sources', () => {
+  const dependency=JSON.parse(readFileSync('package.json','utf8')).dependencies['@treeseed/sdk'] as string;
+  const commit=dependency.split('#').at(-1)!;
+  expect(commit).toMatch(/^[a-f0-9]{40}$/u);
+  const workflows=['verify.yml','development-backup.yml','identity-acceptance.yml','postgres-transfer.yml'];
+  for(const name of workflows){
+    const path=resolve('.github/workflows',name),bytes=readFileSync(path);
+    const workflow=parse(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string}[]}>};
+    const installers=Object.values(workflow.jobs).flatMap(job=>job.steps)
+      .filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
+    expect(installers.length,name).toBeGreaterThan(0);
+    expect(installers.map(step=>step.uses),name).toEqual(installers.map(()=>`treeseed-ai/sdk/.github/actions/install-exact-sdk@${commit}`));
+    expect(readFileSync(path)).toEqual(bytes);
+  }
+});
+
 it('native capacity execution package install retains exact held SDK bytes and requires one valid tree and nonempty SBOM before scene admission', () => {
   const root=mkdtempSync(resolve(tmpdir(),'deployment-capacity-sdk-'));
   const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
