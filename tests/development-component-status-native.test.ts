@@ -1,4 +1,4 @@
-import {execFileSync} from 'node:child_process';
+import {execFileSync,spawn} from 'node:child_process';
 import {createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {Writable} from 'node:stream';
@@ -80,16 +80,36 @@ function fixture(timings: {operation:string;milliseconds:number}[] = [], observe
   close(){try{for(const id of ids)docker('/usr/bin/docker',['rm','--force',id]);}finally{rmSync(root,{recursive:true,force:true});}}};
 }
 
-it('binds real Docker image identity to the native selected file and rejects digest drift',({signal})=>{
+it('binds real Docker image identity to the native selected file and rejects digest drift',async({signal})=>{
  const timings:{operation:string;milliseconds:number}[]=[];
+ // Docker's existing local pprof endpoint observes the actual daemon while
+ // this worker is inside its synchronous native create. No daemon config,
+ // restart, signal, image preparation or container warm-up is performed.
+ const sampler=spawn('/usr/bin/curl',['--silent','--fail','--max-time','4','--unix-socket','/var/run/docker.sock',
+  '--output','/dev/null','http://localhost/debug/pprof/profile?seconds=2','--next',
+  '--silent','--fail','--max-time','4','--unix-socket','/var/run/docker.sock',
+  'http://localhost/debug/pprof/goroutine?debug=2'],{stdio:['ignore','pipe','pipe']});
+ const chunks:Buffer[]=[];let samplerFailed=false;
+ sampler.stdout.on('data',(bytes:Buffer)=>chunks.push(Buffer.from(bytes)));sampler.stderr.resume();
+ const sampled=new Promise<void>(done=>{
+  sampler.once('error',()=>{samplerFailed=true;done();});
+  sampler.once('close',code=>{samplerFailed=code!==0;done();});
+ });
+ const creationStacks=()=>samplerFailed?null:Buffer.concat(chunks).toString('utf8').split('\n\n')
+  .filter(block=>/\.(?:containerCreate|postContainersCreate)\(/u.test(block))
+  .map(block=>block.split('\n').filter(line=>/^(?:github\.com\/|go\.opentelemetry\.io\/|google\.golang\.org\/|runtime\.|os[./]|sync\.|syscall\.|internal\/|net[./])/u.test(line))
+   .map(line=>line.slice(0,line.lastIndexOf('('))));
  // Preserve the original failure and watchdog. Observe only Docker operation
  // names and native elapsed time, never arguments, output or credentials.
  let f:ReturnType<typeof fixture>|undefined;
- onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null})}`);});
- f=fixture(timings,true);try {
+ onTestFailed(async()=>{await sampled;throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null,creationStacks:creationStacks()})}`);});
+ try {
+  f=fixture(timings,true);
   f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
- }finally{f.close();}
+ }finally{
+  try{f?.close();}finally{sampler.kill('SIGTERM');await sampled;}
+ }
 });
 
 it('native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue',async()=>{
