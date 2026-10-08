@@ -886,3 +886,8 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: native original Vitest retains controlled phase criteria alongside real assertion and watchdog failures without widening the test allowance
+  deployment.golden.component-image-writeback-observation-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: retains exact public writeback counters and leaves unreadable malformed or duplicate observations unknown
