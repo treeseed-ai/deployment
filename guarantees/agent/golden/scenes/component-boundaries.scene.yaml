@@ -481,6 +481,12 @@ workflow:
   - id: execution-cold-primary-unit-3
     action: { verifier: deployment.golden.execution-cold-primary-unit-3 }
     expect: { status: passed }
+  - id: execution-cold-cgroup-unit-1
+    action: { verifier: deployment.golden.execution-cold-cgroup-unit-1 }
+    expect: { status: passed }
+  - id: execution-publication-replay-unit-1
+    action: { verifier: deployment.golden.execution-publication-replay-unit-1 }
+    expect: { status: passed }
   - id: execution-sdk-closure-unit-1
     action: { verifier: deployment.golden.execution-sdk-closure-unit-1 }
     expect: { status: passed }

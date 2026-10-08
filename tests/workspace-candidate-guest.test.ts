@@ -112,6 +112,7 @@ describe('independent source candidate verifier', () => {
           const actual = observe(kind);
           for (const resource of [id, `${id}-ready`, `${id}-source`, `${id}-candidate`]) expect(actual).not.toContain(resource);
         }
+        expect(existsSync(`/sys/fs/cgroup/treeseed-sandboxes.slice/treeseed-source-${id}.scope`)).toBe(false);
       }
       stopped = true;
       enter('READBACK');
@@ -193,8 +194,10 @@ describe('independent source candidate verifier', () => {
         .resolves.toMatchObject({ commit: merged, ancestry: true });
     } finally { f.cleanup(); }
   });
-  it('native verified simulation publication preserves exact candidate bytes through overlapping replay and independent rebuild', async () => {
+  it('native verified simulation publication preserves exact candidate bytes through overlapping replay and independent rebuild', async ({signal}) => {
     const f = fixture(), storage = join(f.directory, 'manager');
+    let phase = 'INPUT';
+    onTestFailed(() => { throw new Error(`ACCEPTANCE_NATIVE_SIMULATION_PUBLICATION_${phase}_${signal.aborted ? 'WATCHDOG' : 'FAILURE'}: original failure retained`); });
     vi.resetModules();
     // Only the fixed private storage location is an allocated test INPUT.
     // The owning publisher, source transport, Git and filesystem remain real.
@@ -211,21 +214,32 @@ describe('independent source candidate verifier', () => {
       }, repository: { provider: 'github', owner: 'treeseed-ai', name: 'sdk', cloneUrl: 'https://github.com/treeseed-ai/sdk.git', ref: 'staging' }, credential: null };
       const before = structuredClone(response), base = f.git(['show', `${f.input.baseCommit}:code.ts`]);
       const candidateBytes = readFileSync(join(f.root, 'code.ts'));
+      phase = 'VERIFY';
       await verifySourceCandidate(f.input);
       const bundle = readFileSync(f.input.output), input = { assignmentId: 'assignment', attempt: 1, commit: f.input.commit, bundlePath: f.input.output, response };
       const expected = { kind: 'git', repository: 'treeseed-ai/sdk', commit: f.input.commit, branch: response.authorization.publicationRef };
+      phase = 'PUBLISH';
       expect(await publishVerifiedSourceBranch(input)).toEqual(expected);
       const repository = simulationSourceRepository(storage, response.authorization.source);
       const git = (args: string[]) => execFileSync('/usr/bin/git', ['--git-dir', repository, ...args],
         { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
       const refs = git(['for-each-ref', '--format=%(refname) %(objectname)']);
       expect(refs).toBe(`refs/heads/${expected.branch} ${expected.commit}\n`);
+      phase = 'REPLAY';
       const attempts = await Promise.allSettled([publishVerifiedSourceBranch(input), publishVerifiedSourceBranch(input)]);
       expect(attempts).toEqual([{ status: 'fulfilled', value: expected }, { status: 'fulfilled', value: expected }]);
       expect(git(['for-each-ref', '--format=%(refname) %(objectname)'])).toBe(refs);
       expect(git(['rev-parse', '--verify', `refs/heads/${expected.branch}^{commit}`]).trim()).toBe(f.input.commit);
       expect(Buffer.from(git(['show', `${f.input.commit}:code.ts`]))).toEqual(candidateBytes);
       expect(git(['merge-base', '--is-ancestor', f.input.baseCommit, f.input.commit])).toBe('');
+      phase = 'CONFIG_LOCK_REPLAY';
+      const config = readFileSync(join(repository, 'config')), lock = Buffer.from('retained unrelated native writer\n');
+      writeFileSync(join(repository, 'config.lock'), lock, {flag:'wx'});
+      expect(await publishVerifiedSourceBranch(input)).toEqual(expected);
+      expect(readFileSync(join(repository, 'config'))).toEqual(config);
+      expect(readFileSync(join(repository, 'config.lock'))).toEqual(lock);
+      rmSync(join(repository, 'config.lock'));
+      phase = 'REBUILD';
       const rebuilt = await buildSourceWorkspace({ root: join(f.directory, 'independent-review'), bundle: f.input.output, commit: f.input.commit, parentCommit: null });
       expect(rebuilt).toMatchObject({ commit: f.input.commit, clean: true, objectClosure: true });
       expect(readFileSync(join(f.directory, 'independent-review/code.ts'))).toEqual(candidateBytes);
