@@ -122,6 +122,12 @@ workflow:
   - id: provider-claims-invalid
     action: { verifier: deployment.golden.provider-claims-invalid }
     expect: { status: passed }
+  - id: provider-claims-unresolved-unit
+    action: { verifier: deployment.golden.provider-claims-unresolved-unit }
+    expect: { status: passed }
+  - id: provider-claims-unresolved-native
+    action: { verifier: deployment.golden.provider-claims-unresolved-native }
+    expect: { status: passed }
   - id: provider-status-build
     action: { verifier: deployment.golden.provider-status-build }
     expect: { status: passed }
@@ -534,6 +540,9 @@ workflow:
     expect: { status: passed }
   - id: execution-workflow-sdk-unit
     action: { verifier: deployment.golden.execution-workflow-sdk-unit }
+    expect: { status: passed }
+  - id: execution-selected-failure-evidence-native-1
+    action: { verifier: deployment.golden.execution-selected-failure-evidence-native-1 }
     expect: { status: passed }
   - id: execution-native-failure-custody-native-1
     action: { verifier: deployment.golden.execution-native-failure-custody-native-1 }

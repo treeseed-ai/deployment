@@ -221,6 +221,16 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/development-provider-claims.test.ts
     testName: fails closed on invalid claim inventory and named fields without ignoring earlier active claims
+  deployment.golden.provider-claims-unresolved-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: retains unresolved operator custody as inactive without hiding ready running or recovery claims
+  deployment.golden.provider-claims-unresolved-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-claims.test.ts
+    testName: native independent claim reader preserves unresolved bytes and exact active inventory without repair
   deployment.golden.provider-status-build:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
@@ -881,6 +891,11 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: every native execution workflow installs the same declared exact SDK before compiling its owning acceptance sources
+  deployment.golden.execution-selected-failure-evidence-native-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native pinned Reviewer retains bounded owning failure evidence after fresh complete prerequisites without exposing assertion values
   deployment.golden.execution-native-failure-custody-native-1:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

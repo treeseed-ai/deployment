@@ -91,9 +91,11 @@ export function activeAgentClaims(stateRoot: string) {
 	return state.claims.filter((claim): claim is { id: string; status: string } => {
 		if (!claim || typeof claim !== 'object') throw new Error('Provider-local capacity claim is invalid.');
 		const value = claim as { id?: unknown; status?: unknown };
-		if (typeof value.id !== 'string' || !['polling', 'ready', 'running', 'recovery'].includes(String(value.status)))
+		if (typeof value.id !== 'string' || !['polling', 'ready', 'running', 'recovery', 'unresolved'].includes(String(value.status)))
 			throw new Error('Provider-local capacity claim is invalid.');
-		return value.status !== 'polling';
+		// The owning provider retains unresolved usage custody and period holds;
+		// this reader only observes whether a live execution slot blocks handoff.
+		return value.status !== 'polling' && value.status !== 'unresolved';
 	});
 }
 
