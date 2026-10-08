@@ -9,6 +9,7 @@ import { loadHostConfiguration } from '../core/configuration.js';
 import { loadActiveComponents } from '../manager/current-state.js';
 import { DevelopmentSessionStore, type ManagedDevelopmentSession } from '../manager/development-sessions.js';
 import { backupConfiguration } from './backup-configuration.js';
+import { inspectBackupWriters } from './backup-writers.js';
 import { requiredBackupState } from './backup-coverage.js';
 import { drainCandidateRunner, drainReleasedRunner } from './development-runner.js';
 import type { CommandRunner } from './compose-runtime.js';
@@ -128,11 +129,12 @@ function validateManagedWriter(deps: DevelopmentBackupDependencies, record: Mana
 export function planDevelopmentBackup(deps: DevelopmentBackupDependencies, targetApiRuntimeDigest?: string) {
   const records = deps.records(), components = deps.components(), api = components.find(item => item.componentId === 'api');
   const roots = deps.members().map(member => resolve('/', member));
-  const ids = String(deps.command('/usr/bin/docker', ['ps', '--quiet'])).trim().split(/\s+/u).filter(Boolean);
+  const inventory = inspectBackupWriters(args => String(deps.command('/usr/bin/docker', args)), '{"Id":{{json .Id}},"Name":{{json .Name}},"Image":{{json .Image}},"Config":{"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}}},"Mounts":{{json .Mounts}}}')
+    .map(([id, value]) => ({ id, state: containerSchema.parse(value) }));
+  if (new Set(inventory.map(item => item.state.Id)).size !== inventory.length)
+    throw new Error('Backup writer identity is duplicated.');
   const entries: Entry[] = [];
-  for (const id of ids) {
-    if (!/^[a-f0-9]{12,64}$/u.test(id)) throw new Error('Backup writer inventory is invalid.');
-    const state = containerSchema.parse(JSON.parse(String(deps.command('/usr/bin/docker', ['inspect', '--format', '{"Id":{{json .Id}},"Name":{{json .Name}},"Image":{{json .Image}},"Config":{"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}}},"Mounts":{{json .Mounts}}}', id]))));
+  for (const { id, state } of inventory) {
     if (!state.Id.startsWith(id)) throw new Error('Backup writer identity changed.');
     const writes = state.Mounts.some(mount => {
       if (!mount.RW) return false;
