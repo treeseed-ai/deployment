@@ -27,12 +27,27 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const image=resolveDevelopmentRuntimeImage(docker);
  const coldReadiness=()=>{
   let apparmorLoaded:boolean|null=null,imageUnpacked:boolean|null=null,driver:string|null=null;
+  let serverVersion:string|null=null,dockerRoot:string|null=null;
+  const filesystem=(path:string)=>{
+   try{
+    const value:unknown=JSON.parse(execFileSync('/usr/bin/findmnt',['--json','--target',path,'--output','SOURCE,FSTYPE,MAJ:MIN'],
+     {encoding:'utf8',timeout:1000,stdio:['ignore','pipe','pipe']}));
+    if(!value||typeof value!=='object'||!('filesystems' in value)||!Array.isArray(value.filesystems))return null;
+    return value.filesystems.map((entry:unknown)=>{
+     if(!entry||typeof entry!=='object')return null;
+     return Object.fromEntries(['source','fstype','maj:min'].flatMap(key=>
+      key in entry&&typeof entry[key as keyof typeof entry]==='string'?[[key,entry[key as keyof typeof entry]]]:[]));
+    });
+   }catch{return null;}
+  };
   try{apparmorLoaded=readFileSync('/sys/kernel/security/apparmor/profiles','utf8').split('\n').includes('docker-default (enforce)');}catch{/* unavailable, not false */}
   try{
    // ctr check is read-only: it reports local content and unpacked snapshots,
    // never unpacks an image or starts a container to warm the measured path.
-   const info:unknown=JSON.parse(docker('/usr/bin/docker',['info','--format','{"driver":{{json .Driver}},"containerd":{{json .Containerd}}}']));
+   const info:unknown=JSON.parse(docker('/usr/bin/docker',['info','--format','{"driver":{{json .Driver}},"containerd":{{json .Containerd}},"serverVersion":{{json .ServerVersion}},"dockerRoot":{{json .DockerRootDir}}}']));
    if(info&&typeof info==='object'&&'driver' in info&&typeof info.driver==='string')driver=info.driver;
+   if(info&&typeof info==='object'&&'serverVersion' in info&&typeof info.serverVersion==='string')serverVersion=info.serverVersion;
+   if(info&&typeof info==='object'&&'dockerRoot' in info&&typeof info.dockerRoot==='string'&&info.dockerRoot.startsWith('/'))dockerRoot=info.dockerRoot;
    const runtime=info&&typeof info==='object'&&'containerd' in info?info.containerd:null;
    if(driver==='overlayfs'&&runtime&&typeof runtime==='object'&&'Address' in runtime&&runtime.Address==='/run/containerd/containerd.sock'
     &&'Namespaces' in runtime&&runtime.Namespaces&&typeof runtime.Namespaces==='object'
@@ -42,7 +57,14 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
      .trim().split('\n').includes('docker.io/library/node:24-bookworm-slim');
    }
   }catch{/* unavailable, not false */}
-  return {driver,apparmorLoaded,imageUnpacked};
+  // These are post-failure filesystem/version facts, NOT attribution of the
+  // failed request's wait. The default containerd path is not a claimed config.
+  let dirtyKiB:string|null=null,writebackKiB:string|null=null;
+  try{const memory=readFileSync('/proc/meminfo','utf8');dirtyKiB=/^Dirty:\s+(\d+) kB$/mu.exec(memory)?.[1]??null;
+   writebackKiB=/^Writeback:\s+(\d+) kB$/mu.exec(memory)?.[1]??null;}catch{/* unavailable */}
+  return {driver,apparmorLoaded,imageUnpacked,serverVersion,dockerRoot,
+   dockerFilesystem:dockerRoot?filesystem(dockerRoot):null,
+   containerdDefaultFilesystem:filesystem('/var/lib/containerd'),fixtureFilesystem:filesystem(root),dirtyKiB,writebackKiB};
  };
  const select=(images=new Map([['treedx',image]]))=>writeFileSync(override,JSON.stringify(renderManagedComponentOverride(input,images)),{mode:0o600});
  select();
