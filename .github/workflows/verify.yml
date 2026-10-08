@@ -67,7 +67,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: treeseed-ai/reviewer
-          ref: 44c73525f80b976e46106b4cadbc38e8755b9dbb
+          ref: 1e3019fbf24163116222dc96a70c126bf3488389
           path: .treeseed/tools/reviewer
       - name: Build original capacity host installer
         run: npm run build:deb
