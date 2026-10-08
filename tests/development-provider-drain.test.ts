@@ -33,7 +33,7 @@ it('restores admissions on unreadable claim syntax or invalid inventory',()=>{
   }
 });
 it('drains empty and polling inventory without invoking restoration',()=>{
-  for(const value of [inventory('polling'),JSON.stringify({schemaVersion:1,claims:[]})]) {
+  for(const value of [inventory('polling'),inventory('unresolved'),JSON.stringify({schemaVersion:1,claims:[]})]) {
     const f=fixture(value);f.run(()=>{throw new Error('unexpected restore');});
     expect(f.states).toEqual({manager:false,runner:false});expect(f.effects).toEqual(['stop:manager','stop:runner']);
   }

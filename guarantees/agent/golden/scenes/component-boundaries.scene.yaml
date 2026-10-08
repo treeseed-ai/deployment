@@ -122,6 +122,12 @@ workflow:
   - id: provider-claims-invalid
     action: { verifier: deployment.golden.provider-claims-invalid }
     expect: { status: passed }
+  - id: provider-claims-unresolved-unit
+    action: { verifier: deployment.golden.provider-claims-unresolved-unit }
+    expect: { status: passed }
+  - id: provider-claims-unresolved-native
+    action: { verifier: deployment.golden.provider-claims-unresolved-native }
+    expect: { status: passed }
   - id: provider-status-build
     action: { verifier: deployment.golden.provider-status-build }
     expect: { status: passed }
