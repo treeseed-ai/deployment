@@ -48,8 +48,8 @@ process.stdout.write(JSON.stringify(activeAgentClaims(process.argv[2])));`);
     writeFileSync(path,JSON.stringify({schemaVersion:1,claims:[unresolved,{id:'poll',status:'polling'},...active]}));
     const bytes=readFileSync(path);
     const actual=spawnSync(process.execPath,['--import','tsx',reader,root],{encoding:'utf8',timeout:4_000});
-    expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status).toBe(0);
-    expect(actual.stderr).toBe('');expect(JSON.parse(actual.stdout)).toEqual(active);
+    expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.stderr).toBe('');
+    expect(actual.status).toBe(0);expect(JSON.parse(actual.stdout)).toEqual(active);
     expect(readFileSync(path)).toEqual(bytes);
   }
   writeFileSync(path,JSON.stringify({schemaVersion:1,claims:[unresolved,{id:'bad',status:'unknown'}]}));
