@@ -82,9 +82,9 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
       ['vitest.config.ts',"export default {test:{include:['tests/**/*.test.ts'],fileParallelism:false,maxWorkers:1}};\n"],
       ['treeseed.package.yaml',JSON.stringify({development:{project:{id:'native-evidence'},targets:[{id:'runtime',dependencies:[]}]}})],
       ['source.txt',' exact native evidence é\n'],
-      ['tests/unit.test.ts',"import {it,expect} from 'vitest';import {readFileSync,appendFileSync} from 'node:fs';it('exact native source',()=>{expect(readFileSync('source.txt','utf8')).toBe(' exact native evidence é\\n');appendFileSync('.treeseed/observations','unit\\n');});\n"],
       ['tests/integration.test.ts',[
         "import {it,expect} from 'vitest';import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';",
+        "it('exact native source',()=>{expect(readFileSync('source.txt','utf8')).toBe(' exact native evidence é\\n');appendFileSync('.treeseed/observations','unit\\n');});",
         "it('actual controlled native failure',()=>{",
         " const prior=existsSync('.treeseed/native-count')?Number(readFileSync('.treeseed/native-count','utf8')):0;writeFileSync('.treeseed/native-count',String(prior+1));appendFileSync('.treeseed/observations','native\\n');",
         " if(prior>0&&existsSync('.treeseed/fail-selected'))throw new Error('ACCEPTANCE_NATIVE_EVIDENCE: controlled-private-value');",
@@ -94,7 +94,7 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
       ['guarantees/proof.guarantee.yaml',JSON.stringify({id:'proof',ownerPackage:'@fixture/native-evidence',scene:{required:true,manifest:'guarantees/proof.scene.yaml'}})],
       ['guarantees/proof.scene.yaml',JSON.stringify({scope:'local-component-tests',workflow:['proof.unit','proof.native'].map(ref=>({id:ref,action:{verifier:ref},expect:{status:'passed'}}))})],
       ['guarantees/verifiers/proof.verifiers.yaml',JSON.stringify({verifiers:{
-        'proof.unit':{kind:'vitestCase',ownerPackage:'@fixture/native-evidence',testFile:'tests/unit.test.ts',testName:'exact native source'},
+        'proof.unit':{kind:'vitestCase',ownerPackage:'@fixture/native-evidence',testFile:'tests/integration.test.ts',testName:'exact native source'},
         'proof.native':{kind:'vitestCase',ownerPackage:'@fixture/native-evidence',testFile:'tests/integration.test.ts',testName:'actual controlled native failure'},
       }})],
     ]);
@@ -118,7 +118,7 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     const evidence=JSON.parse(readFileSync(resolve(output,failed.report.results[0]!.steps[1]!.evidence[0]!),'utf8'));
     expect(evidence).toMatchObject({passed:false,exitCode:1,signal:null,processErrorCode:null,testFile:'tests/integration.test.ts'});
     expect(evidence.checks).toHaveLength(1);expect(evidence.checks[0],JSON.stringify(evidence.checks[0])).toHaveProperty('failure');
-    expect(evidence.checks[0]).toMatchObject({title:'actual controlled native failure',status:'failed',failure:{code:'Error',file:'tests/integration.test.ts',line:4,criterion:'ACCEPTANCE_NATIVE_EVIDENCE'}});
+    expect(evidence.checks[0]).toMatchObject({title:'actual controlled native failure',status:'failed',failure:{code:'Error',file:'tests/integration.test.ts',line:5,criterion:'ACCEPTANCE_NATIVE_EVIDENCE'}});
     expect(evidence.checks[0].failure.column).toBeGreaterThan(0);
     expect(JSON.stringify(evidence)).not.toMatch(/controlled-private-value|failureMessages|\/tmp\//u);
     expect(readFileSync(resolve(root,'.treeseed/observations'),'utf8').trim().split('\n').sort()).toEqual(['native','native','unit','unit']);
