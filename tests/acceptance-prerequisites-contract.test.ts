@@ -8,6 +8,19 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
 
+it('capacity manager owns one persistent bounded writeback policy without prewarming or flushing the cold path', () => {
+  const policy=readFileSync('deploy/capacity/writeback.conf','utf8');
+  expect(policy.split('\n').filter(line=>line&&!line.startsWith('#'))).toEqual([
+    'vm.dirty_background_bytes = 16777216','vm.dirty_bytes = 67108864',
+  ]);
+  const packaging=readFileSync('scripts/package-deb.ts','utf8');
+  expect(packaging.match(/install\('deploy\/capacity\/writeback\.conf', resolve\(stage, 'usr\/lib\/sysctl\.d\/70-treeseed-capacity-writeback\.conf'\)\)/gu)).toHaveLength(1);
+  const postinstall=readFileSync('debian/manager/postinst','utf8');
+  expect(postinstall.match(/\/usr\/sbin\/sysctl --load \/usr\/lib\/sysctl\.d\/70-treeseed-capacity-writeback\.conf/gu)).toHaveLength(1);
+  expect(postinstall).not.toMatch(/drop_caches|dirty_expire|dirty_writeback|\bsync\b/u);
+  expect(policy).not.toMatch(/ratio|volatile|drop_caches/u);
+});
+
 it('native original Vitest retains controlled phase criteria alongside real assertion and watchdog failures without widening the test allowance', () => {
   const root=mkdtempSync(resolve(tmpdir(),'deployment-native-failure-'));
   try {

@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+/usr/sbin/sysctl --load /usr/lib/sysctl.d/70-treeseed-capacity-writeback.conf
 getent group treeseed-manager >/dev/null || addgroup --system treeseed-manager
 getent passwd treeseed-manager >/dev/null || adduser --system --ingroup treeseed-manager --home /var/lib/treeseed/manager --no-create-home treeseed-manager
 getent group treeseed-operators >/dev/null || addgroup --system treeseed-operators
