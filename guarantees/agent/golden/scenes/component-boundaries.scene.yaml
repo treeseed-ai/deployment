@@ -541,6 +541,9 @@ workflow:
   - id: execution-workflow-sdk-unit
     action: { verifier: deployment.golden.execution-workflow-sdk-unit }
     expect: { status: passed }
+  - id: execution-selected-failure-evidence-native-1
+    action: { verifier: deployment.golden.execution-selected-failure-evidence-native-1 }
+    expect: { status: passed }
   - id: execution-native-failure-custody-native-1
     action: { verifier: deployment.golden.execution-native-failure-custody-native-1 }
     expect: { status: passed }
