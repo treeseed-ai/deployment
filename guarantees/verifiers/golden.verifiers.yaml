@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.execution-backup-batch-unit-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/backup-writers.test.ts
+    testName: inspects every fresh backup writer inventory in one batch and retains later writer exclusion
+  deployment.golden.execution-backup-batch-unit-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/backup-writers.test.ts
+    testName: denies duplicated invalid missing extra and malformed batch writer observations without changing inputs
+  deployment.golden.execution-backup-batch-unit-3:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-backup.test.ts
+    testName: plans all fresh development writer identities in one batch without caching a later changed writer
+  deployment.golden.execution-backup-batch-unit-4:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-backup.test.ts
+    testName: denies incomplete duplicate foreign and unavailable development batch inventory before any writer mutation
   deployment.golden.execution-backup-managed-unit-1:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
