@@ -219,6 +219,8 @@ describe('independent source candidate verifier', () => {
       const bundle = readFileSync(f.input.output), input = { assignmentId: 'assignment', attempt: 1, commit: f.input.commit, bundlePath: f.input.output, response };
       const expected = { kind: 'git', repository: 'treeseed-ai/sdk', commit: f.input.commit, branch: response.authorization.publicationRef };
       phase = 'PUBLISH';
+      expect(await Promise.allSettled([publishVerifiedSourceBranch(input), publishVerifiedSourceBranch(input)]))
+        .toEqual([{status:'fulfilled',value:expected},{status:'fulfilled',value:expected}]);
       expect(await publishVerifiedSourceBranch(input)).toEqual(expected);
       const repository = simulationSourceRepository(storage, response.authorization.source);
       const git = (args: string[]) => execFileSync('/usr/bin/git', ['--git-dir', repository, ...args],

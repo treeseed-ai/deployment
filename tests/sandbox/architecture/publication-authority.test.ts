@@ -26,7 +26,8 @@ describe('attached source publication authority boundary (UNIT)', () => {
 				calls.length=0; observed=conflicting?'c'.repeat(40):commit;
 				if (conflicting) await expect(publishVerifiedSourceBranch(input)).rejects.toThrow('another commit');
 				else expect(await publishVerifiedSourceBranch(input)).toEqual({kind:'git',repository:'treeseed-ai/sdk',commit,branch:f.response.authorization.publicationRef});
-				expect(calls.filter(call=>call.repository===repository)).toEqual([{repository,args:['for-each-ref','--format=%(objectname)',`refs/heads/${f.response.authorization.publicationRef}`]}]);
+				expect(calls.filter(call=>call.repository===repository)).toEqual([{repository,args:['for-each-ref','--format=%(objectname)',`refs/heads/${f.response.authorization.publicationRef}`]},
+					...(!conflicting ? [{repository,args:['rev-parse','--verify',`refs/heads/${f.response.authorization.publicationRef}^{commit}`]}] : [])]);
 				expect(await readFile(join(repository,'config'))).toEqual(config);
 				expect(await readdir(join(root,'publications'))).toEqual([]); expect(input).toEqual(held);
 			}
