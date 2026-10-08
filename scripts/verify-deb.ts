@@ -58,6 +58,7 @@ for (const component of selected) for (const declared of component.packages) {
 const root = mkdtempSync(resolve(tmpdir(), 'treeseed-deb-proof-'));
 try {
 	for (const name of ['treeseed', 'treeseed-host-runtime', 'treeseed-manager', 'treeseed-sdk', 'treeseed-cli', 'treeseed-release-catalog', ...(aptSuite === 'development' ? ['treeseed-release-catalog-development'] : []), ...componentPackages]) execFileSync('dpkg-deb', ['--extract', resolve(output, packageFile(name)), root]);
+	if (!readFileSync(resolve(root, 'usr/lib/sysctl.d/70-treeseed-capacity-writeback.conf')).equals(readFileSync('deploy/capacity/writeback.conf'))) throw new Error('Capacity manager packaged writeback policy differs from the exact candidate.');
 	if (existsSync(resolve(root,'usr/share/treeseed/components/provider-custody-maintenance'))) throw new Error('Retired provider maintenance payload must not be packaged.');
 	for (const path of ['lib/node_modules', 'include', 'share', 'bin/npm', 'bin/npx', 'bin/corepack']) if (existsSync(resolve(root, 'usr/lib/treeseed/runtime', path))) throw new Error(`Host runtime contains development-only content: ${path}`);
 	if (!existsSync(resolve(root, 'usr/lib/treeseed/runtime/LICENSE'))) throw new Error('Host runtime license is missing.');
