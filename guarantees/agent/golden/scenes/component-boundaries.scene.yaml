@@ -538,3 +538,12 @@ workflow:
   - id: execution-native-failure-custody-native-1
     action: { verifier: deployment.golden.execution-native-failure-custody-native-1 }
     expect: { status: passed }
+  - id: component-image-writeback-observation-unit
+    action: { verifier: deployment.golden.component-image-writeback-observation-unit }
+    expect: { status: passed }
+  - id: capacity-writeback-policy-unit
+    action: { verifier: deployment.golden.capacity-writeback-policy-unit }
+    expect: { status: passed }
+  - id: capacity-writeback-policy-native
+    action: { verifier: deployment.golden.capacity-writeback-policy-native }
+    expect: { status: passed }

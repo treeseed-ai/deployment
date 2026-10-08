@@ -14,6 +14,35 @@ import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
 import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
 import {component} from './fixtures.js';
 
+function writebackPressure(read:(path:string)=>string=path=>readFileSync(path,'utf8')) {
+ const scalar=(path:string)=>{try{const value=read(path).trim();return /^\d+$/u.test(value)?value:null;}catch{return null;}};
+ const fields=(path:string,names:readonly string[],suffix:string='')=>{
+  const result:Record<string,string|null>={};let bytes:string|null;
+  try{bytes=read(path);}catch{bytes=null;}
+  for(const name of names){
+   const matches=bytes===null?[]:[...bytes.matchAll(new RegExp(`^${name}${suffix?':':''}[\\t ]+(\\d+)${suffix}$`,'gmu'))];
+   result[name]=matches.length===1?matches[0]![1]!:null;
+  }
+  return result;
+ };
+ return {memoryKiB:fields('/proc/meminfo',['MemTotal','Dirty','Writeback'],' kB'),
+  pages:fields('/proc/vmstat',['nr_dirty','nr_writeback','nr_dirtied','nr_written']),
+  limits:Object.fromEntries<string|null>(['dirty_bytes','dirty_ratio','dirty_background_bytes','dirty_background_ratio']
+   .map((name):[string,string|null]=>[name,scalar(`/proc/sys/vm/${name}`)]))};
+}
+
+it('installed capacity manager applies its exact persistent writeback bounds without changing unrelated kernel limits',()=>{
+ if(process.getuid?.()!==0||process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1')
+  throw new Error('Explicit trusted root capacity host with TREESEED_PRIVILEGED_CACHE_TESTS=1 required; native writeback admission cannot be skipped.');
+ const source=readFileSync('deploy/capacity/writeback.conf');
+ const installed='/usr/lib/sysctl.d/70-treeseed-capacity-writeback.conf';
+ expect(readFileSync(installed)).toEqual(source);
+ const before=writebackPressure();
+ expect(before.limits).toEqual({dirty_bytes:'67108864',dirty_ratio:'0',dirty_background_bytes:'16777216',dirty_background_ratio:'0'});
+ expect(readFileSync(installed)).toEqual(source);
+ expect(writebackPressure().limits).toEqual(before.limits);
+});
+
 function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const started=Date.now()/1000;
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
@@ -103,15 +132,18 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
 
 it('binds real Docker image identity to the native selected file and rejects digest drift',({signal})=>{
  const timings:{operation:string;milliseconds:number}[]=[];
- // Observe metadata only after a failure. Daemon profiling and pre-test info
- // queries must not consume or perturb the original five-second contract.
- // The earlier concurrent profiling observations remain failed CI evidence;
- // this post-failure read cannot establish the stack during the failed create.
+ // No daemon profiling or pre-test Docker queries. Tiny, read-only procfs
+ // snapshots stay INSIDE the original five-second contract; no prewarming.
+ // Earlier profiling failures remain evidence. Global counters alone neither
+ // identify the blocked mount nor establish a repaired filesystem cause.
  let f:ReturnType<typeof fixture>|undefined;
- onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null})}`);});
+ let before:ReturnType<typeof writebackPressure>|undefined,after:ReturnType<typeof writebackPressure>|undefined;
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null,writeback:{before,after}})}`);});
  try {
   f=fixture(timings);
-  f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
+  before=writebackPressure();
+  try{f.create();}finally{after=writebackPressure();}
+  expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
  }finally{
   f?.close();
@@ -212,4 +244,21 @@ it('uses the same real Docker image authority during activation readiness and su
   expect(()=>waitForManagedReadiness(f.docker,f.project,input,new Map([['treedx',`sha256:${'0'.repeat(64)}`]]))).toThrow();
   expect(f.status()).toMatchObject({ready:true});
  }finally{f.close();}
+});
+it('retains exact public writeback counters and leaves unreadable malformed or duplicate observations unknown',()=>{
+ const paths:string[]=[];
+ const read=(path:string)=>{paths.push(path);return path==='/proc/meminfo'?'MemTotal: 7000000 kB\nDirty: 123456 kB\nWriteback: 64 kB\n'
+  :path==='/proc/vmstat'?'nr_dirty 42\nnr_writeback 2\nnr_dirtied 9007199254740993\nnr_written 123\n':'0\n';};
+ expect(writebackPressure(read)).toEqual({memoryKiB:{MemTotal:'7000000',Dirty:'123456',Writeback:'64'},
+  pages:{nr_dirty:'42',nr_writeback:'2',nr_dirtied:'9007199254740993',nr_written:'123'},
+  limits:{dirty_bytes:'0',dirty_ratio:'0',dirty_background_bytes:'0',dirty_background_ratio:'0'}});
+ expect(paths).toEqual(['/proc/meminfo','/proc/vmstat','/proc/sys/vm/dirty_bytes','/proc/sys/vm/dirty_ratio',
+  '/proc/sys/vm/dirty_background_bytes','/proc/sys/vm/dirty_background_ratio']);
+ for(const invalid of ['', '-1', 'NaN', 'Infinity', '1.5', '0\n1', 'Dirty: 1 kB\nDirty: 2 kB']){
+  const observation=writebackPressure(()=>invalid);
+  for(const group of Object.values(observation))expect(Object.values(group).every(value=>value===null)).toBe(true);
+ }
+ expect(writebackPressure(()=>{throw new Error('unreadable');})).toEqual({
+  memoryKiB:{MemTotal:null,Dirty:null,Writeback:null},pages:{nr_dirty:null,nr_writeback:null,nr_dirtied:null,nr_written:null},
+  limits:{dirty_bytes:null,dirty_ratio:null,dirty_background_bytes:null,dirty_background_ratio:null}});
 });
