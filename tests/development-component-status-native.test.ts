@@ -31,6 +31,18 @@ function writebackPressure(read:(path:string)=>string=path=>readFileSync(path,'u
    .map((name):[string,string|null]=>[name,scalar(`/proc/sys/vm/${name}`)]))};
 }
 
+it('installed capacity manager applies its exact persistent writeback bounds without changing unrelated kernel limits',()=>{
+ if(process.getuid?.()!==0||process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1')
+  throw new Error('Explicit trusted root capacity host with TREESEED_PRIVILEGED_CACHE_TESTS=1 required; native writeback admission cannot be skipped.');
+ const source=readFileSync('deploy/capacity/writeback.conf');
+ const installed='/usr/lib/sysctl.d/70-treeseed-capacity-writeback.conf';
+ expect(readFileSync(installed)).toEqual(source);
+ const before=writebackPressure();
+ expect(before.limits).toEqual({dirty_bytes:'67108864',dirty_ratio:'0',dirty_background_bytes:'16777216',dirty_background_ratio:'0'});
+ expect(readFileSync(installed)).toEqual(source);
+ expect(writebackPressure().limits).toEqual(before.limits);
+});
+
 function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const started=Date.now()/1000;
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;

@@ -891,3 +891,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/development-component-status-native.test.ts
     testName: retains exact public writeback counters and leaves unreadable malformed or duplicate observations unknown
+  deployment.golden.capacity-writeback-policy-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: capacity manager owns one persistent bounded writeback policy without prewarming or flushing the cold path
+  deployment.golden.capacity-writeback-policy-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: installed capacity manager applies its exact persistent writeback bounds without changing unrelated kernel limits
