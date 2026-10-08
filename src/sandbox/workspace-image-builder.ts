@@ -23,6 +23,7 @@ export function workspaceGuestArguments(configuration: Pick<SandboxBrokerConfigu
 	if (!configured) throw new Error('Source guest requires a trusted pinned image.');
 	const mount = input.entry === 'builder.mjs' ? '/run/treeseed-builder' : '/run/treeseed-verifier';
 	return ['run', '--rm', '--null-io', '--runtime', configuration.runtime,
+		'--cgroup', `treeseed-sandboxes.slice:treeseed-source:${input.id}`,
 		'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', '1',
 		'--annotation', 'io.katacontainers.config.hypervisor.default_memory=1024', '--memory-limit', '1073741824',
 		'--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN', '--user', '65532:65532',

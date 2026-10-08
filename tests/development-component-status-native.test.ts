@@ -1,5 +1,5 @@
-import {execFileSync,spawn} from 'node:child_process';
-import {createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {Writable} from 'node:stream';
 import {developmentSessionSchema} from '@treeseed/sdk/development';
@@ -14,7 +14,7 @@ import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
 import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
 import {component} from './fixtures.js';
 
-function fixture(timings: {operation:string;milliseconds:number}[] = [], observeCold=false) {
+function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const started=Date.now()/1000;
  const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
  const input={sessionId:`dev-native-${process.pid}`,projectId:'treedx' as const,targetId:'service' as const,action:'status' as const};
@@ -27,12 +27,27 @@ function fixture(timings: {operation:string;milliseconds:number}[] = [], observe
  const image=resolveDevelopmentRuntimeImage(docker);
  const coldReadiness=()=>{
   let apparmorLoaded:boolean|null=null,imageUnpacked:boolean|null=null,driver:string|null=null;
+  let serverVersion:string|null=null,dockerRoot:string|null=null;
+  const filesystem=(path:string)=>{
+   try{
+    const value:unknown=JSON.parse(execFileSync('/usr/bin/findmnt',['--json','--target',path,'--output','SOURCE,FSTYPE,MAJ:MIN'],
+     {encoding:'utf8',timeout:1000,stdio:['ignore','pipe','pipe']}));
+    if(!value||typeof value!=='object'||!('filesystems' in value)||!Array.isArray(value.filesystems))return null;
+    return value.filesystems.map((entry:unknown)=>{
+     if(!entry||typeof entry!=='object')return null;
+     return Object.fromEntries(['source','fstype','maj:min'].flatMap(key=>
+      key in entry&&typeof entry[key as keyof typeof entry]==='string'?[[key,entry[key as keyof typeof entry]]]:[]));
+    });
+   }catch{return null;}
+  };
   try{apparmorLoaded=readFileSync('/sys/kernel/security/apparmor/profiles','utf8').split('\n').includes('docker-default (enforce)');}catch{/* unavailable, not false */}
   try{
    // ctr check is read-only: it reports local content and unpacked snapshots,
    // never unpacks an image or starts a container to warm the measured path.
-   const info:unknown=JSON.parse(docker('/usr/bin/docker',['info','--format','{"driver":{{json .Driver}},"containerd":{{json .Containerd}}}']));
+   const info:unknown=JSON.parse(docker('/usr/bin/docker',['info','--format','{"driver":{{json .Driver}},"containerd":{{json .Containerd}},"serverVersion":{{json .ServerVersion}},"dockerRoot":{{json .DockerRootDir}}}']));
    if(info&&typeof info==='object'&&'driver' in info&&typeof info.driver==='string')driver=info.driver;
+   if(info&&typeof info==='object'&&'serverVersion' in info&&typeof info.serverVersion==='string')serverVersion=info.serverVersion;
+   if(info&&typeof info==='object'&&'dockerRoot' in info&&typeof info.dockerRoot==='string'&&info.dockerRoot.startsWith('/'))dockerRoot=info.dockerRoot;
    const runtime=info&&typeof info==='object'&&'containerd' in info?info.containerd:null;
    if(driver==='overlayfs'&&runtime&&typeof runtime==='object'&&'Address' in runtime&&runtime.Address==='/run/containerd/containerd.sock'
     &&'Namespaces' in runtime&&runtime.Namespaces&&typeof runtime.Namespaces==='object'
@@ -42,9 +57,15 @@ function fixture(timings: {operation:string;milliseconds:number}[] = [], observe
      .trim().split('\n').includes('docker.io/library/node:24-bookworm-slim');
    }
   }catch{/* unavailable, not false */}
-  return {driver,apparmorLoaded,imageUnpacked};
+  // These are post-failure filesystem/version facts, NOT attribution of the
+  // failed request's wait. The default containerd path is not a claimed config.
+  let dirtyKiB:string|null=null,writebackKiB:string|null=null;
+  try{const memory=readFileSync('/proc/meminfo','utf8');dirtyKiB=/^Dirty:\s+(\d+) kB$/mu.exec(memory)?.[1]??null;
+   writebackKiB=/^Writeback:\s+(\d+) kB$/mu.exec(memory)?.[1]??null;}catch{/* unavailable */}
+  return {driver,apparmorLoaded,imageUnpacked,serverVersion,dockerRoot,
+   dockerFilesystem:dockerRoot?filesystem(dockerRoot):null,
+   containerdDefaultFilesystem:filesystem('/var/lib/containerd'),fixtureFilesystem:filesystem(root),dirtyKiB,writebackKiB};
  };
- const before=observeCold?coldReadiness():null;
  const select=(images=new Map([['treedx',image]]))=>writeFileSync(override,JSON.stringify(renderManagedComponentOverride(input,images)),{mode:0o600});
  select();
  const create=(service='treedx',sessionId=input.sessionId,writableRoot?:string)=>{
@@ -76,58 +97,31 @@ function fixture(timings: {operation:string;milliseconds:number}[] = [], observe
     }catch{return {unavailable:true};}
    });
   },
-  failureReadiness(){return {before,after:coldReadiness()};},
+  failureReadiness(){return {after:coldReadiness()};},
   close(){try{for(const id of ids)docker('/usr/bin/docker',['rm','--force',id]);}finally{rmSync(root,{recursive:true,force:true});}}};
 }
 
-it('binds real Docker image identity to the native selected file and rejects digest drift',async({signal})=>{
+it('binds real Docker image identity to the native selected file and rejects digest drift',({signal})=>{
  const timings:{operation:string;milliseconds:number}[]=[];
- const kernelFiles:string[]=[];
- if(process.getuid?.()===0)try{
-  const pids=execFileSync('/usr/bin/pgrep',['--exact','dockerd'],{encoding:'utf8',timeout:1000}).trim().split(/\s+/u);
-  for(const pid of pids)if(/^[1-9][0-9]*$/u.test(pid))
-   for(const tid of readdirSync(`/proc/${pid}/task`))if(/^[1-9][0-9]*$/u.test(tid))kernelFiles.push(`file:///proc/${pid}/task/${tid}/stack`);
- }catch{/* Native kernel thread observation unavailable, never proof of absence. */}
- // Docker's existing local pprof endpoint observes the actual daemon while
- // this worker is inside its synchronous native create. No daemon config,
- // restart, signal, image preparation or container warm-up is performed.
- const sampler=spawn('/usr/bin/curl',['--silent','--fail','--max-time','4','--unix-socket','/var/run/docker.sock',
-  '--output','/dev/null','http://localhost/debug/pprof/profile?seconds=2','--next',
-  '--silent','--fail','--max-time','4','--unix-socket','/var/run/docker.sock',
-  'http://localhost/debug/pprof/goroutine?debug=2','--write-out','\nNATIVE_KERNEL_END\n',
-  ...kernelFiles.flatMap(path=>['--next','--silent','--max-time','0.5',path,'--write-out','\nNATIVE_KERNEL_END\n'])],{stdio:['ignore','pipe','pipe']});
- const chunks:Buffer[]=[];let samplerFailed=false;
- sampler.stdout.on('data',(bytes:Buffer)=>chunks.push(Buffer.from(bytes)));sampler.stderr.resume();
- const sampled=new Promise<void>(done=>{
-  sampler.once('error',()=>{samplerFailed=true;done();});
-  sampler.once('close',code=>{samplerFailed=code!==0;done();});
- });
- const observation=()=>Buffer.concat(chunks).toString('utf8').split('\nNATIVE_KERNEL_END\n');
- const creationStacks=()=>observation()[0]?.split('\n\n')
-  .filter(block=>/\.(?:containerCreate|postContainersCreate)\(/u.test(block))
-  .map(block=>block.split('\n').filter(line=>/^(?:github\.com\/|go\.opentelemetry\.io\/|google\.golang\.org\/|runtime\.|os[./]|sync\.|syscall\.|internal\/|net[./])/u.test(line))
-   .map(line=>line.slice(0,line.lastIndexOf('('))));
- // Read-only kernel stacks contain only public symbols in the observation.
- // Shared daemon threads are not exact request identity or a filesystem verdict.
- const kernelStacks=()=>kernelFiles.length===0?null:observation().slice(1)
-  .map(block=>block.split('\n').flatMap(line=>{
-   const symbol=/^\[<[a-f0-9]+>\]\s+([A-Za-z_][A-Za-z0-9_.]*)\+/u.exec(line);return symbol?.[1]?[symbol[1]]:[];
-  })).filter(stack=>stack.some(symbol=>/^(?:.*umount.*|cleanup_mnt|sync_filesystem|ovl_sync_fs)$/u.test(symbol)));
- // Preserve the original failure and watchdog. Observe only Docker operation
- // names and native elapsed time, never arguments, output or credentials.
+ // Observe metadata only after a failure. Daemon profiling and pre-test info
+ // queries must not consume or perturb the original five-second contract.
+ // The earlier concurrent profiling observations remain failed CI evidence;
+ // this post-failure read cannot establish the stack during the failed create.
  let f:ReturnType<typeof fixture>|undefined;
- onTestFailed(async()=>{await sampled;throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null,samplerFailed,creationStacks:creationStacks(),kernelStacks:kernelStacks()})}`);});
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_COMPONENT_IMAGE_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,lifecycle:f?.failureLifecycle()??null,readiness:f?.failureReadiness()??null})}`);});
  try {
-  f=fixture(timings,true);
+  f=fixture(timings);
   f.create();expect(f.status()).toMatchObject({registered:true,ready:true});
   f.select(new Map([['treedx',`sha256:${'0'.repeat(64)}`]]));expect(f.status).toThrow();
  }finally{
-  try{f?.close();}finally{sampler.kill('SIGTERM');await sampled;}
+  f?.close();
  }
 });
 
 it('native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue',async()=>{
- const f=fixture(),key=randomBytes(32);try{
+ const timings:{operation:string;milliseconds:number}[]=[],inspectionSizes:number[]=[];
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_BACKUP_FAILURE: ${JSON.stringify({operations:timings,inspectionSizes})}`);});
+ const f=fixture(timings),key=randomBytes(32);try{
   const data=resolve(f.root,'data'),dir=resolve(f.root,f.input.sessionId,'treedx','service');mkdirSync(data);mkdirSync(dir,{recursive:true});
   const payload=Buffer.from('native managed state\n\0retained bytes'),file=resolve(data,'state');writeFileSync(file,payload);
   const path=resolve(dir,'compose.json'),spec=readFileSync(f.override);writeFileSync(path,spec,{mode:0o600});
@@ -137,10 +131,15 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
    actor:'native-test',hostId:'native-host',createdAt:new Date().toISOString(),status:'active',repositories:[],
    targets:[{projectId:'treedx',targetId:'service',mode:'live',generation:1,health:'ready'}],leases:[],restoredReceiptId:null,blockers:[]});
   const record={session,runtimes:[],routes:[],candidates:[]};
-  const deps:DevelopmentBackupDependencies={command:f.docker,records:()=>[record],components:()=>[installed],members:()=>[data.slice(1)],
+  const command=(exe:string,args:readonly string[])=>{
+   if(args[0]==='inspect'&&args[2]?.includes('"Id":'))inspectionSizes.push(args.length-3);
+   return f.docker(exe,args);
+  };
+  const deps:DevelopmentBackupDependencies={command,records:()=>[record],components:()=>[installed],members:()=>[data.slice(1)],
    holdPath:resolve(f.root,'hold.json'),runtimeRoot:f.root,ownerUid:process.getuid!()};
   expect(f.status()).toMatchObject({ready:true});expect(()=>assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args))).toThrow();
   expect(planDevelopmentBackup(deps)).toEqual([]);
+  expect(inspectionSizes).toHaveLength(1);expect(inspectionSizes[0]).toBeGreaterThan(0);
   const selection=JSON.stringify(record);
   for(const mutate of [()=>{session.targets[0]!.mode='released';},()=>{writeFileSync(path,'not json');},
    ()=>{writeFileSync(path,JSON.stringify(renderManagedComponentOverride(f.input,new Map([['treedx',`sha256:${'0'.repeat(64)}`]]))),{mode:0o600});}]){

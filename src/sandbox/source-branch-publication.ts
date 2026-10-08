@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SourceWorkspaceResponse } from '@treeseed/sdk/capacity-provider/sandbox';
 import { runSourceGit, type SourceGitCredential } from './source-git-transport.js';
@@ -39,12 +39,24 @@ export async function publishVerifiedSourceBranch(input: {
 			const simulations = join(workspaceStorageRoot, 'simulations');
 			const localRepository = simulationSourceRepository(workspaceStorageRoot, input.response.authorization.source);
 			await mkdir(simulations, { recursive: true, mode: 0o700 });
-			await mkdir(localRepository, { recursive: true, mode: 0o700 });
-			await runSourceGit(localRepository, ['init', '--bare', '--template=']);
-			await runSourceGit(localRepository, ['bundle', 'unbundle', input.bundlePath]);
-			const existing = await runSourceGit(localRepository, ['for-each-ref', '--format=%(objectname)', remoteRef]);
-			if (existing && existing !== input.commit) throw new Error('Simulation branch already identifies another commit.');
-			if (!existing) await runSourceGit(localRepository, ['update-ref', remoteRef, input.commit, '0'.repeat(40)]);
+			// Publish the already verified complete repository atomically. A replay
+			// must not reinitialize a shared repository or rewrite its configuration.
+			await runSourceGit(repository, ['update-ref', remoteRef, input.commit, '0'.repeat(40)]);
+			try { await rename(repository, localRepository); }
+			catch (error) {
+				if (!error || typeof error !== 'object' || !['EEXIST', 'ENOTEMPTY'].includes(String(Reflect.get(error, 'code')))) throw error;
+				const existing = await runSourceGit(localRepository, ['for-each-ref', '--format=%(objectname)', remoteRef]);
+				if (existing && existing !== input.commit) throw new Error('Simulation branch already identifies another commit.');
+				if (!existing) {
+					await runSourceGit(localRepository, ['bundle', 'unbundle', input.bundlePath]);
+					try { await runSourceGit(localRepository, ['update-ref', remoteRef, input.commit, '0'.repeat(40)]); }
+					catch (failure) {
+						// Another exact concurrent publisher may win the same CAS. Never
+						// overwrite its ref or accept a different winning candidate.
+						if (await runSourceGit(localRepository, ['rev-parse', '--verify', `${remoteRef}^{commit}`]) !== input.commit) throw failure;
+					}
+				}
+			}
 			if (await runSourceGit(localRepository, ['rev-parse', '--verify', `${remoteRef}^{commit}`]) !== input.commit) {
 				throw new Error('Simulation branch authoritative read-back failed.');
 			}

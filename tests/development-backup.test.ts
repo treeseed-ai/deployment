@@ -174,6 +174,49 @@ function managedWriterFixture() {
   return { ...f, installed, path };
 }
 
+it('plans all fresh development writer identities in one batch without caching a later changed writer', () => {
+  const f = createFixture('live'), calls: string[][] = [], ids = [f.state.Id, 'b'.repeat(64)];
+  const other = { ...f.state, Id: ids[1], Name: '/unrelated', Config: { Labels: {} }, Mounts: [{ Source: '/opt/unrelated', RW: true }] };
+  const before = JSON.stringify(f.record), original = f.deps.command;
+  f.deps.command = (exe, args) => {
+    calls.push([...args]);
+    if (args[0] === 'ps' && args.includes('--quiet')) return ids.join('\n');
+    if (args[0] === 'inspect') return [f.state, other].map(value => JSON.stringify(value)).join('\n');
+    return original(exe, args);
+  };
+  expect(planDevelopmentBackup(f.deps, f.api.runtimeDigest)).toHaveLength(1);
+  other.Mounts[0]!.Source = f.state.Mounts[0]!.Source;
+  expect(() => planDevelopmentBackup(f.deps, f.api.runtimeDigest)).toThrow('unmanaged writer');
+  expect(calls.filter(args => args[0] === 'ps')).toHaveLength(2);
+  expect(calls.filter(args => args[0] === 'inspect')).toHaveLength(2);
+  for (const args of calls.filter(args => args[0] === 'inspect')) expect(args.slice(3)).toEqual(ids);
+  expect(calls.every(args => args[0] === 'ps' || args[0] === 'inspect')).toBe(true);
+  expect(existsSync(f.deps.holdPath)).toBe(false); expect(JSON.stringify(f.record)).toBe(before);
+});
+
+it('denies incomplete duplicate foreign and unavailable development batch inventory before any writer mutation', () => {
+  const f = createFixture('live'), ids = [f.state.Id, 'b'.repeat(64)], original = JSON.stringify(f.record);
+  const other = { ...f.state, Id: ids[1], Mounts: [] }, first = JSON.stringify(f.state), second = JSON.stringify(other);
+  for (const response of [first, `${first}\n${second}\n${second}`, `${first}\n${first}`, `${second}\n${first}`,
+    `${first}\nnull`, `${first}\n{`, `${first}\n${JSON.stringify({ ...other, Id: 'c'.repeat(64) })}`]) {
+    const calls: string[][] = [];
+    f.deps.command = (_exe, args) => { calls.push([...args]); return args[0] === 'ps' ? ids.join('\n') : response; };
+    expect(() => beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toThrow();
+    expect(calls.filter(args => args[0] === 'inspect')).toHaveLength(1);
+    expect(calls.every(args => args[0] === 'ps' || args[0] === 'inspect')).toBe(true);
+    expect(existsSync(f.deps.holdPath)).toBe(false); expect(JSON.stringify(f.record)).toBe(original);
+  }
+  for (const inventory of [`${ids[0]}\n${ids[0]}`, `${ids[0]}\ninvalid-id`]) {
+    const calls: string[][] = [];
+    f.deps.command = (_exe, args) => { calls.push([...args]); return inventory; };
+    expect(() => beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toThrow();
+    expect(calls).toEqual([['ps', '--quiet']]); expect(existsSync(f.deps.holdPath)).toBe(false);
+  }
+  f.deps.command = () => { throw new Error('native inspection denied'); };
+  expect(() => beginDevelopmentBackup(1, f.deps, f.api.runtimeDigest)).toThrow();
+  expect(existsSync(f.deps.holdPath)).toBe(false); expect(JSON.stringify(f.record)).toBe(original);
+});
+
 it('admits an exact registered managed component writer to ordinary quiescence without treating it as an API candidate', () => {
   const f = managedWriterFixture(), original = readFileSync(f.path), selection = JSON.stringify(f.record);
   expect(planDevelopmentBackup(f.deps, f.api.runtimeDigest)).toEqual([]);

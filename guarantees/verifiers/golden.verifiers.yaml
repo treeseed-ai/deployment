@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.execution-backup-batch-unit-1:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/backup-writers.test.ts
+    testName: inspects every fresh backup writer inventory in one batch and retains later writer exclusion
+  deployment.golden.execution-backup-batch-unit-2:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/backup-writers.test.ts
+    testName: denies duplicated invalid missing extra and malformed batch writer observations without changing inputs
+  deployment.golden.execution-backup-batch-unit-3:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-backup.test.ts
+    testName: plans all fresh development writer identities in one batch without caching a later changed writer
+  deployment.golden.execution-backup-batch-unit-4:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-backup.test.ts
+    testName: denies incomplete duplicate foreign and unavailable development batch inventory before any writer mutation
   deployment.golden.execution-backup-managed-unit-1:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
@@ -786,6 +806,16 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-builder.test.ts
     testName: verifies successful primary guest absence without redundant destructive calls and retains failed uncertain teardown through exact retry
+  deployment.golden.execution-cold-cgroup-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-builder.test.ts
+    testName: places each cold guest in its own systemd scope without sharing another VM cgroup or changing resource bounds
+  deployment.golden.execution-publication-replay-unit-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox/architecture/publication-authority.test.ts
+    testName: reads an existing exact simulation ref without reinitializing its repository and denies a conflicting ref without mutation
   deployment.golden.execution-sdk-closure-unit-1:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

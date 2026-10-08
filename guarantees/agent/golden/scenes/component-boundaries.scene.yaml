@@ -1,4 +1,16 @@
 workflow:
+  - id: execution-backup-batch-unit-1
+    action: { verifier: deployment.golden.execution-backup-batch-unit-1 }
+    expect: { status: passed }
+  - id: execution-backup-batch-unit-2
+    action: { verifier: deployment.golden.execution-backup-batch-unit-2 }
+    expect: { status: passed }
+  - id: execution-backup-batch-unit-3
+    action: { verifier: deployment.golden.execution-backup-batch-unit-3 }
+    expect: { status: passed }
+  - id: execution-backup-batch-unit-4
+    action: { verifier: deployment.golden.execution-backup-batch-unit-4 }
+    expect: { status: passed }
   - id: architecture-publication-unit-1
     action: { verifier: deployment.golden.architecture-publication-unit-1 }
     expect: { status: passed }
@@ -468,6 +480,12 @@ workflow:
     expect: { status: passed }
   - id: execution-cold-primary-unit-3
     action: { verifier: deployment.golden.execution-cold-primary-unit-3 }
+    expect: { status: passed }
+  - id: execution-cold-cgroup-unit-1
+    action: { verifier: deployment.golden.execution-cold-cgroup-unit-1 }
+    expect: { status: passed }
+  - id: execution-publication-replay-unit-1
+    action: { verifier: deployment.golden.execution-publication-replay-unit-1 }
     expect: { status: passed }
   - id: execution-sdk-closure-unit-1
     action: { verifier: deployment.golden.execution-sdk-closure-unit-1 }

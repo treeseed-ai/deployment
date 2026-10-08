@@ -66,6 +66,7 @@ describe('source-only guest workspace builder', () => {
 			const held = structuredClone(input), args = workspaceGuestArguments(configuration, input);
 			const mount = entry === 'builder.mjs' ? '/run/treeseed-builder' : '/run/treeseed-verifier';
 			expect(args).toEqual(['run', '--rm', '--null-io', '--runtime', configuration.runtime,
+				'--cgroup', `treeseed-sandboxes.slice:treeseed-source:${id}`,
 				'--label', 'io.kubernetes.cri.container-type=sandbox', '--cpus', '1',
 				'--annotation', 'io.katacontainers.config.hypervisor.default_memory=1024', '--memory-limit', '1073741824',
 				'--cap-drop', 'CAP_NET_RAW', '--cap-drop', 'CAP_NET_ADMIN', '--user', '65532:65532',
@@ -77,6 +78,25 @@ describe('source-only guest workspace builder', () => {
 			expect(args).not.toContain('/bin/sleep'); expect(args).not.toContain(`${id}-ready`);
 			expect(input).toEqual(held);
 		}
+	});
+	it('places each cold guest in its own systemd scope without sharing another VM cgroup or changing resource bounds', () => {
+		const configuration = { runtime: 'io.containerd.kata.v2' as const,
+			guestImages: [{ image: 'treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}` }] };
+		const ids = ['sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab', 'sandbox-warm-ffffffff-ffff-4fff-8fff-ffffffffffff'];
+		const groups: string[] = [];
+		for (const id of ids) {
+			const input = { id, device: '/dev/nbd0', incoming: '/private/input', outgoing: '/private/output',
+				entry: 'verifier.mjs', readOnly: true }, held = structuredClone(input);
+			const args = workspaceGuestArguments(configuration, input), positions = args.flatMap((arg, index) => arg === '--cgroup' ? [index] : []);
+			expect(positions).toHaveLength(1);
+			const group = args[positions[0]! + 1];
+			expect(group).toBe(`treeseed-sandboxes.slice:treeseed-source:${id}`);
+			if (!group) throw new Error('Cold guest cgroup ownership missing'); groups.push(group);
+			expect(args[args.indexOf('--cpus') + 1]).toBe('1');
+			expect(args[args.indexOf('--memory-limit') + 1]).toBe('1073741824');
+			expect(args).not.toContain('--detach'); expect(args).not.toContain('--cni'); expect(input).toEqual(held);
+		}
+		expect(new Set(groups).size).toBe(ids.length);
 	});
 	it('denies malformed cold guest ownership device entry mode and write access before forming a native command', () => {
 		const configuration = { runtime: 'io.containerd.kata.v2' as const, guestImages: [{ image: 'treeseed/sandbox-codex', digest: `sha256:${'a'.repeat(64)}` }] };
