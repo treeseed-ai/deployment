@@ -127,7 +127,9 @@ it('binds real Docker image identity to the native selected file and rejects dig
 });
 
 it('native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue',async()=>{
- const f=fixture(),key=randomBytes(32);try{
+ const timings:{operation:string;milliseconds:number}[]=[],inspectionSizes:number[]=[];
+ onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_BACKUP_FAILURE: ${JSON.stringify({operations:timings,inspectionSizes})}`);});
+ const f=fixture(timings),key=randomBytes(32);try{
   const data=resolve(f.root,'data'),dir=resolve(f.root,f.input.sessionId,'treedx','service');mkdirSync(data);mkdirSync(dir,{recursive:true});
   const payload=Buffer.from('native managed state\n\0retained bytes'),file=resolve(data,'state');writeFileSync(file,payload);
   const path=resolve(dir,'compose.json'),spec=readFileSync(f.override);writeFileSync(path,spec,{mode:0o600});
@@ -137,10 +139,15 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
    actor:'native-test',hostId:'native-host',createdAt:new Date().toISOString(),status:'active',repositories:[],
    targets:[{projectId:'treedx',targetId:'service',mode:'live',generation:1,health:'ready'}],leases:[],restoredReceiptId:null,blockers:[]});
   const record={session,runtimes:[],routes:[],candidates:[]};
-  const deps:DevelopmentBackupDependencies={command:f.docker,records:()=>[record],components:()=>[installed],members:()=>[data.slice(1)],
+  const command=(exe:string,args:readonly string[])=>{
+   if(args[0]==='inspect'&&args[2]?.includes('"Id":'))inspectionSizes.push(args.length-3);
+   return f.docker(exe,args);
+  };
+  const deps:DevelopmentBackupDependencies={command,records:()=>[record],components:()=>[installed],members:()=>[data.slice(1)],
    holdPath:resolve(f.root,'hold.json'),runtimeRoot:f.root,ownerUid:process.getuid!()};
   expect(f.status()).toMatchObject({ready:true});expect(()=>assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args))).toThrow();
   expect(planDevelopmentBackup(deps)).toEqual([]);
+  expect(inspectionSizes).toHaveLength(1);expect(inspectionSizes[0]).toBeGreaterThan(0);
   const selection=JSON.stringify(record);
   for(const mutate of [()=>{session.targets[0]!.mode='released';},()=>{writeFileSync(path,'not json');},
    ()=>{writeFileSync(path,JSON.stringify(renderManagedComponentOverride(f.input,new Map([['treedx',`sha256:${'0'.repeat(64)}`]]))),{mode:0o600});}]){
