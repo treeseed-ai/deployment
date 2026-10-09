@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { host } from './fixtures.js';
+import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 const boundary=vi.hoisted(()=>({request:vi.fn(async()=>({ready:false,inventory:{complete:true}}))}));
 vi.mock('../src/core/configuration.js',async original=>({...await original<typeof import('../src/core/configuration.js')>(),tryLoadHostConfiguration:()=>host()}));
 vi.mock('../src/supervisor/client.js',()=>({requestSupervisor:boundary.request}));
@@ -14,4 +15,9 @@ it('forwards only the fixed sandbox status operation and denies every supplied h
   await expect(executeHostCommand({handlerId:'local.host.sandbox.status',...input},{local:true})).rejects.toThrow();
   expect(boundary.request).not.toHaveBeenCalled();
  }
+});
+it('rejects every caller-selected inspection field at the strict supervisor protocol boundary',()=>{
+ expect(supervisorOperationSchema.parse({operation:'sandbox.status'})).toEqual({operation:'sandbox.status'});
+ for(const field of ['path','command','namespace','containerdAddress','stateRoot','socket','payload','workdayId','arguments','options','configuration'])
+  expect(supervisorOperationSchema.safeParse({operation:'sandbox.status',[field]:'/untrusted'}).success,field).toBe(false);
 });
