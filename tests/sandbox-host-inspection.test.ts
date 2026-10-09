@@ -19,7 +19,7 @@ vi.mock('node:fs',()=>({
  lstatSync:(path:string)=>{
   if(observed.unreadable==='directories')throw new Error('denied');
   if(path==='/var/lib/treeseed/sandboxes'&&!observed.rootPresent)throw Object.assign(new Error('absent'),{code:'ENOENT'});
-  const directory=path==='/var/lib/treeseed/sandboxes'||path.endsWith('/sandbox-retained')||path.endsWith('/audit');
+  const directory=['/var','/var/lib','/var/lib/treeseed'].includes(path)||path==='/var/lib/treeseed/sandboxes'||path.endsWith('/sandbox-retained')||path.endsWith('/audit');
   return {isDirectory:()=>directory,isFile:()=>!directory,isSymbolicLink:()=>observed.rootLink};
  },
  readdirSync:(path:string)=>{expect(path).toBe('/var/lib/treeseed/sandboxes');if(observed.unreadable==='directories')throw new Error('denied');return [...observed.entries];},
