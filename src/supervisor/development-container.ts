@@ -1,4 +1,4 @@
-import { chownSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chownSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { developmentContainerSchema } from './development-container-contract.js';
@@ -141,7 +141,16 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     return {events:developmentDiagnosticEvents(String(command('/usr/bin/docker',['logs','--tail','100','--since','15m',name])))};
   }
   if(input.action==='stop') {
-    if(!existsSync(file)){if(existsSync(directory))rmSync(directory,{recursive:true});return {stopped:true};}
+    if(!existsSync(file)) {
+      // Interruption can leave a durable handoff before the spec is selected.
+      if(targetId==='operations-runner') {
+        drainCandidateRunner(command,input.sessionId);
+        if(existsSync(handoff))restoreReleasedRunner(command);
+      }
+      if(targetId==='service'&&existsSync(apiHandoff))restoreReleasedApi(command);
+      if(existsSync(directory))rmSync(directory,{recursive:true});
+      return {stopped:true};
+    }
   if(targetId==='operations-runner')drainCandidateRunner(command,input.sessionId);
     command('/usr/bin/docker',[...compose,'down','--timeout','30']);
     if(targetId==='operations-runner'&&existsSync(handoff))restoreReleasedRunner(command);
@@ -212,25 +221,35 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   const image=resolveDevelopmentRuntimeImage(command);
   const spec=renderDevelopmentContainer({sessionId:input.sessionId,targetId,...source,uid:identity.uid,gid:identity.gid,sourceGid:source.gid,environment,image,stateRoot:componentStateRoot(host,'api')});
   mkdirSync(directory,{recursive:true,mode:0o700});
+  const prepared=targetId==='operations-runner'?mkdtempSync(resolve(directory,'prepare-')):directory;
+  try {
   if(targetId==='operations-runner') {
-    // Refuse to overwrite an existing candidate snapshot. Cleanup must finish first.
+    // Prepare separately; the selected immutable copy stays intact until drain.
     const receipt=copyDevelopmentRuntime({worktree:source.worktree,workspace:source.workspace,
-      destination:resolve(directory,'runtime'),sourceUid:source.uid});
-    atomicJson(resolve(directory,'runtime-receipt.json'),receipt,0o600);
+      destination:resolve(prepared,'runtime'),sourceUid:source.uid});
+    atomicJson(resolve(prepared,'runtime-receipt.json'),receipt,0o600);
   }
   // Delegate only the API's fixed credential files to the runtime's UID;
   // the root-owned parent prevents host users from browsing these copies.
   for(const [child,origin,names] of [['openbao','/run/treeseed/openbao/client',['identity.json','ca.pem']],['keys','/run/treeseed/component-credentials/api',['credentials','diagnostics']]] as const) {
-    const target=resolve(directory,child);mkdirSync(target,{recursive:true,mode:0o700});chownSync(target,identity.uid,identity.gid);
+    const target=resolve(prepared,child);mkdirSync(target,{recursive:true,mode:0o700});chownSync(target,identity.uid,identity.gid);
     for(const name of names){const value=readFileSync(resolve(origin,name));try{const output=resolve(target,name);writeFileSync(output,value,{mode:0o600});chownSync(output,identity.uid,identity.gid);}finally{value.fill(0);}}
   }
-  atomicJson(file,spec,0o600);
+  atomicJson(resolve(prepared,'compose.json'),spec,0o600);
   let drained=false;
   if(targetId==='operations-runner') {
+    drainCandidateRunner(command,input.sessionId);
     drained=drainReleasedRunner(command);
     if(drained)atomicJson(handoff,{restore:true},0o600);
   }
   try {
+    if(targetId==='operations-runner') {
+      // Neither candidate nor released execution can consume these paths now.
+      for(const name of ['runtime','openbao','keys','runtime-receipt.json','compose.json']) {
+        rmSync(resolve(directory,name),{recursive:true,force:true});
+        renameSync(resolve(prepared,name),resolve(directory,name));
+      }
+    }
     if(targetId==='service')stopReleasedApi(command,()=>atomicJson(apiHandoff,{restore:true},0o600));
     // A rebuild must restart the Node process so changed workspace dependencies
     // cannot remain cached behind otherwise-identical Compose configuration.
@@ -259,6 +278,9 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
     throw error;
   }
   return {started:true};
+  } finally {
+    if(prepared!==directory)rmSync(prepared,{recursive:true,force:true});
+  }
 }
 
 /** Reuse an existing trusted local runtime image; unrelated registry availability must not block a restart. */
