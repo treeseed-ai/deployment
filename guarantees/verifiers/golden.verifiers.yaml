@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-mount-custody-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: preserves installed provider mount ownership while denying foreign writable or malformed custody
   deployment.golden.provider-volume-mapping-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

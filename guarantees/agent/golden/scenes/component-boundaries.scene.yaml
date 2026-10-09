@@ -1,4 +1,7 @@
 workflow:
+  - id: provider-volume-mount-custody-unit
+    action: { verifier: deployment.golden.provider-volume-mount-custody-unit }
+    expect: { status: passed }
   - id: provider-volume-mapping-unit
     action: { verifier: deployment.golden.provider-volume-mapping-unit }
     expect: { status: passed }
