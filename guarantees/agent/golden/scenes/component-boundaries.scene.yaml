@@ -1,4 +1,13 @@
 workflow:
+  - id: provider-volume-loop-identity-unit
+    action: { verifier: deployment.golden.provider-volume-loop-identity-unit }
+    expect: { status: passed }
+  - id: provider-volume-lock-development-unit
+    action: { verifier: deployment.golden.provider-volume-lock-development-unit }
+    expect: { status: passed }
+  - id: provider-volume-lock-hardening-unit
+    action: { verifier: deployment.golden.provider-volume-lock-hardening-unit }
+    expect: { status: passed }
   - id: provider-volume-mapping-diagnostic-native
     action: { verifier: deployment.golden.provider-volume-mapping-diagnostic-native }
     expect: { status: passed }

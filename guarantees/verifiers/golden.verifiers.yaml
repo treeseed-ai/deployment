@@ -1,6 +1,21 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-loop-identity-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: binds native loop ownership to the exact associated file inode rather than namespace display paths
+  deployment.golden.provider-volume-lock-development-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development.test.ts
+    testName: retains the imported guest digest when replacing an active development generation
+  deployment.golden.provider-volume-lock-hardening-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: keeps supervisor hardening while permitting only the native LUKS2 lock directory
   deployment.golden.provider-volume-mapping-diagnostic-native:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
