@@ -97,7 +97,7 @@ jobs:
       - name: Execute coded sandbox component scenes
         shell: bash
         run: |
-          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS "$(command -v node)" --import tsx \
+          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS,PATH "$(command -v node)" --import tsx \
             .treeseed/tools/reviewer/src/verifiers/guarantees/command.ts \
             --workspace "$GITHUB_WORKSPACE" --environment local --ids guarantee.deployment.golden.component-boundaries \
             --run-id "actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
