@@ -20,7 +20,7 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     input, encoding: 'utf8', timeout: 15_000, maxBuffer: 1_048_576,
     env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' },
   });
-  let opened = false, mounted = false, loop = '';
+  let opened = false, mounted = false, bindMounted = false, loop = '';
   try {
     const mask = process.umask(0o007);
     try { createProviderVolumeBacking(backing, 1_073_741_824); }
@@ -37,6 +37,12 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     expect(loop).toMatch(/^\/dev\/loop[0-9]+$/u);
     run('/usr/sbin/mkfs.ext4', ['-q', device]);
     run('/usr/bin/mount', ['--options', 'nodev,nosuid,noexec', device, mount]); mounted = true;
+    // Real duplicate namespace view, as installed systemd ReadWritePaths creates.
+    run('/usr/bin/mount', ['--bind', mount, mount]); bindMounted = true;
+    const views: unknown = JSON.parse(run('/usr/bin/findmnt', ['--json', '--mountpoint', mount, '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,UUID']));
+    expect(views).toHaveProperty('filesystems');
+    if (!views || typeof views !== 'object' || !('filesystems' in views) || !Array.isArray(views.filesystems)) throw new Error('Native duplicate mount views missing.');
+    expect(views.filesystems).toHaveLength(2); expect(views.filesystems[0]).toEqual(views.filesystems[1]);
     const sentinel = join(mount, 'retained-work.bin'), content = randomBytes(65_537);
     writeFileSync(sentinel, content, { mode: 0o600 });
     expect(expandMountedProviderVolume(backing, mount, 1_073_741_824, mapper, primary, run).expanded).toBe(false);
@@ -108,6 +114,7 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     expect(lstatSync(mount).uid).toBe(65_532); expect(lstatSync(mount).gid).toBe(65_532);
     expect(lstatSync(mount).mode & 0o777).toBe(0o700);
     expect(readFileSync(keyFile)).toEqual(primary); expect(readFileSync(recoveryFile)).toEqual(recovery);
+    run('/usr/bin/umount', [mount]); bindMounted = false;
     run('/usr/bin/umount', [mount]); mounted = false;
     run('/usr/sbin/cryptsetup', ['close', mapper]); opened = false;
     run('/usr/sbin/cryptsetup', ['open', '--type', 'luks2', '--key-file', recoveryFile, backing, mapper]); opened = true;
@@ -117,6 +124,7 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     expect(lstatSync(mount).mode & 0o777).toBe(0o700);
   } finally {
     primary.fill(0); recovery.fill(0);
+    if (bindMounted) run('/usr/bin/umount', [mount]);
     if (mounted) run('/usr/bin/umount', [mount]);
     if (opened) run('/usr/sbin/cryptsetup', ['close', mapper]);
     if (loop && run('/usr/sbin/losetup', ['--associated', backing]).trim()) throw new Error('Allocated fixture loop remains attached; retaining fixture.');
