@@ -12,10 +12,13 @@ it('native development image preparation holds one exact official manifest befor
  const path='.github/workflows/verify.yml',bytes=readFileSync(path);
  const steps=parse(bytes.toString()).jobs.verify.steps as {name?:string;run?:string}[];
  const preparation=steps.find(step=>step.name==='Prepare native development image before timed tests')!.run!;
+ const payload=preparation.split("--eval '\n")[1]!.replace(/\n\s*'\s*$/u,'');
+ expect(payload).not.toContain("'");
+ const commands=preparation.replaceAll('"',"'");
  expect(preparation).toContain('mirror.gcr.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd');
- expect(preparation).toContain("docker(['pull','--quiet',image])");
- expect(preparation).toContain("docker(['image','inspect',image,'--format','{{.Id}}'])");
- expect(preparation).toContain("docker(['tag',image,'node:24-bookworm-slim'])");
+ expect(commands).toContain("docker(['pull','--quiet',image])");
+ expect(commands).toContain("docker(['image','inspect',image,'--format','{{.Id}}'])");
+ expect(commands).toContain("docker(['tag',image,'node:24-bookworm-slim'])");
  expect(preparation).toContain('resolved!==expected');
  expect(steps.indexOf(steps.find(step=>step.name==='Prepare native development image before timed tests')!)).toBeLessThan(steps.findIndex(step=>step.run?.includes('npm run verify:direct')));
  expect(readFileSync(path)).toEqual(bytes);
