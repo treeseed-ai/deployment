@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statfsSync, type Stats } from 'node:fs';
+import { closeSync, constants, existsSync, fchmodSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statfsSync, type Stats } from 'node:fs';
 import { dirname } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { providerSecuritySettings } from './provider-volume.js';
@@ -46,6 +46,14 @@ function privatePath(path: string, directory: boolean) {
   return info;
 }
 
+export function assertProviderVolumeBackingCustody(info: Pick<Stats, 'uid' | 'mode' | 'nlink' | 'isFile'>) {
+  // Only the exact former installer mode is eligible for authenticated tightening.
+  // It is not private custody until fchmod and independent readback below succeed.
+  assert([info.uid, info.mode, info.nlink].every(value => Number.isSafeInteger(value) && value >= 0)
+    && info.uid === 0 && info.nlink === 1 && info.isFile()
+    && (info.mode === 0o100600 || info.mode === 0o100660), 'Provider volume custody changed.');
+}
+
 export function assertProviderVolumeMountCustody(info: Pick<Stats, 'uid' | 'gid' | 'mode'>) {
   // configureComponent owns Agent state as 65532:65532; mounted filesystem
   // ownership is not the root-only custody of the encrypted backing file.
@@ -54,13 +62,33 @@ export function assertProviderVolumeMountCustody(info: Pick<Stats, 'uid' | 'gid'
     && !(info.mode & 0o022), 'Provider mount custody changed.');
 }
 
+/** The caller queries --associated using the exact canonical, held backing file.
+ * BACK-FILE is a namespace-relative display, not a second file authority. */
+export function assertProviderVolumeLoopAuthority(raw: unknown, loop: string, inode: number) {
+  assert.match(loop, /^\/dev\/loop[0-9]+$/u);
+  assert(Number.isSafeInteger(inode) && inode > 0, 'Provider backing inode is invalid.');
+  assert(raw && typeof raw === 'object' && 'loopdevices' in raw
+    && Array.isArray(raw.loopdevices) && raw.loopdevices.length === 1, 'Provider loop inventory changed.');
+  const owner: unknown = raw.loopdevices[0];
+  assert(owner && typeof owner === 'object' && 'name' in owner && owner.name === loop
+    && 'back-ino' in owner && (typeof owner['back-ino'] === 'number'
+      || (typeof owner['back-ino'] === 'string' && /^[1-9][0-9]*$/u.test(owner['back-ino'])))
+    && Number.isSafeInteger(Number(owner['back-ino'])) && Number(owner['back-ino']) === inode
+    && 'offset' in owner && owner.offset === 0 && 'sizelimit' in owner && owner.sizelimit === 0
+    && 'ro' in owner && (owner.ro === false || owner.ro === 0), 'Provider loop ownership changed.');
+}
+
 export function providerVolumeMappingGeometry(status: string) {
   const field = (name: string) => {
     const lines = status.split('\n').map(line => line.trim()).filter(line => line.startsWith(`${name}:`));
     assert(lines.length === 1 && typeof lines[0] === 'string', 'Provider mapping geometry is missing or ambiguous.');
     return lines[0].slice(name.length + 1).trim();
   };
-  assert(field('type') === 'LUKS2' && field('mode') === 'read/write', 'Provider mapping is not writable LUKS2.');
+  const type = field('type'), mode = field('mode');
+  const safeType = ['LUKS2', 'LUKS1', 'PLAIN', 'n/a'].includes(type) ? type : 'unknown';
+  const safeMode = ['read/write', 'readonly', 'read-only', 'n/a'].includes(mode) ? mode : 'unknown';
+  assert(type === 'LUKS2' && mode === 'read/write',
+    `Provider mapping is not writable LUKS2 (type=${safeType}, mode=${safeMode}).`);
   const loop = field('device');
   assert.match(loop, /^\/dev\/loop[0-9]+$/u);
   // Native cryptsetup versions expose the same 512-byte units using either label.
@@ -70,6 +98,27 @@ export function providerVolumeMappingGeometry(status: string) {
   assert(Number.isSafeInteger(offsetBytes) && offsetBytes > 0
     && (offset[2] === undefined || Number(offset[2]) === offsetBytes), 'Provider mapping offset units disagree.');
   return { loop, offsetBytes };
+}
+
+export function providerVolumeMountedAuthority(raw: unknown, device: string, mount: string) {
+  assert(raw && typeof raw === 'object' && 'filesystems' in raw
+    && Array.isArray(raw.filesystems) && raw.filesystems.length > 0, 'Provider mounted authority is missing.');
+  let authority: { source: string; target: string; fstype: string; options: string; uuid: string } | undefined;
+  for (const value of raw.filesystems as unknown[]) {
+    assert(value && typeof value === 'object' && 'source' in value && value.source === device
+      && 'target' in value && value.target === mount && 'fstype' in value && value.fstype === 'ext4'
+      && 'options' in value && typeof value.options === 'string' && 'uuid' in value
+      && typeof value.uuid === 'string' && /^[a-f0-9-]{36}$/u.test(value.uuid), 'Provider mounted authority changed.');
+    const options = value.options.split(',');
+    assert(['rw', 'nodev', 'nosuid', 'noexec'].every(option => options.includes(option)), 'Provider mount protections changed.');
+    const next = { source: value.source, target: value.target, fstype: value.fstype, options: value.options, uuid: value.uuid };
+    // systemd ProtectSystem + ReadWritePaths can bind the same mount again.
+    // Every represented view must agree; never choose the first contradictory view.
+    assert(!authority || Object.entries(authority).every(([key, item]) => next[key as keyof typeof next] === item), 'Provider mounted views disagree.');
+    authority = next;
+  }
+  assert(authority, 'Provider mounted authority is missing.');
+  return authority;
 }
 
 /** Grow only the already-mounted owning loop/LUKS2/ext4 stack. Never formats,
@@ -83,29 +132,19 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
   assertProviderVolumeMountCustody(mountInfo);
   assert(mountInfo.isDirectory()
     && realpathSync(mount) === mount, 'Provider mount custody changed.');
-  const original = privatePath(backing, false), device = `/dev/mapper/${mapper}`;
+  const original = lstatSync(backing), device = `/dev/mapper/${mapper}`;
+  assertProviderVolumeBackingCustody(original);
+  assert(realpathSync(backing) === backing, 'Provider volume custody changed.');
   const descriptor = openSync(backing, constants.O_RDWR | constants.O_NOFOLLOW);
   try {
     const opened = fstatSync(descriptor);
+    assertProviderVolumeBackingCustody(opened);
     assert(opened.ino === original.ino && opened.dev === original.dev, 'Provider backing inode moved.');
     const raw: unknown = JSON.parse(command('/usr/bin/findmnt', ['--json', '--mountpoint', mount, '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,UUID']));
-    assert(raw && typeof raw === 'object' && 'filesystems' in raw && Array.isArray(raw.filesystems) && raw.filesystems.length === 1);
-    const mounted: unknown = raw.filesystems[0];
-    assert(mounted && typeof mounted === 'object' && 'source' in mounted && mounted.source === device
-      && 'target' in mounted && mounted.target === mount && 'fstype' in mounted && mounted.fstype === 'ext4'
-      && 'options' in mounted && typeof mounted.options === 'string'
-      && 'uuid' in mounted && typeof mounted.uuid === 'string' && /^[a-f0-9-]{36}$/u.test(mounted.uuid), 'Provider mounted authority changed.');
-    const mountOptions = mounted.options.split(',');
-    assert(['rw', 'nodev', 'nosuid', 'noexec'].every(option => mountOptions.includes(option)), 'Provider mount protections changed.');
+    const mounted = providerVolumeMountedAuthority(raw, device, mount);
     const { loop, offsetBytes } = providerVolumeMappingGeometry(command('/usr/sbin/cryptsetup', ['status', mapper]));
-    const associated: unknown = JSON.parse(command('/usr/sbin/losetup', ['--json', '--list', '--associated', backing, '--output', 'NAME,BACK-FILE,BACK-INO,OFFSET,SIZELIMIT,RO']));
-    assert(associated && typeof associated === 'object' && 'loopdevices' in associated
-      && Array.isArray(associated.loopdevices) && associated.loopdevices.length === 1);
-    const owner: unknown = associated.loopdevices[0];
-    assert(owner && typeof owner === 'object' && 'name' in owner && owner.name === loop
-      && 'back-file' in owner && owner['back-file'] === backing && 'back-ino' in owner && Number(owner['back-ino']) === original.ino
-      && 'offset' in owner && owner.offset === 0 && 'sizelimit' in owner && owner.sizelimit === 0
-      && 'ro' in owner && (owner.ro === false || owner.ro === 0), 'Provider loop ownership changed.');
+    const associated: unknown = JSON.parse(command('/usr/sbin/losetup', ['--json', '--list', '--associated', backing, '--output', 'NAME,BACK-INO,OFFSET,SIZELIMIT,RO']));
+    assertProviderVolumeLoopAuthority(associated, loop, original.ino);
     const header = () => command('/usr/sbin/cryptsetup', ['luksDump', '--dump-json-metadata', backing]);
     const beforeHeader = header();
     const filesystem = () => {
@@ -121,13 +160,24 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
     const desired = assertProviderVolumeGeometry({ backingBytes: opened.size, loopBytes, mappedBytes,
       offsetBytes, ...fs }, target);
     const expanded = opened.size !== target || loopBytes !== target || mappedBytes !== desired || fs.filesystemBytes !== desired;
-    if (!expanded) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
-    const available = statfsSync(dirname(backing));
-    assert(available.bavail * available.bsize >= target - opened.size + 268_435_456, 'Provider backing storage admission is full.');
+    const tighten = (opened.mode & 0o7777) === 0o660;
+    if (!expanded && !tighten) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
+    if (expanded) {
+      const available = statfsSync(dirname(backing));
+      assert(available.bavail * available.bsize >= target - opened.size + 268_435_456, 'Provider backing storage admission is full.');
+    }
     const keyArgs = credential ? ['--key-file', '-'] : ['--token-only'];
     // Authenticate before the first mutation; never place a key in argv or a plaintext file.
     command('/usr/sbin/cryptsetup', ['open', '--test-passphrase', '--type', 'luks2', ...keyArgs, backing], credential);
-    assert(lstatSync(backing).ino === original.ino && realpathSync(backing) === backing, 'Provider backing moved before growth.');
+    const retained = lstatSync(backing);
+    assertProviderVolumeBackingCustody(retained);
+    assert(retained.ino === original.ino && retained.dev === original.dev && realpathSync(backing) === backing, 'Provider backing moved before growth.');
+    privatePath(dirname(backing), true);
+    if (tighten) { fchmodSync(descriptor, 0o600); fsyncSync(descriptor); }
+    const secured = privatePath(backing, false);
+    assert(secured.ino === original.ino && secured.dev === original.dev
+      && (fstatSync(descriptor).mode & 0o7777) === 0o600, 'Provider backing private custody readback failed.');
+    if (!expanded) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
     if (opened.size !== target) { ftruncateSync(descriptor, target); fsyncSync(descriptor); }
     if (loopBytes !== target) command('/usr/sbin/losetup', ['--set-capacity', loop]);
     if (mappedBytes !== desired) command('/usr/sbin/cryptsetup', ['resize', ...keyArgs, mapper], credential);

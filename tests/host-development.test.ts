@@ -87,6 +87,9 @@ describe('host development bridge contracts', () => {
 		switchHostDevelopment('activate', input.generationId, () => undefined, { host, systemd,
 			network: { cni: resolve(fixture, 'cni/20-treeseed-sandboxes.conflist'), nft: resolve(fixture, 'sandbox/network.nft') } });
 		const brokerDropIn = readFileSync(resolve(systemd, 'treeseed-sandbox-broker.service.d/90-treeseed-host-development.conf'), 'utf8');
+		const supervisorDropIn = readFileSync(resolve(systemd, 'treeseed-manager-supervisor.service.d/90-treeseed-host-development.conf'), 'utf8');
+		expect(supervisorDropIn).toContain('ReadWritePaths=/run/cryptsetup\n');
+		expect(supervisorDropIn).not.toContain('ProtectSystem=false');
 		expect(brokerDropIn).toContain('ReadWritePaths=/var/lib/treeseed/agent\n');
 		expect(readFileSync(new URL('../systemd/treeseed-sandbox-broker.service', import.meta.url), 'utf8')).toMatch(/^ReadWritePaths=.*\/var\/lib\/treeseed\/agent$/mu);
 	});

@@ -1,4 +1,34 @@
 workflow:
+  - id: provider-volume-loop-identity-unit
+    action: { verifier: deployment.golden.provider-volume-loop-identity-unit }
+    expect: { status: passed }
+  - id: provider-volume-lock-development-unit
+    action: { verifier: deployment.golden.provider-volume-lock-development-unit }
+    expect: { status: passed }
+  - id: provider-volume-lock-hardening-unit
+    action: { verifier: deployment.golden.provider-volume-lock-hardening-unit }
+    expect: { status: passed }
+  - id: provider-volume-mapping-diagnostic-native
+    action: { verifier: deployment.golden.provider-volume-mapping-diagnostic-native }
+    expect: { status: passed }
+  - id: provider-volume-mapping-diagnostic-unit
+    action: { verifier: deployment.golden.provider-volume-mapping-diagnostic-unit }
+    expect: { status: passed }
+  - id: provider-volume-mount-views-unit
+    action: { verifier: deployment.golden.provider-volume-mount-views-unit }
+    expect: { status: passed }
+  - id: provider-volume-private-create-unit
+    action: { verifier: deployment.golden.provider-volume-private-create-unit }
+    expect: { status: passed }
+  - id: provider-volume-backing-custody-unit
+    action: { verifier: deployment.golden.provider-volume-backing-custody-unit }
+    expect: { status: passed }
+  - id: provider-volume-status-unit
+    action: { verifier: deployment.golden.provider-volume-status-unit }
+    expect: { status: passed }
+  - id: provider-volume-status-native
+    action: { verifier: deployment.golden.provider-volume-status-native }
+    expect: { status: passed }
   - id: provider-volume-mount-custody-unit
     action: { verifier: deployment.golden.provider-volume-mount-custody-unit }
     expect: { status: passed }

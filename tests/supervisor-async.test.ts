@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { isSafeDevelopmentError, supervisorConnectionHandler } from '../src/supervisor/server.js';
 import { recoverAiWithoutBlockingManagement } from '../src/manager/api.js';
+import { providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
 
 async function exchange(execute: (input: unknown) => unknown, operation = 'backup.list', input: Record<string, unknown> = {}) {
 	const events: string[] = [];
@@ -21,6 +22,22 @@ async function exchange(execute: (input: unknown) => unknown, operation = 'backu
 }
 
 describe('supervisor asynchronous completion', () => {
+	it('retains bounded provider mapping denial facts through the native supervisor transport without exposing raw status', async () => {
+		const privateValue = 'private-command-value-not-for-evidence';
+		for (const [type, mode, expectedType, expectedMode] of [
+			['LUKS1', 'read/write', 'LUKS1', 'read/write'],
+			['LUKS2', 'readonly', 'LUKS2', 'readonly'],
+			[privateValue, privateValue, 'unknown', 'unknown'],
+		] as const) {
+			const status = `type: ${type}\nmode: ${mode}\ndevice: /dev/loop17\noffset: 32768 sectors\nprivate: ${privateValue}\n`;
+			const result = await exchange(() => providerVolumeMappingGeometry(status), 'configuration.replace');
+			expect(result.response).toEqual({ ok: false, error: 'operation_failed', operation: 'configuration.replace' });
+			expect(result.events).toEqual(['supervisor.operation-failed']);
+			expect(result.details).toEqual([{ operation: 'configuration.replace',
+				message: `Provider mapping is not writable LUKS2 (type=${expectedType}, mode=${expectedMode}).` }]);
+			expect(JSON.stringify(result)).not.toContain(privateValue);
+		}
+	});
 	it('identifies the failed component without copying request credentials into diagnostics', async () => {
 		const result = await exchange(() => { throw new Error('Secret custody: unsafe_directory'); }, 'component.configure', { componentId: 'postgres', credentials: 'not-for-evidence' });
 		expect(result.details).toEqual([{ operation: 'component.configure', componentId: 'postgres', message: 'Secret custody: unsafe_directory' }]);

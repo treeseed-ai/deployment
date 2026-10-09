@@ -1,6 +1,56 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-loop-identity-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: binds native loop ownership to the exact associated file inode rather than namespace display paths
+  deployment.golden.provider-volume-lock-development-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/host-development.test.ts
+    testName: retains the imported guest digest when replacing an active development generation
+  deployment.golden.provider-volume-lock-hardening-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: keeps supervisor hardening while permitting only the native LUKS2 lock directory
+  deployment.golden.provider-volume-mapping-diagnostic-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/supervisor-async.test.ts
+    testName: retains bounded provider mapping denial facts through the native supervisor transport without exposing raw status
+  deployment.golden.provider-volume-mapping-diagnostic-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: reports only allowlisted mapping type and mode facts when privileged status denies expansion
+  deployment.golden.provider-volume-mount-views-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: accepts identical supervisor bind mount views but denies any missing malformed or contradictory mounted authority
+  deployment.golden.provider-volume-private-create-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: creates private exclusive provider backing under the operator umask without replacing existing bytes
+  deployment.golden.provider-volume-backing-custody-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: admits only exact private or installed group-mode backing custody for authenticated tightening
+  deployment.golden.provider-volume-status-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: returns only read-only configured provider path metadata through security status
+  deployment.golden.provider-volume-status-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: native supervisor socket returns configured security metadata and rejects caller paths without running commands
   deployment.golden.provider-volume-mount-custody-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
