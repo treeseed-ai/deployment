@@ -14,6 +14,16 @@ function run(shape:string) {
       '--env','TREESEED_HANDOFF_DISPOSABLE=1',image,'node','--import','tsx','tests/support/provider-handoff-native.ts',shape]);
     return JSON.parse(output) as unknown;
 }
+
+it('restarts the API operations runner through the original supervisor with a fresh private snapshot after draining the prior process',()=>{
+    const owner=resolve(import.meta.dirname,'..'),workspace=resolve(owner,'../..');
+    const command=(_exe:string,args:readonly string[])=>execFileSync('/usr/bin/docker',[...args],{encoding:'utf8',timeout:180_000,stdio:['ignore','pipe','pipe']});
+    const image=resolveDevelopmentRuntimeImage(command);
+    const output=command('/usr/bin/docker',['run','--rm','--network','none','--group-add',String(statSync(owner).gid),'--cap-drop','ALL','--cap-add','CHOWN','--cap-add','DAC_OVERRIDE','--security-opt','no-new-privileges:true',
+      '--mount',`type=bind,source=${workspace},target=${workspace},readonly`,'--workdir',owner,
+      '--env','TREESEED_HANDOFF_DISPOSABLE=1',image,'node','--import','tsx','tests/support/api-runner-restart-native.ts']);
+    expect(JSON.parse(output)).toEqual({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true});
+},240_000);
 it.each(['ready','running','recovery','malformed','bad-claim','copy-failure','runner-stop-failure','runner-stop-uncertain','manager-stop-uncertain'])(
   'preserves selected provider bytes and execution after %s rejection in an isolated filesystem', shape=>{
     expect(run(shape)).toEqual({shape,rejected:true,selectedBytesUnchanged:true,executionUnchanged:true});
