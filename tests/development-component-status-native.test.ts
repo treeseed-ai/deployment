@@ -2,7 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {Writable} from 'node:stream';
-import {developmentSessionSchema} from '@treeseed/sdk/development';
+import {developmentRuntimeSchema,developmentSessionSchema} from '@treeseed/sdk/development';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {expect,it,onTestFailed} from 'vitest';
@@ -13,6 +13,9 @@ import {quiescedBackup} from '../src/manager/quiesced-backup.js';
 import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
 import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
 import {component} from './fixtures.js';
+import {DevelopmentSessionStore} from '../src/manager/development-sessions.js';
+import {suspendStoppedDevelopmentSessions} from '../src/manager/development-handoff.js';
+import {developmentResumeRequired} from '../src/supervisor/development-boot.js';
 
 function writebackPressure(read:(path:string)=>string=path=>readFileSync(path,'utf8')) {
  const scalar=(path:string)=>{try{const value=read(path).trim();return /^\d+$/u.test(value)?value:null;}catch{return null;}};
@@ -162,7 +165,14 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
   const session=developmentSessionSchema.parse({schemaVersion:'treeseed.development-session/v1',sessionId:f.input.sessionId,
    actor:'native-test',hostId:'native-host',createdAt:new Date().toISOString(),status:'active',repositories:[],
    targets:[{projectId:'treedx',targetId:'service',mode:'live',generation:1,health:'ready'}],leases:[],restoredReceiptId:null,blockers:[]});
-  const record={session,runtimes:[],routes:[],candidates:[]};
+  const runtime=developmentRuntimeSchema.parse({schemaVersion:'treeseed.development-runtime/v2',
+   project:{id:'treedx',repository:'treeseed-ai/treedx'},defaults:{restoreOnFailure:true},targets:[{
+    id:'service',kind:'rebuild-restart',executionCustody:'manager',platforms:['linux-amd64'],runtimeRequirements:[],
+    sourceRoots:['src'],ignoredPaths:[],operations:{start:{command:'manager-runtime',args:[],environment:{},timeoutSeconds:30}},
+    ready:{kind:'process',graceSeconds:0},outputs:[],endpoints:[],dependencies:[],statePolicy:'stateless',migrationPolicy:'none',
+    secretRefs:{},shutdown:{graceSeconds:1,activeWorkPolicy:'block'},resources:{},logs:[],forbiddenOperations:[],
+    promotion:{liveAdmissible:false,candidateRequiresVerification:true}}]});
+  const record={session,runtimes:[runtime],routes:[],candidates:[]};
   const command=(exe:string,args:readonly string[])=>{
    if(args[0]==='inspect'&&args[2]?.includes('"Id":'))inspectionSizes.push(args.length-3);
    return f.docker(exe,args);
@@ -194,7 +204,20 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
   });
   expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.State.Running}}']).trim()).toBe('false');
   expect(finishDevelopmentBackup(1,deps)).toEqual({resumed:true,generation:1,targets:0});
+  expect(f.status()).toMatchObject({ready:false});
+  // The exact backup writer selection stayed immutable while fenced. Only
+  // after release may reconciliation invalidate its earlier saved readiness.
+  expect(JSON.stringify(record)).toBe(selection);
+  const sessions=new DevelopmentSessionStore(resolve(f.root,'sessions'));sessions.save(record);
+  const [pending]=suspendStoppedDevelopmentSessions(sessions,[record],new Set(['treedx']));
+  expect(pending).toEqual(sessions.load(session.sessionId));
+  expect(pending?.session.targets).toEqual([{...session.targets[0],health:'stopped'}]);
+  expect(developmentResumeRequired(sessions.load(session.sessionId))).toBe(true);
   f.docker('/usr/bin/docker',['start',id]);expect(f.status()).toMatchObject({ready:true});
+  sessions.setMode(session.sessionId,'treedx','service','candidate');sessions.markReady(session.sessionId,'treedx','service');
+  expect(sessions.load(session.sessionId).session.targets[0]).toEqual({projectId:'treedx',targetId:'service',mode:'candidate',generation:2,health:'ready'});
+  expect(developmentResumeRequired(sessions.load(session.sessionId))).toBe(false);
+  expect(readFileSync(file)).toEqual(payload);
   expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.Image}}']).trim()).toBe(f.image);
   expect(readFileSync(path)).toEqual(spec);expect(JSON.stringify(record)).toBe(selection);expect(existsSync(deps.holdPath)).toBe(false);
  }finally{

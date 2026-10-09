@@ -24,6 +24,18 @@ describe('development boot process custody', () => {
 	it('restarts a completed boot worker when host stop left live targets stopped', () => {
 		const stopped = { session: { targets: [{ mode: 'live', health: 'stopped' }, { mode: 'released', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession;
 		expect(developmentResumeRequired(stopped)).toBe(true);
-		expect(developmentResumeRequired({ session: { targets: [{ mode: 'live', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession)).toBe(false);
+		// A stopped candidate needs the same recovery as a stopped live selection;
+		// the former false oracle is retained in the Issue's original RED history.
+		expect(developmentResumeRequired({ session: { targets: [{ mode: 'live', health: 'ready' }, { mode: 'candidate', health: 'stopped' }] } } as ManagedDevelopmentSession)).toBe(true);
+	});
+
+	it('requires recovery for stopped candidate selections without releasing them or rewriting saved generations', () => {
+		const record = { session: { targets: [{ mode: 'candidate', health: 'stopped', generation: 7 },
+			{ mode: 'released', health: 'stopped', generation: 2 }] } } as ManagedDevelopmentSession;
+		const before = structuredClone(record);
+		expect(developmentResumeRequired(record)).toBe(true);
+		expect(record).toEqual(before);
+		expect(developmentResumeRequired({ session: { targets: [{ mode: 'candidate', health: 'ready' },
+			{ mode: 'released', health: 'stopped' }] } } as ManagedDevelopmentSession)).toBe(false);
 	});
 });

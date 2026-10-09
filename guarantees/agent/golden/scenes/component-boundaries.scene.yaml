@@ -1,4 +1,13 @@
 workflow:
+  - id: stopped-candidate-resume-unit
+    action: { verifier: deployment.golden.stopped-candidate-resume-unit }
+    expect: { status: passed }
+  - id: backup-selection-invalidation-unit
+    action: { verifier: deployment.golden.backup-selection-invalidation-unit }
+    expect: { status: passed }
+  - id: backup-selection-persistence-native
+    action: { verifier: deployment.golden.backup-selection-persistence-native }
+    expect: { status: passed }
   - id: provider-volume-loop-identity-unit
     action: { verifier: deployment.golden.provider-volume-loop-identity-unit }
     expect: { status: passed }
