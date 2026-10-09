@@ -78,8 +78,9 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     symlinkSync(resolve('node_modules/vitest/dist'),resolve(root,'node_modules/vitest/dist'),'dir');
     const files=new Map<string,string>([
       ['.gitignore','node_modules\n.treeseed\n'],
-      ['package.json',JSON.stringify({name:'@fixture/native-evidence',type:'module',scripts:{test:'vitest run --config ./vitest.config.ts'}})],
-      ['vitest.config.ts',"export default {test:{include:['tests/**/*.test.ts'],fileParallelism:false,maxWorkers:1}};\n"],
+      // The single file already owns the complete two-case suite in one
+      // isolated worker; no custom config needs bundling on six invocations.
+      ['package.json',JSON.stringify({name:'@fixture/native-evidence',type:'module',scripts:{test:'vitest run'}})],
       ['treeseed.package.yaml',JSON.stringify({development:{project:{id:'native-evidence'},targets:[{id:'runtime',dependencies:[]}]}})],
       ['source.txt',' exact native evidence é\n'],
       ['tests/integration.test.ts',[
@@ -103,7 +104,9 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     for(const args of [['init','-q'],['add','.'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Native evidence inputs']])expect(native('git',args).status).toBe(0);
     const head=native('git',['rev-parse','HEAD']);expect(head.status).toBe(0);
     const invoke=(id:string)=>{
-      const actual=native(process.execPath,['--import',createRequire(resolve('package.json')).resolve('tsx'),resolve(reviewer,'src/verifiers/guarantees/command.ts'),'--workspace',root,'--environment','local','--ids','proof','--run-id',id]);
+      // Pinned Node 24 executes these erasable TypeScript sources directly;
+      // don't start a second transpiler worker for each native CLI invocation.
+      const actual=native(process.execPath,[resolve(reviewer,'src/verifiers/guarantees/command.ts'),'--workspace',root,'--environment','local','--ids','proof','--run-id',id]);
       expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.stderr).toBe('');
       return {actual,report:JSON.parse(actual.stdout) as {ok:boolean;results:{status:string;evidence:string[];steps:{ref:string;status:string;evidence:string[]}[]}[]}};
     };
@@ -115,6 +118,9 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     for(const path of ['report.json',...failed.report.results[0]!.evidence])retained.set(path,readFileSync(resolve(output,path)));
     const receipt=failed.report.results[0]!.evidence.find(path=>path.includes('prerequisite-'))!;
     expect(JSON.parse(retained.get(receipt)!.toString())).toMatchObject({commit:head.stdout.trim(),passed:true,exitCode:0,checks:{total:2,passed:2,failed:0,skipped:0,todo:0}});
+    expect(JSON.parse(retained.get(receipt)!.toString()).command).toEqual([
+      process.execPath,resolve(root,'node_modules/vitest/vitest.mjs'),'run','--reporter=json',expect.stringMatching(/^--outputFile=.+\/report\.json$/u),
+    ]);
     const evidence=JSON.parse(readFileSync(resolve(output,failed.report.results[0]!.steps[1]!.evidence[0]!),'utf8'));
     expect(evidence).toMatchObject({passed:false,exitCode:1,signal:null,processErrorCode:null,testFile:'tests/integration.test.ts'});
     expect(evidence.checks).toHaveLength(1);expect(evidence.checks[0],JSON.stringify(evidence.checks[0])).toHaveProperty('failure');
@@ -127,6 +133,9 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     const retryRoot=resolve(root,'.treeseed/guarantees/runs/native-fresh-retry');
     const retryReceipt=retried.report.results[0]!.evidence.find(path=>path.includes('prerequisite-'))!;
     expect(JSON.parse(readFileSync(resolve(retryRoot,retryReceipt),'utf8'))).toMatchObject({commit:head.stdout.trim(),passed:true,checks:{total:2,passed:2,failed:0,skipped:0,todo:0}});
+    expect(JSON.parse(readFileSync(resolve(retryRoot,retryReceipt),'utf8')).command).toEqual([
+      process.execPath,resolve(root,'node_modules/vitest/vitest.mjs'),'run','--reporter=json',expect.stringMatching(/^--outputFile=.+\/report\.json$/u),
+    ]);
     expect(readFileSync(resolve(root,'.treeseed/observations'),'utf8').trim().split('\n')).toHaveLength(8);
     for(const [path,bytes]of retained)expect(readFileSync(resolve(output,path))).toEqual(bytes);
     for(const [path,bytes]of files)expect(readFileSync(resolve(root,path),'utf8')).toBe(bytes);
