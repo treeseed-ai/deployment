@@ -25,7 +25,7 @@ import { backupConfiguration, preserveAcceptedConfiguration } from './backup-con
 import { resetPlatformState } from './reset.js';
 import { planHostUninstall, scheduleHostUninstall } from './uninstall.js';
 import { initializeProviderCredential, initializeProviderSecurity, providerSecurityPlan, providerSecurityStatus, rotateProviderSecurityKey, verifyProviderRecoveryBundle, verifyProviderSecurity } from '../security/provider-volume.js';
-import { inspectSandboxHost } from '../sandbox/doctor.js';
+import { inspectSandboxHost, inspectSandboxInventory } from '../sandbox/doctor.js';
 import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandbox/workspace-qualification.js';
 import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
 import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
@@ -286,7 +286,11 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'provider.credential.initialize': return initializeProviderCredential(operation.initializerId, operation.sourceId, operation.secret, command);
 		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
-		case 'sandbox.status':
+		case 'sandbox.status': {
+			const configuration = loadSandboxBrokerConfiguration(), inventory = inspectSandboxInventory(configuration);
+			const status = inspectSandboxHost(configuration, { requireBrokerSocket: true });
+			return inventory.then(observation => ({ ...status, inventory: observation }));
+		}
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
 		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());

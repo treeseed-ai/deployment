@@ -1,6 +1,46 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.host-inventory-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: reads complete stable owning host inventories without hiding unrelated resources or starting a runtime
+  deployment.golden.host-inventory-empty-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: distinguishes complete empty inventories and absent managed root from unavailable observations
+  deployment.golden.host-inventory-incomplete-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: fails closure on unreadable malformed redirected foreign-namespace or changing observations while retaining native evidence
+  deployment.golden.host-inventory-hardened-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: observes the host mount namespace through supervisor hardening only when managed directory inode custody agrees
+  deployment.golden.host-inventory-host-custody-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: denies host namespace directory absence or inode disagreement instead of certifying supervisor-local absence
+  deployment.golden.host-inventory-command-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-status-command.test.ts
+    testName: forwards only the fixed sandbox status operation and denies every supplied host path command or namespace
+  deployment.golden.host-inventory-protocol-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-status-command.test.ts
+    testName: rejects every caller-selected inspection field at the strict supervisor protocol boundary
+  deployment.golden.host-inventory-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection-native.test.ts
+    testName: native installed CLI manager and supervisor observe exact task container mount and directory presence and scoped absence while retaining unrelated resources
   deployment.golden.stopped-candidate-resume-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

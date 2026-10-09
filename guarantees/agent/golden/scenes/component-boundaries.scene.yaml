@@ -1,4 +1,28 @@
 workflow:
+  - id: host-inventory-unit
+    action: { verifier: deployment.golden.host-inventory-unit }
+    expect: { status: passed }
+  - id: host-inventory-empty-unit
+    action: { verifier: deployment.golden.host-inventory-empty-unit }
+    expect: { status: passed }
+  - id: host-inventory-incomplete-unit
+    action: { verifier: deployment.golden.host-inventory-incomplete-unit }
+    expect: { status: passed }
+  - id: host-inventory-hardened-unit
+    action: { verifier: deployment.golden.host-inventory-hardened-unit }
+    expect: { status: passed }
+  - id: host-inventory-host-custody-unit
+    action: { verifier: deployment.golden.host-inventory-host-custody-unit }
+    expect: { status: passed }
+  - id: host-inventory-command-unit
+    action: { verifier: deployment.golden.host-inventory-command-unit }
+    expect: { status: passed }
+  - id: host-inventory-protocol-unit
+    action: { verifier: deployment.golden.host-inventory-protocol-unit }
+    expect: { status: passed }
+  - id: host-inventory-native
+    action: { verifier: deployment.golden.host-inventory-native }
+    expect: { status: passed }
   - id: stopped-candidate-resume-unit
     action: { verifier: deployment.golden.stopped-candidate-resume-unit }
     expect: { status: passed }
