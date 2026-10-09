@@ -1,6 +1,16 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.host-inventory-native-order-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: retains differently ordered native inventories while requiring the exact same unique resource identities
+  deployment.golden.host-inventory-identity-bytes-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: denies blank or whitespace-normalized native identities while preserving the original malformed bytes
   deployment.golden.host-inventory-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

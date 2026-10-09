@@ -1,4 +1,10 @@
 workflow:
+  - id: host-inventory-native-order-unit
+    action: { verifier: deployment.golden.host-inventory-native-order-unit }
+    expect: { status: passed }
+  - id: host-inventory-identity-bytes-unit
+    action: { verifier: deployment.golden.host-inventory-identity-bytes-unit }
+    expect: { status: passed }
   - id: host-inventory-unit
     action: { verifier: deployment.golden.host-inventory-unit }
     expect: { status: passed }

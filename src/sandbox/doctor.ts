@@ -18,11 +18,12 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
  const prefix = ['--address', configuration.containerdAddress, '--namespace', configuration.namespace];
  const listed = () => Promise.all(['tasks', 'containers'].map(kind => command('/usr/bin/ctr', [...prefix, kind, 'list', '--quiet'], false)));
  const [tasks, containers] = await listed();
+ const ids = (value: string) => (value.endsWith('\n') ? value.slice(0, -1) : value).split('\n');
  const validList = (value: string | null | undefined) => {
   if (value === null || value === undefined) return false;
   if (value === '') return true;
-  const ids = value.trimEnd().split('\n');
-  return ids.every(id => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/u.test(id)) && new Set(ids).size === ids.length;
+  const entries = ids(value);
+  return entries.every(id => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/u.test(id)) && new Set(entries).size === entries.length;
  };
  if (!validList(tasks)) errors.push('tasks_inventory_unavailable');
  if (!validList(containers)) errors.push('containers_inventory_unavailable');
@@ -76,7 +77,9 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
   }
  } catch { errors.push('managed_directory_inventory_unavailable'); }
  const [finalTasks, finalContainers] = await listed();
- if (!validList(finalTasks) || !validList(finalContainers) || tasks !== finalTasks || containers !== finalContainers)
+ const sameInventory = (before: string | null | undefined, after: string | null | undefined) => validList(before) && validList(after)
+  && ids(before!).sort().join('\n') === ids(after!).sort().join('\n');
+ if (!sameInventory(tasks, finalTasks) || !sameInventory(containers, finalContainers))
   errors.push('containerd_inventory_changed_or_incomplete');
  return { startedAt, completedAt: new Date().toISOString(), complete: errors.length === 0,
   scope: { containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace },

@@ -28,7 +28,8 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(envelope.ok).toBe(true);const result=envelope.result.inventory;observations.push(result);
   expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
   expect(result.scope.containerdAddress).toBe(configuration.containerdAddress);expect(result.scope.namespace).toBe(configuration.namespace);expect(result.scope.stateRoot).toBe(configuration.stateRoot);
-  expect(result.tasks).toBe(result.confirmation.tasks);expect(result.containers).toBe(result.confirmation.containers);
+  expect(result.tasks!.trimEnd().split('\n').sort()).toEqual(result.confirmation.tasks!.trimEnd().split('\n').sort());
+  expect(result.containers!.trimEnd().split('\n').sort()).toEqual(result.confirmation.containers!.trimEnd().split('\n').sort());
   expect(result.mountInfo).toContain(' - ');expect(result.managedDirectory.rootPresent).toBe(true);return result;
  };
  let bound=false,attempted=false;
