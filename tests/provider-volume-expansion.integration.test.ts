@@ -2,24 +2,35 @@ import { expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, chownSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expandMountedProviderVolume, type VolumeCommand } from '../src/security/provider-volume-expansion.js';
+import { expandMountedProviderVolume, providerVolumeMappingGeometry, type VolumeCommand } from '../src/security/provider-volume-expansion.js';
 import { createProviderVolumeBacking } from '../src/security/provider-volume.js';
 
 it('native LUKS2 expansion preserves original keys contents and identity through interruption retry and replay', () => {
   if (process.getuid?.() !== 0 || process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1') {
     throw new Error('Explicit owning root native LUKS2 environment required; expansion coverage cannot be skipped.');
   }
-  const root = mkdtempSync(join(tmpdir(), 'treeseed-native-volume-expansion-'));
+  const supervisor = readFileSync(new URL('../systemd/treeseed-manager-supervisor.service', import.meta.url), 'utf8');
+  const writable = /^ReadWritePaths=(.+)$/mu.exec(supervisor)?.[1];
+  if (!writable) throw new Error('Original supervisor writable-path contract missing.');
+  const root = mkdtempSync('/var/lib/treeseed/treeseed-native-volume-expansion-');
   const backing = join(root, 'provider-data.luks'), mount = join(root, 'mounted');
   const mapper = `treeseed-test-${randomUUID()}`, device = `/dev/mapper/${mapper}`;
   const primary = randomBytes(32), recovery = randomBytes(32);
   const keyFile = join(root, 'primary.key'), recoveryFile = join(root, 'recovery.key');
-  const run: VolumeCommand = (command, args, input) => execFileSync(command, [...args], {
+  const nativeRun: VolumeCommand = (command, args, input) => execFileSync(command, [...args], {
     input, encoding: 'utf8', timeout: 15_000, maxBuffer: 1_048_576,
     env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' },
   });
+  const protectedCommand: VolumeCommand = (command, args, input) => nativeRun('/usr/bin/systemd-run', [
+    '--quiet', '--wait', '--pipe', '--collect', `--unit=${mapper}-${randomUUID()}`,
+    '--property=ProtectSystem=strict', '--property=PrivateTmp=yes', '--property=NoNewPrivileges=yes',
+    `--property=ReadWritePaths=${writable}`, command, ...args,
+  ], input);
+  // Use actual hardened transient services for every cryptsetup command,
+  // including credential authentication and mapping resize, not root-shell mocks.
+  const run: VolumeCommand = (command, args, input) => command === '/usr/sbin/cryptsetup'
+    ? protectedCommand(command, args, input) : nativeRun(command, args, input);
   let opened = false, mounted = false, bindMounted = false, loop = '';
   try {
     const mask = process.umask(0o007);
@@ -45,6 +56,16 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     expect(views.filesystems).toHaveLength(2); expect(views.filesystems[0]).toEqual(views.filesystems[1]);
     const sentinel = join(mount, 'retained-work.bin'), content = randomBytes(65_537);
     writeFileSync(sentinel, content, { mode: 0o600 });
+    const locks = lstatSync('/run/cryptsetup');
+    expect(locks.isDirectory()).toBe(true); expect(locks.uid).toBe(0); expect(locks.mode & 0o7777).toBe(0o700);
+    // Reproduce the installed failure without weakening the actual LUKS2 gate.
+    const denied = nativeRun('/usr/bin/systemd-run', ['--quiet', '--wait', '--pipe', '--collect',
+      `--unit=${mapper}-denied`, '--property=ProtectSystem=strict', '--property=PrivateTmp=yes',
+      '--property=NoNewPrivileges=yes', `--property=ReadWritePaths=${writable.split(/\s+/u).filter(path => path !== '/run/cryptsetup').join(' ')}`,
+      '/usr/sbin/cryptsetup', 'status', mapper]);
+    expect(() => providerVolumeMappingGeometry(denied)).toThrow('Provider mapping is not writable LUKS2 (type=n/a, mode=read/write).');
+    expect(providerVolumeMappingGeometry(run('/usr/sbin/cryptsetup', ['status', mapper])))
+      .toEqual({ loop, offsetBytes: 16_777_216 });
     expect(expandMountedProviderVolume(backing, mount, 1_073_741_824, mapper, primary, run).expanded).toBe(false);
     // The original component installer owns Agent state as this unprivileged identity.
     chownSync(mount, 65_532, 65_532); chmodSync(mount, 0o700);
@@ -129,6 +150,7 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     if (opened) run('/usr/sbin/cryptsetup', ['close', mapper]);
     if (loop && run('/usr/sbin/losetup', ['--associated', backing]).trim()) throw new Error('Allocated fixture loop remains attached; retaining fixture.');
     expect(existsSync(device)).toBe(false);
+    expect(nativeRun('/usr/bin/systemctl', ['list-units', '--all', '--no-legend', '--plain', '--no-pager', `${mapper}-*.service`]).trim()).toBe('');
     rmSync(root, { recursive: true }); expect(existsSync(root)).toBe(false);
   }
 }, 30_000);

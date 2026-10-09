@@ -23,6 +23,15 @@ const volume: NonNullable<HostConfiguration['security']>['providerVolume'] = {
   unlock: 'systemd-credential', recoveryRequired: true,
 };
 
+it('keeps supervisor hardening while permitting only the native LUKS2 lock directory', () => {
+  const unit = readFileSync(new URL('../systemd/treeseed-manager-supervisor.service', import.meta.url), 'utf8');
+  const writable = /^ReadWritePaths=(.+)$/mu.exec(unit)?.[1]?.split(/\s+/u);
+  expect(writable).toContain('/run/cryptsetup');
+  for (const broad of ['/', '/run', '/dev', '/sys']) expect(writable).not.toContain(broad);
+  expect(unit).toContain('ProtectSystem=strict\n'); expect(unit).toContain('NoNewPrivileges=yes\n');
+  expect(unit).toContain('PrivateTmp=yes\n');
+});
+
 it('accepts identical supervisor bind mount views but denies any missing malformed or contradictory mounted authority', () => {
   const device = '/dev/mapper/treeseed-provider-data', mount = '/var/lib/treeseed/agent';
   const view = { source: device, target: mount, fstype: 'ext4', options: 'rw,nosuid,nodev,noexec,relatime', uuid: 'ec8bb67d-0a23-4f20-ad9a-67bf6a36544d' };
