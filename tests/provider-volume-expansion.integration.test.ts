@@ -148,11 +148,19 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     run('/usr/bin/umount', [mount]); bindMounted = false;
     run('/usr/bin/umount', [mount]); mounted = false;
     run('/usr/sbin/cryptsetup', ['close', mapper]); opened = false;
-    run('/usr/sbin/cryptsetup', ['open', '--type', 'luks2', '--key-file', recoveryFile, backing, mapper]); opened = true;
+    // Preserve the original counterexample too: a later supervisor may own a
+    // different mount namespace from the process that created the loop mapping.
+    protectedCommand('/usr/sbin/cryptsetup', ['open', '--type', 'luks2', '--key-file', recoveryFile, backing, mapper]); opened = true;
     run('/usr/bin/mount', ['--options', 'nodev,nosuid,noexec', device, mount]); mounted = true;
     expect(readFileSync(sentinel)).toEqual(content);
     expect(lstatSync(mount).uid).toBe(65_532); expect(lstatSync(mount).gid).toBe(65_532);
     expect(lstatSync(mount).mode & 0o777).toBe(0o700);
+    try { expect(expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run).expanded).toBe(false); }
+    catch (cause) {
+      const actual = nativeRun('/usr/sbin/losetup', ['--json', '--list', '--associated', backing,
+        '--output', 'NAME,BACK-FILE,BACK-INO,OFFSET,SIZELIMIT,RO']);
+      throw new Error(`Native cross-namespace ownership failed; original inode=${lstatSync(backing).ino}; actual association=${actual}`, { cause });
+    }
   } finally {
     primary.fill(0); recovery.fill(0);
     if (bindMounted) run('/usr/bin/umount', [mount]);
