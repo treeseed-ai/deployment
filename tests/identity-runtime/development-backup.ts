@@ -23,8 +23,11 @@ const compose = ['compose', '--project-name', name, '--file', join(directory, 'c
 const checks: string[] = [];
 try {
   assert.equal(docker(['ps', '--all', '--filter', 'name=^/treeseed-api-operations-runner-1$', '--format', '{{.Names}}']).trim(), '', 'Disposable runner required');
-  docker(['pull', '--quiet', POSTGRES_IMAGE]);
-  const image = docker(['image', 'inspect', POSTGRES_IMAGE, '--format', '{{.Id}}']).trim();
+  assert.match(POSTGRES_IMAGE, /^postgres:[a-z0-9.-]+@sha256:[a-f0-9]{64}$/u);
+  const mirror = POSTGRES_IMAGE.replace(/^postgres:/u, 'mirror.gcr.io/library/postgres:');
+  docker(['pull', '--quiet', mirror]);
+  const image = docker(['image', 'inspect', mirror, '--format', '{{.Id}}']).trim();
+  assert.match(image, /^sha256:[a-f0-9]{64}$/u);
   const spec = { services: { runtime: { image, container_name: name, init: true, network_mode: 'none',
     read_only: true, restart: 'no', cap_drop: ['ALL'], security_opt: ['no-new-privileges:true'],
     user: `${process.getuid!()}:${process.getgid!()}`,

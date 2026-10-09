@@ -8,6 +8,34 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
 
+it('native development image preparation holds one exact official manifest before timed suites and verifies local image readback',()=>{
+ const path='.github/workflows/verify.yml',bytes=readFileSync(path);
+ const steps=parse(bytes.toString()).jobs.verify.steps as {name?:string;run?:string}[];
+ const preparation=steps.find(step=>step.name==='Prepare native development image before timed tests')!.run!;
+ const payload=preparation.split("--eval '\n")[1]!.replace(/\n\s*'\s*$/u,'');
+ expect(payload).not.toContain("'");
+ const commands=preparation.replaceAll('"',"'");
+ expect(preparation).toContain('mirror.gcr.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd');
+ expect(commands).toContain("docker(['pull','--quiet',image])");
+ expect(commands).toContain("docker(['image','inspect',image,'--format','{{.Id}}'])");
+ expect(commands).toContain("docker(['tag',image,'node:24-bookworm-slim'])");
+ expect(preparation).toContain('resolved!==expected');
+ expect(steps.indexOf(steps.find(step=>step.name==='Prepare native development image before timed tests')!)).toBeLessThan(steps.findIndex(step=>step.run?.includes('npm run verify:direct')));
+ expect(readFileSync(path)).toEqual(bytes);
+});
+
+it('native backup image preparation preserves the owning PostgreSQL digest through fixed mirror acquisition and local readback',()=>{
+ const path='tests/identity-runtime/development-backup.ts',bytes=readFileSync(path);
+ const source=bytes.toString();
+ expect(source).toContain("import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js'");
+ expect(source).toContain("POSTGRES_IMAGE.replace(/^postgres:/u, 'mirror.gcr.io/library/postgres:')");
+ expect(source).toContain("docker(['pull', '--quiet', mirror])");
+ expect(source).toContain("docker(['image', 'inspect', mirror, '--format', '{{.Id}}'])");
+ expect(source).toContain("assert.match(image, /^sha256:[a-f0-9]{64}$/u)");
+ expect(source).not.toContain("docker(['pull', '--quiet', POSTGRES_IMAGE])");
+ expect(readFileSync(path)).toEqual(bytes);
+});
+
 it('capacity manager owns one persistent bounded writeback policy without prewarming or flushing the cold path', () => {
   const policy=readFileSync('deploy/capacity/writeback.conf','utf8');
   expect(policy.split('\n').filter(line=>line&&!line.startsWith('#'))).toEqual([
