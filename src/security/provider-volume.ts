@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, existsSync, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -51,11 +51,32 @@ export function providerSecurityPlan() {
 		unlockProtection: value.production ? 'hardware-backed' : 'development-systemd-credential', steps: ['drain-assignments', 'encrypted-backup', 'format-luks2', 'copy-and-verify', 'switch-mount', 'health-gate', 'rotate-historical-credentials'] };
 }
 
+function pathMetadata(path: string) {
+  try {
+    const info = lstatSync(path);
+    return { type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other',
+      uid: info.uid, gid: info.gid, mode: info.mode & 0o7777, links: info.nlink, sizeBytes: info.size };
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 export function providerSecurityStatus() {
 	const value = providerSecuritySettings(), mapper = `/dev/mapper/${mapperName}`;
 	return { configured: true, backingExists: existsSync(value.backing), mapperOpen: existsSync(mapper), mounted: mounted(value.mount),
+		backing: pathMetadata(value.backing), mount: pathMetadata(value.mount),
 		credentialKeksReady: credentialIds.every((id) => existsSync(`${credentialRoot}/${id}.cred`)), recoveryBundleVerified: existsSync(`${paths.securityState}/recovery-verified.json`),
 		sandboxSocketReady: existsSync(paths.sandboxSocket), unlock: value.volume.unlock };
+}
+
+/** Exclusive sparse creation: supervisor UMask=0007 must not expose disk bytes to its group. */
+export function createProviderVolumeBacking(backing: string, sizeBytes: number) {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1_073_741_824 || sizeBytes % 4096 !== 0)
+    throw new Error('Provider backing size must be a positive aligned volume size.');
+  const descriptor = openSync(backing, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try { ftruncateSync(descriptor, sizeBytes); fsyncSync(descriptor); }
+  finally { closeSync(descriptor); }
 }
 
 export function verifyProviderSecurity(command: CommandRunner) {
@@ -163,7 +184,7 @@ export function initializeProviderSecurity(recoveryBundle: string, passphrase: s
 		} finally { command('/usr/sbin/cryptsetup', ['close', mapperName]); }
 		rmSync(value.backing);
 	}
-	command('/usr/bin/truncate', ['--size', String(value.volume.sizeBytes), value.backing]);
+	createProviderVolumeBacking(value.backing, value.volume.sizeBytes);
 	command('/usr/sbin/cryptsetup', ['luksFormat', '--batch-mode', '--type', 'luks2', '--pbkdf', 'argon2id', '--key-file', volumeKeyPath, value.backing]);
 	command('/usr/sbin/cryptsetup', ['luksAddKey', '--key-file', volumeKeyPath, '--new-keyfile', recoveryKeyPath, value.backing]);
 	if (value.volume.unlock === 'tpm2') command('/usr/bin/systemd-cryptenroll', ['--unlock-key-file=-', '--tpm2-device=auto', value.backing], volumeKey);

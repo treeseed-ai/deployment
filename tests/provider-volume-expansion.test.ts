@@ -1,5 +1,12 @@
 import { expect, it, vi } from 'vitest';
-import { assertProviderVolumeGeometry, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
+import { assertProviderVolumeBackingCustody, assertProviderVolumeGeometry, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
+import { createProviderVolumeBacking, providerSecurityStatus } from '../src/security/provider-volume.js';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createConnection, createServer } from 'node:net';
+import { once } from 'node:events';
+import { supervisorConnectionHandler } from '../src/supervisor/server.js';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { host } from './fixtures.js';
 import { executeSupervisorOperation } from '../src/supervisor/execute.js';
@@ -15,6 +22,105 @@ const volume: NonNullable<HostConfiguration['security']>['providerVolume'] = {
   mountPath: '/var/lib/treeseed/agent', sizeBytes: 17_179_869_184,
   unlock: 'systemd-credential', recoveryRequired: true,
 };
+
+it('creates private exclusive provider backing under the operator umask without replacing existing bytes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'treeseed-volume-create-')), backing = join(root, 'provider-data.luks');
+  const mask = process.umask(0o007);
+  try {
+    createProviderVolumeBacking(backing, 1_073_741_824);
+    const original = lstatSync(backing);
+    expect(original.mode & 0o7777).toBe(0o600); expect(original.size).toBe(1_073_741_824);
+    expect(original.nlink).toBe(1);
+    expect(() => createProviderVolumeBacking(backing, 2_147_483_648)).toThrow();
+    expect(lstatSync(backing).ino).toBe(original.ino); expect(lstatSync(backing).size).toBe(original.size);
+    const retained = join(root, 'retained'); writeFileSync(retained, 'retained encrypted input', { mode: 0o600 });
+    const alias = join(root, 'alias'); symlinkSync(retained, alias);
+    expect(() => createProviderVolumeBacking(alias, 1_073_741_824)).toThrow();
+    for (const size of [0, -1, 1.5, NaN, Infinity, 1_073_741_825]) {
+      expect(() => createProviderVolumeBacking(join(root, 'invalid'), size)).toThrow();
+    }
+    expect(readFileSync(retained, 'utf8')).toBe('retained encrypted input');
+  } finally { process.umask(mask); rmSync(root, { recursive: true }); }
+});
+
+it('admits only exact private or installed group-mode backing custody for authenticated tightening', () => {
+  const original = { uid: 0, mode: 0o100600, nlink: 1, isFile: () => true };
+  expect(() => assertProviderVolumeBackingCustody(original)).not.toThrow();
+  expect(() => assertProviderVolumeBackingCustody({ ...original, mode: 0o100660 })).not.toThrow();
+  for (const change of [{ uid: 1000 }, { nlink: 2 }, { isFile: () => false },
+    ...[0o100640, 0o100666, 0o100700, 0o104600, 0o100000].map(mode => ({ mode }))]) {
+    expect(() => assertProviderVolumeBackingCustody({ ...original, ...change })).toThrow(/custody/);
+  }
+  for (const field of ['uid', 'mode', 'nlink']) for (const value of [undefined, null, '', '0', -1, 1.5, NaN, Infinity]) {
+    expect(() => assertProviderVolumeBackingCustody(Object.assign({}, original, { [field]: value }))).toThrow(/custody/);
+  }
+  expect(original).toMatchObject({ uid: 0, mode: 0o100600, nlink: 1 });
+});
+
+it('returns only read-only configured provider path metadata through security status', () => {
+  const root = mkdtempSync(join(tmpdir(), 'treeseed-volume-status-'));
+  const directory = join(root, '.treeseed/data/.encrypted'); mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const backing = join(directory, 'provider-data.luks'), mount = join(root, 'mounted');
+  const config = host(); config.runtime.environment = 'development';
+  config.security = { providerVolume: { ...volume, backingPath: backing, mountPath: mount },
+    sandbox: { required: true, runtime: 'kata-runtime-rs-qemu', brokerSocket: '/run/treeseed/sandbox/broker.sock',
+      modelGateway: { provider: 'openai', upstreamBaseUrl: 'https://api.openai.com', allowedModels: ['test-model'] },
+      profiles: [{ id: 'test-profile', guestImage: 'treeseed/test', guestImageDigest: `sha256:${'a'.repeat(64)}` }] },
+    applicationEncryption: { provider: 'systemd-credential', activeKeyVersion: 1, diagnosticsKeyVersion: 1 } };
+  boundary.load.mockReturnValue(config);
+  try {
+    writeFileSync(backing, 'never disclose encrypted bytes', { mode: 0o660 }); mkdirSync(mount, { mode: 0o700 });
+    const before = lstatSync(backing), bytes = readFileSync(backing);
+    const status = providerSecurityStatus();
+    expect(status).toMatchObject({ backing: { type: 'file', uid: before.uid, gid: before.gid,
+      mode: before.mode & 0o7777, links: 1, sizeBytes: bytes.length },
+    mount: { type: 'directory', uid: process.getuid?.(), mode: 0o700 } });
+    expect(Object.keys(status.backing!).sort()).toEqual(['gid', 'links', 'mode', 'sizeBytes', 'type', 'uid']);
+    expect(JSON.stringify(status)).not.toContain(bytes.toString());
+    expect(readFileSync(backing)).toEqual(bytes); expect(lstatSync(backing).mode).toBe(before.mode);
+    rmSync(backing); rmSync(mount, { recursive: true });
+    expect(providerSecurityStatus()).toMatchObject({ backing: null, mount: null, backingExists: false, mounted: false });
+    symlinkSync(join(root, 'absent'), backing); expect(() => providerSecurityStatus()).toThrow(/symbolic/);
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+it('native supervisor socket returns configured security metadata and rejects caller paths without running commands', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'treeseed-status-socket-')), socket = join(root, 'supervisor.sock');
+  const directory = join(root, '.treeseed/data/.encrypted'); mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const backing = join(directory, 'provider-data.luks'); writeFileSync(backing, 'private ciphertext', { mode: 0o600 });
+  const config = host(); config.runtime.environment = 'development';
+  config.security = { providerVolume: { ...volume, backingPath: backing, mountPath: join(root, 'absent') },
+    sandbox: { required: true, runtime: 'kata-runtime-rs-qemu', brokerSocket: '/run/treeseed/sandbox/broker.sock',
+      modelGateway: { provider: 'openai', upstreamBaseUrl: 'https://api.openai.com', allowedModels: ['test-model'] },
+      profiles: [{ id: 'renamed-profile', guestImage: 'treeseed/test', guestImageDigest: `sha256:${'a'.repeat(64)}` }] },
+    applicationEncryption: { provider: 'systemd-credential', activeKeyVersion: 1, diagnosticsKeyVersion: 1 } };
+  boundary.load.mockReturnValue(config);
+  const command = vi.fn(() => { throw new Error('Read-only status must not execute a command'); });
+  const events: string[] = [];
+  const server = createServer({ allowHalfOpen: true }, supervisorConnectionHandler(
+    input => executeSupervisorOperation(input, command), name => { events.push(name); }));
+  server.listen(socket); await once(server, 'listening');
+  const exchange = async (input: unknown) => {
+    const client = createConnection(socket); let raw = ''; client.setEncoding('utf8');
+    client.on('data', chunk => { raw += chunk; });
+    try { await once(client, 'connect'); client.end(JSON.stringify(input)); await once(client, 'end'); return JSON.parse(raw); }
+    finally { client.destroy(); }
+  };
+  try {
+    const metadata = lstatSync(backing), expected = providerSecurityStatus();
+    const response = await exchange({ operation: 'security.status' });
+    expect(response).toEqual({ ok: true, result: expected });
+    expect(response.result.backing).toEqual({ type: 'file', uid: metadata.uid, gid: metadata.gid,
+      mode: 0o600, links: 1, sizeBytes: 18 });
+    for (const extra of [{ path: '/etc/shadow' }, { command: '/bin/sh' }, { args: ['-c', 'id'] }]) {
+      expect(await exchange({ operation: 'security.status', ...extra })).toEqual({ ok: false, error: 'operation_failed', operation: 'security.status' });
+    }
+    expect(await exchange({ operation: 'security.status' })).toEqual(response);
+    expect(events).toEqual(['supervisor.operation-complete', ...Array<string>(3).fill('supervisor.operation-failed'), 'supervisor.operation-complete']);
+    expect(command).not.toHaveBeenCalled(); expect(boundary.persist).not.toHaveBeenCalled();
+    expect(readFileSync(backing, 'utf8')).toBe('private ciphertext'); expect(lstatSync(backing).mode).toBe(metadata.mode);
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); rmSync(root, { recursive: true }); }
+});
 
 it('preserves installed provider mount ownership while denying foreign writable or malformed custody', () => {
   const provider = { uid: 65_532, gid: 65_532, mode: 0o40700 }, before = structuredClone(provider);
