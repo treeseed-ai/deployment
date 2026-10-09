@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statfsSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statfsSync, type Stats } from 'node:fs';
 import { dirname } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { providerSecuritySettings } from './provider-volume.js';
@@ -46,6 +46,14 @@ function privatePath(path: string, directory: boolean) {
   return info;
 }
 
+export function assertProviderVolumeMountCustody(info: Pick<Stats, 'uid' | 'gid' | 'mode'>) {
+  // configureComponent owns Agent state as 65532:65532; mounted filesystem
+  // ownership is not the root-only custody of the encrypted backing file.
+  assert([info.uid, info.gid, info.mode].every(value => Number.isSafeInteger(value) && value >= 0)
+    && info.mode <= 0o177777 && (info.uid === 0 || (info.uid === 65_532 && info.gid === 65_532))
+    && !(info.mode & 0o022), 'Provider mount custody changed.');
+}
+
 export function providerVolumeMappingGeometry(status: string) {
   const field = (name: string) => {
     const lines = status.split('\n').map(line => line.trim()).filter(line => line.startsWith(`${name}:`));
@@ -72,7 +80,8 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
   assert.match(mapper, /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u);
   privatePath(dirname(backing), true);
   const mountInfo = lstatSync(mount);
-  assert(mountInfo.isDirectory() && mountInfo.uid === 0 && !(mountInfo.mode & 0o022)
+  assertProviderVolumeMountCustody(mountInfo);
+  assert(mountInfo.isDirectory()
     && realpathSync(mount) === mount, 'Provider mount custody changed.');
   const original = privatePath(backing, false), device = `/dev/mapper/${mapper}`;
   const descriptor = openSync(backing, constants.O_RDWR | constants.O_NOFOLLOW);
