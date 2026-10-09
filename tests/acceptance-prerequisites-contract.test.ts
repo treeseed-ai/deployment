@@ -100,7 +100,12 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
       }})],
     ]);
     for(const [path,bytes]of files)writeFileSync(resolve(root,path),bytes);
-    const native=(executable:string,args:string[])=>spawnSync(executable,args,{cwd:root,encoding:'utf8',timeout:10_000,maxBuffer:8*1024*1024});
+    // Start cold inside this allocation. Cache only Node's compilation, not test
+    // results: every prerequisite and selected case still executes in a new child.
+    const compileCache=resolve(root,'.treeseed/compile-cache');
+    expect(existsSync(compileCache)).toBe(false);
+    const native=(executable:string,args:string[])=>spawnSync(executable,args,{cwd:root,encoding:'utf8',timeout:10_000,maxBuffer:8*1024*1024,
+      env:{...process.env,NODE_COMPILE_CACHE:compileCache}});
     for(const args of [['init','-q'],['add','.'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Native evidence inputs']])expect(native('git',args).status).toBe(0);
     const head=native('git',['rev-parse','HEAD']);expect(head.status).toBe(0);
     const invoke=(id:string)=>{
@@ -137,6 +142,7 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
       process.execPath,resolve(root,'node_modules/vitest/vitest.mjs'),'run','--reporter=json',expect.stringMatching(/^--outputFile=.+\/report\.json$/u),
     ]);
     expect(readFileSync(resolve(root,'.treeseed/observations'),'utf8').trim().split('\n')).toHaveLength(8);
+    expect(existsSync(compileCache)).toBe(true);
     for(const [path,bytes]of retained)expect(readFileSync(resolve(output,path))).toEqual(bytes);
     for(const [path,bytes]of files)expect(readFileSync(resolve(root,path),'utf8')).toBe(bytes);
     expect(native('git',['rev-parse','HEAD']).stdout).toBe(head.stdout);

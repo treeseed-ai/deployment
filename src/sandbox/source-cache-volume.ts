@@ -33,7 +33,10 @@ export async function withSourceCacheVolume<T>(cache: string, bundleLimit: numbe
       || prior.size !== bytes || await realpath(image) !== image) throw new Error('Source cache quota/custody changed; explicit recovery required.');
   } else {
     const available = await statfs(cache);
-    if (available.bavail * available.bsize < bytes + bundleLimit + 268_435_456) throw new Error('Source cache storage admission is full; reclaim inactive caches before retrying.');
+    if (available.bavail * available.bsize < bytes + bundleLimit + 268_435_456) {
+      // Only this rejection proves no allocation command or fetch descendant has started.
+      throw Object.assign(new Error('Source cache storage admission is full; reclaim inactive caches before retrying.'), { code: 'SOURCE_CACHE_STORAGE_FULL' });
+    }
     const temporary = `${image}.creating`, handle = await open(temporary, 'wx', 0o600); await handle.close();
     // Incomplete creation is fenced, never reinterpreted as an initialized filesystem.
     await commands.run('/usr/bin/fallocate', ['--length', String(bytes), temporary]);
