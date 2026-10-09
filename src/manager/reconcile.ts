@@ -15,7 +15,7 @@ import { requestSupervisor } from '../supervisor/client.js';
 import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtimeStopped, trackPaused } from './update-state.js';
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
-import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions, runtimeActivationTargets, sandboxGuestTrustDigest } from './development-handoff.js';
+import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions, runtimeActivationTargets, sandboxGuestTrustDigest, suspendStoppedDevelopmentSessions } from './development-handoff.js';
 import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
@@ -429,7 +429,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	const snapshotRequired = Boolean(previous && (configurationChanged || removed.length || changed.some(component => component.release !== activeById.get(component.componentId)?.release || component.runtimeDigest !== activeById.get(component.componentId)?.runtimeDigest)));
 	const impacted = (component: ComponentRelease) => snapshotRequired || configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId) || !selectedIds.has(component.componentId);
 	const activationOrder = componentActivationOrder(host, effective);
-	const generation = Date.now();
+	const generation = Date.now(), stoppedComponents = new Set<string>();
 	if (host.runtime.environment === 'development' && effective.some(({ componentId }) => componentId === 'api')) await requestSupervisor({ operation: 'development.credentials.ensure' });
 	for (const component of activationOrder.filter((component) => !heldDevelopmentComponents.has(component.componentId)
 		&& (configurationImpacts(component.componentId) || changedTargetIds.has(component.componentId)))) {
@@ -439,7 +439,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 		prepare: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.begin', generation,
 			apiRuntimeDigest: effective.find(component => component.componentId === 'api')?.runtimeDigest }) : undefined,
 		resumeAfterFailure: async () => snapshotRequired ? requestSupervisor({ operation: 'development.backup.finish', generation }) : undefined,
-		stop: stopComponent, start: component => activateComponent(loadHostConfiguration(), component, active),
+		stop: async component => { await stopComponent(component); stoppedComponents.add(component.componentId); }, start: component => activateComponent(loadHostConfiguration(), component, active),
 		rollbackConfiguration: async () => previous && !disabledPreviouslyActive ? requestSupervisor({ operation: 'configuration.restore-accepted' }) : undefined,
 		capture: async () => {
 			if (!snapshotRequired) return;
@@ -487,7 +487,7 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 	}
 	if (snapshotRequired) await requestSupervisor({ operation: 'development.backup.finish', generation });
 	await restoreHeldComponentCredentials(effective, heldDevelopmentComponents, component => configureComponentForActivation(host, component, effective));
-	if (!await resumeDevelopmentSessions(activeDevelopmentSessions)) recordEvent('development.boot-recovery-pending', {});
+	if (!await resumeDevelopmentSessions(suspendStoppedDevelopmentSessions(developmentSessions, activeDevelopmentSessions, stoppedComponents))) recordEvent('development.boot-recovery-pending', {});
 	const receipt = hostReceiptSchema.parse({ schemaVersion: 'treeseed.host-receipt/v1', receiptId: `receipt-${Date.now()}`, planId: accepted.plan.planId, state: 'known-good', hostId: host.host.id, role: host.host.role, rolloutGroup: host.fleet.rolloutGroup, configurationDigest: accepted.plan.configurationDigest, catalogDigest: configurationScope.size && previous ? previous.catalogDigest : accepted.plan.catalogDigest, packages: effective.flatMap((component) => component.packages), images: effective.flatMap((component) => component.images), runtimes: effective.map((component) => ({ componentId: component.componentId, release: component.release, runtimeDigest: component.runtimeDigest })), completedAt: new Date().toISOString() });
 	atomicJson(`${paths.receipts}/${receipt.receiptId}.json`, receipt);
 	atomicJson(`${paths.managerState}/current-receipt.json`, receipt);

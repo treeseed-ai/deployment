@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { affectedDevelopmentClosure, boundedReadiness, DevelopmentSessionStore, hasRegisteredDevelopmentTarget, loopbackLookup } from '../src/manager/development-sessions.js';
+import { suspendStoppedDevelopmentSessions } from '../src/manager/development-handoff.js';
+import { developmentResumeRequired } from '../src/supervisor/development-boot.js';
 
 const roots: string[] = [];
 vi.mock('../src/core/development-backup-hold.js', () => ({ assertDevelopmentNotHeld: () => undefined }));
@@ -35,6 +37,40 @@ function store(now: Date) {
 }
 
 describe('development session manager', () => {
+	it('native saved selection loses stale ready routes after component stop and resumes the same candidate without changing custody', async () => {
+		const now = new Date('2026-10-09T10:18:19.844Z'), sessions = store(now), contract = runtime('agent', 'provider');
+		const input = session(now); input.repositories[0]!.projectId = 'agent';
+		input.repositories[0]!.repository = 'treeseed-ai/agent';
+		input.targets[0] = { projectId: 'agent', targetId: 'provider', mode: 'candidate', generation: 7, health: 'ready' };
+		sessions.start(input, [contract]);
+		const record = sessions.setMode('session-1', 'agent', 'provider', 'candidate');
+		record.routes = [{ alias: 'agent.treeseed.localhost', upstream: 'http://agent:4322', authentication: 'application', projectId: 'agent', targetId: 'provider' }];
+		sessions.save(record); sessions.markReady('session-1', 'agent', 'provider');
+		const before = sessions.load('session-1');
+		expect(developmentResumeRequired(before)).toBe(false);
+		const [pending] = suspendStoppedDevelopmentSessions(sessions, [before], new Set(['agent']));
+		expect(pending).toEqual(sessions.load('session-1'));
+		expect(pending?.session.status).toBe('suspended'); expect(pending?.routes).toEqual([]);
+		expect(pending?.session.targets).toEqual([{ ...before.session.targets[0], health: 'stopped' }]);
+		expect(pending?.session.repositories).toEqual(before.session.repositories);
+		expect(pending?.session.leases).toEqual(before.session.leases);
+		expect(pending?.runtimes).toEqual(before.runtimes); expect(pending?.candidates).toEqual(before.candidates);
+		expect(developmentResumeRequired(sessions.load('session-1'))).toBe(true);
+		expect(suspendStoppedDevelopmentSessions(sessions, [sessions.load('session-1')], new Set(['agent']))).toEqual([pending]);
+		sessions.setMode('session-1', 'agent', 'provider', 'candidate');
+		// Only the owning attached-route boundary can restore ready state.
+		expect(() => sessions.markReady('session-1', 'agent', 'provider')).toThrow('attached canonical route');
+		await sessions.attach('session-1', 'agent', 'provider', 4322);
+		const restored = sessions.load('session-1');
+		expect(restored.session.status).toBe('active');
+		expect(restored.session.targets).toEqual([{ ...before.session.targets[0], generation: before.session.targets[0]!.generation + 1, health: 'ready' }]);
+		expect(restored.session.repositories).toEqual(before.session.repositories);
+		expect(restored.session.leases).toEqual(before.session.leases);
+		expect(restored.routes).toEqual([{ ...before.routes[0], upstream: 'http://host.docker.internal:4322' }]);
+		expect(developmentResumeRequired(restored)).toBe(false);
+		expect(suspendStoppedDevelopmentSessions(sessions, [restored], new Set())).toEqual([restored]);
+		expect(sessions.load('session-1')).toEqual(restored);
+	});
 	it('waits through transient direct HTTP startup without extending the declared readiness window', async () => {
 		const root = mkdtempSync(join(tmpdir(), 'treeseed-dev-readiness-')); roots.push(root);
 		const now = new Date(), sessions = new DevelopmentSessionStore(root), contract = runtime();

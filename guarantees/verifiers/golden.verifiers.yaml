@@ -1,6 +1,21 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.stopped-candidate-resume-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-boot.test.ts
+    testName: requires recovery for stopped candidate selections without releasing them or rewriting saved generations
+  deployment.golden.backup-selection-invalidation-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-handoff.test.ts
+    testName: invalidates only selections whose runtime component actually stopped and never package-only or explicit stopped sessions
+  deployment.golden.backup-selection-persistence-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-sessions.test.ts
+    testName: native saved selection loses stale ready routes after component stop and resumes the same candidate without changing custody
   deployment.golden.provider-volume-loop-identity-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
