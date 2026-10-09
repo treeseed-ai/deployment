@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: "24.12.0"
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: "24.12.0"
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
@@ -97,7 +97,7 @@ jobs:
       - name: Execute coded sandbox component scenes
         shell: bash
         run: |
-          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS "$(command -v node)" --import tsx \
+          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS,PATH "$(command -v node)" --import tsx \
             .treeseed/tools/reviewer/src/verifiers/guarantees/command.ts \
             --workspace "$GITHUB_WORKSPACE" --environment local --ids guarantee.deployment.golden.component-boundaries \
             --run-id "actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: "24.12.0"
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3

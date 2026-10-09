@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { expect, it } from 'vitest';
+import { expect, it, onTestFailed } from 'vitest';
 import { parse } from 'yaml';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -230,6 +230,8 @@ it('provisions only a disposable native Actions host through the original instal
   expect(prerequisite).toBeDefined();expect(prerequisite?.run).toContain('sudo --preserve-env=');
   expect(prerequisite?.env?.TREESEED_PRIVILEGED_CACHE_TESTS).toBe('1');
   expect(steps.indexOf(native!)).toBeLessThan(steps.indexOf(prerequisite!));
+  const scene=steps.find(step=>step.name==='Execute coded sandbox component scenes');
+  expect(scene?.run).toMatch(/sudo --preserve-env=[^\s]+,PATH /u);
   expect(readFileSync('.github/workflows/verify.yml')).toEqual(bytes);
 });
 
@@ -260,7 +262,10 @@ it('every native execution workflow installs the same declared exact SDK before 
   const workflows=['verify.yml','development-backup.yml','identity-acceptance.yml','postgres-transfer.yml'];
   for(const name of workflows){
     const path=resolve('.github/workflows',name),bytes=readFileSync(path);
-    const workflow=parse(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string}[]}>};
+    const workflow=parse(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string;with?:Record<string,unknown>}[]}>};
+    const runtimes=Object.values(workflow.jobs).flatMap(job=>job.steps).filter(step=>step.uses?.startsWith('actions/setup-node@'));
+    expect(runtimes.length,name).toBeGreaterThan(0);
+    for(const runtime of runtimes)expect(runtime.with?.['node-version'],name).toBe('24.12.0');
     const installers=Object.values(workflow.jobs).flatMap(job=>job.steps)
       .filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
     expect(installers.length,name).toBeGreaterThan(0);
@@ -273,9 +278,15 @@ it('native capacity execution package install retains exact held SDK bytes and r
   const root=mkdtempSync(resolve(tmpdir(),'deployment-capacity-sdk-'));
   const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
   const sdkBytes=readFileSync('node_modules/@treeseed/sdk/package.json');
-  const run=(command:string,args:string[],cwd=root,env:NodeJS.ProcessEnv=process.env)=>spawnSync(command,args,{cwd,env,encoding:'utf8',timeout:15_000,maxBuffer:8*1024*1024});
+  let phase='PREPARATION';
+  onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_SDK_INSTALL_${phase}: Original native package-install failure; retain its failed disposition.`);});
+  const run=(command:string,args:string[],cwd=root,env:NodeJS.ProcessEnv=process.env)=>{
+    phase=`${command}_${args[0]??'COMMAND'}`.toUpperCase().replace(/[^A-Z0-9_]/gu,'_');
+    return spawnSync(command,args,{cwd,env,encoding:'utf8',timeout:15_000,maxBuffer:8*1024*1024});
+  };
   const passed=(result:ReturnType<typeof run>)=>{expect(result.error).toBeUndefined();expect(result.signal).toBeNull();expect(result.status,result.stdout+result.stderr).toBe(0);};
   try {
+    const runtime=run('node',['--version']);passed(runtime);expect(runtime.stdout.trim()).toBe(process.version);
     passed(run('npm',['ls','--all','--json'],process.cwd()));
     for(const [path,bytes] of inputs){mkdirSync(resolve(root,path,'..'),{recursive:true});writeFileSync(resolve(root,path),bytes);}
     const packed=run('npm',['pack','--ignore-scripts','--json','--pack-destination',root,'./node_modules/@treeseed/sdk'],process.cwd());passed(packed);
