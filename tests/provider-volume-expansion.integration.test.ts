@@ -27,9 +27,11 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     '--property=ProtectSystem=strict', '--property=PrivateTmp=yes', '--property=NoNewPrivileges=yes',
     `--property=ReadWritePaths=${writable}`, command, ...args,
   ], input);
-  // Use actual hardened transient services for every cryptsetup command,
-  // including credential authentication and mapping resize, not root-shell mocks.
+  // Keep fixture loop creation in its owning namespace. Exercise expansion's
+  // actual cryptsetup reads/authentication/resize in the hardened namespace;
+  // creating a loop elsewhere would give the owning reader a different path view.
   const run: VolumeCommand = (command, args, input) => command === '/usr/sbin/cryptsetup'
+    && (['status', 'luksDump', 'resize'].includes(args[0] ?? '') || args.includes('--test-passphrase'))
     ? protectedCommand(command, args, input) : nativeRun(command, args, input);
   let opened = false, mounted = false, bindMounted = false, loop = '';
   try {
@@ -66,6 +68,14 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     expect(() => providerVolumeMappingGeometry(denied)).toThrow('Provider mapping is not writable LUKS2 (type=n/a, mode=read/write).');
     expect(providerVolumeMappingGeometry(run('/usr/sbin/cryptsetup', ['status', mapper])))
       .toEqual({ loop, offsetBytes: 16_777_216 });
+    const association: unknown = JSON.parse(nativeRun('/usr/sbin/losetup', ['--json', '--list', '--associated', backing,
+      '--output', 'NAME,BACK-FILE,BACK-INO,OFFSET,SIZELIMIT,RO']));
+    expect(association).toMatchObject({ loopdevices: [{ name: loop, 'back-file': backing, offset: 0, sizelimit: 0 }] });
+    if (!association || typeof association !== 'object' || !('loopdevices' in association)
+      || !Array.isArray(association.loopdevices) || association.loopdevices.length !== 1) throw new Error('Native owning loop inventory differs.');
+    const owned: unknown = association.loopdevices[0];
+    if (!owned || typeof owned !== 'object' || !('back-ino' in owned) || !('ro' in owned)) throw new Error('Native loop custody missing.');
+    expect(Number(owned['back-ino'])).toBe(lstatSync(backing).ino); expect([false, 0]).toContain(owned.ro);
     expect(expandMountedProviderVolume(backing, mount, 1_073_741_824, mapper, primary, run).expanded).toBe(false);
     // The original component installer owns Agent state as this unprivileged identity.
     chownSync(mount, 65_532, 65_532); chmodSync(mount, 0o700);
