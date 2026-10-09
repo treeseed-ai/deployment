@@ -1061,6 +1061,11 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: every native execution workflow installs the same declared exact SDK before compiling its owning acceptance sources
+  deployment.golden.native-image-custody-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native development image preparation holds one exact official manifest before timed suites and verifies local image readback
   deployment.golden.execution-selected-failure-evidence-native-1:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

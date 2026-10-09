@@ -658,3 +658,6 @@ workflow:
   - id: api-restart-interrupted-before-spec
     action: { verifier: deployment.golden.api-restart-interrupted-before-spec }
     expect: { status: passed }
+  - id: native-image-custody-unit
+    action: { verifier: deployment.golden.native-image-custody-unit }
+    expect: { status: passed }

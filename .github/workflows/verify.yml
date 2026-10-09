@@ -83,8 +83,13 @@ jobs:
           node node_modules/tsx/dist/cli.mjs --eval '
             import {execFileSync} from "node:child_process";
             import {resolveDevelopmentRuntimeImage} from "./src/supervisor/development-container.ts";
-            resolveDevelopmentRuntimeImage((executable: string, args: readonly string[]) =>
-              execFileSync(executable, [...args], {encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]}));
+            const image="mirror.gcr.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd";
+            const docker=(args:readonly string[])=>execFileSync("/usr/bin/docker",[...args],{encoding:"utf8",stdio:["ignore","pipe","pipe"]});
+            docker(["pull","--quiet",image]);
+            const expected=docker(["image","inspect",image,"--format","{{.Id}}"]).trim();
+            docker(["tag",image,"node:24-bookworm-slim"]);
+            const resolved=resolveDevelopmentRuntimeImage((_executable:string,args:readonly string[])=>docker(args));
+            if(resolved!==expected)throw new Error("Native development image readback differs from its held manifest.");
           '
       - run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,PATH bash -euo pipefail -c 'npm run verify:direct'
         env:
