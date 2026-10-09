@@ -24,6 +24,18 @@ it('native development image preparation holds one exact official manifest befor
  expect(readFileSync(path)).toEqual(bytes);
 });
 
+it('native backup image preparation preserves the owning PostgreSQL digest through fixed mirror acquisition and local readback',()=>{
+ const path='tests/identity-runtime/development-backup.ts',bytes=readFileSync(path);
+ const source=bytes.toString();
+ expect(source).toContain("import { POSTGRES_IMAGE } from '../../dist/src/postgres/compose.js'");
+ expect(source).toContain("POSTGRES_IMAGE.replace(/^postgres:/u, 'mirror.gcr.io/library/postgres:')");
+ expect(source).toContain("docker(['pull', '--quiet', mirror])");
+ expect(source).toContain("docker(['image', 'inspect', mirror, '--format', '{{.Id}}'])");
+ expect(source).toContain("assert.match(image, /^sha256:[a-f0-9]{64}$/u)");
+ expect(source).not.toContain("docker(['pull', '--quiet', POSTGRES_IMAGE])");
+ expect(readFileSync(path)).toEqual(bytes);
+});
+
 it('capacity manager owns one persistent bounded writeback policy without prewarming or flushing the cold path', () => {
   const policy=readFileSync('deploy/capacity/writeback.conf','utf8');
   expect(policy.split('\n').filter(line=>line&&!line.startsWith('#'))).toEqual([
