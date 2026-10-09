@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { assertProviderVolumeGeometry, planProviderVolumeExpansion, providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
+import { assertProviderVolumeGeometry, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { host } from './fixtures.js';
 import { executeSupervisorOperation } from '../src/supervisor/execute.js';
@@ -15,6 +15,20 @@ const volume: NonNullable<HostConfiguration['security']>['providerVolume'] = {
   mountPath: '/var/lib/treeseed/agent', sizeBytes: 17_179_869_184,
   unlock: 'systemd-credential', recoveryRequired: true,
 };
+
+it('preserves installed provider mount ownership while denying foreign writable or malformed custody', () => {
+  const provider = { uid: 65_532, gid: 65_532, mode: 0o40700 }, before = structuredClone(provider);
+  expect(() => assertProviderVolumeMountCustody(provider)).not.toThrow();
+  expect(() => assertProviderVolumeMountCustody({ uid: 0, gid: 0, mode: 0o40700 })).not.toThrow();
+  for (const changed of [{ uid: 65_533 }, { gid: 65_533 }, { uid: 1000, gid: 1000 },
+    { mode: 0o40720 }, { mode: 0o40702 }, { mode: 0o40777 }]) {
+    expect(() => assertProviderVolumeMountCustody({ ...provider, ...changed })).toThrow(/custody/);
+  }
+  for (const field of ['uid', 'gid', 'mode']) for (const value of [undefined, null, '', '65532', -1, 1.5, NaN, Infinity]) {
+    expect(() => assertProviderVolumeMountCustody(Object.assign({}, provider, { [field]: value }))).toThrow(/custody/);
+  }
+  expect(provider).toEqual(before);
+});
 
 it('reads native cryptsetup mapping units exactly and denies contradictory or ambiguous geometry', () => {
   const status = '  type: LUKS2\n  device: /dev/loop17\n  offset: 32768 [512-byte units] (16777216 [bytes])\n  mode: read/write\n';
