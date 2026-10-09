@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-expansion-configuration-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: persists configured capacity only after successful expansion and retains old configuration on failure
+  deployment.golden.provider-volume-expansion-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: accepts only monotonic same-authority provider volume expansion
+  deployment.golden.provider-volume-expansion-denial-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: denies invalid mounted volume geometry before expansion writes
+  deployment.golden.provider-volume-expansion-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.integration.test.ts
+    testName: native LUKS2 expansion preserves original keys contents and identity through interruption retry and replay
   deployment.golden.source-admission-retry-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

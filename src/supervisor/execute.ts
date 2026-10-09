@@ -46,6 +46,7 @@ import { resumeDevelopmentAtBoot } from './development-boot.js';
 import { ensureDevelopmentConfiguration } from './development-configuration.js';
 import { executeProviderEnvironmentOperation } from '../security/provider-environment.js';
 import { initializeHostConfiguration } from './configuration-initialize.js';
+import { expandConfiguredProviderVolume } from '../security/provider-volume-expansion.js';
 import { componentComposeArguments, composeProjectContainerIds, composeRuntimeStatus, type CommandRunner } from './compose-runtime.js';
 import { bindExistingSandboxGuestTrust, importSandboxGuestArchive } from './sandbox-guest-import.js';
 import { boundedDiagnosticFailureCode } from './development-diagnostics.js';
@@ -453,6 +454,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			const current = loadHostConfiguration();
 			assertNewGeneration(current, operation.configuration);
 			preserveAcceptedConfiguration(current);
+			expandConfiguredProviderVolume(current, operation.configuration);
 			atomicJson(paths.configuration, operation.configuration, 0o640);
 			break;
 		}

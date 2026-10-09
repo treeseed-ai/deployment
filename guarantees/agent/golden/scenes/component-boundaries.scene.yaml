@@ -1,4 +1,16 @@
 workflow:
+  - id: provider-volume-expansion-configuration-unit
+    action: { verifier: deployment.golden.provider-volume-expansion-configuration-unit }
+    expect: { status: passed }
+  - id: provider-volume-expansion-unit
+    action: { verifier: deployment.golden.provider-volume-expansion-unit }
+    expect: { status: passed }
+  - id: provider-volume-expansion-denial-unit
+    action: { verifier: deployment.golden.provider-volume-expansion-denial-unit }
+    expect: { status: passed }
+  - id: provider-volume-expansion-native
+    action: { verifier: deployment.golden.provider-volume-expansion-native }
+    expect: { status: passed }
   - id: source-admission-overlap-unit
     action: { verifier: deployment.golden.source-admission-overlap-unit }
     expect: { status: passed }
