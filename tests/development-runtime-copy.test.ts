@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSyn
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyDevelopmentRuntime } from '../src/supervisor/development-runtime-copy.js';
+import { copyDevelopmentRuntime, developmentRuntimeStatus } from '../src/supervisor/development-runtime-copy.js';
 const roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 function fixture() {
@@ -30,6 +30,22 @@ it('rejects external symlinks before copying their contents',()=>{
   const f=fixture();writeFileSync(join(f.root,'private'),'secret');
   symlinkSync(join(f.root,'private'),join(f.worktree,'node_modules','escape'));
   expect(()=>copyDevelopmentRuntime(f)).toThrow('escaped');
+});
+it('retains exact selected bytes and receipt on duplicate copy while a separate preparation proves changed source bytes',()=>{
+  const f=fixture(),selected=join(f.root,'selected');mkdirSync(selected);
+  const receipt=copyDevelopmentRuntime({...f,destination:join(selected,'runtime')});
+  const receiptPath=join(selected,'runtime-receipt.json');
+  writeFileSync(receiptPath,JSON.stringify(receipt),{mode:0o600});
+  const originalReceipt=readFileSync(receiptPath),original=readFileSync(join(selected,'runtime','dist','entry.js'));
+  writeFileSync(join(f.worktree,'dist','entry.js'),'export const revised=true;');
+  expect(()=>copyDevelopmentRuntime({...f,destination:join(selected,'runtime')})).toThrow(/EEXIST/);
+  expect(readFileSync(receiptPath)).toEqual(originalReceipt);
+  expect(readFileSync(join(selected,'runtime','dist','entry.js'))).toEqual(original);
+  expect(developmentRuntimeStatus(selected,undefined,process.getuid!())).toEqual(receipt);
+  const prepared=copyDevelopmentRuntime(f);
+  expect(prepared.digest).not.toBe(receipt.digest);
+  expect(readFileSync(join(f.destination,'dist','entry.js'),'utf8')).toBe('export const revised=true;');
+  expect(developmentRuntimeStatus(selected,undefined,process.getuid!())).toEqual(receipt);
 });
 it('excludes VCS and hidden custody from linked workspace dependencies',()=>{
   const f=fixture(),dependency=join(f.workspace,'dependency');mkdirSync(dependency);

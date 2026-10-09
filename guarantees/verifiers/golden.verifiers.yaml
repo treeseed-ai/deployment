@@ -261,6 +261,61 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/development-provider-drain.test.ts
     testName: rejects unowned containers before any stop or restoration side effect
+  deployment.golden.api-restart-copy-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-runtime-copy.test.ts
+    testName: retains exact selected bytes and receipt on duplicate copy while a separate preparation proves changed source bytes
+  deployment.golden.api-restart-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: restarts the API operations runner through the original supervisor with a fresh private snapshot after draining the prior process
+  deployment.golden.api-restart-copy-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: retains exact selected API bytes after copy-failure and retries through the original supervisor
+  deployment.golden.api-restart-credential-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: retains exact selected API bytes after credential-failure and retries through the original supervisor
+  deployment.golden.api-restart-foreign-owner:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: retains exact selected API bytes after foreign-owner and retries through the original supervisor
+  deployment.golden.api-restart-drain-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: retains exact selected API bytes after drain-failure and retries through the original supervisor
+  deployment.golden.api-restart-readiness-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: recovers API restart after readiness-failure with scoped cleanup and no preparation residue
+  deployment.golden.api-restart-cleanup-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: recovers API restart after cleanup-failure with scoped cleanup and no preparation residue
+  deployment.golden.api-restart-orphan-preparation:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: recovers API restart after orphan-preparation with scoped cleanup and no preparation residue
+  deployment.golden.api-restart-concurrent:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: serializes concurrent API restart requests through the native supervisor socket without overlapping execution
+  deployment.golden.api-restart-interrupted-before-spec:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: recovers API restart after interrupted-before-spec with scoped cleanup and no preparation residue
   deployment.golden.provider-handoff-ready:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

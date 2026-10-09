@@ -625,3 +625,36 @@ workflow:
   - id: capacity-writeback-policy-native
     action: { verifier: deployment.golden.capacity-writeback-policy-native }
     expect: { status: passed }
+  - id: api-restart-copy-unit
+    action: { verifier: deployment.golden.api-restart-copy-unit }
+    expect: { status: passed }
+  - id: api-restart-native
+    action: { verifier: deployment.golden.api-restart-native }
+    expect: { status: passed }
+  - id: api-restart-copy-failure
+    action: { verifier: deployment.golden.api-restart-copy-failure }
+    expect: { status: passed }
+  - id: api-restart-credential-failure
+    action: { verifier: deployment.golden.api-restart-credential-failure }
+    expect: { status: passed }
+  - id: api-restart-foreign-owner
+    action: { verifier: deployment.golden.api-restart-foreign-owner }
+    expect: { status: passed }
+  - id: api-restart-drain-failure
+    action: { verifier: deployment.golden.api-restart-drain-failure }
+    expect: { status: passed }
+  - id: api-restart-readiness-failure
+    action: { verifier: deployment.golden.api-restart-readiness-failure }
+    expect: { status: passed }
+  - id: api-restart-cleanup-failure
+    action: { verifier: deployment.golden.api-restart-cleanup-failure }
+    expect: { status: passed }
+  - id: api-restart-orphan-preparation
+    action: { verifier: deployment.golden.api-restart-orphan-preparation }
+    expect: { status: passed }
+  - id: api-restart-concurrent
+    action: { verifier: deployment.golden.api-restart-concurrent }
+    expect: { status: passed }
+  - id: api-restart-interrupted-before-spec
+    action: { verifier: deployment.golden.api-restart-interrupted-before-spec }
+    expect: { status: passed }

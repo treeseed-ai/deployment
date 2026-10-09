@@ -15,14 +15,28 @@ function run(shape:string) {
     return JSON.parse(output) as unknown;
 }
 
-it('restarts the API operations runner through the original supervisor with a fresh private snapshot after draining the prior process',()=>{
+function apiRestart(shape='restart') {
     const owner=resolve(import.meta.dirname,'..'),workspace=resolve(owner,'../..');
     const command=(_exe:string,args:readonly string[])=>execFileSync('/usr/bin/docker',[...args],{encoding:'utf8',timeout:180_000,stdio:['ignore','pipe','pipe']});
     const image=resolveDevelopmentRuntimeImage(command);
     const output=command('/usr/bin/docker',['run','--rm','--network','none','--group-add',String(statSync(owner).gid),'--cap-drop','ALL','--cap-add','CHOWN','--cap-add','DAC_OVERRIDE','--security-opt','no-new-privileges:true',
       '--mount',`type=bind,source=${workspace},target=${workspace},readonly`,'--workdir',owner,
-      '--env','TREESEED_HANDOFF_DISPOSABLE=1',image,'node','--import','tsx','tests/support/api-runner-restart-native.ts']);
-    expect(JSON.parse(output)).toEqual({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true});
+      '--env','TREESEED_HANDOFF_DISPOSABLE=1',image,'node','--import','tsx','tests/support/api-runner-restart-native.ts',shape]);
+    return JSON.parse(output) as unknown;
+}
+it('restarts the API operations runner through the original supervisor with a fresh private snapshot after draining the prior process',()=>{
+    expect(apiRestart()).toEqual({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true});
+},240_000);
+it.each(['copy-failure','credential-failure','foreign-owner','drain-failure'])(
+  'retains exact selected API bytes after %s and retries through the original supervisor',shape=>{
+    expect(apiRestart(shape)).toEqual({shape,rejected:true,selectedBytesUnchanged:true,retryVerified:true});
+  },240_000);
+it.each(['readiness-failure','cleanup-failure','orphan-preparation','interrupted-before-spec'])(
+  'recovers API restart after %s with scoped cleanup and no preparation residue',shape=>{
+    expect(apiRestart(shape)).toEqual({shape,recovered:true,privateBytesVerified:true,teardownVerified:true});
+  },240_000);
+it('serializes concurrent API restart requests through the native supervisor socket without overlapping execution',()=>{
+    expect(apiRestart('concurrent')).toEqual({concurrent:true,restarts:2,privateBytesVerified:true,teardownVerified:true});
 },240_000);
 it.each(['ready','running','recovery','malformed','bad-claim','copy-failure','runner-stop-failure','runner-stop-uncertain','manager-stop-uncertain'])(
   'preserves selected provider bytes and execution after %s rejection in an isolated filesystem', shape=>{
