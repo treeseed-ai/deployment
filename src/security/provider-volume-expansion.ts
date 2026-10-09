@@ -80,6 +80,27 @@ export function providerVolumeMappingGeometry(status: string) {
   return { loop, offsetBytes };
 }
 
+export function providerVolumeMountedAuthority(raw: unknown, device: string, mount: string) {
+  assert(raw && typeof raw === 'object' && 'filesystems' in raw
+    && Array.isArray(raw.filesystems) && raw.filesystems.length > 0, 'Provider mounted authority is missing.');
+  let authority: { source: string; target: string; fstype: string; options: string; uuid: string } | undefined;
+  for (const value of raw.filesystems as unknown[]) {
+    assert(value && typeof value === 'object' && 'source' in value && value.source === device
+      && 'target' in value && value.target === mount && 'fstype' in value && value.fstype === 'ext4'
+      && 'options' in value && typeof value.options === 'string' && 'uuid' in value
+      && typeof value.uuid === 'string' && /^[a-f0-9-]{36}$/u.test(value.uuid), 'Provider mounted authority changed.');
+    const options = value.options.split(',');
+    assert(['rw', 'nodev', 'nosuid', 'noexec'].every(option => options.includes(option)), 'Provider mount protections changed.');
+    const next = { source: value.source, target: value.target, fstype: value.fstype, options: value.options, uuid: value.uuid };
+    // systemd ProtectSystem + ReadWritePaths can bind the same mount again.
+    // Every represented view must agree; never choose the first contradictory view.
+    assert(!authority || Object.entries(authority).every(([key, item]) => next[key as keyof typeof next] === item), 'Provider mounted views disagree.');
+    authority = next;
+  }
+  assert(authority, 'Provider mounted authority is missing.');
+  return authority;
+}
+
 /** Grow only the already-mounted owning loop/LUKS2/ext4 stack. Never formats,
  * changes keys, shrinks, detaches, or rolls back a partially enlarged layer. */
 export function expandMountedProviderVolume(backing: string, mount: string, target: number,
@@ -100,14 +121,7 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
     assertProviderVolumeBackingCustody(opened);
     assert(opened.ino === original.ino && opened.dev === original.dev, 'Provider backing inode moved.');
     const raw: unknown = JSON.parse(command('/usr/bin/findmnt', ['--json', '--mountpoint', mount, '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,UUID']));
-    assert(raw && typeof raw === 'object' && 'filesystems' in raw && Array.isArray(raw.filesystems) && raw.filesystems.length === 1);
-    const mounted: unknown = raw.filesystems[0];
-    assert(mounted && typeof mounted === 'object' && 'source' in mounted && mounted.source === device
-      && 'target' in mounted && mounted.target === mount && 'fstype' in mounted && mounted.fstype === 'ext4'
-      && 'options' in mounted && typeof mounted.options === 'string'
-      && 'uuid' in mounted && typeof mounted.uuid === 'string' && /^[a-f0-9-]{36}$/u.test(mounted.uuid), 'Provider mounted authority changed.');
-    const mountOptions = mounted.options.split(',');
-    assert(['rw', 'nodev', 'nosuid', 'noexec'].every(option => mountOptions.includes(option)), 'Provider mount protections changed.');
+    const mounted = providerVolumeMountedAuthority(raw, device, mount);
     const { loop, offsetBytes } = providerVolumeMappingGeometry(command('/usr/sbin/cryptsetup', ['status', mapper]));
     const associated: unknown = JSON.parse(command('/usr/sbin/losetup', ['--json', '--list', '--associated', backing, '--output', 'NAME,BACK-FILE,BACK-INO,OFFSET,SIZELIMIT,RO']));
     assert(associated && typeof associated === 'object' && 'loopdevices' in associated

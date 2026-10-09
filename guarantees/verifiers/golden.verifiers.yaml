@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-mount-views-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: accepts identical supervisor bind mount views but denies any missing malformed or contradictory mounted authority
   deployment.golden.provider-volume-private-create-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

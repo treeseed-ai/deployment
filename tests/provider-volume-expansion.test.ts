@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { assertProviderVolumeBackingCustody, assertProviderVolumeGeometry, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
+import { assertProviderVolumeBackingCustody, assertProviderVolumeGeometry, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry, providerVolumeMountedAuthority } from '../src/security/provider-volume-expansion.js';
 import { createProviderVolumeBacking, providerSecurityStatus } from '../src/security/provider-volume.js';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +22,27 @@ const volume: NonNullable<HostConfiguration['security']>['providerVolume'] = {
   mountPath: '/var/lib/treeseed/agent', sizeBytes: 17_179_869_184,
   unlock: 'systemd-credential', recoveryRequired: true,
 };
+
+it('accepts identical supervisor bind mount views but denies any missing malformed or contradictory mounted authority', () => {
+  const device = '/dev/mapper/treeseed-provider-data', mount = '/var/lib/treeseed/agent';
+  const view = { source: device, target: mount, fstype: 'ext4', options: 'rw,nosuid,nodev,noexec,relatime', uuid: 'ec8bb67d-0a23-4f20-ad9a-67bf6a36544d' };
+  const input = { filesystems: [view, { ...view }] }, before = structuredClone(input);
+  expect(providerVolumeMountedAuthority(input, device, mount)).toEqual(view);
+  expect(providerVolumeMountedAuthority({ filesystems: [view] }, device, mount)).toEqual(view);
+  for (const invalid of [undefined, null, {}, [], { filesystems: [] }, { filesystems: null },
+    { filesystems: [null] }, { filesystems: [view, null] }, { filesystems: [view, {}] }]) {
+    expect(() => providerVolumeMountedAuthority(invalid, device, mount)).toThrow();
+  }
+  for (const change of [{ source: '/dev/mapper/foreign' }, { target: '/foreign' }, { fstype: 'xfs' },
+    { uuid: '' }, { uuid: 'fc8bb67d-0a23-4f20-ad9a-67bf6a36544d' }, { options: 'ro,nosuid,nodev,noexec' },
+    { options: 'rw,nodev,noexec' }, { options: 'rw,nosuid,noexec' }, { options: 'rw,nosuid,nodev' }]) {
+    expect(() => providerVolumeMountedAuthority({ filesystems: [view, { ...view, ...change }] }, device, mount)).toThrow();
+  }
+  for (const field of Object.keys(view)) for (const value of [undefined, null, '', 0, false, []]) {
+    expect(() => providerVolumeMountedAuthority({ filesystems: [view, { ...view, [field]: value }] }, device, mount)).toThrow();
+  }
+  expect(input).toEqual(before);
+});
 
 it('creates private exclusive provider backing under the operator umask without replacing existing bytes', () => {
   const root = mkdtempSync(join(tmpdir(), 'treeseed-volume-create-')), backing = join(root, 'provider-data.luks');

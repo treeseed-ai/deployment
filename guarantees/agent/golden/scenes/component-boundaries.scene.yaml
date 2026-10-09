@@ -1,4 +1,7 @@
 workflow:
+  - id: provider-volume-mount-views-unit
+    action: { verifier: deployment.golden.provider-volume-mount-views-unit }
+    expect: { status: passed }
   - id: provider-volume-private-create-unit
     action: { verifier: deployment.golden.provider-volume-private-create-unit }
     expect: { status: passed }
