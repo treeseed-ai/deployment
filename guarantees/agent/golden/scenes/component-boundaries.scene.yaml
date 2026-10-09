@@ -661,3 +661,6 @@ workflow:
   - id: native-image-custody-unit
     action: { verifier: deployment.golden.native-image-custody-unit }
     expect: { status: passed }
+  - id: native-backup-image-custody-unit
+    action: { verifier: deployment.golden.native-backup-image-custody-unit }
+    expect: { status: passed }

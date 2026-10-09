@@ -1091,3 +1091,9 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/development-component-status-native.test.ts
     testName: installed capacity manager applies its exact persistent writeback bounds without changing unrelated kernel limits
+
+  deployment.golden.native-backup-image-custody-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native backup image preparation preserves the owning PostgreSQL digest through fixed mirror acquisition and local readback
