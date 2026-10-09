@@ -56,3 +56,9 @@ it('fails closure on unreadable malformed redirected foreign-namespace or changi
   expect({tasks:observed.tasks,containers:observed.containers,mounts:observed.mounts}).toEqual(held);
  }
 });
+it('observes the host mount namespace through supervisor hardening only when managed directory inode custody agrees',async()=>{
+ observed.hostNamespace='mnt:[5678]';
+ const result=await doctor.inspectSandboxInventory(configuration);
+ expect(result.complete).toBe(true);expect(result.scope.mountNamespace).toBe('mnt:[5678]');
+ expect(result.mountInfo).toBe(observed.mounts);
+});
