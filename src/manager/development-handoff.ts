@@ -1,4 +1,4 @@
-import type { ManagedDevelopmentSession } from './development-sessions.js';
+import type { DevelopmentSessionStore, ManagedDevelopmentSession } from './development-sessions.js';
 import { requestSupervisor } from '../supervisor/client.js';
 
 export function sandboxGuestTrustDigest(releasedDigest: string | undefined, heldByDevelopmentSession: boolean) {
@@ -27,6 +27,18 @@ export async function restoreHeldComponentCredentials<T extends { componentId: s
 
 export function heldDevelopmentCredentialsMissing(status: { issues?: Array<{ reason: string }> }) {
 	return status.issues?.some(({ reason }) => reason === 'runtime-credential-unavailable' || reason === 'configuration-unavailable') === true;
+}
+
+/** Call after the backup hold is released: its immutable writer snapshot must
+ * remain intact throughout capture. A stopped runtime cannot retain ready
+ * routes just because its fixed boot worker completed before the backup. */
+export function suspendStoppedDevelopmentSessions(store: Pick<DevelopmentSessionStore, 'suspend'>,
+	records: readonly ManagedDevelopmentSession[], stoppedComponents: ReadonlySet<string>) {
+	return records.map(record => record.session.status !== 'stopped' && record.session.targets.some(target =>
+		target.mode !== 'released' && stoppedComponents.has(target.projectId === 'ai' ? target.targetId : target.projectId)
+		&& record.runtimes.some(runtime => runtime.project.id === target.projectId
+			&& runtime.targets.some(contract => contract.id === target.targetId && contract.kind !== 'package-watch')))
+		? store.suspend(record.session.sessionId) : record);
 }
 
 /** Schedule source recovery only after its released dependencies are ready. */

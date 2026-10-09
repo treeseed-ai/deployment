@@ -3,7 +3,7 @@ import type { ManagedDevelopmentSession } from '../src/manager/development-sessi
 
 const request = vi.fn();
 vi.mock('../src/supervisor/client.js', () => ({ requestSupervisor: request }));
-const { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions } = await import('../src/manager/development-handoff.js');
+const { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions, suspendStoppedDevelopmentSessions } = await import('../src/manager/development-handoff.js');
 
 function session(targets: Array<{ projectId: string; targetId: string; mode: string; kind: string }>) {
 	return { session: { sessionId: 'dev-acceptance', targets }, runtimes: targets.map((target) => ({
@@ -41,4 +41,18 @@ it('restages only missing manager-owned credentials for a development-held runti
 	expect(heldDevelopmentCredentialsMissing({ issues: [{ reason: 'configuration-unavailable' }] })).toBe(true);
 	expect(heldDevelopmentCredentialsMissing({ issues: [{ reason: 'stopped' }] })).toBe(false);
 	expect(heldDevelopmentCredentialsMissing({})).toBe(false);
+});
+
+it('invalidates only selections whose runtime component actually stopped and never package-only or explicit stopped sessions', () => {
+	const live = session([{ projectId: 'api', targetId: 'service', mode: 'live', kind: 'live-api' }]);
+	const candidate = session([{ projectId: 'treedx', targetId: 'service', mode: 'candidate', kind: 'rebuild-restart' }]);
+	const packageOnly = session([{ projectId: 'sdk', targetId: 'package', mode: 'live', kind: 'package-watch' }]);
+	const released = session([{ projectId: 'agent', targetId: 'provider', mode: 'released', kind: 'rebuild-restart' }]);
+	const stopped = structuredClone(live); stopped.session.status = 'stopped';
+	const records = [live, candidate, packageOnly, released, stopped], before = structuredClone(records);
+	const suspended: string[] = [];
+	const store = { suspend: (id: string) => { suspended.push(id); return live; } };
+	suspendStoppedDevelopmentSessions(store, records, new Set()); expect(suspended).toEqual([]);
+	suspendStoppedDevelopmentSessions(store, records, new Set(['api', 'treedx', 'sdk', 'agent']));
+	expect(suspended).toEqual(['dev-acceptance', 'dev-acceptance']); expect(records).toEqual(before);
 });
