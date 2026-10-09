@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statfsSync, type Stats } from 'node:fs';
+import { closeSync, constants, existsSync, fchmodSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statfsSync, type Stats } from 'node:fs';
 import { dirname } from 'node:path';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { providerSecuritySettings } from './provider-volume.js';
@@ -46,6 +46,14 @@ function privatePath(path: string, directory: boolean) {
   return info;
 }
 
+export function assertProviderVolumeBackingCustody(info: Pick<Stats, 'uid' | 'mode' | 'nlink' | 'isFile'>) {
+  // Only the exact former installer mode is eligible for authenticated tightening.
+  // It is not private custody until fchmod and independent readback below succeed.
+  assert([info.uid, info.mode, info.nlink].every(value => Number.isSafeInteger(value) && value >= 0)
+    && info.uid === 0 && info.nlink === 1 && info.isFile()
+    && (info.mode === 0o100600 || info.mode === 0o100660), 'Provider volume custody changed.');
+}
+
 export function assertProviderVolumeMountCustody(info: Pick<Stats, 'uid' | 'gid' | 'mode'>) {
   // configureComponent owns Agent state as 65532:65532; mounted filesystem
   // ownership is not the root-only custody of the encrypted backing file.
@@ -83,10 +91,13 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
   assertProviderVolumeMountCustody(mountInfo);
   assert(mountInfo.isDirectory()
     && realpathSync(mount) === mount, 'Provider mount custody changed.');
-  const original = privatePath(backing, false), device = `/dev/mapper/${mapper}`;
+  const original = lstatSync(backing), device = `/dev/mapper/${mapper}`;
+  assertProviderVolumeBackingCustody(original);
+  assert(realpathSync(backing) === backing, 'Provider volume custody changed.');
   const descriptor = openSync(backing, constants.O_RDWR | constants.O_NOFOLLOW);
   try {
     const opened = fstatSync(descriptor);
+    assertProviderVolumeBackingCustody(opened);
     assert(opened.ino === original.ino && opened.dev === original.dev, 'Provider backing inode moved.');
     const raw: unknown = JSON.parse(command('/usr/bin/findmnt', ['--json', '--mountpoint', mount, '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,UUID']));
     assert(raw && typeof raw === 'object' && 'filesystems' in raw && Array.isArray(raw.filesystems) && raw.filesystems.length === 1);
@@ -121,13 +132,24 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
     const desired = assertProviderVolumeGeometry({ backingBytes: opened.size, loopBytes, mappedBytes,
       offsetBytes, ...fs }, target);
     const expanded = opened.size !== target || loopBytes !== target || mappedBytes !== desired || fs.filesystemBytes !== desired;
-    if (!expanded) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
-    const available = statfsSync(dirname(backing));
-    assert(available.bavail * available.bsize >= target - opened.size + 268_435_456, 'Provider backing storage admission is full.');
+    const tighten = (opened.mode & 0o7777) === 0o660;
+    if (!expanded && !tighten) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
+    if (expanded) {
+      const available = statfsSync(dirname(backing));
+      assert(available.bavail * available.bsize >= target - opened.size + 268_435_456, 'Provider backing storage admission is full.');
+    }
     const keyArgs = credential ? ['--key-file', '-'] : ['--token-only'];
     // Authenticate before the first mutation; never place a key in argv or a plaintext file.
     command('/usr/sbin/cryptsetup', ['open', '--test-passphrase', '--type', 'luks2', ...keyArgs, backing], credential);
-    assert(lstatSync(backing).ino === original.ino && realpathSync(backing) === backing, 'Provider backing moved before growth.');
+    const retained = lstatSync(backing);
+    assertProviderVolumeBackingCustody(retained);
+    assert(retained.ino === original.ino && retained.dev === original.dev && realpathSync(backing) === backing, 'Provider backing moved before growth.');
+    privatePath(dirname(backing), true);
+    if (tighten) { fchmodSync(descriptor, 0o600); fsyncSync(descriptor); }
+    const secured = privatePath(backing, false);
+    assert(secured.ino === original.ino && secured.dev === original.dev
+      && (fstatSync(descriptor).mode & 0o7777) === 0o600, 'Provider backing private custody readback failed.');
+    if (!expanded) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
     if (opened.size !== target) { ftruncateSync(descriptor, target); fsyncSync(descriptor); }
     if (loopBytes !== target) command('/usr/sbin/losetup', ['--set-capacity', loop]);
     if (mappedBytes !== desired) command('/usr/sbin/cryptsetup', ['resize', ...keyArgs, mapper], credential);

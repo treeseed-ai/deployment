@@ -1,10 +1,11 @@
 import { expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statfsSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expandMountedProviderVolume, type VolumeCommand } from '../src/security/provider-volume-expansion.js';
+import { createProviderVolumeBacking } from '../src/security/provider-volume.js';
 
 it('native LUKS2 expansion preserves original keys contents and identity through interruption retry and replay', () => {
   if (process.getuid?.() !== 0 || process.env.TREESEED_PRIVILEGED_CACHE_TESTS !== '1') {
@@ -21,7 +22,10 @@ it('native LUKS2 expansion preserves original keys contents and identity through
   });
   let opened = false, mounted = false, loop = '';
   try {
-    writeFileSync(backing, '', { mode: 0o600 }); truncateSync(backing, 1_073_741_824);
+    const mask = process.umask(0o007);
+    try { createProviderVolumeBacking(backing, 1_073_741_824); }
+    finally { process.umask(mask); }
+    expect(lstatSync(backing).mode & 0o7777).toBe(0o600);
     writeFileSync(keyFile, primary, { mode: 0o600 }); writeFileSync(recoveryFile, recovery, { mode: 0o600 });
     mkdirSync(mount, { mode: 0o700 });
     run('/usr/sbin/cryptsetup', ['luksFormat', '--batch-mode', '--type', 'luks2', '--pbkdf', 'pbkdf2',
@@ -51,9 +55,24 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     chownSync(mount, 65_532, 65_532); chmodSync(mount, 0o700);
     const substituted = join(root, 'substituted.luks'); symlinkSync(backing, substituted);
     expect(() => expandMountedProviderVolume(substituted, mount, 2_147_483_648, mapper, primary, run)).toThrow();
+    for (const mode of [0o666, 0o640, 0o700, 0o4600]) {
+      chmodSync(backing, mode);
+      expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run)).toThrow(/custody/);
+      expect(lstatSync(backing).mode & 0o7777).toBe(mode);
+    }
+    chmodSync(backing, 0o660); chownSync(backing, 0, 118);
+    const alias = join(root, 'hardlink'); linkSync(backing, alias);
+    expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run)).toThrow(/custody/);
+    expect(lstatSync(backing).mode & 0o7777).toBe(0o660); rmSync(alias);
+    chownSync(backing, 1000, 118);
+    expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run)).toThrow(/custody/);
+    expect(lstatSync(backing).uid).toBe(1000); chownSync(backing, 0, 118);
     const wrongKey = randomBytes(32);
     try { expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, wrongKey, run)).toThrow(); }
     finally { wrongKey.fill(0); }
+    expect(lstatSync(backing).mode & 0o7777).toBe(0o660);
+    expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, `${mapper}-foreign`, primary, run)).toThrow();
+    expect(lstatSync(backing).mode & 0o7777).toBe(0o660);
     expect(lstatSync(backing).size).toBe(1_073_741_824);
     expect(readFileSync(sentinel)).toEqual(content);
     const calls: string[][] = [];
@@ -64,6 +83,8 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     };
     expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, interrupted)).toThrow(/controlled interruption/);
     expect(lstatSync(backing).size).toBe(2_147_483_648);
+    expect(lstatSync(backing).mode & 0o7777).toBe(0o600);
+    expect(lstatSync(backing).uid).toBe(0); expect(lstatSync(backing).gid).toBe(118);
     expect(readFileSync(sentinel)).toEqual(content);
     expect(run('/usr/sbin/cryptsetup', ['luksDump', '--dump-json-metadata', backing])).toBe(before.metadata);
     for (const bytes of [1_073_741_824, NaN, 2_147_483_649]) {
@@ -78,6 +99,12 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     expect(run('/usr/sbin/blkid', ['-s', 'UUID', '-o', 'value', device])).toBe(before.uuid);
     expect(run('/usr/sbin/cryptsetup', ['luksDump', '--dump-json-metadata', backing])).toBe(before.metadata);
     expect(expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run).expanded).toBe(false);
+    // Same-size authenticated reconciliation must also repair only the old mode.
+    chmodSync(backing, 0o660);
+    expect(expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run).expanded).toBe(false);
+    expect(lstatSync(backing).mode & 0o7777).toBe(0o600);
+    expect(lstatSync(backing).ino).toBe(before.inode);
+    expect(run('/usr/sbin/cryptsetup', ['luksDump', '--dump-json-metadata', backing])).toBe(before.metadata);
     expect(lstatSync(mount).uid).toBe(65_532); expect(lstatSync(mount).gid).toBe(65_532);
     expect(lstatSync(mount).mode & 0o777).toBe(0o700);
     expect(readFileSync(keyFile)).toEqual(primary); expect(readFileSync(recoveryFile)).toEqual(recovery);

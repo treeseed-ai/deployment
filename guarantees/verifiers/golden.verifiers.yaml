@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-private-create-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: creates private exclusive provider backing under the operator umask without replacing existing bytes
+  deployment.golden.provider-volume-backing-custody-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: admits only exact private or installed group-mode backing custody for authenticated tightening
+  deployment.golden.provider-volume-status-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: returns only read-only configured provider path metadata through security status
+  deployment.golden.provider-volume-status-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: native supervisor socket returns configured security metadata and rejects caller paths without running commands
   deployment.golden.provider-volume-mount-custody-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
