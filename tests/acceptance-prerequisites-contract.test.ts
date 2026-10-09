@@ -260,7 +260,10 @@ it('every native execution workflow installs the same declared exact SDK before 
   const workflows=['verify.yml','development-backup.yml','identity-acceptance.yml','postgres-transfer.yml'];
   for(const name of workflows){
     const path=resolve('.github/workflows',name),bytes=readFileSync(path);
-    const workflow=parse(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string}[]}>};
+    const workflow=parse(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string;with?:Record<string,unknown>}[]}>};
+    const runtimes=Object.values(workflow.jobs).flatMap(job=>job.steps).filter(step=>step.uses?.startsWith('actions/setup-node@'));
+    expect(runtimes.length,name).toBeGreaterThan(0);
+    for(const runtime of runtimes)expect(runtime.with?.['node-version'],name).toBe('24.12.0');
     const installers=Object.values(workflow.jobs).flatMap(job=>job.steps)
       .filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
     expect(installers.length,name).toBeGreaterThan(0);
