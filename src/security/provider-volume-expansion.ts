@@ -68,7 +68,11 @@ export function providerVolumeMappingGeometry(status: string) {
     assert(lines.length === 1 && typeof lines[0] === 'string', 'Provider mapping geometry is missing or ambiguous.');
     return lines[0].slice(name.length + 1).trim();
   };
-  assert(field('type') === 'LUKS2' && field('mode') === 'read/write', 'Provider mapping is not writable LUKS2.');
+  const type = field('type'), mode = field('mode');
+  const safeType = ['LUKS2', 'LUKS1', 'PLAIN', 'n/a'].includes(type) ? type : 'unknown';
+  const safeMode = ['read/write', 'readonly', 'read-only', 'n/a'].includes(mode) ? mode : 'unknown';
+  assert(type === 'LUKS2' && mode === 'read/write',
+    `Provider mapping is not writable LUKS2 (type=${safeType}, mode=${safeMode}).`);
   const loop = field('device');
   assert.match(loop, /^\/dev\/loop[0-9]+$/u);
   // Native cryptsetup versions expose the same 512-byte units using either label.

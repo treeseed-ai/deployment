@@ -1,4 +1,10 @@
 workflow:
+  - id: provider-volume-mapping-diagnostic-native
+    action: { verifier: deployment.golden.provider-volume-mapping-diagnostic-native }
+    expect: { status: passed }
+  - id: provider-volume-mapping-diagnostic-unit
+    action: { verifier: deployment.golden.provider-volume-mapping-diagnostic-unit }
+    expect: { status: passed }
   - id: provider-volume-mount-views-unit
     action: { verifier: deployment.golden.provider-volume-mount-views-unit }
     expect: { status: passed }

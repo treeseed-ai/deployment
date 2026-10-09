@@ -173,6 +173,21 @@ it('reads native cryptsetup mapping units exactly and denies contradictory or am
   expect(status).toBe('  type: LUKS2\n  device: /dev/loop17\n  offset: 32768 [512-byte units] (16777216 [bytes])\n  mode: read/write\n');
 });
 
+it('reports only allowlisted mapping type and mode facts when privileged status denies expansion', () => {
+  const status = '  type: LUKS2\n  device: /dev/loop17\n  offset: 32768 sectors\n  mode: read/write\n';
+  for (const type of ['LUKS1', 'PLAIN', 'n/a']) {
+    expect(() => providerVolumeMappingGeometry(status.replace('LUKS2', type)))
+      .toThrow(`Provider mapping is not writable LUKS2 (type=${type}, mode=read/write).`);
+  }
+  for (const mode of ['readonly', 'read-only', 'n/a']) {
+    expect(() => providerVolumeMappingGeometry(status.replace('read/write', mode)))
+      .toThrow(`Provider mapping is not writable LUKS2 (type=LUKS2, mode=${mode}).`);
+  }
+  const privateValue = 'never-disclose-private-command-output';
+  expect(() => providerVolumeMappingGeometry(status.replace('LUKS2', privateValue).replace('read/write', privateValue)))
+    .toThrow('Provider mapping is not writable LUKS2 (type=unknown, mode=unknown).');
+});
+
 it('accepts only monotonic same-authority provider volume expansion', () => {
   const next = { ...volume, sizeBytes: 34_359_738_368 }, before = structuredClone([volume, next]);
   expect(planProviderVolumeExpansion(volume, next)).toEqual(next);
