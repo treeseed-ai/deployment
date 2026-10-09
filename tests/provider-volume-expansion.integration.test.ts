@@ -82,6 +82,12 @@ it('native LUKS2 expansion preserves original keys contents and identity through
     const before = { metadata: run('/usr/sbin/cryptsetup', ['luksDump', '--dump-json-metadata', backing]),
       uuid: run('/usr/sbin/blkid', ['-s', 'UUID', '-o', 'value', device]), inode: lstatSync(backing).ino,
       available: statfsSync(mount).bavail * statfsSync(mount).bsize };
+    const foreignBacking = join(root, 'foreign.luks'); createProviderVolumeBacking(foreignBacking, 1_073_741_824);
+    const foreignBefore = lstatSync(foreignBacking);
+    expect(() => expandMountedProviderVolume(foreignBacking, mount, 2_147_483_648, mapper, primary, run)).toThrow('Provider loop inventory changed.');
+    expect(lstatSync(foreignBacking).ino).toBe(foreignBefore.ino);
+    expect(lstatSync(foreignBacking).size).toBe(foreignBefore.size); expect(lstatSync(foreignBacking).mode).toBe(foreignBefore.mode);
+    expect(readFileSync(sentinel)).toEqual(content); expect(lstatSync(backing).ino).toBe(before.inode);
     for (const [uid, gid, mode] of [[65_533, 65_533, 0o700], [65_532, 65_533, 0o700], [65_532, 65_532, 0o720], [65_532, 65_532, 0o702]] as const) {
       chownSync(mount, uid, gid); chmodSync(mount, mode);
       expect(() => expandMountedProviderVolume(backing, mount, 2_147_483_648, mapper, primary, run)).toThrow(/custody/);

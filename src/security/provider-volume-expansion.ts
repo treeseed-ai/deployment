@@ -62,6 +62,22 @@ export function assertProviderVolumeMountCustody(info: Pick<Stats, 'uid' | 'gid'
     && !(info.mode & 0o022), 'Provider mount custody changed.');
 }
 
+/** The caller queries --associated using the exact canonical, held backing file.
+ * BACK-FILE is a namespace-relative display, not a second file authority. */
+export function assertProviderVolumeLoopAuthority(raw: unknown, loop: string, inode: number) {
+  assert.match(loop, /^\/dev\/loop[0-9]+$/u);
+  assert(Number.isSafeInteger(inode) && inode > 0, 'Provider backing inode is invalid.');
+  assert(raw && typeof raw === 'object' && 'loopdevices' in raw
+    && Array.isArray(raw.loopdevices) && raw.loopdevices.length === 1, 'Provider loop inventory changed.');
+  const owner: unknown = raw.loopdevices[0];
+  assert(owner && typeof owner === 'object' && 'name' in owner && owner.name === loop
+    && 'back-ino' in owner && (typeof owner['back-ino'] === 'number'
+      || (typeof owner['back-ino'] === 'string' && /^[1-9][0-9]*$/u.test(owner['back-ino'])))
+    && Number.isSafeInteger(Number(owner['back-ino'])) && Number(owner['back-ino']) === inode
+    && 'offset' in owner && owner.offset === 0 && 'sizelimit' in owner && owner.sizelimit === 0
+    && 'ro' in owner && (owner.ro === false || owner.ro === 0), 'Provider loop ownership changed.');
+}
+
 export function providerVolumeMappingGeometry(status: string) {
   const field = (name: string) => {
     const lines = status.split('\n').map(line => line.trim()).filter(line => line.startsWith(`${name}:`));
@@ -127,14 +143,8 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
     const raw: unknown = JSON.parse(command('/usr/bin/findmnt', ['--json', '--mountpoint', mount, '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,UUID']));
     const mounted = providerVolumeMountedAuthority(raw, device, mount);
     const { loop, offsetBytes } = providerVolumeMappingGeometry(command('/usr/sbin/cryptsetup', ['status', mapper]));
-    const associated: unknown = JSON.parse(command('/usr/sbin/losetup', ['--json', '--list', '--associated', backing, '--output', 'NAME,BACK-FILE,BACK-INO,OFFSET,SIZELIMIT,RO']));
-    assert(associated && typeof associated === 'object' && 'loopdevices' in associated
-      && Array.isArray(associated.loopdevices) && associated.loopdevices.length === 1);
-    const owner: unknown = associated.loopdevices[0];
-    assert(owner && typeof owner === 'object' && 'name' in owner && owner.name === loop
-      && 'back-file' in owner && owner['back-file'] === backing && 'back-ino' in owner && Number(owner['back-ino']) === original.ino
-      && 'offset' in owner && owner.offset === 0 && 'sizelimit' in owner && owner.sizelimit === 0
-      && 'ro' in owner && (owner.ro === false || owner.ro === 0), 'Provider loop ownership changed.');
+    const associated: unknown = JSON.parse(command('/usr/sbin/losetup', ['--json', '--list', '--associated', backing, '--output', 'NAME,BACK-INO,OFFSET,SIZELIMIT,RO']));
+    assertProviderVolumeLoopAuthority(associated, loop, original.ino);
     const header = () => command('/usr/sbin/cryptsetup', ['luksDump', '--dump-json-metadata', backing]);
     const beforeHeader = header();
     const filesystem = () => {

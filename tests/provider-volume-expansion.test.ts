@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { assertProviderVolumeBackingCustody, assertProviderVolumeGeometry, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry, providerVolumeMountedAuthority } from '../src/security/provider-volume-expansion.js';
+import { assertProviderVolumeBackingCustody, assertProviderVolumeGeometry, assertProviderVolumeLoopAuthority, assertProviderVolumeMountCustody, planProviderVolumeExpansion, providerVolumeMappingGeometry, providerVolumeMountedAuthority } from '../src/security/provider-volume-expansion.js';
 import { createProviderVolumeBacking, providerSecurityStatus } from '../src/security/provider-volume.js';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +22,31 @@ const volume: NonNullable<HostConfiguration['security']>['providerVolume'] = {
   mountPath: '/var/lib/treeseed/agent', sizeBytes: 17_179_869_184,
   unlock: 'systemd-credential', recoveryRequired: true,
 };
+
+it('binds native loop ownership to the exact associated file inode rather than namespace display paths', () => {
+  const owner = { name: '/dev/loop1', 'back-ino': 8799287, offset: 0, sizelimit: 0, ro: false };
+  const input = { loopdevices: [{ ...owner, 'back-file': '/namespace-relative/provider-data.luks' }] }, before = structuredClone(input);
+  expect(() => assertProviderVolumeLoopAuthority(input, owner.name, owner['back-ino'])).not.toThrow();
+  expect(() => assertProviderVolumeLoopAuthority({ loopdevices: [owner] }, owner.name, owner['back-ino'])).not.toThrow();
+  expect(() => assertProviderVolumeLoopAuthority({ loopdevices: [{ ...owner, 'back-ino': '8799287', ro: 0 }] }, owner.name, owner['back-ino'])).not.toThrow();
+  for (const raw of [undefined, null, {}, { loopdevices: [] }, { loopdevices: [null] }, { loopdevices: [owner, owner] }]) {
+    expect(() => assertProviderVolumeLoopAuthority(raw, owner.name, owner['back-ino'])).toThrow();
+  }
+  for (const changed of [{ name: '/dev/loop2' }, { 'back-ino': 8799288 }, { offset: 512 }, { sizelimit: 4096 }, { ro: true }, { ro: '0' }]) {
+    expect(() => assertProviderVolumeLoopAuthority({ loopdevices: [{ ...owner, ...changed }] }, owner.name, owner['back-ino'])).toThrow();
+  }
+  for (const field of Object.keys(owner)) for (const value of [undefined, null, '', [], {}, NaN, Infinity, -1, 1.5]) {
+    expect(() => assertProviderVolumeLoopAuthority({ loopdevices: [{ ...owner, [field]: value }] }, owner.name, owner['back-ino'])).toThrow();
+  }
+  for (const value of [true, false, '8.799287e6', '08799287', '8799287.0']) {
+    expect(() => assertProviderVolumeLoopAuthority({ loopdevices: [{ ...owner, 'back-ino': value }] }, owner.name, owner['back-ino'])).toThrow();
+  }
+  for (const inode of [0, -1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    expect(() => assertProviderVolumeLoopAuthority(input, owner.name, inode)).toThrow();
+  }
+  expect(() => assertProviderVolumeLoopAuthority(input, '/dev/sda', owner['back-ino'])).toThrow();
+  expect(input).toEqual(before);
+});
 
 it('keeps supervisor hardening while permitting only the native LUKS2 lock directory', () => {
   const unit = readFileSync(new URL('../systemd/treeseed-manager-supervisor.service', import.meta.url), 'utf8');

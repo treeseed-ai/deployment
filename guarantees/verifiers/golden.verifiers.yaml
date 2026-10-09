@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-loop-identity-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: binds native loop ownership to the exact associated file inode rather than namespace display paths
   deployment.golden.provider-volume-lock-development-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'
