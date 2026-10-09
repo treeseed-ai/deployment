@@ -46,6 +46,24 @@ function privatePath(path: string, directory: boolean) {
   return info;
 }
 
+export function providerVolumeMappingGeometry(status: string) {
+  const field = (name: string) => {
+    const lines = status.split('\n').map(line => line.trim()).filter(line => line.startsWith(`${name}:`));
+    assert(lines.length === 1 && typeof lines[0] === 'string', 'Provider mapping geometry is missing or ambiguous.');
+    return lines[0].slice(name.length + 1).trim();
+  };
+  assert(field('type') === 'LUKS2' && field('mode') === 'read/write', 'Provider mapping is not writable LUKS2.');
+  const loop = field('device');
+  assert.match(loop, /^\/dev\/loop[0-9]+$/u);
+  // Native cryptsetup versions expose the same 512-byte units using either label.
+  const offset = /^([0-9]+)[ \t]+(?:sectors|\[512-byte units\][ \t]+\(([0-9]+)[ \t]+\[bytes\]\))$/u.exec(field('offset'));
+  assert(offset, 'Provider loop geometry is missing.');
+  const offsetBytes = Number(offset[1]) * 512;
+  assert(Number.isSafeInteger(offsetBytes) && offsetBytes > 0
+    && (offset[2] === undefined || Number(offset[2]) === offsetBytes), 'Provider mapping offset units disagree.');
+  return { loop, offsetBytes };
+}
+
 /** Grow only the already-mounted owning loop/LUKS2/ext4 stack. Never formats,
  * changes keys, shrinks, detaches, or rolls back a partially enlarged layer. */
 export function expandMountedProviderVolume(backing: string, mount: string, target: number,
@@ -70,11 +88,7 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
       && 'uuid' in mounted && typeof mounted.uuid === 'string' && /^[a-f0-9-]{36}$/u.test(mounted.uuid), 'Provider mounted authority changed.');
     const mountOptions = mounted.options.split(',');
     assert(['rw', 'nodev', 'nosuid', 'noexec'].every(option => mountOptions.includes(option)), 'Provider mount protections changed.');
-    const status = command('/usr/sbin/cryptsetup', ['status', mapper]);
-    assert(/^\s*type:\s*LUKS2\s*$/mu.test(status) && /^\s*mode:\s*read\/write\s*$/mu.test(status), 'Provider mapping is not writable LUKS2.');
-    const loop = /^\s*device:\s*(\/dev\/loop[0-9]+)\s*$/mu.exec(status)?.[1];
-    const offset = /^\s*offset:\s*([0-9]+)\s+sectors\s*$/mu.exec(status)?.[1];
-    assert(loop && offset, 'Provider loop geometry is missing.');
+    const { loop, offsetBytes } = providerVolumeMappingGeometry(command('/usr/sbin/cryptsetup', ['status', mapper]));
     const associated: unknown = JSON.parse(command('/usr/sbin/losetup', ['--json', '--list', '--associated', backing, '--output', 'NAME,BACK-FILE,BACK-INO,OFFSET,SIZELIMIT,RO']));
     assert(associated && typeof associated === 'object' && 'loopdevices' in associated
       && Array.isArray(associated.loopdevices) && associated.loopdevices.length === 1);
@@ -96,7 +110,7 @@ export function expandMountedProviderVolume(backing: string, mount: string, targ
     const bytes = (path: string) => Number(command('/usr/sbin/blockdev', ['--getsize64', path]).trim());
     const fs = filesystem(), loopBytes = bytes(loop), mappedBytes = bytes(device);
     const desired = assertProviderVolumeGeometry({ backingBytes: opened.size, loopBytes, mappedBytes,
-      offsetBytes: Number(offset) * 512, ...fs }, target);
+      offsetBytes, ...fs }, target);
     const expanded = opened.size !== target || loopBytes !== target || mappedBytes !== desired || fs.filesystemBytes !== desired;
     if (!expanded) return { expanded: false, sizeBytes: target, filesystemBytes: desired, uuid: mounted.uuid };
     const available = statfsSync(dirname(backing));

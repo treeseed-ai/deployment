@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.provider-volume-mapping-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/provider-volume-expansion.test.ts
+    testName: reads native cryptsetup mapping units exactly and denies contradictory or ambiguous geometry
   deployment.golden.provider-volume-expansion-configuration-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

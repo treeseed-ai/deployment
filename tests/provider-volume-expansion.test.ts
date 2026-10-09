@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { assertProviderVolumeGeometry, planProviderVolumeExpansion } from '../src/security/provider-volume-expansion.js';
+import { assertProviderVolumeGeometry, planProviderVolumeExpansion, providerVolumeMappingGeometry } from '../src/security/provider-volume-expansion.js';
 import type { HostConfiguration } from '@treeseed/sdk/deployment';
 import { host } from './fixtures.js';
 import { executeSupervisorOperation } from '../src/supervisor/execute.js';
@@ -15,6 +15,22 @@ const volume: NonNullable<HostConfiguration['security']>['providerVolume'] = {
   mountPath: '/var/lib/treeseed/agent', sizeBytes: 17_179_869_184,
   unlock: 'systemd-credential', recoveryRequired: true,
 };
+
+it('reads native cryptsetup mapping units exactly and denies contradictory or ambiguous geometry', () => {
+  const status = '  type: LUKS2\n  device: /dev/loop17\n  offset: 32768 [512-byte units] (16777216 [bytes])\n  mode: read/write\n';
+  expect(providerVolumeMappingGeometry(status)).toEqual({ loop: '/dev/loop17', offsetBytes: 16_777_216 });
+  expect(providerVolumeMappingGeometry(status.replace('32768 [512-byte units] (16777216 [bytes])', '32768 sectors')))
+    .toEqual({ loop: '/dev/loop17', offsetBytes: 16_777_216 });
+  for (const changed of [status.replace('16777216 [bytes]', '16777215 [bytes]'),
+    status.replace('32768 [512-byte units]', '32768 [4096-byte units]'), status.replace('32768 [512-byte units]', '0 [512-byte units]'),
+    status.replace('32768 [512-byte units]', '-1 [512-byte units]'), status.replace('32768 [512-byte units]', '1.5 [512-byte units]'),
+    status.replace('32768 [512-byte units]', '9007199254740992 [512-byte units]'),
+    status.replace('LUKS2', 'PLAIN'), status.replace('read/write', 'readonly'), status.replace('/dev/loop17', '/dev/sda'),
+    status.replace('  offset:', '  absent:'), `${status}  offset: 32768 sectors\n`, `${status}  device: /dev/loop18\n`]) {
+    expect(() => providerVolumeMappingGeometry(changed)).toThrow();
+  }
+  expect(status).toBe('  type: LUKS2\n  device: /dev/loop17\n  offset: 32768 [512-byte units] (16777216 [bytes])\n  mode: read/write\n');
+});
 
 it('accepts only monotonic same-authority provider volume expansion', () => {
   const next = { ...volume, sizeBytes: 34_359_738_368 }, before = structuredClone([volume, next]);

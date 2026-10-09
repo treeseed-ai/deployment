@@ -1,4 +1,7 @@
 workflow:
+  - id: provider-volume-mapping-unit
+    action: { verifier: deployment.golden.provider-volume-mapping-unit }
+    expect: { status: passed }
   - id: provider-volume-expansion-configuration-unit
     action: { verifier: deployment.golden.provider-volume-expansion-configuration-unit }
     expect: { status: passed }
