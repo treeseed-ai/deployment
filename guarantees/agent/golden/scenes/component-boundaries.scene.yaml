@@ -1,4 +1,16 @@
 workflow:
+  - id: source-admission-overlap-unit
+    action: { verifier: deployment.golden.source-admission-overlap-unit }
+    expect: { status: passed }
+  - id: source-admission-retry-unit
+    action: { verifier: deployment.golden.source-admission-retry-unit }
+    expect: { status: passed }
+  - id: source-admission-uncertain-unit
+    action: { verifier: deployment.golden.source-admission-uncertain-unit }
+    expect: { status: passed }
+  - id: source-admission-native
+    action: { verifier: deployment.golden.source-admission-native }
+    expect: { status: passed }
   - id: execution-backup-batch-unit-1
     action: { verifier: deployment.golden.execution-backup-batch-unit-1 }
     expect: { status: passed }

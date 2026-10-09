@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.source-admission-retry-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-git-cache.test.ts
+    testName: releases only a proven storage admission rejection and permits unchanged bounded retry
+  deployment.golden.source-admission-uncertain-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-git-cache.test.ts
+    testName: retains storage fences for unclassified errors and any failure after Git begins
+  deployment.golden.source-admission-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-volume.integration.test.ts
+    testName: native full parent filesystem denies acquisition twice without poisoning the live owner fence or allocating source bytes
+  deployment.golden.source-admission-overlap-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-git-cache.test.ts
+    testName: denies an overlapping acquisition until the original admission owner releases its own fence
   deployment.golden.execution-backup-batch-unit-1:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

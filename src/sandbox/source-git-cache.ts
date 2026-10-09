@@ -57,10 +57,11 @@ export async function acquireSourceBundle(input: {
   try { await mkdir(lock, { mode: 0o700 }); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Source acquisition is already owned or awaiting recovery.'); throw error; }
   const jobId = randomUUID();
-  let completed = false;
+  let releaseFence = false, fetchEntered = false;
   try {
     await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId, assignmentId: authorization.assignmentId, authorizationId: authorization.id, pid: process.pid }), { mode: 0o600, flag: 'wx' });
     const result = await dependencies.volume(cache, input.maxBundleBytes, async volume => {
+    fetchEntered = true;
     const temporary = join(volume, `${jobId}.bundle`);
 		const git = join(volume, 'repository.git');
 		await privateDirectory(git);
@@ -108,9 +109,15 @@ export async function acquireSourceBundle(input: {
     await rm(temporary);
     return { cacheId, bundleDigest: `sha256:${sha256}`, bytes: info.size, commit: source.commit };
     });
-    completed = true; return result;
+    releaseFence = true; return result;
+  } catch (error) {
+    // A pre-allocation denial owns no Git child, image, or transport. Do not poison
+    // subsequent requests merely because this long-lived manager is still alive.
+    // Every uncertain allocation/mount/fetch failure retains the recovery fence.
+    if (!fetchEntered && (error as NodeJS.ErrnoException | undefined)?.code === 'SOURCE_CACHE_STORAGE_FULL') releaseFence = true;
+    throw error;
   } finally {
     // Failed or interrupted Git may have descendants still writing. Recovery, not elapsed time, releases this fence.
-    if (completed) await rm(lock, { recursive: true });
+    if (releaseFence) await rm(lock, { recursive: true });
   }
 }

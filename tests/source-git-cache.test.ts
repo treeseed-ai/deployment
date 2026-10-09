@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -142,5 +142,68 @@ describe('trusted source acquisition', () => {
     await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('uncertain child');
     await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('awaiting recovery');
     expect(dependencies.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases only a proven storage admission rejection and permits unchanged bounded retry', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'treeseed-source-cache-test-')); roots.push(root);
+    const run = vi.fn(runSourceGit), limits: number[] = [];
+    const dependencies: SourceGitCacheDependencies = { root, initialize: async () => {}, now: () => now, run,
+      volume: async (_cache, limit) => {
+        limits.push(limit);
+        throw Object.assign(new Error('Source cache storage admission is full; reclaim inactive caches before retrying.'), { code: 'SOURCE_CACHE_STORAGE_FULL' });
+      } };
+    const before = structuredClone(input), outcomes: unknown[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { await acquireSourceBundle(input, dependencies); outcomes.push('unexpected success'); }
+      catch (error) { outcomes.push(error); }
+    }
+    expect(outcomes.map(error => error instanceof Error ? error.message : error)).toEqual(Array(2).fill('Source cache storage admission is full; reclaim inactive caches before retrying.'));
+    expect(limits).toEqual([input.maxBundleBytes, input.maxBundleBytes]);
+    expect(run).not.toHaveBeenCalled(); expect(input).toEqual(before);
+    for (const id of await readdir(join(root, 'git'))) {
+      await expect(access(join(root, 'git', id, 'acquisition.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(join(root, 'git', id, 'objects.ext4'))).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+    expect(await readdir(join(root, 'bundles'))).toEqual([]);
+  });
+
+  it('retains storage fences for unclassified errors and any failure after Git begins', async () => {
+    for (const entered of [false, true]) {
+      const root = await mkdtemp(join(tmpdir(), 'treeseed-source-cache-test-')); roots.push(root);
+      const failure = Object.assign(new Error('Source cache storage admission is full; reclaim inactive caches before retrying.'), entered ? { code: 'SOURCE_CACHE_STORAGE_FULL' } : {});
+      const run = vi.fn(async () => { throw failure; });
+      const dependencies: SourceGitCacheDependencies = { root, initialize: async () => {}, now: () => now, run,
+        volume: entered ? volume : async () => { throw failure; } };
+      await expect(acquireSourceBundle(input, dependencies)).rejects.toBe(failure);
+      await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('awaiting recovery');
+      expect(run).toHaveBeenCalledTimes(entered ? 1 : 0);
+      const ids = await readdir(join(root, 'git')); expect(ids).toHaveLength(1);
+      const journal = JSON.parse(await readFile(join(root, 'git', ids[0]!, 'acquisition.lock', 'job.json'), 'utf8'));
+      expect(journal).toMatchObject({ assignmentId: authorization.assignmentId, authorizationId: authorization.id, pid: process.pid });
+    }
+  });
+
+  it('denies an overlapping acquisition until the original admission owner releases its own fence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'treeseed-source-cache-test-')); roots.push(root);
+    let notifyEntered!: () => void, releaseOwner!: () => void;
+    const entered = new Promise<void>(resolve => { notifyEntered = resolve; });
+    const release = new Promise<void>(resolve => { releaseOwner = resolve; });
+    const run = vi.fn(runSourceGit);
+    let admissions = 0;
+    const dependencies: SourceGitCacheDependencies = { root, initialize: async () => {}, now: () => now, run,
+      volume: async () => {
+        if (admissions++ === 0) { notifyEntered(); await release; }
+        throw Object.assign(new Error('Source cache storage admission is full; reclaim inactive caches before retrying.'), { code: 'SOURCE_CACHE_STORAGE_FULL' });
+      } };
+    const before = structuredClone(input);
+    const first = acquireSourceBundle(input, dependencies).then(() => 'unexpected success', error => error instanceof Error ? error.message : 'unknown failure');
+    await entered;
+    try { await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('awaiting recovery'); }
+    finally { releaseOwner(); }
+    expect(await first).toBe('Source cache storage admission is full; reclaim inactive caches before retrying.');
+    await expect(acquireSourceBundle(input, dependencies)).rejects.toThrow('Source cache storage admission is full; reclaim inactive caches before retrying.');
+    expect(admissions).toBe(2); expect(run).not.toHaveBeenCalled(); expect(input).toEqual(before);
+    const caches = await readdir(join(root, 'git')); expect(caches).toHaveLength(1);
+    await expect(access(join(root, 'git', caches[0]!, 'acquisition.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
