@@ -4,11 +4,12 @@ import * as doctor from '../src/sandbox/doctor.js';
 
 const observed=vi.hoisted(()=>({tasks:'unrelated-task\n',containers:'unrelated-container\n',mounts:'1 0 0:1 / / rw - rootfs rootfs rw\n',
  namespace:'mnt:[1234]',hostNamespace:'mnt:[1234]',rootPresent:true,rootLink:false,unreadable:'',entries:['sandbox-retained','audit'],
- calls:[] as {path:string;args:readonly string[]}[],changed:false,hostFailure:''}));
+ calls:[] as {path:string;args:readonly string[]}[],changed:false,reordered:false,hostFailure:''}));
 vi.mock('node:child_process',()=>({execFile:vi.fn((path:string,args:readonly string[],_options:unknown,callback:(error:Error|null,stdout:string,stderr:string)=>void)=>{
  observed.calls.push({path,args:[...args]});const kind=args.includes('tasks')?'tasks':'containers';
  if(observed.unreadable===kind){callback(new Error('denied'),'', 'private native error');return;}
- const stdout=observed[kind]+(observed.changed&&observed.calls.filter(call=>call.args.includes(kind)).length>1?'new-live-resource\n':'');
+ let stdout=observed[kind]+(observed.changed&&observed.calls.filter(call=>call.args.includes(kind)).length>1?'new-live-resource\n':'');
+ if(observed.reordered&&observed.calls.filter(call=>call.args.includes(kind)).length>1)stdout=stdout.trimEnd().split('\n').reverse().join('\n')+'\n';
  callback(null,stdout,'');
 }),execFileSync:vi.fn()}));
 vi.mock('node:fs',()=>({
@@ -31,7 +32,7 @@ const configuration:SandboxBrokerConfiguration={socketPath:'/run/treeseed/sandbo
  namespace:'treeseed-sandboxes',runtime:'io.containerd.kata.v2',stateRoot:'/var/lib/treeseed/sandboxes',trustedProvidersPath:'/etc/treeseed/sandbox/providers.json',
  relay:{listenHost:'10.89.0.1',port:7443,publicUrl:'https://10.89.0.1:7443',certificateFile:'/etc/treeseed/sandbox/relay.crt',privateKeyFile:'/run/credentials/relay-tls-key'},guestImages:[]};
 beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated-container\n';observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
- observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.hostFailure='';});
+ observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';});
 
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
  const held=structuredClone(configuration),result=await doctor.inspectSandboxInventory(configuration);
@@ -72,5 +73,19 @@ it('denies host namespace directory absence or inode disagreement instead of cer
   expect(result.complete,failure).toBe(false);
   expect(result.errors).toContain('managed_directory_inventory_unavailable');
   expect(result.managedDirectory.rootPresent).toBeNull();
+ }
+});
+it('retains differently ordered native inventories while requiring the exact same unique resource identities',async()=>{
+ observed.tasks='first-task\nsecond-task\n';observed.containers='first-container\nsecond-container\n';observed.reordered=true;
+ const result=await doctor.inspectSandboxInventory(configuration);
+ expect(result.complete).toBe(true);
+ expect(result.tasks).toBe('first-task\nsecond-task\n');expect(result.confirmation.tasks).toBe('second-task\nfirst-task\n');
+ expect(result.containers).toBe('first-container\nsecond-container\n');expect(result.confirmation.containers).toBe('second-container\nfirst-container\n');
+});
+it('denies blank or whitespace-normalized native identities while preserving the original malformed bytes',async()=>{
+ for(const tasks of ['\n','entry \n','entry\n\n']){
+  observed.tasks=tasks;observed.calls=[];
+  const result=await doctor.inspectSandboxInventory(configuration);
+  expect(result.complete,JSON.stringify(tasks)).toBe(false);expect(result.tasks).toBe(tasks);
  }
 });
