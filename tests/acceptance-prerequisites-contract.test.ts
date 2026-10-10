@@ -219,7 +219,7 @@ it('parses component metadata and binds every scene step to exactly one existing
 
 it('runs complete privileged owner prerequisites before coded scenes without a filtered substitute', () => {
   const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
-  const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>}[];
+  const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>;'working-directory'?:string}[];
   expect(workflow.jobs.verify.env?.NPM_CONFIG_CACHE).toBe('${{ github.workspace }}/.treeseed/npm-cache');
   for(const step of steps.filter(step=>step.run?.includes('sudo --preserve-env=')))
     expect(step.run).toMatch(/sudo --preserve-env=[^\s]*NPM_CONFIG_CACHE[^\s]* /u);
@@ -235,6 +235,14 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   expect(artifact?.with?.commit).toBe('${{ steps.reviewer-prerequisites.outputs.sdk-commit }}');
   const assets=steps.find(step=>step.name==='Build the executing Reviewer archive assets');
   expect(assets?.run).toBe('npm run --prefix .treeseed/tools/reviewer build:dist');
+  const focused=steps.find(step=>step.name==='Reproduce executing Reviewer installed archives before full suites');
+  expect(focused?.['working-directory']).toBe('.treeseed/tools/reviewer');
+  expect(focused?.run).toContain('sudo --preserve-env=GITHUB_WORKSPACE,NPM_CONFIG_CACHE,PATH');
+  expect(focused?.run).toContain('node_modules/vitest/vitest.mjs run --config ./vitest.config.ts');
+  expect(focused?.run).toContain('tests/integration/guarantees/installed-custody.test.ts');
+  expect(focused?.run).toContain("-t '^executes actual production-installed Reviewer and owner archives and retains denied checkout imports and missing-helper failures before exact retry$'");
+  expect(steps.indexOf(focused!)).toBeGreaterThan(steps.indexOf(assets!));
+  expect(steps.indexOf(focused!)).toBeLessThan(steps.findIndex(step=>step.run?.includes('npm run verify:direct')));
   const scene=steps.find(step=>step.name==='Execute coded sandbox component scenes');
   const handoff=steps.find(step=>step.name==='Return disposable npm cache to the packaging user');
   expect(handoff?.run ?? '').toContain('test "$NPM_CONFIG_CACHE" = "$GITHUB_WORKSPACE/.treeseed/npm-cache"');
