@@ -67,8 +67,29 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: treeseed-ai/reviewer
-          ref: 1e3019fbf24163116222dc96a70c126bf3488389
+          ref: 62d261910f8bd157ba6575b185a586263dff8e44
           path: .treeseed/tools/reviewer
+      - name: Install the executing Reviewer suite dependencies
+        run: npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund
+      - name: Measure the executing Reviewer prerequisite custody
+        id: reviewer-prerequisites
+        run: node --import ./.treeseed/tools/reviewer/node_modules/tsx/dist/loader.mjs .treeseed/tools/reviewer/scripts/scene-action-prerequisites.ts
+      - name: Install Reviewer native prerequisite toolchain
+        if: steps.reviewer-prerequisites.outputs.toolchain-ready != 'true'
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.3.4.18"
+          elixir-version: "1.17.3"
+      - name: Install the executing Reviewer exact SDK artifact
+        uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1
+        env:
+          NODE_ENV: production
+        with:
+          github-token: ${{ github.token }}
+          commit: ${{ steps.reviewer-prerequisites.outputs.sdk-commit }}
+          paths: .treeseed/tools/reviewer/node_modules/@treeseed/sdk
+      - name: Build the executing Reviewer archive assets
+        run: npm run --prefix .treeseed/tools/reviewer build:dist
       - name: Build original capacity host installer
         run: npm run build:deb
         env:
@@ -101,7 +122,7 @@ jobs:
       - name: Execute coded sandbox component scenes
         shell: bash
         run: |
-          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS,PATH "$(command -v node)" --import tsx \
+          sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS,PATH "$(command -v node)" --import ./.treeseed/tools/reviewer/node_modules/tsx/dist/loader.mjs \
             .treeseed/tools/reviewer/src/verifiers/guarantees/command.ts \
             --workspace "$GITHUB_WORKSPACE" --environment local --ids guarantee.deployment.golden.component-boundaries \
             --run-id "actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"

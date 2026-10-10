@@ -155,9 +155,12 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     for(const args of [['init','-q'],['add','.'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Native evidence inputs']])expect(native('git',args).status).toBe(0);
     const head=native('git',['rev-parse','HEAD']);expect(head.status).toBe(0);
     const invoke=(id:string)=>{
-      // Pinned Node 24 executes these erasable TypeScript sources directly;
-      // don't start a second transpiler worker for each native CLI invocation.
-      const actual=native(process.execPath,[resolve(reviewer,'src/verifiers/guarantees/command.ts'),'--workspace',root,'--environment','local','--ids','proof','--run-id',id]);
+      // This fixture exercises the actual exported runner API with its complete
+      // two-case owner suite. The outer production CLI separately holds and runs
+      // the executing Reviewer's full suite before any Deployment scene.
+      const actual=native(process.execPath,['--input-type=module','--eval',
+        "const {planLocalGuarantees,runLocalGuarantees}=await import(process.argv[1]);const report=runLocalGuarantees(process.argv[2],planLocalGuarantees(process.argv[2],['proof']),process.argv[3]);console.log(JSON.stringify(report));process.exitCode=report.ok?0:1;",
+        pathToFileURL(resolve(reviewer,'src/verifiers/guarantees/command.ts')).href,root,id]);
       expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.stderr).toBe('');
       return {actual,report:JSON.parse(actual.stdout) as {ok:boolean;results:{status:string;evidence:string[];steps:{ref:string;status:string;evidence:string[]}[]}[]}};
     };
@@ -218,7 +221,8 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
   const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>}[];
   expect(steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))
-    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3']);
+    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3',
+      'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1']);
   const dependencies=steps.find(step=>step.name==='Install the executing Reviewer suite dependencies');
   expect(dependencies?.run).toBe('npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund');
   const custody=steps.find(step=>step.name==='Measure the executing Reviewer prerequisite custody');
