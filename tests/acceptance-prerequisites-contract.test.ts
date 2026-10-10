@@ -220,6 +220,9 @@ it('parses component metadata and binds every scene step to exactly one existing
 it('runs complete privileged owner prerequisites before coded scenes without a filtered substitute', () => {
   const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
   const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>}[];
+  expect(workflow.jobs.verify.env?.NPM_CONFIG_CACHE).toBe('${{ runner.temp }}/treeseed-native-npm-cache');
+  for(const step of steps.filter(step=>step.run?.includes('sudo --preserve-env=')))
+    expect(step.run).toMatch(/sudo --preserve-env=[^\s]*NPM_CONFIG_CACHE[^\s]* /u);
   expect(steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))
     .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3',
       'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1']);
