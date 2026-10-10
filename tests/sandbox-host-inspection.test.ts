@@ -37,7 +37,7 @@ beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
  const held=structuredClone(configuration),result=await doctor.inspectSandboxInventory(configuration);
  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
- expect(result.scope).toEqual({containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace});
+ expect(result.scope).toEqual({brokerSocket:configuration.socketPath,runtime:configuration.runtime,containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace});
  expect(result.tasks).toBe(observed.tasks);expect(result.containers).toBe(observed.containers);expect(result.mountInfo).toBe(observed.mounts);
  expect(result.managedDirectory).toEqual({rootPresent:true,entries:[{name:'audit',type:'directory'},{name:'sandbox-retained',type:'directory'}]});
  expect(observed.calls).toHaveLength(4);
