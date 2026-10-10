@@ -29,11 +29,11 @@ it('native installed CLI manager and supervisor observe exact task container mou
   const observationPhase=phase;phase=`${observationPhase}_COMMAND`;
   const outputs:string[]=[];expect(await cli.runCommandLine(['host','sandbox','status','--json'],{interactiveUi:false,write:output=>outputs.push(output)})).toBe(0);
   phase=`${observationPhase}_ENVELOPE`;
-  expect(outputs).toHaveLength(1);const envelope=JSON.parse(outputs[0]!) as {ok:boolean;result:{inventory:Inventory}};
+  expect(outputs).toHaveLength(1);const envelope=JSON.parse(outputs[0]!) as {ok:boolean;result:{runtime:string;inventory:Inventory}};
   expect(envelope.ok).toBe(true);const result=envelope.result.inventory;observations.push(result);
   phase=`${observationPhase}_COMPLETE`;expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
   phase=`${observationPhase}_SCOPE`;
-  expect(result.scope.brokerSocket).toBe(configuration.socketPath);expect(result.scope.runtime).toBe(configuration.runtime);
+  expect(result.scope.brokerSocket).toBe(configuration.socketPath);expect(envelope.result.runtime).toBe(configuration.runtime);
   expect(result.scope.containerdAddress).toBe(configuration.containerdAddress);expect(result.scope.namespace).toBe(configuration.namespace);expect(result.scope.stateRoot).toBe(configuration.stateRoot);
   phase=`${observationPhase}_CONFIRMATION`;expect(result.tasks!.trimEnd().split('\n').sort()).toEqual(result.confirmation.tasks!.trimEnd().split('\n').sort());
   expect(result.containers!.trimEnd().split('\n').sort()).toEqual(result.confirmation.containers!.trimEnd().split('\n').sort());

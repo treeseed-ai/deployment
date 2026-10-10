@@ -82,7 +82,7 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
  if (!sameInventory(tasks, finalTasks) || !sameInventory(containers, finalContainers))
   errors.push('containerd_inventory_changed_or_incomplete');
  return { startedAt, completedAt: new Date().toISOString(), complete: errors.length === 0,
-  scope: { brokerSocket: configuration.socketPath, runtime: configuration.runtime,
+  scope: { brokerSocket: configuration.socketPath,
    containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace },
   tasks: tasks ?? null, containers: containers ?? null, confirmation: { tasks: finalTasks ?? null, containers: finalContainers ?? null },
   mountInfo, managedDirectory, errors };
