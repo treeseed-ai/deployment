@@ -219,7 +219,17 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>}[];
   expect(steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))
     .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3']);
+  const dependencies=steps.find(step=>step.name==='Install the executing Reviewer suite dependencies');
+  expect(dependencies?.run).toBe('npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund');
+  const custody=steps.find(step=>step.name==='Measure the executing Reviewer prerequisite custody');
+  expect(custody?.run).toContain('.treeseed/tools/reviewer/scripts/scene-action-prerequisites.ts');
+  const artifact=steps.find(step=>step.name==='Install the executing Reviewer exact SDK artifact');
+  expect(artifact?.with?.paths).toBe('.treeseed/tools/reviewer/node_modules/@treeseed/sdk');
+  expect(artifact?.with?.commit).toBe('${{ steps.reviewer-prerequisites.outputs.sdk-commit }}');
+  const assets=steps.find(step=>step.name==='Build the executing Reviewer archive assets');
+  expect(assets?.run).toBe('npm run --prefix .treeseed/tools/reviewer build:dist');
   const scene=steps.find(step=>step.name==='Execute coded sandbox component scenes');
+  for(const prepared of [dependencies,custody,artifact,assets])expect(steps.indexOf(prepared!)).toBeLessThan(steps.indexOf(scene!));
   expect(scene?.run).toContain('sudo --preserve-env=');
   expect(scene?.run).toContain('src/verifiers/guarantees/command.ts');
   expect(scene?.env?.TREESEED_PRIVILEGED_CACHE_TESTS).toBe('1');
