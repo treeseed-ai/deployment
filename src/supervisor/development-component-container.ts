@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
+import type { DevelopmentTarget } from '@treeseed/sdk/development';
 import { atomicJson } from '../core/files.js';
 import { DevelopmentSessionStore } from '../manager/development-sessions.js';
 import { loadActiveComponents } from '../manager/current-state.js';
@@ -93,17 +94,25 @@ function buildImages(command: CommandRunner, input: Input, worktree: string, bui
 	return images;
 }
 
-export function renderManagedComponentOverride(input: Input, images: Map<string, string>) {
+function memoryLimits(memoryBytes: unknown, services: number) {
+ if(memoryBytes===undefined)return {};
+ if(typeof memoryBytes!=='number'||!Number.isSafeInteger(memoryBytes)||memoryBytes<=0||services!==1)
+  throw new Error('Managed target RAM allocation must be a positive safe byte count for one owning service.');
+ return {mem_limit:memoryBytes,memswap_limit:memoryBytes};
+}
+
+export function renderManagedComponentOverride(input: Input, images: Map<string, string>, resources: Pick<DevelopmentTarget['resources'],'memoryBytes'> = {}) {
+ const limits=memoryLimits(resources.memoryBytes,images.size);
 	const labels = { 'org.treeseed.development.session': input.sessionId, 'org.treeseed.development.target': `${input.projectId}.${input.targetId}` };
-	return { services: Object.fromEntries([...images].map(([service, image]) => [service, { image, labels }])) };
+	return { services: Object.fromEntries([...images].map(([service, image]) => [service, { image, labels, ...limits }])) };
 }
 
 function projectInstances(command: CommandRunner, projectName: string, runningOnly = true) {
 	const ids = composeProjectContainerIds(projectName, command, runningOnly);
 	return ids.map((id) => {
 		const value = String(command('/usr/bin/docker', ['inspect', id, '--format',
-			'{"service":{{json (index .Config.Labels "com.docker.compose.service")}},"sessionId":{{json (index .Config.Labels "org.treeseed.development.session")}},"target":{{json (index .Config.Labels "org.treeseed.development.target")}},"image":{{json .Image}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}']));
-		return { id, ...JSON.parse(value) } as { id: string; service: string; sessionId?: string; target?: string; image: string; running: boolean; health: string };
+			'{"service":{{json (index .Config.Labels "com.docker.compose.service")}},"sessionId":{{json (index .Config.Labels "org.treeseed.development.session")}},"target":{{json (index .Config.Labels "org.treeseed.development.target")}},"image":{{json .Image}},"memoryBytes":{{json .HostConfig.Memory}},"memorySwapBytes":{{json .HostConfig.MemorySwap}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}']));
+		return { id, ...JSON.parse(value) } as { id: string; service: string; sessionId?: string; target?: string; image: string; memoryBytes?: number; memorySwapBytes?: number; running: boolean; health: string };
 	});
 }
 
@@ -124,7 +133,7 @@ function observed(command: CommandRunner, projectName: string, input: Input, run
 export function managedComponentStatus(input: Input, projectName: string, override: string, command: CommandRunner) {
 	if (!existsSync(override)) return { registered: false, state: null };
 	const before = readFileSync(override, 'utf8');
-	const configured = JSON.parse(before) as { services?: Record<string, { image?: unknown; labels?: Record<string, unknown> }> };
+	const configured = JSON.parse(before) as { services?: Record<string, { image?: unknown; mem_limit?: unknown; memswap_limit?: unknown; labels?: Record<string, unknown> }> };
 	if (!configured?.services || Array.isArray(configured.services) || typeof configured.services !== 'object')
 		throw new Error('Managed development selected image inventory is invalid.');
 	const images = new Map<string, string>();
@@ -133,11 +142,18 @@ export function managedComponentStatus(input: Input, projectName: string, overri
 			|| value.labels?.['org.treeseed.development.session'] !== input.sessionId
 			|| value.labels?.['org.treeseed.development.target'] !== `${input.projectId}.${input.targetId}`)
 			throw new Error('Managed development selected image identity is invalid.');
+  const limits=memoryLimits(value.mem_limit,Object.keys(configured.services).length);
+  if(value.memswap_limit!==limits.memswap_limit)throw new Error('Managed target RAM and swap custody is invalid.');
 		images.set(service, value.image);
 	}
 	const required = managedPersistentServices([...images.keys()]);
 	if (!required.length) throw new Error('Managed development selected persistent image inventory is empty.');
 	const instances = observed(command, projectName, input, false, images).filter(item => required.includes(item.service));
+ for(const instance of instances) {
+  const limit=configured.services[instance.service]?.mem_limit;
+  if(limit!==undefined&&(instance.memoryBytes!==limit||instance.memorySwapBytes!==limit))
+   throw new Error('Managed development actual RAM limit does not match selection.');
+ }
 	if (readFileSync(override, 'utf8') !== before) throw new Error('Managed development image selection changed during inspection.');
 	return { registered: true, instances, ready: required.every(service => instances.some(item => item.service === service
 		&& item.running && item.health !== 'starting' && item.health !== 'unhealthy')) };
@@ -217,13 +233,16 @@ export function executeManagedComponentDevelopment(input: Input, command: Comman
 		rmSync(directory, { recursive: true }); return { stopped: true };
 	}
 	const { worktree } = source(input.sessionId, input.projectId);
+ const target=record.runtimes.find(runtime=>runtime.project.id===input.projectId)?.targets.find(target=>target.id===input.targetId);
+ if(!target)throw new Error('Managed development target resource authority is unavailable.');
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	const images = buildImages(command, input, worktree, selectedRecipe.builds(worktree));
-	atomicJson(override, renderManagedComponentOverride(input, images), 0o600);
+	atomicJson(override, renderManagedComponentOverride(input, images, target.resources), 0o600);
 	rmSync(failure, { force: true });
 	try {
 		command('/usr/bin/docker', [...candidate, 'up', '--detach', '--remove-orphans', '--force-recreate']);
-		if (!waitForManagedReadiness(command, component.runtime.compose.projectName, input, images).ready)
+		if (!waitForManagedReadiness(command, component.runtime.compose.projectName, input, images).ready
+   ||!managedComponentStatus(input,component.runtime.compose.projectName,override,command).ready)
 			throw new Error('Managed development application did not become ready.');
 	}
 	catch (error) {

@@ -48,7 +48,7 @@ it('installed capacity manager applies its exact persistent writeback bounds wit
 
 function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const started=Date.now()/1000;
- const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)}`;
+ const root=mkdtempSync(resolve(tmpdir(),'managed-image-status-')),project=`image-custody-${process.pid}-${root.split('-').at(-1)!.toLowerCase()}`;
  const input={sessionId:`dev-native-${process.pid}`,projectId:'treedx' as const,targetId:'service' as const,action:'status' as const};
  const override=resolve(root,'compose.json'),ids:string[]=[];
  const docker=(_executable:string,args:readonly string[])=>{
@@ -101,7 +101,7 @@ function fixture(timings: {operation:string;milliseconds:number}[] = []) {
  const select=(images=new Map([['treedx',image]]))=>writeFileSync(override,JSON.stringify(renderManagedComponentOverride(input,images)),{mode:0o600});
  select();
  const create=(service='treedx',sessionId=input.sessionId,writableRoot?:string)=>{
-  const id=docker('/usr/bin/docker',['run','--detach','--read-only','--network','none','--cap-drop','ALL','--security-opt','no-new-privileges:true',
+  const id=docker('/usr/bin/docker',['run','--detach','--memory','128m','--memory-swap','128m','--cpus','1','--read-only','--network','none','--cap-drop','ALL','--security-opt','no-new-privileges:true',
    '--label',`com.docker.compose.project=${project}`,'--label',`com.docker.compose.service=${service}`,
    '--label',`org.treeseed.development.session=${sessionId}`,'--label','org.treeseed.development.target=treedx.service',
    ...(writableRoot?['--mount',`type=bind,source=${writableRoot},target=/data`]:[]),
@@ -255,7 +255,7 @@ it('rejects real Docker service identity drift and undeclared ownership while re
  const f=fixture();try{
   f.create();f.create('unexpected');expect(f.status).toThrow();
   const extra=f.ids.at(-1)!;f.docker('/usr/bin/docker',['rm','--force',extra]);f.ids.pop();
-  const unrelated=f.docker('/usr/bin/docker',['run','--detach','--read-only','--network','none','--cap-drop','ALL','--security-opt','no-new-privileges:true',
+  const unrelated=f.docker('/usr/bin/docker',['run','--detach','--memory','128m','--memory-swap','128m','--cpus','1','--read-only','--network','none','--cap-drop','ALL','--security-opt','no-new-privileges:true',
    '--label',`com.docker.compose.project=${f.project}`,'--label','com.docker.compose.service=unrelated',f.image,'node','-e','setInterval(()=>{},1000)']).trim();
   f.ids.push(unrelated);expect(f.status()).toMatchObject({ready:true});
  }finally{f.close();}
@@ -285,3 +285,25 @@ it('retains exact public writeback counters and leaves unreadable malformed or d
   memoryKiB:{MemTotal:null,Dirty:null,Writeback:null},pages:{nr_dirty:null,nr_writeback:null,nr_dirtied:null,nr_written:null},
   limits:{dirty_bytes:null,dirty_ratio:null,dirty_background_bytes:null,dirty_background_ratio:null}});
 });
+
+it('enforces the exact selected RAM ceiling through real Compose cgroups and rejects drift before unchanged retry',()=>{
+ const f=fixture(),memoryBytes=4_294_967_296;
+ try{
+  const selected=renderManagedComponentOverride(f.input,new Map([['treedx',f.image]]),{memoryBytes});
+  const service={...selected.services.treedx,command:['node','-e','setInterval(()=>{},1000)'],cpus:1,pids_limit:128,network_mode:'none',read_only:true,cap_drop:['ALL'],security_opt:['no-new-privileges:true']};
+  writeFileSync(f.override,JSON.stringify({services:{treedx:service}}),{mode:0o600});
+  const held=readFileSync(f.override);
+  f.docker('/usr/bin/docker',['compose','--file',f.override,'--project-name',f.project,'up','--detach']);
+  const id=f.docker('/usr/bin/docker',['compose','--file',f.override,'--project-name',f.project,'ps','--quiet','treedx']).trim();
+  expect(id).toMatch(/^[a-f0-9]{64}$/);f.ids.push(id);
+  expect(f.status()).toMatchObject({registered:true,ready:true,instances:[{memoryBytes,memorySwapBytes:memoryBytes}]});
+  const cgroup=f.docker('/usr/bin/docker',['exec',id,'node','-e',"const fs=require('node:fs');const v2=fs.existsSync('/sys/fs/cgroup/memory.max');console.log(fs.readFileSync(v2?'/sys/fs/cgroup/memory.max':'/sys/fs/cgroup/memory/memory.limit_in_bytes','utf8').trim());"]);
+  expect(Number(cgroup.trim())).toBe(memoryBytes);
+  f.docker('/usr/bin/docker',['update','--memory','3g','--memory-swap','3g',id]);
+  expect(()=>f.status()).toThrow('actual RAM limit');expect(readFileSync(f.override)).toEqual(held);
+  f.docker('/usr/bin/docker',['update','--memory',String(memoryBytes),'--memory-swap',String(memoryBytes),id]);
+  expect(f.status()).toMatchObject({ready:true});expect(readFileSync(f.override)).toEqual(held);
+  f.docker('/usr/bin/docker',['stop','--time','1',id]);
+  expect(f.status()).toMatchObject({ready:false});expect(readFileSync(f.override)).toEqual(held);
+ }finally{f.close();}
+},30_000);

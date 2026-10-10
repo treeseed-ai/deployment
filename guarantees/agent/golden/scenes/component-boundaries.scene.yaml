@@ -709,3 +709,15 @@ workflow:
   - id: native-backup-image-custody-unit
     action: { verifier: deployment.golden.native-backup-image-custody-unit }
     expect: { status: passed }
+
+  - id: component-memory-unit
+    action: { verifier: deployment.golden.component-memory-unit }
+    expect: { status: passed }
+
+  - id: component-memory-native
+    action: { verifier: deployment.golden.component-memory-native }
+    expect: { status: passed }
+
+  - id: component-memory-status
+    action: { verifier: deployment.golden.component-memory-status }
+    expect: { status: passed }

@@ -71,3 +71,21 @@ it('rejects duplicate and incorrectly owned activation service identities',()=>{
 it('retains healthy exact-image activation readiness without another build or receipt',()=>{
  setup();expect(activation()).toMatchObject({ready:true});
 });
+
+it('requires complete exact owning RAM observations and rejects malformed selected limits before readiness',()=>{
+ const memoryBytes=4_294_967_296;
+ const selection={services:{treedx:{image,labels,mem_limit:memoryBytes,memswap_limit:memoryBytes}}};
+ fixture.override=JSON.stringify(selection);fixture.instances=[{...instance(),memoryBytes,memorySwapBytes:memoryBytes}];
+ expect(status()).toMatchObject({ready:true});
+ for(const memory of [undefined,0,memoryBytes-1,'4294967296']){
+  fixture.instances=[{...instance(),memoryBytes:memory,memorySwapBytes:memoryBytes}];
+  expect(()=>status()).toThrow('actual RAM limit');
+ }
+ fixture.instances=[{...instance(),memoryBytes,memorySwapBytes:undefined}];expect(()=>status()).toThrow('actual RAM limit');
+ for(const invalid of [0,-1,null,'4g',Number.MAX_SAFE_INTEGER+1]){
+  fixture.override=JSON.stringify({services:{treedx:{...selection.services.treedx,mem_limit:invalid}}});
+  expect(()=>status()).toThrow();
+ }
+ fixture.override=JSON.stringify({services:{treedx:{...selection.services.treedx,memswap_limit:memoryBytes+1}}});
+ expect(()=>status()).toThrow('swap custody');
+});
