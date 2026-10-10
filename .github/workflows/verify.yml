@@ -139,6 +139,11 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 7
+      - name: Return disposable npm cache to the packaging user
+        run: |
+          set -euo pipefail
+          test "$NPM_CONFIG_CACHE" = "$GITHUB_WORKSPACE/.treeseed/npm-cache"
+          sudo chown --no-dereference --recursive -- "$(id -u):$(id -g)" "$NPM_CONFIG_CACHE"
       - run: npm run verify:deb
         env:
           TREESEED_APT_SUITE: development
