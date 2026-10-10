@@ -72,6 +72,11 @@
   },
   "files": [
     "dist/src/**",
+    "treeseed.package.yaml",
+    "guarantees/verifiers/source-runtime.verifiers.yaml",
+    "guarantees/agent/golden/source-publication.guarantee.yaml",
+    "guarantees/agent/golden/scenes/source-publication.scene.yaml",
+    "tests/acceptance/**",
     "infrastructure/cloudflare/**",
     "infrastructure/opentofu/hosted-topology/**",
     "LICENSE",

@@ -7,12 +7,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { assignmentAttemptSchema, assignmentPathAllowed, assignmentReferenceSchema, assignmentResultSchema } from '@treeseed/sdk/agent-capacity';
 import { decodeCapacityPageCursor } from '@treeseed/sdk/capacity-pagination';
 import { sandboxResultSchema, sourceWorkspaceKeySchema } from '@treeseed/sdk/capacity-provider/sandbox';
-import { workspaceStorageRoot } from '../../src/sandbox/workspace-block-store.js';
-import { simulationSourceRepository } from '../../src/sandbox/simulation-source-repository.js';
-import { sandboxBrokerConfigurationSchema } from '../../src/sandbox/protocol.js';
-import { workspaceNbdServiceArguments } from '../../src/sandbox/workspace-nbd-service.js';
-import { kataWarmOperations, WarmSandboxPool } from '../../src/sandbox/warm-sandbox-pool.js';
-import { containerdImageReference } from '../../src/sandbox/image-reference.js';
+import { workspaceStorageRoot, simulationSourceRepository, sandboxBrokerConfigurationSchema, workspaceNbdServiceArguments,
+  kataWarmOperations, WarmSandboxPool, containerdImageReference } from '@treeseed/deployment';
+import { installedCli } from './public-cli.js';
 
 function row(value: unknown): Record<string, unknown> {
   assert.ok(value && typeof value === 'object' && !Array.isArray(value), 'SOURCE_ACCEPTANCE_ROW: Original readable object required');
@@ -25,7 +22,7 @@ test('Actual managed source publications retain native Git bytes released lease 
   const workspace = process.env.TREESEED_DEVELOPMENT_WORKSPACE_ROOT, workdayId = process.env.TREESEED_ACCEPTANCE_WORKDAY_ID;
   const team = process.env.TREESEED_ACCEPTANCE_TEAM ?? 'treeseed';
   assert.ok(workspace && isAbsolute(workspace)); assert.match(workdayId ?? '', /^workday-[a-f0-9-]+$/u);
-  const cli = resolve(workspace, 'packages/cli/dist/cli/main.js'), cliBytes = readFileSync(cli);
+  const cli = installedCli(), cliBytes = readFileSync(cli);
   const read = (args: string[]) => {
     let bytes: string;
     try { bytes = execFileSync(process.execPath, [cli, ...args, '--server', 'local', '--team', team, '--json'],
@@ -361,7 +358,7 @@ test('Actual managed source publications retain native Git bytes released lease 
 test('Native owning warm pool drains only its idle Kata VM and caller-owned execution VM beside immutable actual SDK terminal Workday', { timeout: 30_000 }, async () => {
   const workspace = process.env.TREESEED_DEVELOPMENT_WORKSPACE_ROOT, workdayId = process.env.TREESEED_ACCEPTANCE_WORKDAY_ID;
   assert.ok(workspace && isAbsolute(workspace)); assert.match(workdayId ?? '', /^workday-[a-f0-9-]+$/u);
-  const team = process.env.TREESEED_ACCEPTANCE_TEAM ?? 'treeseed', cli = resolve(workspace, 'packages/cli/dist/cli/main.js');
+  const team = process.env.TREESEED_ACCEPTANCE_TEAM ?? 'treeseed', cli = installedCli();
   const cliBytes = readFileSync(cli), brokerPath = '/etc/treeseed/sandbox/broker.json', brokerBytes = readFileSync(brokerPath);
   const broker = sandboxBrokerConfigurationSchema.parse(JSON.parse(brokerBytes.toString('utf8')));
   assert.equal(readlinkSync('/proc/self/ns/mnt'), readlinkSync('/proc/1/ns/mnt'));

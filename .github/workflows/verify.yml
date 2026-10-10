@@ -91,6 +91,10 @@ jobs:
             const resolved=resolveDevelopmentRuntimeImage((_executable:string,args:readonly string[])=>docker(args));
             if(resolved!==expected)throw new Error("Native development image readback differs from its held manifest.");
           '
+      - name: Reproduce public host inspection before the complete native suites
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run tests/sandbox-host-inspection-native.test.ts
+        env:
+          TREESEED_PRIVILEGED_CACHE_TESTS: '1'
       - run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,PATH bash -euo pipefail -c 'npm run verify:direct'
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'

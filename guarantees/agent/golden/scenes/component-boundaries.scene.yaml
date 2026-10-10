@@ -1,4 +1,19 @@
 workflow:
+  - id: host-inspection-failure-phase-native
+    action: { verifier: deployment.golden.host-inspection-failure-phase-native }
+    expect: { status: passed }
+  - id: installed-assets-unit
+    action: { verifier: deployment.golden.installed-assets-unit }
+    expect: { status: passed }
+  - id: installed-runtime-authority-unit
+    action: { verifier: deployment.golden.installed-runtime-authority-unit }
+    expect: { status: passed }
+  - id: installed-cli-custody-unit
+    action: { verifier: deployment.golden.installed-cli-custody-unit }
+    expect: { status: passed }
+  - id: installed-assets-native
+    action: { verifier: deployment.golden.installed-assets-native }
+    expect: { status: passed }
   - id: host-inventory-native-order-unit
     action: { verifier: deployment.golden.host-inventory-native-order-unit }
     expect: { status: passed }

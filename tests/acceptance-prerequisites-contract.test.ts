@@ -8,6 +8,24 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
 
+it('native denied host inspection retains its exact safe phase before resource startup without inventing a passing observation',()=>{
+ const root=mkdtempSync(resolve(tmpdir(),'host-inspection-denied-phase-'));
+ try {
+  const testFile=resolve(root,'denied.test.ts'),reportFile=resolve(root,'report.json');
+  writeFileSync(testFile,`import ${JSON.stringify(resolve('tests/sandbox-host-inspection-native.test.ts'))};\n`);
+  writeFileSync(resolve(root,'vitest.config.ts'),`export default {test:{include:[${JSON.stringify(testFile)}]}};`);
+  const actual=spawnSync(process.execPath,[resolve('node_modules/vitest/vitest.mjs'),'run','--config',resolve(root,'vitest.config.ts'),
+   '--reporter=json','--outputFile='+reportFile],{cwd:process.cwd(),env:{...process.env,TREESEED_PRIVILEGED_CACHE_TESTS:'0'},encoding:'utf8',timeout:10_000});
+  expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status).toBe(1);
+  const report=JSON.parse(readFileSync(reportFile,'utf8')) as {numTotalTests:number;numFailedTests:number;numPendingTests:number;numTodoTests:number;
+   testResults:{assertionResults:{status:string;failureMessages:string[]}[]}[]};
+  expect(report).toMatchObject({numTotalTests:1,numFailedTests:1,numPendingTests:0,numTodoTests:0});
+  const rows=report.testResults.flatMap(file=>file.assertionResults);expect(rows).toHaveLength(1);expect(rows[0]!.status).toBe('failed');
+  expect(rows[0]!.failureMessages.join('\n')).toContain('Disposable privileged owning-host authorization required');
+  expect(rows[0]!.failureMessages.join('\n')).toContain('ACCEPTANCE_HOST_INSPECTION_HOST_AUTHORITY:');
+ } finally {rmSync(root,{recursive:true,force:true});expect(existsSync(root)).toBe(false);}
+});
+
 it('native development image preparation holds one exact official manifest before timed suites and verifies local image readback',()=>{
  const path='.github/workflows/verify.yml',bytes=readFileSync(path);
  const steps=parse(bytes.toString()).jobs.verify.steps as {name?:string;run?:string}[];
