@@ -36,7 +36,8 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
    const fields = line.split(' '), separator = fields.indexOf('-');
    return separator >= 6 && fields.length >= separator + 4 && /^\d+$/u.test(fields[0] ?? '')
     && /^\d+$/u.test(fields[1] ?? '') && /^\d+:\d+$/u.test(fields[2] ?? '')
-    && fields[3]?.startsWith('/') && fields[4]?.startsWith('/');
+    && (fields[3]?.startsWith('/') || (fields[separator + 1] === 'nsfs'
+     && /^[a-z][a-z0-9_]*:\[\d+\]$/u.test(fields[3] ?? ''))) && fields[4]?.startsWith('/');
   })) throw new Error();
  } catch { errors.push('owning_mount_inventory_unavailable'); }
  const managedDirectory: { rootPresent: boolean | null; entries: Array<{ name: string; type: 'directory' | 'file' | 'symlink' | 'other' }> } = { rootPresent: null, entries: [] };
@@ -82,7 +83,8 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
  if (!sameInventory(tasks, finalTasks) || !sameInventory(containers, finalContainers))
   errors.push('containerd_inventory_changed_or_incomplete');
  return { startedAt, completedAt: new Date().toISOString(), complete: errors.length === 0,
-  scope: { containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace },
+  scope: { brokerSocket: configuration.socketPath,
+   containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace },
   tasks: tasks ?? null, containers: containers ?? null, confirmation: { tasks: finalTasks ?? null, containers: finalContainers ?? null },
   mountInfo, managedDirectory, errors };
 }

@@ -155,9 +155,12 @@ it('native pinned Reviewer retains bounded owning failure evidence after fresh c
     for(const args of [['init','-q'],['add','.'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Native evidence inputs']])expect(native('git',args).status).toBe(0);
     const head=native('git',['rev-parse','HEAD']);expect(head.status).toBe(0);
     const invoke=(id:string)=>{
-      // Pinned Node 24 executes these erasable TypeScript sources directly;
-      // don't start a second transpiler worker for each native CLI invocation.
-      const actual=native(process.execPath,[resolve(reviewer,'src/verifiers/guarantees/command.ts'),'--workspace',root,'--environment','local','--ids','proof','--run-id',id]);
+      // This fixture exercises the actual exported runner API with its complete
+      // two-case owner suite. The outer production CLI separately holds and runs
+      // the executing Reviewer's full suite before any Deployment scene.
+      const actual=native(process.execPath,['--input-type=module','--eval',
+        "const {planLocalGuarantees,runLocalGuarantees}=await import(process.argv[1]);const report=runLocalGuarantees(process.argv[2],planLocalGuarantees(process.argv[2],['proof']),process.argv[3]);console.log(JSON.stringify(report));process.exitCode=report.ok?0:1;",
+        pathToFileURL(resolve(reviewer,'src/verifiers/guarantees/command.ts')).href,root,id]);
       expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.stderr).toBe('');
       return {actual,report:JSON.parse(actual.stdout) as {ok:boolean;results:{status:string;evidence:string[];steps:{ref:string;status:string;evidence:string[]}[]}[]}};
     };
@@ -217,9 +220,30 @@ it('parses component metadata and binds every scene step to exactly one existing
 it('runs complete privileged owner prerequisites before coded scenes without a filtered substitute', () => {
   const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
   const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>}[];
+  expect(workflow.jobs.verify.env?.NPM_CONFIG_CACHE).toBe('${{ github.workspace }}/.treeseed/npm-cache');
+  for(const step of steps.filter(step=>step.run?.includes('sudo --preserve-env=')))
+    expect(step.run).toMatch(/sudo --preserve-env=[^\s]*NPM_CONFIG_CACHE[^\s]* /u);
   expect(steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))
-    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3']);
+    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3',
+      'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1']);
+  const dependencies=steps.find(step=>step.name==='Install the executing Reviewer suite dependencies');
+  expect(dependencies?.run).toBe('npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund');
+  const custody=steps.find(step=>step.name==='Measure the executing Reviewer prerequisite custody');
+  expect(custody?.run).toContain('.treeseed/tools/reviewer/scripts/scene-action-prerequisites.ts');
+  const artifact=steps.find(step=>step.name==='Install the executing Reviewer exact SDK artifact');
+  expect(artifact?.with?.paths).toBe('.treeseed/tools/reviewer/node_modules/@treeseed/sdk');
+  expect(artifact?.with?.commit).toBe('${{ steps.reviewer-prerequisites.outputs.sdk-commit }}');
+  const assets=steps.find(step=>step.name==='Build the executing Reviewer archive assets');
+  expect(assets?.run).toBe('npm run --prefix .treeseed/tools/reviewer build:dist');
   const scene=steps.find(step=>step.name==='Execute coded sandbox component scenes');
+  const handoff=steps.find(step=>step.name==='Return disposable npm cache to the packaging user');
+  expect(handoff?.run ?? '').toContain('test "$NPM_CONFIG_CACHE" = "$GITHUB_WORKSPACE/.treeseed/npm-cache"');
+  expect(handoff?.run ?? '').toContain('sudo chown --no-dereference --recursive -- "$(id -u):$(id -g)" "$NPM_CONFIG_CACHE"');
+  const packaging=steps.findIndex(step=>step.run==='npm run verify:deb');
+  expect(steps.indexOf(handoff!)).toBeGreaterThan(steps.indexOf(scene!));
+  expect(packaging).toBeGreaterThan(steps.indexOf(handoff!));
+
+  for(const prepared of [dependencies,custody,artifact,assets])expect(steps.indexOf(prepared!)).toBeLessThan(steps.indexOf(scene!));
   expect(scene?.run).toContain('sudo --preserve-env=');
   expect(scene?.run).toContain('src/verifiers/guarantees/command.ts');
   expect(scene?.env?.TREESEED_PRIVILEGED_CACHE_TESTS).toBe('1');
@@ -256,18 +280,25 @@ it('provisions only a disposable native Actions host through the original instal
 it('capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer', () => {
   const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
   const manifest=JSON.parse(inputs.get('package.json')!.toString()),lock=JSON.parse(inputs.get('package-lock.json')!.toString());
-  const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>}[];
+  const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>;with?:Record<string,string>}[];
   const installers=steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
-  expect(installers).toHaveLength(1);
-  const commit=installers[0]!.uses!.split('@').at(-1); expect(commit).toMatch(/^[a-f0-9]{40}$/u);
+  expect(installers).toHaveLength(2);
+  const owning=installers.filter(step=>step.with?.paths===undefined);
+  expect(owning).toHaveLength(1);expect(owning[0]?.with?.commit).toBeUndefined();
+  const reviewer=installers.filter(step=>step.with?.paths==='.treeseed/tools/reviewer/node_modules/@treeseed/sdk');
+  expect(reviewer).toHaveLength(1);
+  expect(reviewer[0]).toMatchObject({uses:'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1',
+    env:{NODE_ENV:'production'},with:{commit:'${{ steps.reviewer-prerequisites.outputs.sdk-commit }}',
+      paths:'.treeseed/tools/reviewer/node_modules/@treeseed/sdk','github-token':'${{ github.token }}'}});
+  const commit=owning[0]!.uses!.split('@').at(-1); expect(commit).toMatch(/^[a-f0-9]{40}$/u);
   expect(manifest.dependencies['@treeseed/sdk']).toBe(`git+https://github.com/treeseed-ai/sdk.git#${commit}`);
   expect(manifest.overrides['@treeseed/sdk']).toBe('$@treeseed/sdk');
   expect(Object.keys(lock.packages).filter(path=>path.endsWith('node_modules/@treeseed/sdk'))).toEqual(['node_modules/@treeseed/sdk']);
   expect(lock.packages[''].dependencies['@treeseed/sdk']).toBe(manifest.dependencies['@treeseed/sdk']);
   expect(lock.packages['node_modules/@treeseed/sdk'].resolved.split('#').at(-1)).toBe(commit);
-  expect(installers[0]?.env?.NODE_ENV).toBe('production');
+  expect(owning[0]?.env?.NODE_ENV).toBe('production');
   const prune=steps.findIndex(step=>step.run==='npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
-  expect(prune).toBeGreaterThan(steps.indexOf(installers[0]!));
+  expect(prune).toBeGreaterThan(steps.indexOf(owning[0]!));
   const complete=steps.findIndex(step=>step.run?.includes('npm run verify:direct'));
   expect(complete).toBeGreaterThan(-1);expect(prune).toBeLessThan(complete);
   for(const [path,bytes] of inputs)expect(readFileSync(path)).toEqual(bytes);
@@ -286,8 +317,15 @@ it('every native execution workflow installs the same declared exact SDK before 
     for(const runtime of runtimes)expect(runtime.with?.['node-version'],name).toBe('24.12.0');
     const installers=Object.values(workflow.jobs).flatMap(job=>job.steps)
       .filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
-    expect(installers.length,name).toBeGreaterThan(0);
-    expect(installers.map(step=>step.uses),name).toEqual(installers.map(()=>`treeseed-ai/sdk/.github/actions/install-exact-sdk@${commit}`));
+    const owning=installers.filter(step=>step.with?.paths===undefined);
+    expect(owning.length,name).toBeGreaterThan(0);
+    expect(owning.map(step=>step.uses),name).toEqual(owning.map(()=>`treeseed-ai/sdk/.github/actions/install-exact-sdk@${commit}`));
+    for(const step of owning)expect(step.with?.commit,name).toBeUndefined();
+    const scoped=installers.filter(step=>step.with?.paths!==undefined);
+    expect(scoped,name).toEqual(name==='verify.yml'?[expect.objectContaining({
+      uses:'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1',
+      with:expect.objectContaining({commit:'${{ steps.reviewer-prerequisites.outputs.sdk-commit }}',
+        paths:'.treeseed/tools/reviewer/node_modules/@treeseed/sdk'})})]:[]);
     expect(readFileSync(path)).toEqual(bytes);
   }
 });
