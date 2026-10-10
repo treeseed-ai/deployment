@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.host-inspection-failure-phase-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance-prerequisites-contract.test.ts
+    testName: native denied host inspection retains its exact safe phase before resource startup without inventing a passing observation
   deployment.golden.installed-assets-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

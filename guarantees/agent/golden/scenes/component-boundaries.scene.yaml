@@ -1,4 +1,7 @@
 workflow:
+  - id: host-inspection-failure-phase-native
+    action: { verifier: deployment.golden.host-inspection-failure-phase-native }
+    expect: { status: passed }
   - id: installed-assets-unit
     action: { verifier: deployment.golden.installed-assets-unit }
     expect: { status: passed }
