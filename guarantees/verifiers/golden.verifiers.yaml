@@ -1,6 +1,26 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.installed-assets-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/installed-acceptance-assets.test.ts
+    testName: ships the existing selected Deployment acceptance closure without private source imports or checkout CLI execution
+  deployment.golden.installed-runtime-authority-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/installed-acceptance-assets.test.ts
+    testName: exposes identical owning runtime inspection source custody and warm-pool functions through the existing public package root
+  deployment.golden.installed-cli-custody-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/installed-acceptance-assets.test.ts
+    testName: resolves only an installed declared CLI binary and denies missing malformed escaped or redirected custody without checkout fallback
+  deployment.golden.installed-assets-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/installed-acceptance-assets.test.ts
+    testName: native production Deployment archive loads exact owning acceptance runtime and materializes private bytes without checkout or development dependencies
   deployment.golden.host-inventory-native-order-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

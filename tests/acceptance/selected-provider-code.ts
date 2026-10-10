@@ -6,8 +6,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { assignmentAttemptSchema, assignmentResultSchema } from '@treeseed/sdk/agent-capacity';
 import { decodeCapacityPageCursor } from '@treeseed/sdk/capacity-pagination';
-import { developmentRuntimeStatus, assertDevelopmentRuntimeMounts } from '../../src/supervisor/development-runtime-copy.js';
-import { runtimeRoots } from '../../src/supervisor/development-agent-container.js';
+import { developmentRuntimeStatus, assertDevelopmentRuntimeMounts, agentDevelopmentRuntimeRoots as runtimeRoots } from '@treeseed/deployment';
+import { installedCli } from './public-cli.js';
 import { developmentCandidateSchema } from '@treeseed/sdk/development';
 
 function row(value: unknown): Record<string, unknown> {
@@ -19,7 +19,7 @@ test('Actual selected provider copy binds freshly compiled held source exact nat
   const deadline = Date.now() + 120_000, workspace = process.env.TREESEED_DEVELOPMENT_WORKSPACE_ROOT;
   const workdayId = process.env.TREESEED_ACCEPTANCE_WORKDAY_ID, team = process.env.TREESEED_ACCEPTANCE_TEAM ?? 'treeseed';
   assert.ok(workspace && isAbsolute(workspace) && workdayId && /^workday-[a-f0-9-]+$/u.test(workdayId));
-  const cli = resolve(workspace, 'packages/cli/dist/cli/main.js'), cliBytes = readFileSync(cli);
+  const cli = installedCli(), cliBytes = readFileSync(cli);
   const remaining = () => { const value = deadline - Date.now(); assert.ok(value > 0, 'SOURCE_BUILD_ORIGINAL_BOUND: Native observation exceeded the original acceptance watchdog'); return value; };
   const read = (args: string[]) => {
     const native = spawnSync(process.execPath, [cli, ...args, '--server', 'local', '--team', team, '--json'],
