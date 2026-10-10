@@ -211,3 +211,13 @@ it('allows group-readable source without changing state identity or enabling wri
   expect(migration?.user).toBe('0:0');expect(migration?.group_add).toEqual(['1000']);
   expect(migration?.volumes[0]?.read_only).toBe(true);
 });
+
+it('renders exact manager-owned target RAM limits and rejects malformed or ambiguous component allocation',()=>{
+ const input={sessionId:'dev-memory',projectId:'treedx' as const,targetId:'service' as const,action:'start' as const};
+ const image=`sha256:${'b'.repeat(64)}`,images=new Map([['treedx',image]]),memoryBytes=4_294_967_296;
+ const selected=renderManagedComponentOverride(input,images,{memoryBytes});
+ expect(selected.services.treedx).toMatchObject({image,mem_limit:memoryBytes,memswap_limit:memoryBytes});
+ for(const value of [0,-1,NaN,Infinity,Number.MAX_SAFE_INTEGER+1,'4096'])
+  expect(()=>renderManagedComponentOverride(input,images,{memoryBytes:value as number})).toThrow();
+ expect(()=>renderManagedComponentOverride(input,new Map([['first',image],['second',image]]),{memoryBytes})).toThrow();
+});

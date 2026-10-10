@@ -1172,3 +1172,21 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/acceptance-prerequisites-contract.test.ts
     testName: native backup image preparation preserves the owning PostgreSQL digest through fixed mirror acquisition and local readback
+
+  deployment.golden.component-memory-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-container.test.ts
+    testName: renders exact manager-owned target RAM limits and rejects malformed or ambiguous component allocation
+
+  deployment.golden.component-memory-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status-native.test.ts
+    testName: enforces the exact selected RAM ceiling through real Compose cgroups and rejects drift before unchanged retry
+
+  deployment.golden.component-memory-status:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-component-status.test.ts
+    testName: requires complete exact owning RAM observations and rejects malformed selected limits before readiness
