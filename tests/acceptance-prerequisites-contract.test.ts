@@ -270,18 +270,25 @@ it('provisions only a disposable native Actions host through the original instal
 it('capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer', () => {
   const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
   const manifest=JSON.parse(inputs.get('package.json')!.toString()),lock=JSON.parse(inputs.get('package-lock.json')!.toString());
-  const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>}[];
+  const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>;with?:Record<string,string>}[];
   const installers=steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
-  expect(installers).toHaveLength(1);
-  const commit=installers[0]!.uses!.split('@').at(-1); expect(commit).toMatch(/^[a-f0-9]{40}$/u);
+  expect(installers).toHaveLength(2);
+  const owning=installers.filter(step=>step.with?.paths===undefined);
+  expect(owning).toHaveLength(1);expect(owning[0]?.with?.commit).toBeUndefined();
+  const reviewer=installers.filter(step=>step.with?.paths==='.treeseed/tools/reviewer/node_modules/@treeseed/sdk');
+  expect(reviewer).toHaveLength(1);
+  expect(reviewer[0]).toMatchObject({uses:'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1',
+    env:{NODE_ENV:'production'},with:{commit:'${{ steps.reviewer-prerequisites.outputs.sdk-commit }}',
+      paths:'.treeseed/tools/reviewer/node_modules/@treeseed/sdk','github-token':'${{ github.token }}'}});
+  const commit=owning[0]!.uses!.split('@').at(-1); expect(commit).toMatch(/^[a-f0-9]{40}$/u);
   expect(manifest.dependencies['@treeseed/sdk']).toBe(`git+https://github.com/treeseed-ai/sdk.git#${commit}`);
   expect(manifest.overrides['@treeseed/sdk']).toBe('$@treeseed/sdk');
   expect(Object.keys(lock.packages).filter(path=>path.endsWith('node_modules/@treeseed/sdk'))).toEqual(['node_modules/@treeseed/sdk']);
   expect(lock.packages[''].dependencies['@treeseed/sdk']).toBe(manifest.dependencies['@treeseed/sdk']);
   expect(lock.packages['node_modules/@treeseed/sdk'].resolved.split('#').at(-1)).toBe(commit);
-  expect(installers[0]?.env?.NODE_ENV).toBe('production');
+  expect(owning[0]?.env?.NODE_ENV).toBe('production');
   const prune=steps.findIndex(step=>step.run==='npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
-  expect(prune).toBeGreaterThan(steps.indexOf(installers[0]!));
+  expect(prune).toBeGreaterThan(steps.indexOf(owning[0]!));
   const complete=steps.findIndex(step=>step.run?.includes('npm run verify:direct'));
   expect(complete).toBeGreaterThan(-1);expect(prune).toBeLessThan(complete);
   for(const [path,bytes] of inputs)expect(readFileSync(path)).toEqual(bytes);
@@ -300,8 +307,15 @@ it('every native execution workflow installs the same declared exact SDK before 
     for(const runtime of runtimes)expect(runtime.with?.['node-version'],name).toBe('24.12.0');
     const installers=Object.values(workflow.jobs).flatMap(job=>job.steps)
       .filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
-    expect(installers.length,name).toBeGreaterThan(0);
-    expect(installers.map(step=>step.uses),name).toEqual(installers.map(()=>`treeseed-ai/sdk/.github/actions/install-exact-sdk@${commit}`));
+    const owning=installers.filter(step=>step.with?.paths===undefined);
+    expect(owning.length,name).toBeGreaterThan(0);
+    expect(owning.map(step=>step.uses),name).toEqual(owning.map(()=>`treeseed-ai/sdk/.github/actions/install-exact-sdk@${commit}`));
+    for(const step of owning)expect(step.with?.commit,name).toBeUndefined();
+    const scoped=installers.filter(step=>step.with?.paths!==undefined);
+    expect(scoped,name).toEqual(name==='verify.yml'?[expect.objectContaining({
+      uses:'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1',
+      with:expect.objectContaining({commit:'${{ steps.reviewer-prerequisites.outputs.sdk-commit }}',
+        paths:'.treeseed/tools/reviewer/node_modules/@treeseed/sdk'})})]:[]);
     expect(readFileSync(path)).toEqual(bytes);
   }
 });
