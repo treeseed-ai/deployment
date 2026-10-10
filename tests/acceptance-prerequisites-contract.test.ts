@@ -236,6 +236,13 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   const assets=steps.find(step=>step.name==='Build the executing Reviewer archive assets');
   expect(assets?.run).toBe('npm run --prefix .treeseed/tools/reviewer build:dist');
   const scene=steps.find(step=>step.name==='Execute coded sandbox component scenes');
+  const handoff=steps.find(step=>step.name==='Return disposable npm cache to the packaging user');
+  expect(handoff?.run ?? '').toContain('test "$NPM_CONFIG_CACHE" = "$GITHUB_WORKSPACE/.treeseed/npm-cache"');
+  expect(handoff?.run ?? '').toContain('sudo chown --no-dereference --recursive -- "$(id -u):$(id -g)" "$NPM_CONFIG_CACHE"');
+  const packaging=steps.findIndex(step=>step.run==='npm run verify:deb');
+  expect(steps.indexOf(handoff!)).toBeGreaterThan(steps.indexOf(scene!));
+  expect(packaging).toBeGreaterThan(steps.indexOf(handoff!));
+
   for(const prepared of [dependencies,custody,artifact,assets])expect(steps.indexOf(prepared!)).toBeLessThan(steps.indexOf(scene!));
   expect(scene?.run).toContain('sudo --preserve-env=');
   expect(scene?.run).toContain('src/verifiers/guarantees/command.ts');
