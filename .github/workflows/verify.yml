@@ -92,6 +92,9 @@ jobs:
           paths: .treeseed/tools/reviewer/node_modules/@treeseed/sdk
       - name: Build the executing Reviewer archive assets
         run: npm run --prefix .treeseed/tools/reviewer build:dist
+      - name: Reproduce executing Reviewer installed archives before full suites
+        working-directory: .treeseed/tools/reviewer
+        run: sudo --preserve-env=GITHUB_WORKSPACE,NPM_CONFIG_CACHE,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run --config ./vitest.config.ts tests/integration/guarantees/installed-custody.test.ts -t '^executes actual production-installed Reviewer and owner archives and retains denied checkout imports and missing-helper failures before exact retry$'
       - name: Build original capacity host installer
         run: npm run build:deb
         env:
