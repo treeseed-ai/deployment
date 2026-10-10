@@ -35,6 +35,8 @@ beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated
  observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';});
 
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
+ observed.mounts+='2 1 0:4 net:[4026533736] /run/docker/netns/retained rw shared:7 - nsfs nsfs rw\n'
+  +'3 1 0:4 mnt:[4026533684] /run/snapd/ns/retained.mnt rw - nsfs nsfs rw\n';
  const held=structuredClone(configuration),result=await doctor.inspectSandboxInventory(configuration);
  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
  expect(result.scope).toEqual({brokerSocket:configuration.socketPath,containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace});
@@ -58,6 +60,12 @@ it('fails closure on unreadable malformed redirected foreign-namespace or changi
   const held={tasks:observed.tasks,containers:observed.containers,mounts:observed.mounts},result=await doctor.inspectSandboxInventory(configuration);
   expect(result.complete,mode).toBe(false);expect(result.errors.length,mode).toBeGreaterThan(0);
   expect({tasks:observed.tasks,containers:observed.containers,mounts:observed.mounts}).toEqual(held);
+ }
+ for(const [root,filesystem] of [['net:[other]','nsfs'],['net:[42','nsfs'],['net:42','nsfs'],[':[42]','nsfs'],['relative','nsfs'],['net:[42]','ext4']]){
+  observed.mounts=`1 0 0:4 ${root} /run/retained rw - ${filesystem} ${filesystem} rw\n`;
+  const result=await doctor.inspectSandboxInventory(configuration);
+  expect(result.complete).toBe(false);expect(result.errors).toContain('owning_mount_inventory_unavailable');
+  expect(result.mountInfo).toBe(observed.mounts);
  }
 });
 it('observes the host mount namespace through supervisor hardening only when managed directory inode custody agrees',async()=>{
