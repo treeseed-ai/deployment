@@ -1,4 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { sandboxResultSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { closeSync, constants, fstatSync, openSync, readlinkSync, readSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspaceStorageRoot } from './workspace-block-store.js';
@@ -20,25 +22,117 @@ function optionalFile(path: string) {
  }
 }
 
-/** Read only bounded device identity, never the encrypted disk or guest contents. */
-function deviceIdentity(path: string, id: string) {
+/** Only fixed owning metadata reaches this bounded reader, never disk contents. */
+function metadataFile(path: string, maximum: number, privateFile = false) {
  const stat = optionalFile(path); if (!stat) return null;
- if (stat.size > maximumDeviceIdentityBytes) throw new Error('Owning device identity exceeds its bounded metadata size.');
+ if (stat.size > maximum || (privateFile && (stat.uid !== process.getuid?.() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0)))
+  throw new Error('Owning metadata exceeds its bounded private custody.');
  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
  try {
   const held = fstatSync(fd);
-  if (!held.isFile() || held.dev !== stat.dev || held.ino !== stat.ino || held.size !== stat.size) throw new Error('Owning device identity changed.');
-  const bytes = Buffer.alloc(maximumDeviceIdentityBytes + 1), length = readSync(fd, bytes, 0, bytes.length, 0);
+  if (!held.isFile() || held.dev !== stat.dev || held.ino !== stat.ino || held.size !== stat.size
+   || held.mtimeMs !== stat.mtimeMs || held.ctimeMs !== stat.ctimeMs) throw new Error('Owning device identity changed.');
+  const bytes = Buffer.alloc(maximum + 1), length = readSync(fd, bytes, 0, bytes.length, 0);
   const final = owningHostStat(path);
   if (held.dev !== stat.dev || held.ino !== stat.ino || length !== stat.size || final.size !== stat.size
-   || final.dev !== stat.dev || final.ino !== stat.ino || final.mtimeMs !== stat.mtimeMs) throw new Error('Owning device identity changed.');
-  const value: unknown = JSON.parse(bytes.subarray(0, length).toString('utf8'));
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Owning device identity is malformed.');
-  const record = value as Record<string, unknown>;
+   || final.dev !== stat.dev || final.ino !== stat.ino || final.mtimeMs !== stat.mtimeMs || final.ctimeMs !== stat.ctimeMs
+   || (privateFile && (final.uid !== stat.uid || final.mode !== stat.mode || final.nlink !== stat.nlink))) throw new Error('Owning device identity changed.');
+  const content = bytes.subarray(0, length), value: unknown = JSON.parse(content.toString('utf8'));
+  return { value, digest: createHash('sha256').update(content).digest('hex') };
+ } finally { closeSync(fd); }
+}
+
+function object(value: unknown): Record<string, unknown> {
+ if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Owning metadata must be an object.');
+ return value as Record<string, unknown>;
+}
+function identity(value: unknown): string {
+ if (typeof value !== 'string' || value.length > 200 || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/u.test(value))
+  throw new Error('Owning identity is malformed.');
+ return value;
+}
+
+/** Read only bounded device identity, never the encrypted disk or guest contents. */
+function deviceIdentity(path: string, id: string) {
+ const metadata = metadataFile(path, maximumDeviceIdentityBytes); if (!metadata) return null;
+ const record = object(metadata.value);
   if (Object.keys(record).sort().join(',') !== 'device,id' || record.id !== id
    || typeof record.device !== 'string' || !/^\/dev\/nbd\d+$/u.test(record.device)) throw new Error('Owning device identity is malformed.');
   return { id, device: record.device };
- } finally { closeSync(fd); }
+}
+
+function journalMetadata(kind: 'jobs' | 'candidates' | 'results', name: string, value: unknown) {
+ const original = object(value), result: Record<string, unknown> = {};
+ const fields = kind === 'jobs' ? ['schemaVersion', 'state', 'leaseId'] : kind === 'candidates'
+  ? ['state', 'assignmentId', 'attempt', 'providerId', 'verifierId', 'verifierStopped']
+  : ['schemaVersion', 'sandboxId', 'leaseId', 'status', 'teardownVerified', 'completedAt'];
+ for (const field of fields) if (Object.hasOwn(original, field)) {
+  const input = original[field];
+  if (['verifierStopped', 'teardownVerified'].includes(field)) { if (typeof input !== 'boolean') throw new Error(); }
+  else if (field === 'attempt') { if (!Number.isSafeInteger(input) || Number(input) < 1) throw new Error(); }
+  else if (field !== 'schemaVersion') identity(input);
+  result[field] = input;
+ }
+ if (kind === 'jobs') {
+  if (result.schemaVersion !== 'treeseed.assignment-source-job/v1'
+   || !['awaiting-authority', 'building', 'ready', 'attaching', 'attached', 'failed', 'stopped'].includes(String(result.state))) throw new Error();
+  const owner = object(original.owner), held: Record<string, unknown> = {};
+  for (const field of ['assignmentId', 'providerId', 'teamId', 'projectId']) held[field] = identity(owner[field]);
+  if (!Number.isSafeInteger(owner.attempt) || Number(owner.attempt) < 1) throw new Error();
+  held.attempt = owner.attempt; result.owner = held;
+  if (Object.hasOwn(original, 'disk')) {
+   const disk = object(original.disk), id = identity(disk.id), directory = join(workspaceStorageRoot, 'leases', id);
+   if (!/^workspace-lease-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(id)
+    || disk.directory !== directory || disk.image !== join(directory, 'work.qcow2')) throw new Error();
+   const observed: Record<string, unknown> = { id, directory, image: disk.image };
+   if (Object.hasOwn(disk, 'device')) {
+    if (typeof disk.device !== 'string' || !/^\/dev\/nbd\d+$/u.test(disk.device)) throw new Error();
+    observed.device = disk.device;
+   }
+   if (Object.hasOwn(disk, 'unit')) { if (disk.unit !== `treeseed-${id}.service`) throw new Error(); observed.unit = disk.unit; }
+   result.disk = observed;
+  }
+  if (Object.hasOwn(original, 'builderIds')) {
+   if (!Array.isArray(original.builderIds) || !original.builderIds.every(id => typeof id === 'string'
+    && /^sandbox-warm-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(id))
+    || new Set(original.builderIds).size !== original.builderIds.length) throw new Error();
+   result.builderIds = original.builderIds;
+  }
+ } else if (kind === 'candidates') {
+  identity(result.assignmentId);
+  if (!['verifying', 'published', 'retained'].includes(String(result.state))) throw new Error();
+  if (result.state === 'published' && (result.attempt === undefined || result.providerId === undefined
+   || typeof result.verifierId !== 'string' || !/^sandbox-warm-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(result.verifierId)
+   || typeof result.verifierStopped !== 'boolean')) throw new Error();
+ } else {
+  if (result.schemaVersion !== 'treeseed.source-result/v1' || result.sandboxId !== name.slice(0, -5)
+   || !result.leaseId || (result.status !== 'interrupted' && !sandboxResultSchema.shape.status.safeParse(result.status).success)
+   || typeof result.teardownVerified !== 'boolean'
+   || typeof result.completedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(result.completedAt)
+   || !Number.isFinite(Date.parse(result.completedAt)) || new Date(result.completedAt).toISOString() !== result.completedAt) throw new Error();
+ }
+ return result;
+}
+
+function journalInventory(kind: 'jobs' | 'candidates' | 'results', errors: Set<string>) {
+ const observed = { rootPresent: null as boolean | null, entries: [] as Array<{ name: string; type: Disk['type'];
+  metadata: Record<string, unknown> | null; digest: string | null }> };
+ try {
+  const root = join(workspaceStorageRoot, kind), directory = { rootPresent: null as boolean | null,
+   entries: [] as Array<{ name: string; type: Disk['type'] }> };
+  try { inspectManagedDirectory(root, directory); }
+  finally { observed.rootPresent = directory.rootPresent; observed.entries = directory.entries.map(entry => ({ ...entry, metadata: null, digest: null })); }
+  if (directory.rootPresent) {
+   const stat = owningHostStat(root);
+   if (stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0) throw new Error();
+  }
+  for (const entry of observed.entries) try {
+   if (entry.type !== 'file' || !/^sandbox-[a-zA-Z0-9-]{1,128}\.json$/u.test(entry.name)) throw new Error();
+   const metadata = metadataFile(join(root, entry.name), 1_048_576, true); if (!metadata) throw new Error();
+   entry.digest = metadata.digest; entry.metadata = journalMetadata(kind, entry.name, metadata.value);
+  } catch { errors.add(`workspace_${kind}_metadata_unavailable`); }
+ } catch { errors.add(`workspace_${kind}_inventory_unavailable`); }
+ return observed;
 }
 
 /** Fixed read-only observations, independent of catalog availability. No runtime
@@ -70,7 +164,9 @@ export function workspaceStatus() {
     } catch { errors.add('workspace_lease_metadata_unavailable'); }
    }
   } catch { errors.add('workspace_lease_inventory_unavailable'); }
-  return { leaseDirectoryPresent: directory.rootPresent, disks };
+  const journals = rootVerified ? { jobs: journalInventory('jobs', errors), candidates: journalInventory('candidates', errors),
+   results: journalInventory('results', errors) } : null;
+  return { leaseDirectoryPresent: directory.rootPresent, disks, journals };
  };
  const observed = observe();
  let initialized = false, images: unknown[] | null = null, leases: unknown[] | null = null;
@@ -82,7 +178,7 @@ export function workspaceStatus() {
   try {
    db.exec('BEGIN');
    const heldImages = db.prepare('SELECT id,state,job_id,bytes,parent_id FROM workspace_images ORDER BY id').all();
-   const heldLeases = db.prepare('SELECT id,image_id,assignment_id,attempt,mode,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
+   const heldLeases = db.prepare('SELECT id,image_id,provider_id,assignment_id,attempt,mode,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
    db.exec('COMMIT'); images = heldImages; leases = heldLeases;
   } finally { db.close(); }
  } catch { errors.add('workspace_catalog_unavailable'); }

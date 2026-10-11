@@ -23,6 +23,14 @@ it('native installed CLI manager and supervisor observe exact task container mou
  const directory=join(configuration.stateRoot,id),unrelated=join(configuration.stateRoot,`sandbox-unrelated-${suffix}`);
  const workspaceId=`workspace-lease-${suffix}`,unrelatedWorkspaceId=`workspace-lease-${randomUUID()}`;
  const workspace=join(workspaceStorageRoot,'leases',workspaceId),unrelatedWorkspace=join(workspaceStorageRoot,'leases',unrelatedWorkspaceId);
+ const unrelatedSandboxId=`sandbox-unrelated-${suffix}`,journalPaths:string[]=[];
+ const owner={assignmentId:`assignment-${suffix}`,providerId:'provider-inspection',teamId:'team-inspection',projectId:'project-inspection',attempt:1};
+ const unrelatedOwner={...owner,assignmentId:`assignment-unrelated-${suffix}`,teamId:'team-unrelated'};
+ const journal=(kind:string,sandbox:string,value:unknown)=>{
+  const root=join(workspaceStorageRoot,kind);mkdirSync(root,{recursive:true,mode:0o700});
+  const path=join(root,`${sandbox}.json`);if(!journalPaths.includes(path))journalPaths.push(path);
+  writeFileSync(path,JSON.stringify(value),{mode:0o600});
+ };
  const unknownWorkspaceId=`workspace-unknown-${suffix}`,unknownWorkspace=join(workspaceStorageRoot,'leases',unknownWorkspaceId);
  const source=mkdtempSync(join(tmpdir(),'sandbox-inspection-mount-')),mounted=join(directory,'mounted');
  const namespaceMount=join(unrelated,'network-namespace'),namespaceRoot=readlinkSync('/proc/1/ns/net');
@@ -42,6 +50,20 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(workspaceObservation.scope.storageRoot).toBe(workspaceStorageRoot);
   expect(workspaceObservation.scope.mountNamespace).toBe(readlinkSync('/proc/1/ns/mnt'));
   expect(typeof workspaceObservation.complete).toBe('boolean');
+  expect(workspaceObservation.journals).not.toBeNull();
+  for(const sandbox of [id,unrelatedSandboxId]){
+   if(sandbox===id&&observationPhase==='PUBLIC_JOURNAL_DENIAL'){
+    expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_jobs_metadata_unavailable');
+    expect(workspaceObservation.journals!.jobs.entries).toContainEqual(expect.objectContaining({name:`${sandbox}.json`,metadata:null}));
+   }else expect(workspaceObservation.journals!.jobs.entries)
+    .toContainEqual(expect.objectContaining({name:`${sandbox}.json`,metadata:expect.objectContaining({owner:sandbox===id?owner:unrelatedOwner,state:'stopped'})}));
+  }
+  if(observationPhase==='PUBLIC_JOURNAL_RETRY')expect(workspaceObservation.errors).not.toContain('workspace_jobs_metadata_unavailable');
+  expect(JSON.stringify(workspaceObservation)).not.toContain('controlled-private-journal-content');
+  expect(workspaceObservation.journals!.results.entries).toContainEqual(expect.objectContaining({name:`${id}.json`,
+   metadata:expect.objectContaining({sandboxId:id,teardownVerified:true})}));
+  expect(workspaceObservation.journals!.candidates.entries).toContainEqual(expect.objectContaining({name:`${id}.json`,
+   metadata:{state:'retained',assignmentId:owner.assignmentId}}));
   if(!workspaceObservation.initialized){expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_catalog_unavailable');}
   const physicalIds=workspaceObservation.disks.map(disk=>disk.id);
   expect(physicalIds).toContain(unrelatedWorkspaceId);
@@ -69,6 +91,14 @@ it('native installed CLI manager and supervisor observe exact task container mou
   mkdirSync(directory);mkdirSync(mounted);mkdirSync(unrelated);
   mkdirSync(workspace,{recursive:true});mkdirSync(unrelatedWorkspace);
   writeFileSync(join(workspace,'work.qcow2'),'disk');writeFileSync(join(unrelatedWorkspace,'work.qcow2'),'keep');
+  // Controlled original-journal fixtures prove the read boundary, not source execution or settlement.
+  for(const [sandbox,diskId,diskRoot] of [[id,workspaceId,workspace],[unrelatedSandboxId,unrelatedWorkspaceId,unrelatedWorkspace]])
+   journal('jobs',sandbox!,{schemaVersion:'treeseed.assignment-source-job/v1',owner:sandbox===id?owner:unrelatedOwner,state:'stopped',leaseId:`lease-${sandbox}`,
+    disk:{id:diskId,directory:diskRoot,image:join(diskRoot!,'work.qcow2'),device:'/dev/nbd99',unit:`treeseed-${diskId}.service`},
+    authority:{private:'controlled-private-journal-content'}});
+  journal('results',id,{schemaVersion:'treeseed.source-result/v1',sandboxId:id,leaseId:`lease-${id}`,status:'completed',
+   teardownVerified:true,completedAt:new Date().toISOString(),result:{private:'controlled-private-journal-content'}});
+  journal('candidates',id,{state:'retained',assignmentId:owner.assignmentId,reason:'source_publication_failed',detail:'controlled-private-journal-content'});
   writeFileSync(join(workspace,'device.json'),'{');writeFileSync(unknownWorkspace,'controlled-unrelated-content');
   command('/usr/bin/mount',['--bind',source,mounted]);bound=true;
   writeFileSync(namespaceMount,'');command('/usr/bin/mount',['--bind','/proc/1/ns/net',namespaceMount]);namespaceBound=true;
@@ -88,6 +118,11 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(absent.managedDirectory.entries.map(entry=>entry.name)).not.toContain(id);
   expect(absent.managedDirectory.entries.map(entry=>entry.name)).toContain(unrelated.split('/').at(-1)!);
   expect(absent.mountInfo).toContain(namespaceMount);expect(readlinkSync('/proc/1/ns/net')).toBe(namespaceRoot);
+  const originalJob=readFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`));
+  writeFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`),'{');phase='PUBLIC_JOURNAL_DENIAL';await inspect();
+  expect(readFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`),'utf8')).toBe('{');
+  writeFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`),originalJob);phase='PUBLIC_JOURNAL_RETRY';await inspect();
+  expect(readFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`))).toEqual(originalJob);
  } catch(error){failedPhase=phase;failures.push(error);} finally {
   phase='FINAL_CLEANUP';
   if(attempted){
@@ -99,6 +134,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
   if(bound)try{command('/usr/bin/umount',[mounted]);bound=false;}catch(error){failures.push(error);}
   if(namespaceBound)try{command('/usr/bin/umount',[namespaceMount]);namespaceBound=false;}catch(error){failures.push(error);}
   if(!bound&&!namespaceBound)for(const path of [directory,unrelated,source,workspace,unrelatedWorkspace,unknownWorkspace])try{rmSync(path,{recursive:true,force:true});}catch(error){failures.push(error);}
+  for(const path of journalPaths)try{rmSync(path,{force:true});}catch(error){failures.push(error);}
   // Existing Actions logs retain original observations, including failed completeness.
   console.log(JSON.stringify({sandboxInspectionObservations:observations,workspaceInspectionObservations:workspaceObservations}));
  }
