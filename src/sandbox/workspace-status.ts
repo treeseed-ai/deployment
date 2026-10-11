@@ -178,7 +178,7 @@ export function workspaceStatus() {
   try {
    db.exec('BEGIN');
    const heldImages = db.prepare('SELECT id,state,job_id,bytes,parent_id FROM workspace_images ORDER BY id').all();
-   const heldLeases = db.prepare('SELECT id,image_id,assignment_id,attempt,mode,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
+   const heldLeases = db.prepare('SELECT id,image_id,provider_id,assignment_id,attempt,mode,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
    db.exec('COMMIT'); images = heldImages; leases = heldLeases;
   } finally { db.close(); }
  } catch { errors.add('workspace_catalog_unavailable'); }
