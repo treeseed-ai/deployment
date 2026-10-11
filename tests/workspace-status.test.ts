@@ -44,6 +44,33 @@ it('retains orphan lease files when the catalog is absent without inventing empt
 		expect(vi.mocked(openSync).mock.calls.every(([path]) => String(path).endsWith('/device.json'))).toBe(true);
 		expect(vi.mocked(readFileSync).mock.calls).toEqual([]);
 	} finally { truncateSync(join(directory(), 'work.qcow2'), 4); }
+	const sandboxId = 'sandbox-status-1-12345678', owner = { assignmentId: 'assignment-status', providerId: 'provider-status',
+		teamId: 'team-status', projectId: 'project-status', attempt: 1 };
+	const job = { schemaVersion: 'treeseed.assignment-source-job/v1', owner, state: 'stopped', leaseId: 'original-lease',
+		disk: { id, directory: directory(), image: join(directory(), 'work.qcow2'), device: '/dev/nbd99', unit: `treeseed-${id}.service` },
+		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { private: 'controlled-private-authority' }, failure: 'controlled-private-failure' };
+	const candidate = { state: 'published', assignmentId: owner.assignmentId, attempt: 1, providerId: owner.providerId,
+		verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true, reference: { private: 'controlled-private-reference' } };
+	const result = { schemaVersion: 'treeseed.source-result/v1', sandboxId, leaseId: job.leaseId, status: 'completed',
+		teardownVerified: true, completedAt: '2026-10-11T00:00:00.000Z', result: { private: 'controlled-private-result' } };
+	expect(workspaceStatus()).toMatchObject({ journals: { jobs: { rootPresent: false, entries: [] },
+		candidates: { rootPresent: false, entries: [] }, results: { rootPresent: false, entries: [] } } });
+	for (const [kind, metadata] of Object.entries({ jobs: job, candidates: candidate, results: result })) {
+		mkdirSync(join(state.root, kind), { mode: 0o700 });
+		writeFileSync(join(state.root, kind, `${sandboxId}.json`), JSON.stringify(metadata), { mode: 0o600 });
+	}
+	const held = readdirSync(state.root, { recursive: true }).map(path => String(path));
+	const inspection = workspaceStatus();
+	expect(inspection).toMatchObject({ journals: {
+		jobs: { rootPresent: true, entries: [{ name: `${sandboxId}.json`, type: 'file', metadata: { owner, state: 'stopped', leaseId: job.leaseId, disk: job.disk, builderIds: job.builderIds } }] },
+		candidates: { entries: [{ metadata: { state: 'published', assignmentId: owner.assignmentId, verifierId: candidate.verifierId, verifierStopped: true } }] },
+		results: { entries: [{ metadata: { sandboxId, leaseId: job.leaseId, status: 'completed', teardownVerified: true } }] },
+	} });
+	for (const secret of ['controlled-private-authority', 'controlled-private-failure', 'controlled-private-reference', 'controlled-private-result'])
+		expect(JSON.stringify(inspection)).not.toContain(secret);
+	expect(readdirSync(state.root, { recursive: true }).map(path => String(path))).toEqual(held);
+	for (const [kind, metadata] of Object.entries({ jobs: job, candidates: candidate, results: result }))
+		expect(JSON.parse(readFileSync(join(state.root, kind, `${sandboxId}.json`), 'utf8'))).toEqual(metadata);
 });
 
 it('retains unrelated and redirected lease entries while denying incomplete physical observations without reading their contents', () => {
