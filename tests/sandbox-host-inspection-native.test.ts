@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { loadSandboxBrokerConfiguration } from '../src/sandbox/configuration.js';
 import type { inspectSandboxInventory } from '../src/sandbox/doctor.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
+import { workspaceStorageRoot } from '../src/sandbox/workspace-block-store.js';
+import type { workspaceStatus } from '../src/sandbox/workspace-status.js';
 
 type Inventory=Awaited<ReturnType<typeof inspectSandboxInventory>>;
 it('native installed CLI manager and supervisor observe exact task container mount and directory presence and scoped absence while retaining unrelated resources',async()=>{
@@ -15,10 +17,12 @@ it('native installed CLI manager and supervisor observe exact task container mou
  if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)
   throw new Error('Disposable privileged owning-host authorization required; public inspection cannot be skipped.');
  phase='INSTALLED_BYTES';
- for(const path of ['src/sandbox/doctor.js','src/supervisor/execute.js','src/manager/operations.js'])
+ for(const path of ['src/sandbox/doctor.js','src/sandbox/workspace-status.js','src/sandbox/directory-inspection.js','src/supervisor/execute.js','src/manager/operations.js'])
   expect(readFileSync(`/usr/lib/treeseed/manager/dist/${path}`)).toEqual(readFileSync(`dist/${path}`));
  phase='OWNING_CONFIGURATION';const configuration=loadSandboxBrokerConfiguration(),suffix=randomUUID(),id=`sandbox-inspection-${suffix}`;
  const directory=join(configuration.stateRoot,id),unrelated=join(configuration.stateRoot,`sandbox-unrelated-${suffix}`);
+ const workspaceId=`workspace-lease-${suffix}`,unrelatedWorkspaceId=`workspace-lease-${randomUUID()}`;
+ const workspace=join(workspaceStorageRoot,'leases',workspaceId),unrelatedWorkspace=join(workspaceStorageRoot,'leases',unrelatedWorkspaceId);
  const source=mkdtempSync(join(tmpdir(),'sandbox-inspection-mount-')),mounted=join(directory,'mounted');
  const namespaceMount=join(unrelated,'network-namespace'),namespaceRoot=readlinkSync('/proc/1/ns/net');
  expect(namespaceRoot).toMatch(/^net:\[\d+\]$/u);
@@ -26,13 +30,21 @@ it('native installed CLI manager and supervisor observe exact task container mou
  const ctr=(args:string[])=>command('/usr/bin/ctr',['--address',configuration.containerdAddress,'--namespace',configuration.namespace,...args]);
  phase='INSTALLED_CLI';const cli=await import('/usr/lib/treeseed/cli/dist/cli/runtime.js' as string) as {runCommandLine:(args:string[],options:{interactiveUi:boolean;write:(output:string)=>void})=>Promise<number>};
  expect(typeof cli.runCommandLine).toBe('function');
- const observations:Inventory[]=[],failures:unknown[]=[];
+ const observations:Inventory[]=[],workspaceObservations:Array<ReturnType<typeof workspaceStatus>>=[],failures:unknown[]=[];
  const inspect=async()=>{
   const observationPhase=phase;phase=`${observationPhase}_COMMAND`;
   const outputs:string[]=[];expect(await cli.runCommandLine(['host','sandbox','status','--json'],{interactiveUi:false,write:output=>outputs.push(output)})).toBe(0);
   phase=`${observationPhase}_ENVELOPE`;
-  expect(outputs).toHaveLength(1);const envelope=JSON.parse(outputs[0]!) as {ok:boolean;result:{runtime:string;inventory:Inventory}};
+  expect(outputs).toHaveLength(1);const envelope=JSON.parse(outputs[0]!) as {ok:boolean;result:{runtime:string;inventory:Inventory;workspace:ReturnType<typeof workspaceStatus>}};
   expect(envelope.ok).toBe(true);const result=envelope.result.inventory;observations.push(result);
+  const workspaceObservation=envelope.result.workspace;workspaceObservations.push(workspaceObservation);
+  expect(workspaceObservation.scope.storageRoot).toBe(workspaceStorageRoot);
+  expect(workspaceObservation.scope.mountNamespace).toBe(readlinkSync('/proc/1/ns/mnt'));
+  expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors.length).toBeGreaterThan(0);
+  const physicalIds=workspaceObservation.disks.map(disk=>disk.id);
+  expect(physicalIds).toContain(unrelatedWorkspaceId);
+  if(observationPhase==='PUBLIC_PRESENCE')expect(workspaceObservation.disks).toContainEqual({id:workspaceId,type:'directory',bytes:4,device:null});
+  if(observationPhase==='PUBLIC_ABSENCE')expect(physicalIds).not.toContain(workspaceId);
   phase=`${observationPhase}_COMPLETE`;expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
   phase=`${observationPhase}_SCOPE`;
   expect(result.scope.brokerSocket).toBe(configuration.socketPath);expect(envelope.result.runtime).toBe(configuration.runtime);
@@ -45,6 +57,8 @@ it('native installed CLI manager and supervisor observe exact task container mou
  try {
   phase='PREPARATION';
   mkdirSync(directory);mkdirSync(mounted);mkdirSync(unrelated);
+  mkdirSync(workspace,{recursive:true});mkdirSync(unrelatedWorkspace);
+  writeFileSync(join(workspace,'work.qcow2'),'disk');writeFileSync(join(unrelatedWorkspace,'work.qcow2'),'keep');
   command('/usr/bin/mount',['--bind',source,mounted]);bound=true;
   writeFileSync(namespaceMount,'');command('/usr/bin/mount',['--bind','/proc/1/ns/net',namespaceMount]);namespaceBound=true;
   const guest=configuration.guestImages[0];expect(guest).toBeDefined();
@@ -57,7 +71,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(present.mountInfo!.split('\n').some(line=>{const fields=line.split(' ');return fields[3]===namespaceRoot&&fields[4]===namespaceMount&&fields[fields.indexOf('-')+1]==='nsfs';})).toBe(true);
   expect(present.mountInfo).toContain(mounted);expect(present.managedDirectory.entries.map(entry=>entry.name)).toEqual(expect.arrayContaining([id,unrelated.split('/').at(-1)!]));
   phase='NATIVE_STOP';ctr(['tasks','kill','--signal','SIGKILL',id]);ctr(['tasks','delete','--force',id]);ctr(['containers','delete',id]);attempted=false;
-  phase='SCOPED_TEARDOWN';command('/usr/bin/umount',[mounted]);bound=false;rmSync(directory,{recursive:true});
+  phase='SCOPED_TEARDOWN';command('/usr/bin/umount',[mounted]);bound=false;rmSync(directory,{recursive:true});rmSync(workspace,{recursive:true});
   phase='PUBLIC_ABSENCE';const absent=await inspect();
   expect(absent.tasks!.split('\n')).not.toContain(id);expect(absent.containers!.split('\n')).not.toContain(id);expect(absent.mountInfo).not.toContain(mounted);
   expect(absent.managedDirectory.entries.map(entry=>entry.name)).not.toContain(id);
@@ -73,9 +87,9 @@ it('native installed CLI manager and supervisor observe exact task container mou
   }
   if(bound)try{command('/usr/bin/umount',[mounted]);bound=false;}catch(error){failures.push(error);}
   if(namespaceBound)try{command('/usr/bin/umount',[namespaceMount]);namespaceBound=false;}catch(error){failures.push(error);}
-  if(!bound&&!namespaceBound)for(const path of [directory,unrelated,source])try{rmSync(path,{recursive:true,force:true});}catch(error){failures.push(error);}
+  if(!bound&&!namespaceBound)for(const path of [directory,unrelated,source,workspace,unrelatedWorkspace])try{rmSync(path,{recursive:true,force:true});}catch(error){failures.push(error);}
   // Existing Actions logs retain original observations, including failed completeness.
-  console.log(JSON.stringify({sandboxInspectionObservations:observations}));
+  console.log(JSON.stringify({sandboxInspectionObservations:observations,workspaceInspectionObservations:workspaceObservations}));
  }
  if(failures.length)throw new AggregateError(failures,'Native public inspection failed; original and cleanup failures retained.');
 });
