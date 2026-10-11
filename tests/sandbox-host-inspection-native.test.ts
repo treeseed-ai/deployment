@@ -23,6 +23,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
  const directory=join(configuration.stateRoot,id),unrelated=join(configuration.stateRoot,`sandbox-unrelated-${suffix}`);
  const workspaceId=`workspace-lease-${suffix}`,unrelatedWorkspaceId=`workspace-lease-${randomUUID()}`;
  const workspace=join(workspaceStorageRoot,'leases',workspaceId),unrelatedWorkspace=join(workspaceStorageRoot,'leases',unrelatedWorkspaceId);
+ const unknownWorkspaceId=`workspace-unknown-${suffix}`,unknownWorkspace=join(workspaceStorageRoot,'leases',unknownWorkspaceId);
  const source=mkdtempSync(join(tmpdir(),'sandbox-inspection-mount-')),mounted=join(directory,'mounted');
  const namespaceMount=join(unrelated,'network-namespace'),namespaceRoot=readlinkSync('/proc/1/ns/net');
  expect(namespaceRoot).toMatch(/^net:\[\d+\]$/u);
@@ -44,8 +45,16 @@ it('native installed CLI manager and supervisor observe exact task container mou
   if(!workspaceObservation.initialized){expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_catalog_unavailable');}
   const physicalIds=workspaceObservation.disks.map(disk=>disk.id);
   expect(physicalIds).toContain(unrelatedWorkspaceId);
-  if(observationPhase==='PUBLIC_PRESENCE')expect(workspaceObservation.disks).toContainEqual({id:workspaceId,type:'directory',bytes:4,device:null});
-  if(observationPhase==='PUBLIC_ABSENCE')expect(physicalIds).not.toContain(workspaceId);
+  if(observationPhase==='PUBLIC_PRESENCE'){
+   expect(workspaceObservation.disks).toContainEqual({id:workspaceId,type:'directory',bytes:4,device:null});
+   expect(workspaceObservation.disks).toContainEqual({id:unknownWorkspaceId,type:'file',bytes:null,device:null});
+   expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_lease_metadata_unavailable');
+   expect(JSON.stringify(workspaceObservation)).not.toContain('controlled-unrelated-content');
+  }
+  if(observationPhase==='PUBLIC_ABSENCE'){
+   expect(physicalIds).not.toContain(workspaceId);expect(physicalIds).not.toContain(unknownWorkspaceId);
+   expect(readFileSync(join(unrelatedWorkspace,'work.qcow2'),'utf8')).toBe('keep');
+  }
   phase=`${observationPhase}_COMPLETE`;expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
   phase=`${observationPhase}_SCOPE`;
   expect(result.scope.brokerSocket).toBe(configuration.socketPath);expect(envelope.result.runtime).toBe(configuration.runtime);
@@ -60,6 +69,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
   mkdirSync(directory);mkdirSync(mounted);mkdirSync(unrelated);
   mkdirSync(workspace,{recursive:true});mkdirSync(unrelatedWorkspace);
   writeFileSync(join(workspace,'work.qcow2'),'disk');writeFileSync(join(unrelatedWorkspace,'work.qcow2'),'keep');
+  writeFileSync(join(workspace,'device.json'),'{');writeFileSync(unknownWorkspace,'controlled-unrelated-content');
   command('/usr/bin/mount',['--bind',source,mounted]);bound=true;
   writeFileSync(namespaceMount,'');command('/usr/bin/mount',['--bind','/proc/1/ns/net',namespaceMount]);namespaceBound=true;
   const guest=configuration.guestImages[0];expect(guest).toBeDefined();
@@ -72,7 +82,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(present.mountInfo!.split('\n').some(line=>{const fields=line.split(' ');return fields[3]===namespaceRoot&&fields[4]===namespaceMount&&fields[fields.indexOf('-')+1]==='nsfs';})).toBe(true);
   expect(present.mountInfo).toContain(mounted);expect(present.managedDirectory.entries.map(entry=>entry.name)).toEqual(expect.arrayContaining([id,unrelated.split('/').at(-1)!]));
   phase='NATIVE_STOP';ctr(['tasks','kill','--signal','SIGKILL',id]);ctr(['tasks','delete','--force',id]);ctr(['containers','delete',id]);attempted=false;
-  phase='SCOPED_TEARDOWN';command('/usr/bin/umount',[mounted]);bound=false;rmSync(directory,{recursive:true});rmSync(workspace,{recursive:true});
+  phase='SCOPED_TEARDOWN';command('/usr/bin/umount',[mounted]);bound=false;rmSync(directory,{recursive:true});rmSync(workspace,{recursive:true});rmSync(unknownWorkspace);
   phase='PUBLIC_ABSENCE';const absent=await inspect();
   expect(absent.tasks!.split('\n')).not.toContain(id);expect(absent.containers!.split('\n')).not.toContain(id);expect(absent.mountInfo).not.toContain(mounted);
   expect(absent.managedDirectory.entries.map(entry=>entry.name)).not.toContain(id);
@@ -88,7 +98,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
   }
   if(bound)try{command('/usr/bin/umount',[mounted]);bound=false;}catch(error){failures.push(error);}
   if(namespaceBound)try{command('/usr/bin/umount',[namespaceMount]);namespaceBound=false;}catch(error){failures.push(error);}
-  if(!bound&&!namespaceBound)for(const path of [directory,unrelated,source,workspace,unrelatedWorkspace])try{rmSync(path,{recursive:true,force:true});}catch(error){failures.push(error);}
+  if(!bound&&!namespaceBound)for(const path of [directory,unrelated,source,workspace,unrelatedWorkspace,unknownWorkspace])try{rmSync(path,{recursive:true,force:true});}catch(error){failures.push(error);}
   // Existing Actions logs retain original observations, including failed completeness.
   console.log(JSON.stringify({sandboxInspectionObservations:observations,workspaceInspectionObservations:workspaceObservations}));
  }
