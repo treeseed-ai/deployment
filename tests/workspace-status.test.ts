@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, it, vi } from 'vitest';
 import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
 
 // Unit filesystem/catalog fixtures do not establish owning-host custody. The
@@ -211,4 +212,11 @@ it('reads the original catalog without changing its canonical bytes and retains 
 		expect(JSON.stringify(observed)).not.toContain(secret); expect(readFileSync(unknown, 'utf8')).toBe(secret);
 		rmSync(unknown); expect(workspaceStatus().complete).toBe(true);
 	}
+	const db = new DatabaseSync(database);
+	try {
+		db.exec("INSERT INTO workspace_images(id,source_json,state) VALUES('image-fixture','{}','ready')");
+		db.exec("INSERT INTO workspace_leases(id,image_id,authorization_id,provider_id,assignment_id,attempt,mode,acquisition,publication,state,expires_at,result_artifact_id) VALUES('lease-fixture','image-fixture','authority-fixture','provider-fixture','assignment-fixture',1,'analysis','upstream-public','denied','released','2026-10-11T00:00:00.000Z','sandbox-status-1-12345678.json')");
+		expect(workspaceStatus()).toMatchObject({ complete: true, leases: [{ id: 'lease-fixture', provider_id: 'provider-fixture',
+			assignment_id: 'assignment-fixture', attempt: 1, state: 'released', result_artifact_id: name }] });
+	} finally { db.close(); }
 });
