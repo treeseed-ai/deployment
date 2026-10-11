@@ -61,5 +61,7 @@ it('reads the original catalog without changing its canonical bytes and retains 
 		expect(observed!.errors).toContain('workspace_lease_metadata_unavailable');
 		expect(readFileSync(join(directory(), 'device.json'), 'utf8')).toBe('{');
 		expect(readFileSync(join(state.root, 'catalog.db'))).toEqual(before);
+		rmSync(directory(), { recursive: true });
+		expect(workspaceStatus()).toMatchObject({ initialized: true, complete: true, images: [], leases: [], disks: [], errors: [] });
 	} finally { catalog.close(); }
 });

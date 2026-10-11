@@ -40,7 +40,8 @@ it('native installed CLI manager and supervisor observe exact task container mou
   const workspaceObservation=envelope.result.workspace;workspaceObservations.push(workspaceObservation);
   expect(workspaceObservation.scope.storageRoot).toBe(workspaceStorageRoot);
   expect(workspaceObservation.scope.mountNamespace).toBe(readlinkSync('/proc/1/ns/mnt'));
-  expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors.length).toBeGreaterThan(0);
+  expect(typeof workspaceObservation.complete).toBe('boolean');
+  if(!workspaceObservation.initialized){expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_catalog_unavailable');}
   const physicalIds=workspaceObservation.disks.map(disk=>disk.id);
   expect(physicalIds).toContain(unrelatedWorkspaceId);
   if(observationPhase==='PUBLIC_PRESENCE')expect(workspaceObservation.disks).toContainEqual({id:workspaceId,type:'directory',bytes:4,device:null});
