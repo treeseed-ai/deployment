@@ -289,7 +289,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.status': {
 			const configuration = loadSandboxBrokerConfiguration(), inventory = inspectSandboxInventory(configuration);
 			const status = inspectSandboxHost(configuration, { requireBrokerSocket: true });
-			return inventory.then(observation => ({ ...status, inventory: observation }));
+			return inventory.then(observation => ({ ...status, inventory: observation, workspace: workspaceStatus() }));
 		}
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
 		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);

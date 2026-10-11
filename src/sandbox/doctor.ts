@@ -1,8 +1,9 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { accessSync, constants, existsSync, readFileSync, readlinkSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { containerdImageReference } from './image-reference.js';
+import { inspectManagedDirectory } from './directory-inspection.js';
 
 function command(path: string, args: string[], trim = true): Promise<string | null> {
  return new Promise(resolveCommand => {
@@ -44,38 +45,7 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
  try {
   const root = configuration.stateRoot;
   if (resolve(root) !== root || !(root === '/var/lib/treeseed/sandboxes' || root.startsWith('/var/lib/treeseed/sandboxes/'))) throw new Error();
-  // An absent leaf is meaningful only beneath canonical, accessible directory ancestors.
-  const hostPath = (path: string) => `/proc/1/root${path}`;
-  const owning = (path: string) => {
-   const local = lstatSync(path);
-   let host: ReturnType<typeof lstatSync>;
-   try { host = lstatSync(hostPath(path)); } catch { throw new Error('Owning host directory observation is unavailable.'); }
-   if (!Number.isSafeInteger(local.dev) || !Number.isSafeInteger(local.ino) || local.dev !== host.dev || local.ino !== host.ino) throw new Error();
-   return host;
-  };
-  let ancestor = dirname(root);
-  while (ancestor !== '/') {
-   if (realpathSync(ancestor) !== ancestor || !owning(ancestor).isDirectory()) throw new Error();
-   ancestor = dirname(ancestor);
-  }
-  try {
-   const stat = owning(root);
-   if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(root) !== root) throw new Error();
-   managedDirectory.rootPresent = true;
-   managedDirectory.entries = readdirSync(hostPath(root)).sort().map(name => {
-    if (!name || name === '.' || name === '..' || /[\/\0\r\n]/u.test(name)) throw new Error();
-    const entry = owning(resolve(root, name));
-    return { name, type: entry.isSymbolicLink() ? 'symlink' : entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other' };
-   });
-  } catch (error) {
-   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-   // ENOENT while enumerating a present root is an interrupted inventory, not absence.
-   if (managedDirectory.rootPresent === true) throw error;
-   try { lstatSync(hostPath(root)); throw new Error(); } catch (hostError) {
-    if ((hostError as NodeJS.ErrnoException).code !== 'ENOENT') throw hostError;
-   }
-   managedDirectory.rootPresent = false;
-  }
+  inspectManagedDirectory(root, managedDirectory);
  } catch { errors.push('managed_directory_inventory_unavailable'); }
  const [finalTasks, finalContainers] = await listed();
  const sameInventory = (before: string | null | undefined, after: string | null | undefined) => validList(before) && validList(after)

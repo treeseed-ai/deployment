@@ -76,6 +76,21 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox-host-inspection-native.test.ts
     testName: native installed CLI manager and supervisor observe exact task container mount and directory presence and scoped absence while retaining unrelated resources
+  deployment.golden.workspace-inventory-missing-catalog-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: retains orphan lease files when the catalog is absent without inventing empty canonical authority or writing evidence
+  deployment.golden.workspace-inventory-redirected-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: retains unrelated and redirected lease entries while denying incomplete physical observations without reading their contents
+  deployment.golden.workspace-inventory-catalog-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: reads the original catalog without changing its canonical bytes and retains malformed device failures as incomplete observations
   deployment.golden.stopped-candidate-resume-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

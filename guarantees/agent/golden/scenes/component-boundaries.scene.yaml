@@ -44,6 +44,15 @@ workflow:
   - id: host-inventory-native
     action: { verifier: deployment.golden.host-inventory-native }
     expect: { status: passed }
+  - id: workspace-inventory-missing-catalog-unit
+    action: { verifier: deployment.golden.workspace-inventory-missing-catalog-unit }
+    expect: { status: passed }
+  - id: workspace-inventory-redirected-unit
+    action: { verifier: deployment.golden.workspace-inventory-redirected-unit }
+    expect: { status: passed }
+  - id: workspace-inventory-catalog-unit
+    action: { verifier: deployment.golden.workspace-inventory-catalog-unit }
+    expect: { status: passed }
   - id: stopped-candidate-resume-unit
     action: { verifier: deployment.golden.stopped-candidate-resume-unit }
     expect: { status: passed }
