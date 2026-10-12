@@ -8,6 +8,7 @@ import { loadSandboxBrokerConfiguration } from '../src/sandbox/configuration.js'
 import type { inspectSandboxInventory } from '../src/sandbox/doctor.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
 import { workspaceStorageRoot } from '../src/sandbox/workspace-block-store.js';
+import { simulationSourceRepository } from '../src/sandbox/simulation-source-repository.js';
 import type { workspaceStatus } from '../src/sandbox/workspace-status.js';
 
 type Inventory=Awaited<ReturnType<typeof inspectSandboxInventory>>;
@@ -26,6 +27,9 @@ it('native installed CLI manager and supervisor observe exact task container mou
  const unrelatedSandboxId=`sandbox-unrelated-${suffix}`,journalPaths:string[]=[];
  const owner={assignmentId:`assignment-${suffix}`,providerId:'provider-inspection',teamId:'team-inspection',projectId:'project-inspection',attempt:1};
  const unrelatedOwner={...owner,assignmentId:`assignment-unrelated-${suffix}`,teamId:'team-unrelated'};
+ const sourceKey={controlPlaneId:'inspection-control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:`repository-${suffix}`,commit:'a'.repeat(40),formatVersion:1 as const,profile:'source-only' as const};
+ const sourceReference={kind:'git',repository:'treeseed-ai/sdk',commit:'b'.repeat(40),branch:`simulation/${suffix}`};
+ const simulationRepository=simulationSourceRepository(workspaceStorageRoot,sourceKey);
  const journal=(kind:string,sandbox:string,value:unknown)=>{
   const root=join(workspaceStorageRoot,kind);mkdirSync(root,{recursive:true,mode:0o700});
   const path=join(root,`${sandbox}.json`);if(!journalPaths.includes(path))journalPaths.push(path);
@@ -60,8 +64,11 @@ it('native installed CLI manager and supervisor observe exact task container mou
   }
   if(observationPhase==='PUBLIC_JOURNAL_RETRY')expect(workspaceObservation.errors).not.toContain('workspace_jobs_metadata_unavailable');
   expect(JSON.stringify(workspaceObservation)).not.toContain('controlled-private-journal-content');
-  expect(workspaceObservation.journals!.results.entries).toContainEqual(expect.objectContaining({name:`${id}.json`,
-   metadata:expect.objectContaining({sandboxId:id,teardownVerified:true})}));
+  if(observationPhase==='PUBLIC_SOURCE_DENIAL'){
+   expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_results_metadata_unavailable');
+   expect(workspaceObservation.journals!.results.entries).toContainEqual(expect.objectContaining({name:`${id}.json`,metadata:null}));
+  }else expect(workspaceObservation.journals!.results.entries).toContainEqual(expect.objectContaining({name:`${id}.json`,
+   metadata:expect.objectContaining({sandboxId:id,teardownVerified:true,source:sourceKey,sourceReference,simulationRepository})}));
   expect(workspaceObservation.journals!.candidates.entries).toContainEqual(expect.objectContaining({name:`${id}.json`,
    metadata:{state:'retained',assignmentId:owner.assignmentId}}));
   if(!workspaceObservation.initialized){expect(workspaceObservation.complete).toBe(false);expect(workspaceObservation.errors).toContain('workspace_catalog_unavailable');}
@@ -96,7 +103,8 @@ it('native installed CLI manager and supervisor observe exact task container mou
    journal('jobs',sandbox!,{schemaVersion:'treeseed.assignment-source-job/v1',owner:sandbox===id?owner:unrelatedOwner,state:'stopped',leaseId:`lease-${sandbox}`,
     disk:{id:diskId,directory:diskRoot,image:join(diskRoot!,'work.qcow2'),device:'/dev/nbd99',unit:`treeseed-${diskId}.service`},
     authority:{private:'controlled-private-journal-content'}});
-  journal('results',id,{schemaVersion:'treeseed.source-result/v1',sandboxId:id,leaseId:`lease-${id}`,status:'completed',
+  mkdirSync(simulationRepository,{recursive:true,mode:0o700});
+  journal('results',id,{source:sourceKey,sourceReference,schemaVersion:'treeseed.source-result/v1',sandboxId:id,leaseId:`lease-${id}`,status:'completed',
    teardownVerified:true,completedAt:new Date().toISOString(),result:{private:'controlled-private-journal-content'}});
   journal('candidates',id,{state:'retained',assignmentId:owner.assignmentId,reason:'source_publication_failed',detail:'controlled-private-journal-content'});
   writeFileSync(join(workspace,'device.json'),'{');writeFileSync(unknownWorkspace,'controlled-unrelated-content');
@@ -123,8 +131,13 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(readFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`),'utf8')).toBe('{');
   writeFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`),originalJob);phase='PUBLIC_JOURNAL_RETRY';await inspect();
   expect(readFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`))).toEqual(originalJob);
+  const resultPath=join(workspaceStorageRoot,'results',`${id}.json`),originalResult=readFileSync(resultPath);
+  writeFileSync(resultPath,JSON.stringify({...JSON.parse(originalResult.toString()),source:{...sourceKey,commit:'invalid'}}));
+  const failedResult=readFileSync(resultPath);phase='PUBLIC_SOURCE_DENIAL';await inspect();expect(readFileSync(resultPath)).toEqual(failedResult);
+  writeFileSync(resultPath,originalResult);phase='PUBLIC_SOURCE_RETRY';await inspect();expect(readFileSync(resultPath)).toEqual(originalResult);
  } catch(error){failedPhase=phase;failures.push(error);} finally {
   phase='FINAL_CLEANUP';
+  try{rmSync(simulationRepository,{recursive:true,force:true});}catch(error){failures.push(error);}
   if(attempted){
    try{if(ctr(['tasks','list','--quiet']).split('\n').includes(id)){
     ctr(['tasks','kill','--signal','SIGKILL',id]);ctr(['tasks','delete','--force',id]);
