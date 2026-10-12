@@ -996,6 +996,21 @@ verifiers:
     testFile: tests/development-component-status-native.test.ts
     testName: uses the same real Docker image authority during activation readiness and subsequent status
 
+  deployment.golden.selected-provider-candidate-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/selected-provider-candidate.test.ts
+    testName: retains one exact selected held and frozen Agent candidate without changing original runtime observations
+  deployment.golden.selected-provider-candidate-denials-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/selected-provider-candidate.test.ts
+    testName: denies absent malformed moved contradictory or substituted selected candidate authority without repairing failed inputs
+  deployment.golden.selected-provider-candidate-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/selected-provider-candidate.test.ts
+    testName: native Git and public immutable materialization deny a moved held candidate despite a valid unchanged selected copy and retain exact concurrent retry
   deployment.golden.execution-source-publication-unit-1:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

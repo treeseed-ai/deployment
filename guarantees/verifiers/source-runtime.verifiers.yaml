@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.execution-selected-code-preflight-1:
+    kind: nodeTestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/acceptance/selected-provider-code.ts
+    testName: Actual selected provider code binds the held frozen Agent candidate and complete loaded compiled bytes before campaign admission without requiring a terminal workday
   deployment.golden.execution-selected-code-live-1:
     kind: nodeTestCase
     ownerPackage: "@treeseed/deployment"
