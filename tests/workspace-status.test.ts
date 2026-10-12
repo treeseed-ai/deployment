@@ -3,6 +3,7 @@ import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFi
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
+import { simulationSourceRepository } from '../src/sandbox/simulation-source-repository.js';
 
 // Unit filesystem/catalog fixtures do not establish owning-host custody. The
 // existing privileged public manager/supervisor case supplies that proof.
@@ -27,6 +28,35 @@ const directory = () => join(state.root, 'leases', id);
 beforeEach(() => { state.afterRead = undefined; state.namespace = undefined;
 	rmSync(state.root, { recursive: true, force: true }); mkdirSync(directory(), { recursive: true }); });
 afterAll(() => rmSync(state.root, { recursive: true, force: true }));
+
+it('reads canonical published source custody from the owning journal without exposing private results or accepting redirected repositories', () => {
+	const source = { controlPlaneId: 'control', teamId: 'team', projectId: 'sdk', repositoryId: 'repository',
+		commit: 'a'.repeat(40), formatVersion: 1 as const, profile: 'source-only' as const };
+	const sourceReference = { kind: 'git', repository: 'treeseed-ai/sdk', commit: 'b'.repeat(40), branch: 'simulation/tester' };
+	const sandboxId = 'sandbox-source-custody', root = join(state.root, 'results'), path = join(root, `${sandboxId}.json`);
+	const repository = simulationSourceRepository(state.root, source);
+	mkdirSync(root, { recursive: true, mode: 0o700 }); mkdirSync(repository, { recursive: true, mode: 0o700 });
+	const original = { schemaVersion: 'treeseed.source-result/v1', sandboxId, leaseId: 'lease-source', source, sourceReference,
+		status: 'completed', teardownVerified: true, completedAt: '2026-10-12T15:00:00.000Z', result: { private: 'never-public' } };
+	const write = (value: unknown) => writeFileSync(path, JSON.stringify(value), { mode: 0o600 }); write(original);
+	const bytes = readFileSync(path);
+	const entry = () => workspaceStatus().journals!.results.entries[0]!;
+	expect(entry().metadata).toMatchObject({ source, sourceReference, simulationRepository: repository });
+	expect(JSON.stringify(entry())).not.toContain('never-public'); expect(readFileSync(path)).toEqual(bytes);
+	for (const value of [{ ...original, source: { ...source, commit: 'moved' } },
+		{ ...original, source: { ...source, credential: 'never-public' } },
+		{ ...original, sourceReference: { ...sourceReference, commit: '--unsafe' } },
+		{ ...original, sourceReference: { kind: 'url', url: 'https://example.invalid/' } },
+		{ ...original, source: undefined }]) {
+		write(value); expect(entry().metadata).toBeNull();
+		expect(workspaceStatus().errors).toContain('workspace_results_metadata_unavailable');
+	}
+	write(original); expect(entry().metadata).toMatchObject({ source, sourceReference, simulationRepository: repository });
+	rmSync(repository, { recursive: true }); expect(entry().metadata).toMatchObject({ simulationRepository: null });
+	symlinkSync(root, repository); expect(entry().metadata).toBeNull();
+	expect(workspaceStatus().errors).toContain('workspace_results_metadata_unavailable');
+	expect(readFileSync(path)).toEqual(bytes);
+});
 
 it('retains orphan lease files when the catalog is absent without inventing empty canonical authority or writing evidence', () => {
 	writeFileSync(join(directory(), 'work.qcow2'), 'disk');

@@ -1,10 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { sandboxResultSchema } from '@treeseed/sdk/capacity-provider/sandbox';
+import { sandboxResultSchema, sourceWorkspaceKeySchema } from '@treeseed/sdk/capacity-provider/sandbox';
+import { assignmentReferenceSchema } from '@treeseed/sdk/agent-capacity';
 import { closeSync, constants, fstatSync, openSync, readlinkSync, readSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspaceStorageRoot } from './workspace-block-store.js';
 import { inspectManagedDirectory, owningHostStat } from './directory-inspection.js';
+import { simulationSourceRepository } from './simulation-source-repository.js';
 
 type Disk = { id: string; type: 'directory' | 'file' | 'symlink' | 'other'; bytes: number | null;
  device: { id: string; device: string } | null };
@@ -110,6 +112,23 @@ function journalMetadata(kind: 'jobs' | 'candidates' | 'results', name: string, 
    || typeof result.teardownVerified !== 'boolean'
    || typeof result.completedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(result.completedAt)
    || !Number.isFinite(Date.parse(result.completedAt)) || new Date(result.completedAt).toISOString() !== result.completedAt) throw new Error();
+  if (Object.hasOwn(original, 'source')) {
+   const source = sourceWorkspaceKeySchema.parse(original.source);
+   result.source = source;
+   const reference = original.sourceReference == null ? null : assignmentReferenceSchema.parse(original.sourceReference);
+   if (reference !== null && reference.kind !== 'git') throw new Error();
+   result.sourceReference = reference;
+   // A fixed owning locator is not proof of publication or ancestry. Consumers
+   // independently resolve the original Git objects and canonical references.
+   const repository = simulationSourceRepository(workspaceStorageRoot, source);
+   let present = false;
+   try {
+    const stat = owningHostStat(repository);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(repository) !== repository) throw new Error();
+    present = true;
+   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+   result.simulationRepository = present ? repository : null;
+  } else if (original.sourceReference != null) throw new Error();
  }
  return result;
 }

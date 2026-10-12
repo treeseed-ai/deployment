@@ -1220,3 +1220,9 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/development-component-status.test.ts
     testName: requires complete exact owning RAM observations and rejects malformed selected limits before readiness
+
+  deployment.golden.workspace-source-custody-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: reads canonical published source custody from the owning journal without exposing private results or accepting redirected repositories

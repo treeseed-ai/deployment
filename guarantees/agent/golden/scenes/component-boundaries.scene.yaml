@@ -739,3 +739,6 @@ workflow:
   - id: component-memory-status
     action: { verifier: deployment.golden.component-memory-status }
     expect: { status: passed }
+  - id: workspace-source-custody-unit
+    action: { verifier: deployment.golden.workspace-source-custody-unit }
+    expect: { status: passed }

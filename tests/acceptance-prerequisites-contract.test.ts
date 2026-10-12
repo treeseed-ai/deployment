@@ -75,7 +75,7 @@ it('native original Vitest retains controlled phase criteria alongside real asse
     writeFileSync(resolve(root,'phase.test.ts'),[
       "import {it,onTestFailed} from 'vitest';",
       "it('actual native failure',({signal})=>{onTestFailed(()=>{throw new Error('ACCEPTANCE_NATIVE_COLD_VERIFY_'+(signal.aborted?'WATCHDOG':'FAILURE')+': controlled');});throw new Error('original native failure');});",
-      "it('actual watchdog failure',async({signal})=>{onTestFailed(()=>{throw new Error('ACCEPTANCE_NATIVE_COLD_BUILD_'+(signal.aborted?'WATCHDOG':'FAILURE')+': controlled');});await new Promise(()=>{});},20);",
+      "it('actual watchdog failure',async({signal})=>{onTestFailed(()=>{throw new Error('ACCEPTANCE_NATIVE_COLD_BUILD_'+(signal.aborted?'WATCHDOG':'FAILURE')+': controlled');});const started=performance.now();while(performance.now()-started<20){}await new Promise(()=>{});},20);",
     ].join('\n'));
     const actual=spawnSync(process.execPath,[resolve('node_modules/vitest/vitest.mjs'),'run','--config',resolve(root,'vitest.config.ts'),
       '--reporter=json','--outputFile='+resolve(root,'report.json')],{cwd:root,encoding:'utf8',timeout:10_000});
@@ -86,6 +86,9 @@ it('native original Vitest retains controlled phase criteria alongside real asse
     const rows=report.testResults.flatMap(file=>file.assertionResults);expect(rows.map(row=>row.status)).toEqual(['failed','failed']);
     expect(rows[0]?.failureMessages.join('\n')).toContain('original native failure');
     expect(rows[0]?.failureMessages.join('\n')).toContain('ACCEPTANCE_NATIVE_COLD_VERIFY_FAILURE:');
+    // Real bounded fixture work makes the original >=20ms duration assertion
+    // independent of sub-millisecond timer/reporting boundaries. The original
+    // 20ms watchdog, unresolved callback and all failure assertions stay exact.
     // This pinned Vitest JSON reporter retains the watchdog's stack-trace error,
     // not the human-readable timeout text. The unresolved callback cannot pass.
     expect(rows[1]?.failureMessages.join('\n')).toContain('Error: STACK_TRACE_ERROR');
