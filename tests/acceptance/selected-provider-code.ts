@@ -9,6 +9,7 @@ import { decodeCapacityPageCursor } from '@treeseed/sdk/capacity-pagination';
 import { developmentRuntimeStatus, assertDevelopmentRuntimeMounts, agentDevelopmentRuntimeRoots as runtimeRoots } from '@treeseed/deployment';
 import { installedCli } from './public-cli.js';
 import { developmentCandidateSchema } from '@treeseed/sdk/development';
+import { verifySelectedProviderCandidate } from './selected-provider-candidate.js';
 
 function row(value: unknown): Record<string, unknown> {
   assert.ok(value && typeof value === 'object' && !Array.isArray(value), 'SOURCE_ACCEPTANCE_ROW: Original readable object required');
@@ -36,6 +37,13 @@ test('Actual selected provider copy binds freshly compiled held source exact nat
   const source = sources[0]!, target = selected[0]!; assert.ok(target.mode !== 'released' && typeof target.generation === 'number' && Number.isInteger(target.generation));
   assert.ok(typeof source.worktree === 'string' && isAbsolute(source.worktree)); const worktree = realpathSync(source.worktree);
   const head = execFileSync('/usr/bin/git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: remaining() }).trim();
+  const platform = process.env.TREESEED_ACCEPTANCE_PLATFORM_PATH, freezePath = process.env.TREESEED_ACCEPTANCE_FREEZE_PATH;
+  assert.ok(platform && isAbsolute(platform) && freezePath && isAbsolute(freezePath));
+  assert.ok(lstatSync(freezePath).isFile() && !lstatSync(freezePath).isSymbolicLink());
+  const freezeBytes = readFileSync(freezePath), frozen: unknown = JSON.parse(freezeBytes.toString('utf8'));
+  const heldHead = () => execFileSync('/usr/bin/git', ['-C', resolve(platform, 'packages/agent'), 'rev-parse', 'HEAD'],
+    { encoding: 'utf8', timeout: remaining() }).trim();
+  verifySelectedProviderCandidate(head, heldHead(), frozen, status);
   const cleanSource = () => execFileSync('/usr/bin/git', ['-C', worktree, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8', timeout: remaining() });
   assert.equal(cleanSource(), '', 'SOURCE_BUILD_SOURCE: A saved clean candidate cannot authorize currently changed source');
   const candidates = status.candidates.map(value => developmentCandidateSchema.parse(value)).filter(value => value.sessionId === session.sessionId
@@ -131,6 +139,7 @@ test('Actual selected provider copy binds freshly compiled held source exact nat
       for (const [name, bytes] of state.code) assert.ok(loaded.get(name)!.equals(bytes)); }
     for (const [name, bytes] of inputs) { assert.ok(readFileSync(join(worktree, name)).equals(bytes)); assert.ok(readFileSync(join(clone, name)).equals(bytes)); }
     assert.deepEqual(read(['dev', 'status']), status); assert.deepEqual(read(['workdays', 'show', workdayId]), workday);
+    verifySelectedProviderCandidate(head, heldHead(), frozen, status); assert.ok(readFileSync(freezePath).equals(freezeBytes));
     assert.equal(execFileSync('/usr/bin/git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: remaining() }).trim(), head);
     assert.equal(cleanSource(), ''); assert.ok(readFileSync(cli).equals(cliBytes));
     // Read-only selected native code + actual canonical execution, not a claim
