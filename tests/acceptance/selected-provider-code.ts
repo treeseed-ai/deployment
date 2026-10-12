@@ -16,10 +16,11 @@ function row(value: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value));
 }
 
-test('Actual selected provider copy binds freshly compiled held source exact native read-only entrypoints and immutable completed managed results instead of saved source labels or registry hints', { timeout: 120_000 }, () => {
+function verifySelectedProviderCode(phase: 'preflight' | 'completed'): void {
   const deadline = Date.now() + 120_000, workspace = process.env.TREESEED_DEVELOPMENT_WORKSPACE_ROOT;
   const workdayId = process.env.TREESEED_ACCEPTANCE_WORKDAY_ID, team = process.env.TREESEED_ACCEPTANCE_TEAM ?? 'treeseed';
-  assert.ok(workspace && isAbsolute(workspace) && workdayId && /^workday-[a-f0-9-]+$/u.test(workdayId));
+  assert.ok(workspace && isAbsolute(workspace));
+  if (phase === 'completed') assert.ok(workdayId && /^workday-[a-f0-9-]+$/u.test(workdayId));
   const cli = installedCli(), cliBytes = readFileSync(cli);
   const remaining = () => { const value = deadline - Date.now(); assert.ok(value > 0, 'SOURCE_BUILD_ORIGINAL_BOUND: Native observation exceeded the original acceptance watchdog'); return value; };
   const read = (args: string[]) => {
@@ -106,39 +107,45 @@ test('Actual selected provider copy binds freshly compiled held source exact nat
         'SOURCE_BUILD_NATIVE_ENTRYPOINT: Actual owning Node process must load the original compiled entrypoint');
       return { service, pid: instance.pid, code: loaded };
     });
-    const workday = read(['workdays', 'show', workdayId]), run = row(workday.run); assert.equal(run.id, workdayId);
-    assert.ok(['completed', 'failed', 'cancelled', 'expired'].includes(String(run.status)));
-    const started = Date.parse(String(run.startedAt)); assert.ok(Number.isFinite(started));
-    // Workday events are not a substitute for a complete public assignment page.
-    const all: Record<string, unknown>[] = [], ids = new Set<string>(), cursors = new Set<string>();
-    let cursor: string | undefined, previous: { time: number; id: string } | undefined;
-    for (let index = 0; index < 40; index++) {
-      const pageValue = read(['assignments', 'list', '--limit', '100', ...(cursor ? ['--cursor', cursor] : [])]), page = row(pageValue.page);
-      assert.ok(Array.isArray(pageValue.items) && pageValue.items.length <= 100 && page.limit === 100 && typeof page.hasMore === 'boolean');
-      for (const value of pageValue.items) {
-        const item = row(value), id = item.id, time = Date.parse(String(item.createdAt));
-        assert.ok(typeof id === 'string' && id && !ids.has(id) && Number.isFinite(time));
-        assert.ok(!previous || time < previous.time || (time === previous.time && id < previous.id));
-        assert.ok(item.workDayId === null || typeof item.workDayId === 'string');
-        if (item.workDayId === workdayId) assert.ok(time >= started);
-        ids.add(id); previous = { time, id }; all.push(item);
+    let completedWorkday: Record<string, unknown> | undefined;
+    if (phase === 'completed') {
+      assert.ok(workdayId);
+      const workday = read(['workdays', 'show', workdayId]), run = row(workday.run); completedWorkday = workday; assert.equal(run.id, workdayId);
+      assert.ok(['completed', 'failed', 'cancelled', 'expired'].includes(String(run.status)));
+      const started = Date.parse(String(run.startedAt)); assert.ok(Number.isFinite(started));
+      // Workday events are not a substitute for a complete public assignment page.
+      const all: Record<string, unknown>[] = [], ids = new Set<string>(), cursors = new Set<string>();
+      let cursor: string | undefined, previous: { time: number; id: string } | undefined;
+      for (let index = 0; index < 40; index++) {
+        const pageValue = read(['assignments', 'list', '--limit', '100', ...(cursor ? ['--cursor', cursor] : [])]), page = row(pageValue.page);
+        assert.ok(Array.isArray(pageValue.items) && pageValue.items.length <= 100 && page.limit === 100 && typeof page.hasMore === 'boolean');
+        for (const value of pageValue.items) {
+          const item = row(value), id = item.id, time = Date.parse(String(item.createdAt));
+          assert.ok(typeof id === 'string' && id && !ids.has(id) && Number.isFinite(time));
+          assert.ok(!previous || time < previous.time || (time === previous.time && id < previous.id));
+          assert.ok(item.workDayId === null || typeof item.workDayId === 'string');
+          if (item.workDayId === workdayId) assert.ok(time >= started);
+          ids.add(id); previous = { time, id }; all.push(item);
+        }
+        if (!page.hasMore) { assert.equal(page.nextCursor, null); break; }
+        assert.ok(index < 39 && pageValue.items.length === 100 && typeof page.nextCursor === 'string' && page.nextCursor && !cursors.has(page.nextCursor));
+        const decoded = decodeCapacityPageCursor(page.nextCursor), last = all.at(-1)!; assert.ok(decoded && decoded.id === last.id && decoded.createdAt === last.createdAt);
+        cursor = page.nextCursor; cursors.add(cursor);
       }
-      if (!page.hasMore) { assert.equal(page.nextCursor, null); break; }
-      assert.ok(index < 39 && pageValue.items.length === 100 && typeof page.nextCursor === 'string' && page.nextCursor && !cursors.has(page.nextCursor));
-      const decoded = decodeCapacityPageCursor(page.nextCursor), last = all.at(-1)!; assert.ok(decoded && decoded.id === last.id && decoded.createdAt === last.createdAt);
-      cursor = page.nextCursor; cursors.add(cursor);
+      const items = all.filter(item => item.workDayId === workdayId); assert.ok(items.length > 0);
+      const completed = items.filter(item => item.status === 'completed' && assignmentAttemptSchema.parse(item.assignmentAttempt).effectiveProfile.handlerOrigin === 'agent-package');
+      assert.ok(completed.length > 0, 'SOURCE_BUILD_NATIVE_EXECUTION: Actual completed default-handler managed execution required');
+      for (const item of completed) { const attempt = assignmentAttemptSchema.parse(item.assignmentAttempt), result = assignmentResultSchema.parse(item.assignmentResult);
+        assert.equal(attempt.workdayId, workdayId); assert.equal(attempt.provider.runtimeBuild, receipt.digest); assert.equal(result.assignmentId, attempt.id);
+        assert.deepEqual(read(['assignments', 'show', attempt.id]), item); }
+      assert.deepEqual(read(['workdays', 'show', workdayId]), workday);
     }
-    const items = all.filter(item => item.workDayId === workdayId); assert.ok(items.length > 0);
-    const completed = items.filter(item => item.status === 'completed' && assignmentAttemptSchema.parse(item.assignmentAttempt).effectiveProfile.handlerOrigin === 'agent-package');
-    assert.ok(completed.length > 0, 'SOURCE_BUILD_NATIVE_EXECUTION: Actual completed default-handler managed execution required');
-    for (const item of completed) { const attempt = assignmentAttemptSchema.parse(item.assignmentAttempt), result = assignmentResultSchema.parse(item.assignmentResult);
-      assert.equal(attempt.workdayId, workdayId); assert.equal(attempt.provider.runtimeBuild, receipt.digest); assert.equal(result.assignmentId, attempt.id);
-      assert.deepEqual(read(['assignments', 'show', attempt.id]), item); }
     assert.deepEqual(developmentRuntimeStatus(directory, runtimeRoots.map(value => value.target)), receipt);
     for (const state of states) { const loaded = inventory(`/proc/${state.pid}/root/app/dist`); assert.deepEqual([...loaded.keys()], [...built.keys()]);
       for (const [name, bytes] of state.code) assert.ok(loaded.get(name)!.equals(bytes)); }
     for (const [name, bytes] of inputs) { assert.ok(readFileSync(join(worktree, name)).equals(bytes)); assert.ok(readFileSync(join(clone, name)).equals(bytes)); }
-    assert.deepEqual(read(['dev', 'status']), status); assert.deepEqual(read(['workdays', 'show', workdayId]), workday);
+    assert.deepEqual(read(['dev', 'status']), status);
+    if (completedWorkday) { assert.ok(workdayId); assert.deepEqual(read(['workdays', 'show', workdayId]), completedWorkday); }
     verifySelectedProviderCandidate(head, heldHead(), frozen, status); assert.ok(readFileSync(freezePath).equals(freezeBytes));
     assert.equal(execFileSync('/usr/bin/git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: remaining() }).trim(), head);
     assert.equal(cleanSource(), ''); assert.ok(readFileSync(cli).equals(cliBytes));
@@ -146,4 +153,9 @@ test('Actual selected provider copy binds freshly compiled held source exact nat
     // of a published OCI build, guest-image compiler lineage, model reasoning,
     // live project-owned source loading or an external billing/teardown pass.
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}
+
+test('Actual selected provider copy binds freshly compiled held source exact native read-only entrypoints and immutable completed managed results instead of saved source labels or registry hints', { timeout: 120_000 }, () => verifySelectedProviderCode('completed'));
+
+test('Actual selected provider code binds the held frozen Agent candidate and complete loaded compiled bytes before campaign admission without requiring a terminal workday',
+  { timeout: 120_000 }, () => verifySelectedProviderCode('preflight'));
