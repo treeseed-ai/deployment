@@ -132,8 +132,12 @@ it('native installed CLI manager and supervisor observe exact task container mou
   writeFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`),originalJob);phase='PUBLIC_JOURNAL_RETRY';await inspect();
   expect(readFileSync(join(workspaceStorageRoot,'jobs',`${id}.json`))).toEqual(originalJob);
   const resultPath=join(workspaceStorageRoot,'results',`${id}.json`),originalResult=readFileSync(resultPath);
-  writeFileSync(resultPath,JSON.stringify({...JSON.parse(originalResult.toString()),source:{...sourceKey,commit:'invalid'}}));
-  const failedResult=readFileSync(resultPath);phase='PUBLIC_SOURCE_DENIAL';await inspect();expect(readFileSync(resultPath)).toEqual(failedResult);
+  const resultRecord=JSON.parse(originalResult.toString()) as Record<string,unknown>;
+  for(const malformed of [{...resultRecord,source:{...sourceKey,commit:'invalid'}},
+   {...resultRecord,sourceReference:{kind:'url',url:'https://example.invalid/'}},{...resultRecord,source:undefined}]){
+   writeFileSync(resultPath,JSON.stringify(malformed));const failedResult=readFileSync(resultPath);
+   phase='PUBLIC_SOURCE_DENIAL';await inspect();expect(readFileSync(resultPath)).toEqual(failedResult);
+  }
   writeFileSync(resultPath,originalResult);phase='PUBLIC_SOURCE_RETRY';await inspect();expect(readFileSync(resultPath)).toEqual(originalResult);
  } catch(error){failedPhase=phase;failures.push(error);} finally {
   phase='FINAL_CLEANUP';

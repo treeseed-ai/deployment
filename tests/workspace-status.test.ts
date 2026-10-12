@@ -45,7 +45,9 @@ it('reads canonical published source custody from the owning journal without exp
 	expect(JSON.stringify(entry())).not.toContain('never-public'); expect(readFileSync(path)).toEqual(bytes);
 	for (const value of [{ ...original, source: { ...source, commit: 'moved' } },
 		{ ...original, source: { ...source, credential: 'never-public' } },
-		{ ...original, sourceReference: { ...sourceReference, commit: '--unsafe' } }]) {
+		{ ...original, sourceReference: { ...sourceReference, commit: '--unsafe' } },
+		{ ...original, sourceReference: { kind: 'url', url: 'https://example.invalid/' } },
+		{ ...original, source: undefined }]) {
 		write(value); expect(entry().metadata).toBeNull();
 		expect(workspaceStatus().errors).toContain('workspace_results_metadata_unavailable');
 	}
