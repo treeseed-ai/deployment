@@ -35,7 +35,7 @@ it('reads canonical published source custody from the owning journal without exp
 	const sourceReference = { kind: 'git', repository: 'treeseed-ai/sdk', commit: 'b'.repeat(40), branch: 'simulation/tester' };
 	const sandboxId = 'sandbox-source-custody', root = join(state.root, 'results'), path = join(root, `${sandboxId}.json`);
 	const repository = simulationSourceRepository(state.root, source);
-	mkdirSync(root, { recursive: true }); mkdirSync(repository, { recursive: true });
+	mkdirSync(root, { recursive: true, mode: 0o700 }); mkdirSync(repository, { recursive: true, mode: 0o700 });
 	const original = { schemaVersion: 'treeseed.source-result/v1', sandboxId, leaseId: 'lease-source', source, sourceReference,
 		status: 'completed', teardownVerified: true, completedAt: '2026-10-12T15:00:00.000Z', result: { private: 'never-public' } };
 	const write = (value: unknown) => writeFileSync(path, JSON.stringify(value), { mode: 0o600 }); write(original);
