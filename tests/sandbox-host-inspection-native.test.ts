@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it, onTestFailed } from 'vitest';
+import { expect, it, onTestFailed } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,52 +12,6 @@ import { simulationSourceRepository } from '../src/sandbox/simulation-source-rep
 import type { workspaceStatus } from '../src/sandbox/workspace-status.js';
 
 type Inventory=Awaited<ReturnType<typeof inspectSandboxInventory>>;
-// Allocate the new transport fixtures before the unchanged five-second assertion case.
-// Unauthorized callers still fail inside the original case before any resources start.
-let nbdAuthorized=false;
-const nbdLeases=[randomUUID(),randomUUID()].map(value=>{
-  const id=`workspace-lease-${value}`,directory=join(workspaceStorageRoot,'leases',id);
-  return {id,directory,image:join(directory,'work.qcow2')};
- });
- const attached=new Map<string,WorkspaceDisk>(),released=new Set<string>();
- const originalImages=new Map<string,Buffer>();
- const nativeNbd=(disk:WorkspaceDisk)=>{
-  const threadId=Number(readFileSync(`/sys/block/${disk.device.slice(5)}/pid`,'utf8').trim());
-  const processId=Number(readFileSync(join(disk.directory,'nbd.pid'),'utf8').trim());
-  expect(Number.isSafeInteger(threadId)&&threadId>0).toBe(true);expect(Number.isSafeInteger(processId)&&processId>0).toBe(true);
-  expect(readFileSync(`/proc/${threadId}/status`,'utf8').match(/^Tgid:\s+([0-9]+)$/mu)?.[1]).toBe(String(processId));
-  expect(readlinkSync(`/proc/${processId}/exe`)).toBe('/usr/bin/qemu-nbd');
-  return {device:disk.device,threadId,processId,executable:'/usr/bin/qemu-nbd',image:disk.image,failure:null};
- };
-beforeAll(async()=>{
- if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)return;
- nbdAuthorized=true;
- const command=(path:string,args:string[])=>execFileSync(path,args,{encoding:'utf8',timeout:1000,maxBuffer:32*1024*1024});
-  mkdirSync(join(workspaceStorageRoot,'devices'),{recursive:true,mode:0o700});
-  for(const lease of nbdLeases){
-   mkdirSync(lease.directory,{recursive:true,mode:0o700});
-   command('/usr/bin/qemu-img',['create','-f','qcow2',lease.image,'1M']);
-   originalImages.set(lease.id,readFileSync(lease.image));
-   attached.set(lease.id,await attachWorkspaceDisk(lease,true));
-  }
-});
-afterAll(async()=>{
- if(!nbdAuthorized)return;const failures:unknown[]=[];
-  for(const lease of nbdLeases){
-   try{
-    let disk=attached.get(lease.id);
-    if(!disk){
-     try{const record=JSON.parse(readFileSync(join(lease.directory,'device.json'),'utf8')) as {id:string;device:string};
-      expect(record.id).toBe(lease.id);disk={...lease,device:record.device,unit:`treeseed-${lease.id}.service`};
-     }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
-    }
-    if(disk&&!released.has(lease.id)){await detachWorkspaceDisk(disk,true);released.add(lease.id);}
-    // Keep image and fence on any ambiguous transport failure.
-    rmSync(lease.directory,{recursive:true,force:true});
-   }catch(error){failures.push(error);}
-  }
- if(failures.length)throw new AggregateError(failures,'Native NBD fixture cleanup failed; owning residue retained.');
-});
 it('native installed CLI manager and supervisor observe exact task container mount and directory presence and scoped absence while retaining unrelated resources',async()=>{
  let phase='HOST_AUTHORITY',failedPhase:string|undefined;
  onTestFailed(()=>{throw new Error(`ACCEPTANCE_HOST_INSPECTION_${failedPhase??phase}: Original native failure; inspect retained owning observations.`);});
@@ -131,16 +85,6 @@ it('native installed CLI manager and supervisor observe exact task container mou
    expect(readFileSync(join(unrelatedWorkspace,'work.qcow2'),'utf8')).toBe('keep');
   }
   phase=`${observationPhase}_COMPLETE`;expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
-  const devices=Reflect.get(result,'nbdDevices');expect(Array.isArray(devices)).toBe(true);
-  if(!Array.isArray(devices))throw new Error('Complete original kernel NBD inventory required');
-  expect(devices.map(value=>value.device).sort()).toEqual(readdirSync('/sys/block').filter(name=>/^nbd[0-9]+$/u.test(name)).map(name=>'/dev/'+name).sort());
-  expect(Reflect.get(result.confirmation,'nbdDevices')).toEqual(devices);
-  for(const disk of attached.values()){
-   if(released.has(disk.id))expect(devices).toContainEqual({device:disk.device,threadId:null,processId:null,executable:null,image:null,failure:null});
-   else expect(devices).toContainEqual(nativeNbd(disk));
-   expect(readFileSync(disk.image)).toEqual(originalImages.get(disk.id));
-  }
-
   phase=`${observationPhase}_SCOPE`;
   expect(result.scope.brokerSocket).toBe(configuration.socketPath);expect(envelope.result.runtime).toBe(configuration.runtime);
   expect(result.scope.containerdAddress).toBe(configuration.containerdAddress);expect(result.scope.namespace).toBe(configuration.namespace);expect(result.scope.stateRoot).toBe(configuration.stateRoot);
@@ -177,9 +121,6 @@ it('native installed CLI manager and supervisor observe exact task container mou
   expect(present.mountInfo).toContain(mounted);expect(present.managedDirectory.entries.map(entry=>entry.name)).toEqual(expect.arrayContaining([id,unrelated.split('/').at(-1)!]));
   phase='NATIVE_STOP';ctr(['tasks','kill','--signal','SIGKILL',id]);ctr(['tasks','delete','--force',id]);ctr(['containers','delete',id]);attempted=false;
   phase='SCOPED_TEARDOWN';command('/usr/bin/umount',[mounted]);bound=false;rmSync(directory,{recursive:true});rmSync(workspace,{recursive:true});rmSync(unknownWorkspace);
-  // These read-only transports never had a VM; detach only this fixture's owned disk.
-  phase='SCOPED_NBD_TEARDOWN';const ownNbd=attached.get(nbdLeases[0]!.id)!;
-  await detachWorkspaceDisk(ownNbd,true);released.add(ownNbd.id);
   phase='PUBLIC_ABSENCE';const absent=await inspect();
   expect(absent.tasks!.split('\n')).not.toContain(id);expect(absent.containers!.split('\n')).not.toContain(id);expect(absent.mountInfo).not.toContain(mounted);
   expect(absent.managedDirectory.entries.map(entry=>entry.name)).not.toContain(id);
@@ -215,4 +156,73 @@ it('native installed CLI manager and supervisor observe exact task container mou
   console.log(JSON.stringify({sandboxInspectionObservations:observations,workspaceInspectionObservations:workspaceObservations}));
  }
  if(failures.length)throw new AggregateError(failures,'Native public inspection failed; original and cleanup failures retained.');
+});
+
+it('native installed CLI manager and supervisor retain unrelated NBD transports while observing exact scoped image attachment and detach',async()=>{
+ let phase='HOST_AUTHORITY';onTestFailed(()=>{throw new Error(`ACCEPTANCE_HOST_INSPECTION_${phase}: Original NBD observation failure retained.`);});
+ if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)
+  throw new Error('Disposable privileged owning-host authorization required; public inspection cannot be skipped.');
+ const configuration=loadSandboxBrokerConfiguration();
+ expect(readFileSync('/usr/lib/treeseed/manager/dist/src/sandbox/doctor.js')).toEqual(readFileSync('dist/src/sandbox/doctor.js'));
+ const command=(path:string,args:string[])=>execFileSync(path,args,{encoding:'utf8',timeout:1000,maxBuffer:32*1024*1024});
+ const nbdLeases=[randomUUID(),randomUUID()].map(value=>{
+  const id=`workspace-lease-${value}`,directory=join(workspaceStorageRoot,'leases',id);
+  return {id,directory,image:join(directory,'work.qcow2')};
+ });
+ const attached=new Map<string,WorkspaceDisk>(),released=new Set<string>();
+ const originalImages=new Map<string,Buffer>();
+ const nativeNbd=(disk:WorkspaceDisk)=>{
+  const threadId=Number(readFileSync(`/sys/block/${disk.device.slice(5)}/pid`,'utf8').trim());
+  const processId=Number(readFileSync(join(disk.directory,'nbd.pid'),'utf8').trim());
+  expect(Number.isSafeInteger(threadId)&&threadId>0).toBe(true);expect(Number.isSafeInteger(processId)&&processId>0).toBe(true);
+  expect(readFileSync(`/proc/${threadId}/status`,'utf8').match(/^Tgid:\s+([0-9]+)$/mu)?.[1]).toBe(String(processId));
+  expect(readlinkSync(`/proc/${processId}/exe`)).toBe('/usr/bin/qemu-nbd');
+  return {device:disk.device,threadId,processId,executable:'/usr/bin/qemu-nbd',image:disk.image,failure:null};
+ };
+ const observations:Inventory[]=[],failures:unknown[]=[];
+ const cli=await import('/usr/lib/treeseed/cli/dist/cli/runtime.js' as string) as {runCommandLine:(args:string[],options:{interactiveUi:boolean;write:(output:string)=>void})=>Promise<number>};
+ const inspect=async()=>{
+  const outputs:string[]=[];expect(await cli.runCommandLine(['host','sandbox','status','--json'],{interactiveUi:false,write:output=>outputs.push(output)})).toBe(0);
+  expect(outputs).toHaveLength(1);const envelope=JSON.parse(outputs[0]!) as {ok:boolean;result:{inventory:Inventory}};
+  expect(envelope.ok).toBe(true);const result=envelope.result.inventory;observations.push(result);
+  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);expect(result.scope.brokerSocket).toBe(configuration.socketPath);
+  const devices=result.nbdDevices;expect(Array.isArray(devices)).toBe(true);if(!devices)throw new Error('Complete kernel inventory required');
+  expect(devices.map(value=>value.device).sort()).toEqual(readdirSync('/sys/block').filter(name=>/^nbd[0-9]+$/u.test(name)).map(name=>'/dev/'+name).sort());
+  expect(result.confirmation.nbdDevices).toEqual(devices);
+  for(const disk of attached.values()){
+   if(released.has(disk.id))expect(devices).toContainEqual({device:disk.device,threadId:null,processId:null,executable:null,image:null,failure:null});
+   else expect(devices).toContainEqual(nativeNbd(disk));
+   expect(readFileSync(disk.image)).toEqual(originalImages.get(disk.id));
+  }
+ };
+ try{
+  phase='NATIVE_NBD_PREPARATION';
+  mkdirSync(join(workspaceStorageRoot,'devices'),{recursive:true,mode:0o700});
+  for(const lease of nbdLeases){
+   mkdirSync(lease.directory,{recursive:true,mode:0o700});
+   command('/usr/bin/qemu-img',['create','-f','qcow2',lease.image,'1M']);
+   originalImages.set(lease.id,readFileSync(lease.image));
+   phase='NATIVE_NBD_ATTACH';attached.set(lease.id,await attachWorkspaceDisk(lease,true));
+  }
+  phase='PUBLIC_NBD_PRESENCE';await inspect();
+  // Neither read-only fixture ever had a VM. Release only this fixture's owned transport.
+  phase='SCOPED_NBD_TEARDOWN';const own=attached.get(nbdLeases[0]!.id)!;await detachWorkspaceDisk(own,true);released.add(own.id);
+  phase='PUBLIC_NBD_ABSENCE';await inspect();
+ }catch(error){failures.push(error);}finally{
+  for(const lease of nbdLeases){
+   try{
+    let disk=attached.get(lease.id);
+    if(!disk){
+     try{const record=JSON.parse(readFileSync(join(lease.directory,'device.json'),'utf8')) as {id:string;device:string};
+      expect(record.id).toBe(lease.id);disk={...lease,device:record.device,unit:`treeseed-${lease.id}.service`};
+     }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    }
+    if(disk&&!released.has(lease.id)){await detachWorkspaceDisk(disk,true);released.add(lease.id);}
+    // Keep image and fence on any ambiguous transport failure.
+    rmSync(lease.directory,{recursive:true,force:true});
+   }catch(error){failures.push(error);}
+  }
+  console.log(JSON.stringify({nativeNbdInspectionObservations:observations}));
+ }
+ if(failures.length)throw new AggregateError(failures,'Native NBD inspection or scoped fixture cleanup failed.');
 });

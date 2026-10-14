@@ -1,4 +1,7 @@
 workflow:
+  - id: host-nbd-inventory-native
+    action: { verifier: deployment.golden.host-nbd-inventory-native }
+    expect: { status: passed }
   - id: host-inspection-failure-phase-native
     action: { verifier: deployment.golden.host-inspection-failure-phase-native }
     expect: { status: passed }
