@@ -8,6 +8,8 @@ import { loadSandboxBrokerConfiguration } from '../src/sandbox/configuration.js'
 import type { inspectSandboxInventory } from '../src/sandbox/doctor.js';
 import { containerdImageReference } from '../src/sandbox/image-reference.js';
 import { attachWorkspaceDisk, detachWorkspaceDisk, type WorkspaceDisk, workspaceStorageRoot } from '../src/sandbox/workspace-block-store.js';
+import { workspaceNbdServiceArguments } from '../src/sandbox/workspace-nbd-service.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { simulationSourceRepository } from '../src/sandbox/simulation-source-repository.js';
 import type { workspaceStatus } from '../src/sandbox/workspace-status.js';
 
@@ -189,6 +191,7 @@ it('native installed CLI manager and supervisor retain unrelated NBD transports 
   const devices=result.nbdDevices;expect(Array.isArray(devices)).toBe(true);if(!devices)throw new Error('Complete kernel inventory required');
   expect(devices.map(value=>value.device).sort()).toEqual(readdirSync('/sys/block').filter(name=>/^nbd[0-9]+$/u.test(name)).map(name=>'/dev/'+name).sort());
   expect(result.confirmation.nbdDevices).toEqual(devices);
+  expect(JSON.stringify(result)).not.toContain('controlled-private-nbd-description');
   for(const disk of attached.values()){
    if(released.has(disk.id))expect(devices).toContainEqual({device:disk.device,threadId:null,processId:null,executable:null,image:null,failure:null});
    else expect(devices).toContainEqual(nativeNbd(disk));
@@ -204,6 +207,21 @@ it('native installed CLI manager and supervisor retain unrelated NBD transports 
    originalImages.set(lease.id,readFileSync(lease.image));
    phase='NATIVE_NBD_ATTACH';attached.set(lease.id,await attachWorkspaceDisk(lease,true));
   }
+  // Reconfigure only the fixture's independently fenced unrelated transport.
+  // No VM ever used it; preserve disk/fence ownership and use the original argument builder.
+  const other=attached.get(nbdLeases[1]!.id)!;phase='NATIVE_NBD_ARGUMENT_REPLAY';
+  command('/usr/bin/systemctl',['stop',other.unit]);
+  let vacant=false;
+  for(let attempt=0;attempt<100;attempt++){
+   const state=command('/usr/bin/systemctl',['show',other.unit,'--property=LoadState','--value']).trim();
+   const names=readdirSync('/sys/block/'+other.device.slice(5));
+   if(state==='not-found'&&!names.includes('pid')){vacant=true;break;}await delay(10);
+  }
+  expect(vacant).toBe(true);
+  const service=workspaceNbdServiceArguments({...other,image:'work.qcow2',readOnly:true}),args=[...service.args];
+  const originalImage=args.pop()!;expect(originalImage).toBe(other.image);
+  args.splice(args.indexOf('/usr/bin/qemu-nbd')+1,0,originalImage);
+  args.push('--description','controlled-private-nbd-description');command('/usr/bin/systemd-run',args);
   phase='PUBLIC_NBD_PRESENCE';await inspect();
   // Neither read-only fixture ever had a VM. Release only this fixture's owned transport.
   phase='SCOPED_NBD_TEARDOWN';const own=attached.get(nbdLeases[0]!.id)!;await detachWorkspaceDisk(own,true);released.add(own.id);
