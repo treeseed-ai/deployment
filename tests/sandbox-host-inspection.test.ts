@@ -41,6 +41,7 @@ it('reads complete stable owning host inventories without hiding unrelated resou
  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
  expect(result.scope).toEqual({brokerSocket:configuration.socketPath,containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace});
  expect(result.tasks).toBe(observed.tasks);expect(result.containers).toBe(observed.containers);expect(result.mountInfo).toBe(observed.mounts);
+ expect(Reflect.get(result,'nbdDevices')).toEqual([]);expect(Reflect.get(result.confirmation,'nbdDevices')).toEqual([]);
  expect(result.managedDirectory).toEqual({rootPresent:true,entries:[{name:'audit',type:'directory'},{name:'sandbox-retained',type:'directory'}]});
  expect(observed.calls).toHaveLength(4);
  for(const call of observed.calls){expect(call.path).toBe('/usr/bin/ctr');expect(call.args.slice(0,4)).toEqual(['--address',configuration.containerdAddress,'--namespace',configuration.namespace]);expect(call.args.slice(4)).toMatchObject([expect.stringMatching(/^(tasks|containers)$/u),'list','--quiet']);}

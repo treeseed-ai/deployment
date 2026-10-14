@@ -1,7 +1,7 @@
 import { expect, it, onTestFailed } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadSandboxBrokerConfiguration } from '../src/sandbox/configuration.js';
@@ -85,6 +85,11 @@ it('native installed CLI manager and supervisor observe exact task container mou
    expect(readFileSync(join(unrelatedWorkspace,'work.qcow2'),'utf8')).toBe('keep');
   }
   phase=`${observationPhase}_COMPLETE`;expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
+  const devices=Reflect.get(result,'nbdDevices');expect(Array.isArray(devices)).toBe(true);
+  if(!Array.isArray(devices))throw new Error('Complete original kernel NBD inventory required');
+  expect(devices.map(value=>value.device).sort()).toEqual(readdirSync('/sys/block').filter(name=>/^nbd[0-9]+$/u.test(name)).map(name=>'/dev/'+name).sort());
+  expect(Reflect.get(result.confirmation,'nbdDevices')).toEqual(devices);
+
   phase=`${observationPhase}_SCOPE`;
   expect(result.scope.brokerSocket).toBe(configuration.socketPath);expect(envelope.result.runtime).toBe(configuration.runtime);
   expect(result.scope.containerdAddress).toBe(configuration.containerdAddress);expect(result.scope.namespace).toBe(configuration.namespace);expect(result.scope.stateRoot).toBe(configuration.stateRoot);
