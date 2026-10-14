@@ -16,6 +16,25 @@ function command(path: string, args: string[], trim = true): Promise<string | nu
 type NbdDeviceObservation = { device: string; threadId: number | null; processId: number | null;
  executable: string | null; image: string | null; failure: string | null };
 
+/** Read the sole positional image, never an option's private value. Unknown
+ * separate-value options remain unsupported instead of guessing their arity. */
+function nbdImageArgument(args: string[]): string {
+ let image: string | undefined, positionalOnly = false;
+ for (let index = 1; index < args.length; index++) {
+  const argument = args[index]!;
+  if (!positionalOnly && argument === '--') { positionalOnly = true; continue; }
+  if (!positionalOnly && argument === '--description') {
+   if (++index >= args.length) throw new Error('unsupported'); continue;
+  }
+  if (!positionalOnly && (argument === '--fork' || argument === '--read-only'
+   || /^--[a-z][a-z0-9-]*=/u.test(argument))) continue;
+  if (argument.startsWith('-') || !argument || image !== undefined) throw new Error('unsupported');
+  image = argument;
+ }
+ if (!image || /^[a-z][a-z0-9+.-]*:/iu.test(image)) throw new Error('unsupported');
+ return image;
+}
+
 /** Kernel observations only; no catalog, disk content or transport is changed. */
 function inspectNbdDevices(): { devices: NbdDeviceObservation[] | null; complete: boolean } {
  let names: string[];
@@ -37,9 +56,10 @@ function inspectNbdDevices(): { devices: NbdDeviceObservation[] | null; complete
    if (!isAbsolute(observation.executable)) throw new Error('invalid');
    if (basename(observation.executable.replace(/ \(deleted\)$/u, '')) === 'qemu-nbd') {
     stage = 'image'; const commandLine = readFileSync('/proc/' + processId + '/cmdline', 'utf8');
-    const args = commandLine.split('\0').slice(0, -1), image = args.at(-1);
-    if (!commandLine.endsWith('\0') || args.length < 2 || !image || image.startsWith('-')
-     || args.includes('--image-opts') || /^[a-z][a-z0-9+.-]*:/iu.test(image)) throw new Error('unsupported');
+    const args = commandLine.split('\0').slice(0, -1);
+    if (!commandLine.endsWith('\0') || args.length < 2
+     || args.some(argument => argument === '--image-opts' || argument.startsWith('--image-opts='))) throw new Error('unsupported');
+    const image = nbdImageArgument(args);
     const cwd = isAbsolute(image) ? '/' : readlinkSync('/proc/' + processId + '/cwd');
     if (!isAbsolute(cwd) || cwd.endsWith(' (deleted)')) throw new Error('unavailable');
     observation.image = resolve(cwd, image);
