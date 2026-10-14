@@ -63,6 +63,15 @@ it('reads complete stable owning host inventories without hiding unrelated resou
  expect(result.managedDirectory).toEqual({rootPresent:true,entries:[{name:'audit',type:'directory'},{name:'sandbox-retained',type:'directory'}]});
  expect(observed.calls).toHaveLength(4);
  for(const call of observed.calls){expect(call.path).toBe('/usr/bin/ctr');expect(call.args.slice(0,4)).toEqual(['--address',configuration.containerdAddress,'--namespace',configuration.namespace]);expect(call.args.slice(4)).toMatchObject([expect.stringMatching(/^(tasks|containers)$/u),'list','--quiet']);}
+ for(const args of [
+  ['qemu-nbd','work.qcow2','--description','controlled-private-argument'],
+  ['qemu-nbd','--description=controlled-private-argument','--','work.qcow2'],
+ ]){
+  observed.files['/proc/100/cmdline']=args.join('\0')+'\0';const original=structuredClone(observed.files);
+  const current=await doctor.inspectSandboxInventory(configuration);expect(current.complete).toBe(true);
+  expect(current.nbdDevices?.find(device=>device.device==='/dev/nbd0')?.image).toBe(image);
+  expect(JSON.stringify(current)).not.toContain('controlled-private-argument');expect(observed.files).toEqual(original);
+ }
  expect(configuration).toEqual(held);
 });
 it('distinguishes complete empty inventories and absent managed root from unavailable observations',async()=>{
@@ -82,7 +91,7 @@ it('fails closure on unreadable malformed redirected foreign-namespace or changi
   expect({tasks:observed.tasks,containers:observed.containers,mounts:observed.mounts}).toEqual(held);
  }
  observed.changed=false;observed.rootLink=false;observed.hostNamespace=observed.namespace;observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
- for(const mode of ['root-denied','pid-denied','bad-pid','missing-status','bad-tgid','missing-exe','bad-image','changed']){
+ for(const mode of ['root-denied','pid-denied','bad-pid','missing-status','bad-tgid','missing-exe','bad-image','two-images','description-only','unknown-option','changed']){
   observed.unreadable='';observed.nbd=['nbd0'];observed.nbdReads=0;observed.nbdChanged=mode==='changed';
   observed.files={'/sys/block/nbd0/pid':'101\n','/proc/101/status':'Tgid:\t100\n','/proc/100/cmdline':'qemu-nbd\0work.qcow2\0'};
   observed.links={'/proc/100/exe':'/usr/bin/qemu-nbd','/proc/100/cwd':'/private'};
@@ -90,6 +99,9 @@ it('fails closure on unreadable malformed redirected foreign-namespace or changi
   if(mode==='bad-pid')observed.files['/sys/block/nbd0/pid']='0\n';if(mode==='missing-status')delete observed.files['/proc/101/status'];
   if(mode==='bad-tgid')observed.files['/proc/101/status']='Tgid: invalid\n';if(mode==='missing-exe')observed.unreadable='/proc/100/exe';
   if(mode==='bad-image')observed.files['/proc/100/cmdline']='qemu-nbd\0';
+  if(mode==='two-images')observed.files['/proc/100/cmdline']='qemu-nbd\0first.qcow2\0work.qcow2\0';
+  if(mode==='description-only')observed.files['/proc/100/cmdline']='qemu-nbd\0--description\0work.qcow2\0';
+  if(mode==='unknown-option')observed.files['/proc/100/cmdline']='qemu-nbd\0work.qcow2\0--unknown-option\0controlled-private-argument\0';
   const held=structuredClone({files:observed.files,links:observed.links}),result=await doctor.inspectSandboxInventory(configuration);
   expect(result.complete,mode).toBe(false);expect(result.errors).toContain(mode==='changed'?'nbd_inventory_changed':'nbd_inventory_unavailable');
   expect({files:observed.files,links:observed.links}).toEqual(held);
