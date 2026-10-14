@@ -19,10 +19,10 @@ it('native denied host inspection retains its exact safe phase before resource s
   expect(actual.error).toBeUndefined();expect(actual.signal).toBeNull();expect(actual.status).toBe(1);
   const report=JSON.parse(readFileSync(reportFile,'utf8')) as {numTotalTests:number;numFailedTests:number;numPendingTests:number;numTodoTests:number;
    testResults:{assertionResults:{status:string;failureMessages:string[]}[]}[]};
-  expect(report).toMatchObject({numTotalTests:1,numFailedTests:1,numPendingTests:0,numTodoTests:0});
-  const rows=report.testResults.flatMap(file=>file.assertionResults);expect(rows).toHaveLength(1);expect(rows[0]!.status).toBe('failed');
-  expect(rows[0]!.failureMessages.join('\n')).toContain('Disposable privileged owning-host authorization required');
-  expect(rows[0]!.failureMessages.join('\n')).toContain('ACCEPTANCE_HOST_INSPECTION_HOST_AUTHORITY:');
+  expect(report).toMatchObject({numTotalTests:2,numFailedTests:2,numPendingTests:0,numTodoTests:0});
+  const rows=report.testResults.flatMap(file=>file.assertionResults);expect(rows).toHaveLength(2);for(const row of rows){expect(row.status).toBe('failed');
+  expect(row.failureMessages.join('\n')).toContain('Disposable privileged owning-host authorization required');
+  expect(row.failureMessages.join('\n')).toContain('ACCEPTANCE_HOST_INSPECTION_HOST_AUTHORITY:');}
  } finally {rmSync(root,{recursive:true,force:true});expect(existsSync(root)).toBe(false);}
 });
 

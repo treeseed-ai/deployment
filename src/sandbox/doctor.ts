@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, readlinkSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { accessSync, constants, existsSync, readFileSync, readlinkSync, readdirSync } from 'node:fs';
+import { basename, isAbsolute, resolve } from 'node:path';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { containerdImageReference } from './image-reference.js';
 import { inspectManagedDirectory } from './directory-inspection.js';
@@ -13,12 +13,52 @@ function command(path: string, args: string[], trim = true): Promise<string | nu
  });
 }
 
+type NbdDeviceObservation = { device: string; threadId: number | null; processId: number | null;
+ executable: string | null; image: string | null; failure: string | null };
+
+/** Kernel observations only; no catalog, disk content or transport is changed. */
+function inspectNbdDevices(): { devices: NbdDeviceObservation[] | null; complete: boolean } {
+ let names: string[];
+ try {
+  names = readdirSync('/sys/block').filter(name => name.startsWith('nbd')).sort();
+  if (new Set(names).size !== names.length || names.some(name => !/^nbd[0-9]+$/u.test(name))) throw new Error();
+ } catch { return { devices: null, complete: false }; }
+ const devices: NbdDeviceObservation[] = []; let complete = true;
+ for (const name of names) {
+  const observation: NbdDeviceObservation = { device: '/dev/' + name, threadId: null, processId: null, executable: null, image: null, failure: null };
+  devices.push(observation); let stage = 'pid';
+  try {
+   const raw = readFileSync('/sys/block/' + name + '/pid', 'utf8'), pid = /^([1-9][0-9]*)\n?$/u.exec(raw)?.[1];
+   if (!pid || !Number.isSafeInteger(Number(pid))) throw new Error('invalid'); observation.threadId = Number(pid);
+   stage = 'thread'; const status = readFileSync('/proc/' + pid + '/status', 'utf8');
+   const processId = /^Tgid:[ \t]+([1-9][0-9]*)$/mu.exec(status)?.[1];
+   if (!processId || !Number.isSafeInteger(Number(processId))) throw new Error('invalid'); observation.processId = Number(processId);
+   stage = 'executable'; observation.executable = readlinkSync('/proc/' + processId + '/exe');
+   if (!isAbsolute(observation.executable)) throw new Error('invalid');
+   if (basename(observation.executable.replace(/ \(deleted\)$/u, '')) === 'qemu-nbd') {
+    stage = 'image'; const commandLine = readFileSync('/proc/' + processId + '/cmdline', 'utf8');
+    const args = commandLine.split('\0').slice(0, -1), image = args.at(-1);
+    if (!commandLine.endsWith('\0') || args.length < 2 || !image || image.startsWith('-')
+     || args.includes('--image-opts') || /^[a-z][a-z0-9+.-]*:/iu.test(image)) throw new Error('unsupported');
+    const cwd = isAbsolute(image) ? '/' : readlinkSync('/proc/' + processId + '/cwd');
+    if (!isAbsolute(cwd) || cwd.endsWith(' (deleted)')) throw new Error('unavailable');
+    observation.image = resolve(cwd, image);
+   }
+  } catch (failure) {
+   if (stage === 'pid' && (failure as NodeJS.ErrnoException).code === 'ENOENT') continue;
+   observation.failure = stage + ':' + ((failure as NodeJS.ErrnoException).code ?? 'invalid'); complete = false;
+  }
+ }
+ return { devices, complete };
+}
+
 /** Observations only: this boundary never constructs or reconciles a sandbox runtime. */
 export async function inspectSandboxInventory(configuration: SandboxBrokerConfiguration) {
  const startedAt = new Date().toISOString(), errors: string[] = [];
  const prefix = ['--address', configuration.containerdAddress, '--namespace', configuration.namespace];
  const listed = () => Promise.all(['tasks', 'containers'].map(kind => command('/usr/bin/ctr', [...prefix, kind, 'list', '--quiet'], false)));
  const [tasks, containers] = await listed();
+ const nbd = inspectNbdDevices();
  const ids = (value: string) => (value.endsWith('\n') ? value.slice(0, -1) : value).split('\n');
  const validList = (value: string | null | undefined) => {
   if (value === null || value === undefined) return false;
@@ -48,6 +88,9 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
   inspectManagedDirectory(root, managedDirectory);
  } catch { errors.push('managed_directory_inventory_unavailable'); }
  const [finalTasks, finalContainers] = await listed();
+ const finalNbd = inspectNbdDevices();
+ if (!nbd.complete || !finalNbd.complete) errors.push('nbd_inventory_unavailable');
+ if (JSON.stringify(nbd.devices) !== JSON.stringify(finalNbd.devices)) errors.push('nbd_inventory_changed');
  const sameInventory = (before: string | null | undefined, after: string | null | undefined) => validList(before) && validList(after)
   && ids(before!).sort().join('\n') === ids(after!).sort().join('\n');
  if (!sameInventory(tasks, finalTasks) || !sameInventory(containers, finalContainers))
@@ -55,7 +98,8 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
  return { startedAt, completedAt: new Date().toISOString(), complete: errors.length === 0,
   scope: { brokerSocket: configuration.socketPath,
    containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace },
-  tasks: tasks ?? null, containers: containers ?? null, confirmation: { tasks: finalTasks ?? null, containers: finalContainers ?? null },
+  tasks: tasks ?? null, containers: containers ?? null, nbdDevices: nbd.devices,
+  confirmation: { tasks: finalTasks ?? null, containers: finalContainers ?? null, nbdDevices: finalNbd.devices },
   mountInfo, managedDirectory, errors };
 }
 

@@ -4,6 +4,7 @@ import * as doctor from '../src/sandbox/doctor.js';
 
 const observed=vi.hoisted(()=>({tasks:'unrelated-task\n',containers:'unrelated-container\n',mounts:'1 0 0:1 / / rw - rootfs rootfs rw\n',
  namespace:'mnt:[1234]',hostNamespace:'mnt:[1234]',rootPresent:true,rootLink:false,unreadable:'',entries:['sandbox-retained','audit'],
+ nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
  calls:[] as {path:string;args:readonly string[]}[],changed:false,reordered:false,hostFailure:''}));
 vi.mock('node:child_process',()=>({execFile:vi.fn((path:string,args:readonly string[],_options:unknown,callback:(error:Error|null,stdout:string,stderr:string)=>void)=>{
  observed.calls.push({path,args:[...args]});const kind=args.includes('tasks')?'tasks':'containers';
@@ -14,8 +15,12 @@ vi.mock('node:child_process',()=>({execFile:vi.fn((path:string,args:readonly str
 }),execFileSync:vi.fn()}));
 vi.mock('node:fs',()=>({
  accessSync:vi.fn(),constants:{R_OK:4,W_OK:2},existsSync:()=>false,
- readFileSync:(path:string)=>{if(observed.unreadable==='mounts')throw new Error('denied');expect(path).toBe('/proc/1/mountinfo');return observed.mounts;},
- readlinkSync:(path:string)=>{if(observed.unreadable==='namespace')throw new Error('denied');return path==='/proc/1/ns/mnt'?observed.hostNamespace:observed.namespace;},
+ readFileSync:(path:string)=>{if(path!=='/proc/1/mountinfo'){
+  if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});
+  if(Object.hasOwn(observed.files,path))return observed.files[path];throw Object.assign(new Error('absent'),{code:'ENOENT'});
+ }if(observed.unreadable==='mounts')throw new Error('denied');return observed.mounts;},
+ readlinkSync:(path:string)=>{if(Object.hasOwn(observed.links,path)){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});return observed.links[path];}
+  if(observed.unreadable==='namespace')throw new Error('denied');return path==='/proc/1/ns/mnt'?observed.hostNamespace:observed.namespace;},
  realpathSync:(path:string)=>observed.rootLink?'/redirected':path,
  lstatSync:(path:string)=>{
   const host=path.startsWith('/proc/1/root');
@@ -26,21 +31,35 @@ vi.mock('node:fs',()=>({
   const directory=['/var','/var/lib','/var/lib/treeseed'].includes(path)||path==='/var/lib/treeseed/sandboxes'||path.endsWith('/sandbox-retained')||path.endsWith('/audit');
   return {dev:1,ino:host&&observed.hostFailure==='inode'?456:123,isDirectory:()=>directory,isFile:()=>!directory,isSymbolicLink:()=>observed.rootLink};
  },
- readdirSync:(path:string)=>{expect(path).toBe('/proc/1/root/var/lib/treeseed/sandboxes');if(observed.unreadable==='directories')throw new Error('denied');return [...observed.entries];},
+ readdirSync:(path:string)=>{if(path==='/sys/block'){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});
+  observed.nbdReads++;return [...observed.nbd,...(observed.nbdChanged&&observed.nbdReads>1?['nbd3']:[])];}expect(path).toBe('/proc/1/root/var/lib/treeseed/sandboxes');if(observed.unreadable==='directories')throw new Error('denied');return [...observed.entries];},
 }));
 const configuration:SandboxBrokerConfiguration={socketPath:'/run/treeseed/sandbox/broker.sock',containerdAddress:'/run/containerd/containerd.sock',
  namespace:'treeseed-sandboxes',runtime:'io.containerd.kata.v2',stateRoot:'/var/lib/treeseed/sandboxes',trustedProvidersPath:'/etc/treeseed/sandbox/providers.json',
  relay:{listenHost:'10.89.0.1',port:7443,publicUrl:'https://10.89.0.1:7443',certificateFile:'/etc/treeseed/sandbox/relay.crt',privateKeyFile:'/run/credentials/relay-tls-key'},guestImages:[]};
 beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated-container\n';observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
- observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';});
+ observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';observed.nbd=[];observed.files={};observed.links={};observed.nbdReads=0;observed.nbdChanged=false;});
 
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
+ const image='/var/lib/treeseed/agent/workspaces/leases/workspace-lease-11111111-1111-4111-8111-111111111111/work.qcow2';
+ observed.nbd=['nbd2','nbd1','nbd0'];observed.files={'/sys/block/nbd0/pid':'101\n','/sys/block/nbd1/pid':'201\n',
+  '/proc/101/status':'Tgid:\t100\n','/proc/201/status':'Tgid:\t200\n',
+  '/proc/100/cmdline':'qemu-nbd\0--description\0controlled-private-argument\0work.qcow2\0',
+  '/proc/200/cmdline':'qemu-nbd\0/private/unrelated.img\0'};
+ observed.links={'/proc/100/exe':'/usr/bin/qemu-nbd','/proc/200/exe':'/usr/bin/qemu-nbd',
+  '/proc/100/cwd':image.slice(0,image.lastIndexOf('/')),'/proc/200/cwd':'/private'};
+
  observed.mounts+='2 1 0:4 net:[4026533736] /run/docker/netns/retained rw shared:7 - nsfs nsfs rw\n'
   +'3 1 0:4 mnt:[4026533684] /run/snapd/ns/retained.mnt rw - nsfs nsfs rw\n';
  const held=structuredClone(configuration),result=await doctor.inspectSandboxInventory(configuration);
  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
  expect(result.scope).toEqual({brokerSocket:configuration.socketPath,containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace});
  expect(result.tasks).toBe(observed.tasks);expect(result.containers).toBe(observed.containers);expect(result.mountInfo).toBe(observed.mounts);
+ expect(Reflect.get(result,'nbdDevices')).toEqual([
+  {device:'/dev/nbd0',threadId:101,processId:100,executable:'/usr/bin/qemu-nbd',image,failure:null},
+  {device:'/dev/nbd1',threadId:201,processId:200,executable:'/usr/bin/qemu-nbd',image:'/private/unrelated.img',failure:null},
+  {device:'/dev/nbd2',threadId:null,processId:null,executable:null,image:null,failure:null}]);
+ expect(Reflect.get(result.confirmation,'nbdDevices')).toEqual(Reflect.get(result,'nbdDevices'));expect(JSON.stringify(result)).not.toContain('controlled-private-argument');
  expect(result.managedDirectory).toEqual({rootPresent:true,entries:[{name:'audit',type:'directory'},{name:'sandbox-retained',type:'directory'}]});
  expect(observed.calls).toHaveLength(4);
  for(const call of observed.calls){expect(call.path).toBe('/usr/bin/ctr');expect(call.args.slice(0,4)).toEqual(['--address',configuration.containerdAddress,'--namespace',configuration.namespace]);expect(call.args.slice(4)).toMatchObject([expect.stringMatching(/^(tasks|containers)$/u),'list','--quiet']);}
@@ -50,6 +69,7 @@ it('distinguishes complete empty inventories and absent managed root from unavai
  observed.tasks='';observed.containers='';observed.rootPresent=false;
  const result=await doctor.inspectSandboxInventory(configuration);
  expect(result.complete).toBe(true);expect(result.tasks).toBe('');expect(result.containers).toBe('');expect(result.managedDirectory).toEqual({rootPresent:false,entries:[]});
+ expect(Reflect.get(result,'nbdDevices')).toEqual([]);expect(Reflect.get(result.confirmation,'nbdDevices')).toEqual([]);
 });
 it('fails closure on unreadable malformed redirected foreign-namespace or changing observations while retaining native evidence',async()=>{
  for(const mode of ['tasks','containers','mounts','namespace','directories','duplicate-task','malformed-container','malformed-mount','empty-mount','namespace-mismatch','root-link','changing']){
@@ -61,6 +81,20 @@ it('fails closure on unreadable malformed redirected foreign-namespace or changi
   expect(result.complete,mode).toBe(false);expect(result.errors.length,mode).toBeGreaterThan(0);
   expect({tasks:observed.tasks,containers:observed.containers,mounts:observed.mounts}).toEqual(held);
  }
+ observed.changed=false;observed.rootLink=false;observed.hostNamespace=observed.namespace;observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
+ for(const mode of ['root-denied','pid-denied','bad-pid','missing-status','bad-tgid','missing-exe','bad-image','changed']){
+  observed.unreadable='';observed.nbd=['nbd0'];observed.nbdReads=0;observed.nbdChanged=mode==='changed';
+  observed.files={'/sys/block/nbd0/pid':'101\n','/proc/101/status':'Tgid:\t100\n','/proc/100/cmdline':'qemu-nbd\0work.qcow2\0'};
+  observed.links={'/proc/100/exe':'/usr/bin/qemu-nbd','/proc/100/cwd':'/private'};
+  if(mode==='root-denied')observed.unreadable='/sys/block';if(mode==='pid-denied')observed.unreadable='/sys/block/nbd0/pid';
+  if(mode==='bad-pid')observed.files['/sys/block/nbd0/pid']='0\n';if(mode==='missing-status')delete observed.files['/proc/101/status'];
+  if(mode==='bad-tgid')observed.files['/proc/101/status']='Tgid: invalid\n';if(mode==='missing-exe')observed.unreadable='/proc/100/exe';
+  if(mode==='bad-image')observed.files['/proc/100/cmdline']='qemu-nbd\0';
+  const held=structuredClone({files:observed.files,links:observed.links}),result=await doctor.inspectSandboxInventory(configuration);
+  expect(result.complete,mode).toBe(false);expect(result.errors).toContain(mode==='changed'?'nbd_inventory_changed':'nbd_inventory_unavailable');
+  expect({files:observed.files,links:observed.links}).toEqual(held);
+ }
+ observed.nbd=[];observed.nbdChanged=false;observed.unreadable='';
  for(const [root,filesystem] of [['net:[other]','nsfs'],['net:[42','nsfs'],['net:42','nsfs'],[':[42]','nsfs'],['relative','nsfs'],['net:[42]','ext4']]){
   observed.mounts=`1 0 0:4 ${root} /run/retained rw - ${filesystem} ${filesystem} rw\n`;
   const result=await doctor.inspectSandboxInventory(configuration);

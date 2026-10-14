@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.host-nbd-inventory-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection-native.test.ts
+    testName: native installed CLI manager and supervisor retain unrelated NBD transports while observing exact scoped image attachment and detach
   deployment.golden.host-inspection-failure-phase-native:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
