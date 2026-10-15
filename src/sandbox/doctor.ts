@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, readlinkSync, readdirSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, readlinkSync, readdirSync, lstatSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { containerdImageReference } from './image-reference.js';
@@ -72,13 +72,65 @@ function inspectNbdDevices(): { devices: NbdDeviceObservation[] | null; complete
  return { devices, complete };
 }
 
+type VmProcessObservation={processId:number;startTicks:string|null;executable:string|null;name:string|null;failure:string|null};
+const vmProcRoot='/proc/1/root/proc';
+/** Fixed owning-host procfs, never the supervisor's possibly private mount
+ * view. Kata4.1.0 emits -name sandbox-<id>; only that public name is retained.
+ * https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/crates/hypervisor/src/qemu/cmdline_generator.rs */
+function inspectVmProcesses():{processes:VmProcessObservation[]|null;pidNamespace:string|null;complete:boolean}{
+ let names:string[],pidNamespace:string|null=null;
+ try{
+  pidNamespace=readlinkSync(vmProcRoot+'/1/ns/pid');
+  if(!/^pid:\[\d+\]$/u.test(pidNamespace)||pidNamespace!==readlinkSync('/proc/self/ns/pid'))throw new Error('foreign_pid_namespace');
+  names=readdirSync(vmProcRoot).filter(name=>/^\d+$/u.test(name));
+  if(new Set(names).size!==names.length||names.some(name=>!/^([1-9][0-9]*)$/u.test(name)||!Number.isSafeInteger(Number(name))))throw new Error('invalid_pid_inventory');
+  names.sort((a,b)=>Number(a)-Number(b));
+ }catch{return{processes:null,pidNamespace,complete:false};}
+ const processes:VmProcessObservation[]=[];let complete=true;
+ const ticks=(pid:string)=>{
+  const stat=readFileSync(vmProcRoot+'/'+pid+'/stat','utf8'),end=stat.lastIndexOf(') ');
+  if(!stat.startsWith(pid+' (')||end<0)throw new Error('invalid_stat');
+  const fields=stat.slice(end+2).trimEnd().split(' '),start=fields[19];
+  if(!start||!/^[1-9][0-9]*$/u.test(start))throw new Error('invalid_start_ticks');return start;
+ };
+ for(const pid of names){
+  const observation:VmProcessObservation={processId:Number(pid),startTicks:null,executable:null,name:null,failure:null};let stage='executable';
+  try{
+   try{observation.executable=readlinkSync(vmProcRoot+'/'+pid+'/exe');}
+   catch(error){
+    if((error as NodeJS.ErrnoException).code==='ENOENT'||(error as NodeJS.ErrnoException).code==='ESRCH'){
+     try{const status=readFileSync(vmProcRoot+'/'+pid+'/status','utf8');if(/^Kthread:[ \t]+1$/mu.test(status)||/^State:[ \t]+Z(?:[ \t]|$)/mu.test(status))continue;}
+     catch(statusError){if(!['ENOENT','ESRCH'].includes((statusError as NodeJS.ErrnoException).code??''))throw statusError;}
+     // The process can exit after a successful status read too. Confirm actual
+     // procfs disappearance; a still-present unreadable identity remains fatal.
+     try{lstatSync(vmProcRoot+'/'+pid);}catch(absent){if(['ENOENT','ESRCH'].includes((absent as NodeJS.ErrnoException).code??''))continue;throw absent;}
+    }throw error;
+   }
+   if(!isAbsolute(observation.executable))throw new Error('invalid_executable');
+   const executable=basename(observation.executable.replace(/ \(deleted\)$/u,''));
+   const qemu=/^qemu-system-[a-zA-Z0-9_]+$/u.test(executable)||executable==='qemu-kvm';
+   if(!qemu&&!['cloud-hypervisor','firecracker','crosvm','qemu'].includes(executable))continue;
+   stage='identity';observation.startTicks=ticks(pid);if(!qemu)throw new Error('unsupported_hypervisor');
+   stage='name';const raw=readFileSync(vmProcRoot+'/'+pid+'/cmdline','utf8'),args=raw.split('\0').slice(0,-1);
+   if(!raw.endsWith('\0'))throw new Error('truncated_command');
+   const positions=args.flatMap((value,index)=>value==='-name'?[index]:[]);
+   const name=positions.length===1?args[positions[0]!+1]:undefined;
+   if(!name||!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,199}$/u.test(name))throw new Error('unsupported_name');
+   observation.name=name;
+   stage='identity';if(ticks(pid)!==observation.startTicks||readlinkSync(vmProcRoot+'/'+pid+'/exe')!==observation.executable)throw new Error('process_identity_changed');
+   processes.push(observation);
+  }catch(error){observation.failure=stage+':'+((error as NodeJS.ErrnoException).code??(error instanceof Error?error.message:'invalid'));processes.push(observation);complete=false;}
+ }
+ return{processes,pidNamespace,complete};
+}
+
 /** Observations only: this boundary never constructs or reconciles a sandbox runtime. */
 export async function inspectSandboxInventory(configuration: SandboxBrokerConfiguration) {
  const startedAt = new Date().toISOString(), errors: string[] = [];
  const prefix = ['--address', configuration.containerdAddress, '--namespace', configuration.namespace];
  const listed = () => Promise.all(['tasks', 'containers'].map(kind => command('/usr/bin/ctr', [...prefix, kind, 'list', '--quiet'], false)));
  const [tasks, containers] = await listed();
- const nbd = inspectNbdDevices();
+ const nbd = inspectNbdDevices(), vms=inspectVmProcesses();
  const ids = (value: string) => (value.endsWith('\n') ? value.slice(0, -1) : value).split('\n');
  const validList = (value: string | null | undefined) => {
   if (value === null || value === undefined) return false;
@@ -108,7 +160,9 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
   inspectManagedDirectory(root, managedDirectory);
  } catch { errors.push('managed_directory_inventory_unavailable'); }
  const [finalTasks, finalContainers] = await listed();
- const finalNbd = inspectNbdDevices();
+ const finalNbd = inspectNbdDevices(), finalVms=inspectVmProcesses();
+ if(!vms.complete||!finalVms.complete)errors.push('vm_inventory_unavailable');
+ if(JSON.stringify(vms.processes)!==JSON.stringify(finalVms.processes)||vms.pidNamespace!==finalVms.pidNamespace)errors.push('vm_inventory_changed');
  if (!nbd.complete || !finalNbd.complete) errors.push('nbd_inventory_unavailable');
  if (JSON.stringify(nbd.devices) !== JSON.stringify(finalNbd.devices)) errors.push('nbd_inventory_changed');
  const sameInventory = (before: string | null | undefined, after: string | null | undefined) => validList(before) && validList(after)
@@ -117,9 +171,9 @@ export async function inspectSandboxInventory(configuration: SandboxBrokerConfig
   errors.push('containerd_inventory_changed_or_incomplete');
  return { startedAt, completedAt: new Date().toISOString(), complete: errors.length === 0,
   scope: { brokerSocket: configuration.socketPath,
-   containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace },
-  tasks: tasks ?? null, containers: containers ?? null, nbdDevices: nbd.devices,
-  confirmation: { tasks: finalTasks ?? null, containers: finalContainers ?? null, nbdDevices: finalNbd.devices },
+   containerdAddress: configuration.containerdAddress, namespace: configuration.namespace, stateRoot: configuration.stateRoot, mountNamespace, pidNamespace:vms.pidNamespace, procRoot:vmProcRoot },
+  tasks: tasks ?? null, containers: containers ?? null, nbdDevices: nbd.devices, vmProcesses:vms.processes,
+  confirmation: { tasks: finalTasks ?? null, containers: finalContainers ?? null, nbdDevices: finalNbd.devices, vmProcesses:finalVms.processes },
   mountInfo, managedDirectory, errors };
 }
 

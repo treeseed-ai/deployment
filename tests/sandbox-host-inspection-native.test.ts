@@ -1,5 +1,5 @@
 import { expect, it, onTestFailed } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -243,4 +243,43 @@ it('native installed CLI manager and supervisor retain unrelated NBD transports 
   console.log(JSON.stringify({nativeNbdInspectionObservations:observations}));
  }
  if(failures.length)throw new AggregateError(failures,'Native NBD inspection or scoped fixture cleanup failed.');
+});
+
+it('native installed CLI manager and supervisor observe actual pinned QEMU process presence and scoped absence while retaining an unrelated VM',async()=>{
+ onTestFailed(()=>{if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)throw new Error('ACCEPTANCE_HOST_INSPECTION_HOST_AUTHORITY: Original denied VM inspection retained.');});
+ if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)throw new Error('Disposable privileged owning-host authorization required; VM inspection cannot be skipped.');
+ expect(readFileSync('/usr/lib/treeseed/manager/dist/src/sandbox/doctor.js')).toEqual(readFileSync('dist/src/sandbox/doctor.js'));
+ const configuration=loadSandboxBrokerConfiguration(),own='sandbox-inspection-'+randomUUID(),unrelated='sandbox-unrelated-'+randomUUID();
+ const children:Array<{child:ChildProcess;closed:boolean}>=[],observations:Inventory[]=[],failures:unknown[]=[];
+ const cli=await import('/usr/lib/treeseed/cli/dist/cli/runtime.js' as string) as {runCommandLine:(args:string[],options:{interactiveUi:boolean;write:(output:string)=>void})=>Promise<number>};
+ const inspect=async()=>{
+  const outputs:string[]=[];expect(await cli.runCommandLine(['host','sandbox','status','--json'],{interactiveUi:false,write:value=>outputs.push(value)})).toBe(0);expect(outputs).toHaveLength(1);
+  const envelope=JSON.parse(outputs[0]!) as {ok:boolean;result:{inventory:Inventory}};expect(envelope.ok).toBe(true);const result=envelope.result.inventory;observations.push(result);
+  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);expect(Reflect.get(result.scope,'pidNamespace')).toBe(readlinkSync('/proc/1/ns/pid'));
+  expect(result.scope.namespace).toBe(configuration.namespace);expect(Reflect.get(result,'vmProcesses')).toEqual(Reflect.get(result.confirmation,'vmProcesses'));
+  return Reflect.get(result,'vmProcesses') as Array<{processId:number;startTicks:string;executable:string;name:string;failure:null}>;
+ };
+ const start=async(name:string)=>{
+  // The already qualified disposable host owns actual KVM_CREATE_VM support.
+  // This real pinned QEMU process proves inspection, not a managed guest/model.
+  const child=spawn('/opt/kata/bin/qemu-system-x86_64',['-machine','none','-accel','kvm','-m','32M','-nodefaults','-nographic','-S','-name','sandbox-'+name],{stdio:['ignore','ignore','pipe']});
+  const state={child,closed:false};children.push(state);child.once('close',()=>{state.closed=true;});let stderr='';child.stderr?.on('data',(value:Buffer)=>{stderr+=value.toString();});
+  await new Promise<void>((done,reject)=>{child.once('spawn',done);child.once('error',reject);});await delay(30);expect(state.closed,stderr).toBe(false);expect(child.pid).toBeGreaterThan(0);return state;
+ };
+ const stop=async(state:typeof children[number])=>{
+  if(state.closed)return;state.child.kill('SIGTERM');
+  await new Promise<void>((done,reject)=>{const kill=setTimeout(()=>{if(!state.closed)state.child.kill('SIGKILL');},1000),deadline=setTimeout(()=>{clearTimeout(kill);reject(new Error('Original five-second owned QEMU stop bound elapsed'));},5000);
+   state.child.once('close',()=>{clearTimeout(kill);clearTimeout(deadline);done();});});expect(state.closed).toBe(true);
+ };
+ try{
+  const selected=await start(own),other=await start(unrelated),present=await inspect();
+  for(const [state,name]of [[selected,own],[other,unrelated]] as const){const exact=present.filter(row=>row.processId===state.child.pid);expect(exact).toHaveLength(1);expect(exact[0]).toMatchObject({name:'sandbox-'+name,failure:null,startTicks:expect.stringMatching(/^[1-9][0-9]*$/u)});}
+  await stop(selected);const absent=await inspect();expect(absent.some(row=>row.processId===selected.child.pid||row.name==='sandbox-'+own)).toBe(false);
+  expect(absent.find(row=>row.processId===other.child.pid)).toEqual(present.find(row=>row.processId===other.child.pid));expect(other.closed).toBe(false);
+  const replay=await inspect();expect(replay.find(row=>row.processId===other.child.pid)).toEqual(absent.find(row=>row.processId===other.child.pid));
+ }catch(error){failures.push(error);}finally{
+  for(const state of children)try{await stop(state);}catch(error){failures.push(error);}
+  console.log(JSON.stringify({nativeQemuInspectionObservations:observations,ownedProcessCleanup:children.map(state=>({pid:state.child.pid,closed:state.closed}))}));
+ }
+ if(failures.length)throw new AggregateError(failures,'Native VM inspection or owned cleanup failed; original observations retained.');
 });

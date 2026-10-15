@@ -1231,3 +1231,27 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-status.test.ts
     testName: reads canonical published source custody from the owning journal without exposing private results or accepting redirected repositories
+
+  deployment.golden.host-vm-inventory-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: "requires complete stable native VM process identities and original Kata names while retaining unrelated VMs and withholding private arguments"
+
+  deployment.golden.host-vm-inventory-denial-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: "fails physical closure on unreadable malformed changing or ambiguously named VM inventories without changing original observations"
+
+  deployment.golden.host-vm-inventory-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection-native.test.ts
+    testName: "native installed CLI manager and supervisor observe actual pinned QEMU process presence and scoped absence while retaining an unrelated VM"
+
+  deployment.golden.host-vm-exited-process-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: "confirms native process disappearance after executable lookup instead of reporting a vanished ordinary process as VM residue"
