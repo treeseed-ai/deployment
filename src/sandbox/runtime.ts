@@ -295,7 +295,8 @@ export class KataSandboxRuntime {
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
 		const resolverFile = await materializeGuestResolver(sandbox.directory);
 		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
-		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes });
+		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes,
+			network: sandbox.assignment.network.allowedServices.length ? 'relay' : 'none' });
 		if (sandbox.closing || !this.sandboxes.has(sandboxId)) {
 			if (!this.removeContainer(warm.id)) throw new Error('Cancelled sandbox VM remains quarantined.');
 			throw new Error('Sandbox was destroyed while preparing its VM.');
