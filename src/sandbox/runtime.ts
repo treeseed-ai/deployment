@@ -295,14 +295,15 @@ export class KataSandboxRuntime {
 		await writeFile(resolve(sandbox.inputDirectory, 'execution.json'), `${JSON.stringify(execution)}\n`, { mode: 0o400, flag: 'wx' }); await chown(resolve(sandbox.inputDirectory, 'execution.json'), 65_532, 65_532);
 		const resolverFile = await materializeGuestResolver(sandbox.directory);
 		const image = containerdImageReference(sandbox.assignment.guestImage, sandbox.assignment.guestImageDigest);
-		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes });
+		const warm = await this.warmPool.acquire({ image, cpuCores: sandbox.assignment.resources.cpuCores, memoryBytes: sandbox.assignment.resources.memoryBytes,
+			network: sandbox.assignment.network.allowedServices.length ? 'relay' : 'none' });
 		if (sandbox.closing || !this.sandboxes.has(sandboxId)) {
 			if (!this.removeContainer(warm.id)) throw new Error('Cancelled sandbox VM remains quarantined.');
 			throw new Error('Sandbox was destroyed while preparing its VM.');
 		}
 		sandbox.warmSandboxId = warm.id;
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired while preparing its VM.');
-		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed });
+		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed, vmId: warm.id });
 		if (source) {
 			sandbox.source!.attachment();
 			await this.emit(sandbox, 'execution.progress', { stage: 'source.attached', source: source.authorization.source,
@@ -442,7 +443,7 @@ export class KataSandboxRuntime {
 		const source = sandbox.source ?? await sandbox.sourceInitialization;
 		const sourceTeardown = source ? await this.sourceStore.finish(sandboxId, source, sandbox.result, verified) : null;
 		for(const waiter of sandbox.toolWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Sandbox was destroyed.'));} sandbox.toolWaiters.clear();
-		await this.emit(sandbox, 'sandbox.destroyed', { verified, sourceTeardown });
+		await this.emit(sandbox, 'sandbox.destroyed', { verified, sourceTeardown, vmId: sandbox.warmSandboxId ?? null });
 		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }
 		return { sandboxId, destroyed: verified, teardown: { verified, completedAt: new Date().toISOString() }, events: sandbox.events };
 	}

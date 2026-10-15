@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, onTestFailed } from 'vitest';
 import { execFile } from 'node:child_process';
 import { readFile, readlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
@@ -109,3 +109,47 @@ describe('one-use pristine warm sandbox pool', () => {
 		}
 	}, 30_000);
 });
+it('native owning runtime retains its actual acquired VM identity through guest interruption and exact independent host absence',async()=>{
+ let phase='INSTALLED_BYTES';const mark=(value:string)=>{phase=value;console.log(JSON.stringify({nativeExecutionVmPhase:phase,observedAt:new Date().toISOString()}));};
+ onTestFailed(()=>console.error(JSON.stringify({nativeExecutionVmFailedPhase:phase,originalBoundMillis:30000})));
+ const installed='/usr/lib/treeseed/manager/dist/src/sandbox/runtime.js';
+ expect(await readFile(installed)).toEqual(await readFile('dist/src/sandbox/runtime.js'));
+ expect(await readFile('/usr/lib/treeseed/manager/dist/src/sandbox/guest-startup-monitor.js')).toEqual(await readFile('dist/src/sandbox/guest-startup-monitor.js'));
+ const {KataSandboxRuntime}=await import(installed) as typeof import('../src/sandbox/runtime.js');
+ const {inspectSandboxInventory}=await import('../src/sandbox/doctor.js');
+ const original=await readFile('/etc/treeseed/sandbox/broker.json'),configured=sandboxBrokerConfigurationSchema.parse(JSON.parse(original.toString('utf8')));
+ const configuration=sandboxBrokerConfigurationSchema.parse({...configured,modelGateway:undefined}),image=configuration.guestImages[0];
+ expect(image).toBeDefined();if(!image||!image.profiles[0])throw new Error('Original pinned native guest required');
+ const runtime=new KataSandboxRuntime(configuration),owned:Array<{sandboxId:string;operationToken:string}>=[],failures:unknown[]=[],observations:unknown[]=[];
+ let pending:Promise<{failure:unknown;result:unknown}>|undefined,settled=false;
+ try{
+  // Deliberate credential-free interruption proves native VM custody only.
+  // It cannot dispatch a model or count as a managed workday.
+  mark('PREPARATION');const prepared=await runtime.prepare({schemaVersion:'treeseed.sandbox-assignment/v1',assignmentId:'native-vm-custody-'+Date.now(),attempt:1,runnerId:'native-runtime-owner',providerId:'native-runtime-owner',teamId:'native-fixture',projectId:'native-fixture',profile:image.profiles[0],guestImage:image.image,guestImageDigest:image.digest,
+   identityManifestDigest:'sha256:'+'a'.repeat(64),contextManifestDigest:'sha256:'+'b'.repeat(64),resources:{cpuCores:1,memoryBytes:1073741824,diskBytes:67108864,durationSeconds:30,processLimit:64,outputBytes:1048576},inputs:[],outputs:[],network:{defaultDeny:true,relayUrl:configuration.relay.publicUrl,allowedServices:[]},modelPolicy:{provider:'openai',model:'native-interruption-no-model',capabilities:[]},credentialHandles:[],treeDxHandleIds:[],leaseExpiresAt:new Date(Date.now()+60000).toISOString(),signature:{keyId:'native-owning-fixture',algorithm:'Ed25519',value:'direct-owning-runtime-fixture-not-a-wire-authorization'}});owned.push(prepared);mark('WARM_ACQUISITION');
+  pending=runtime.execute(prepared.sandboxId,prepared.operationToken,{}).then(result=>{settled=true;return{result,failure:null};},failure=>{settled=true;return{failure,result:null};});
+  const deadline=Date.now()+20000;let current=runtime.inspect(prepared.sandboxId,prepared.operationToken);
+  while(!current.running&&!settled&&Date.now()<deadline){await new Promise(done=>setTimeout(done,5));current=runtime.inspect(prepared.sandboxId,prepared.operationToken);}
+  console.log(JSON.stringify({nativeExecutionVmObserved:{phase,running:current.running,settled,events:current.events.map(event=>({type:event.type,payload:event.payload}))}}));
+  const assigned=current.events.filter(event=>event.type==='execution.progress'&&event.payload.stage==='vm.assigned');expect(assigned).toHaveLength(1);
+  const vmId=assigned[0]!.payload.vmId;expect(vmId).toMatch(/^sandbox-warm-[a-f0-9-]{36}$/u);expect(vmId).not.toBe(prepared.sandboxId);
+  mark('IDLE_POOL_QUIESCENCE');await runtime.drainWarmPool();
+  mark('PRESENT_INVENTORY');const present=await inspectSandboxInventory(configuration);observations.push(present);console.log(JSON.stringify({nativeExecutionVmInventory:{phase,complete:present.complete,errors:present.errors,vmProcesses:present.vmProcesses,tasks:present.tasks,containers:present.containers}}));expect(present.complete).toBe(true);expect(present.errors).toEqual([]);
+  const vms=present.vmProcesses!.filter(vm=>vm.name==='sandbox-'+String(vmId));expect(vms).toHaveLength(1);expect(vms[0]!.failure).toBeNull();
+  mark('GUEST_CANCELLATION');if(current.running)await runtime.cancel(prepared.sandboxId,prepared.operationToken);
+  mark('GUEST_TERMINATION');const outcome=await pending;expect(outcome.failure).toBeInstanceOf(Error);expect(outcome.result).toBeNull();
+  mark('SCOPED_DESTRUCTION');const destroyed=await runtime.destroy(prepared.sandboxId,prepared.operationToken);expect(destroyed.destroyed).toBe(true);owned.length=0;
+  const terminal=destroyed.events.filter(event=>event.type==='sandbox.destroyed');expect(terminal).toHaveLength(1);expect(terminal[0]!.payload.vmId).toBe(vmId);
+  expect(destroyed.events.find(event=>event.sequence===assigned[0]!.sequence)).toEqual(assigned[0]);
+  mark('POOL_DRAIN');await runtime.drainWarmPool();mark('ABSENT_INVENTORY');const absent=await inspectSandboxInventory(configuration);observations.push(absent);expect(absent.complete).toBe(true);expect(absent.errors).toEqual([]);
+  expect(absent.vmProcesses!.some(vm=>vm.name==='sandbox-'+String(vmId))).toBe(false);
+  for(const kind of ['tasks','containers'] as const)expect(absent[kind]!.trim().split(/\s+/u)).not.toContain(vmId);
+  expect(await readFile('/etc/treeseed/sandbox/broker.json')).toEqual(original);
+ }catch(error){failures.push(error);console.error(JSON.stringify({nativeExecutionVmOriginalFailurePhase:phase}));}finally{
+  mark('SCOPED_FAILURE_CLEANUP');
+  for(const owner of owned)try{await runtime.cancel(owner.sandboxId,owner.operationToken);await pending;await runtime.destroy(owner.sandboxId,owner.operationToken);}catch(error){failures.push(error);}
+  try{await pending;}catch(error){failures.push(error);}try{await runtime.drainWarmPool();}catch(error){failures.push(error);}
+  console.log(JSON.stringify({nativeExecutionVmCustody:observations,scopedCleanupAttempts:owned.map(owner=>owner.sandboxId),managedWorkday:false,modelDispatched:false}));
+ }
+ if(failures.length)throw new AggregateError(failures,'Original native execution VM custody or scoped cleanup failed.');
+},30000);
