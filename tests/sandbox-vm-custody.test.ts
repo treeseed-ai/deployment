@@ -12,7 +12,7 @@ it('retains the exact acquired warm VM identity in the original assigned event b
   await expect(KataSandboxRuntime.prototype.execute.call(runtime as unknown as KataSandboxRuntime,sandboxId,'original-token',{})).rejects.toBe(marker);
   expect(events.filter(event=>event.payload.stage==='vm.assigned')).toEqual([{type:'execution.progress',payload:{stage:'vm.assigned',warmed,vmId}}]);
   expect(Reflect.get(sandbox,'warmSandboxId')).toBe(vmId);expect(acquire).toHaveBeenCalledOnce();
-  expect(acquire).toHaveBeenCalledExactlyOnceWith({image:'pinned/guest@sha256:'+'a'.repeat(64),cpuCores:1,memoryBytes:1073741824,network:allowedServices.length?'relay':'none'});
+  expect(acquire).toHaveBeenCalledExactlyOnceWith({image:'docker.io/pinned/guest@sha256:'+'a'.repeat(64),cpuCores:1,memoryBytes:1073741824,network:allowedServices.length?'relay':'none'});
   await expect(KataSandboxRuntime.prototype.execute.call(runtime as unknown as KataSandboxRuntime,sandboxId,'original-token',{})).rejects.toThrow('already been claimed');expect(acquire).toHaveBeenCalledOnce();
  }
 });
