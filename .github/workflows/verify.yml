@@ -118,7 +118,7 @@ jobs:
             if(resolved!==expected)throw new Error("Native development image readback differs from its held manifest.");
           '
       - name: Reproduce public host inspection before the complete native suites
-        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run tests/sandbox-host-inspection-native.test.ts
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run tests/sandbox-host-inspection-native.test.ts tests/warm-sandbox-pool.test.ts tests/sandbox-vm-custody.test.ts
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'
       - run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH bash -euo pipefail -c 'npm run verify:direct'
