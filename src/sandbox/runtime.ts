@@ -302,7 +302,7 @@ export class KataSandboxRuntime {
 		}
 		sandbox.warmSandboxId = warm.id;
 		if (Date.parse(sandbox.assignment.leaseExpiresAt) <= Date.now()) throw new Error('Assignment lease expired while preparing its VM.');
-		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed });
+		await this.emit(sandbox, 'execution.progress', { stage: 'vm.assigned', warmed: warm.warmed, vmId: warm.id });
 		if (source) {
 			sandbox.source!.attachment();
 			await this.emit(sandbox, 'execution.progress', { stage: 'source.attached', source: source.authorization.source,
@@ -442,7 +442,7 @@ export class KataSandboxRuntime {
 		const source = sandbox.source ?? await sandbox.sourceInitialization;
 		const sourceTeardown = source ? await this.sourceStore.finish(sandboxId, source, sandbox.result, verified) : null;
 		for(const waiter of sandbox.toolWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Sandbox was destroyed.'));} sandbox.toolWaiters.clear();
-		await this.emit(sandbox, 'sandbox.destroyed', { verified, sourceTeardown });
+		await this.emit(sandbox, 'sandbox.destroyed', { verified, sourceTeardown, vmId: sandbox.warmSandboxId ?? null });
 		if (verified) { await rm(sandbox.directory, { recursive: true, force: true }); this.sandboxes.delete(sandboxId); }
 		return { sandboxId, destroyed: verified, teardown: { verified, completedAt: new Date().toISOString() }, events: sandbox.events };
 	}

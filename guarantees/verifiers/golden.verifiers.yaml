@@ -1255,3 +1255,21 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox-host-inspection.test.ts
     testName: "confirms native process disappearance after executable lookup instead of reporting a vanished ordinary process as VM residue"
+
+  deployment.golden.execution-vm-custody-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-vm-custody.test.ts
+    testName: "retains the exact acquired warm VM identity in the original assigned event before any subsequent guest failure"
+
+  deployment.golden.execution-vm-teardown-custody-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-vm-custody.test.ts
+    testName: "retains exact execution VM custody on verified and uncertain destruction without deleting uncertain resources or inventing an unassigned VM"
+
+  deployment.golden.execution-vm-custody-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/warm-sandbox-pool.test.ts
+    testName: "native owning runtime retains its actual acquired VM identity through guest interruption and exact independent host absence"
