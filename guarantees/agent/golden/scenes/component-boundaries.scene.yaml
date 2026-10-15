@@ -745,3 +745,15 @@ workflow:
   - id: workspace-source-custody-unit
     action: { verifier: deployment.golden.workspace-source-custody-unit }
     expect: { status: passed }
+
+  - id: host-vm-inventory-unit
+    action: { verifier: deployment.golden.host-vm-inventory-unit }
+    expect: { status: passed }
+
+  - id: host-vm-inventory-denial-unit
+    action: { verifier: deployment.golden.host-vm-inventory-denial-unit }
+    expect: { status: passed }
+
+  - id: host-vm-inventory-native
+    action: { verifier: deployment.golden.host-vm-inventory-native }
+    expect: { status: passed }
