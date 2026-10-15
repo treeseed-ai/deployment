@@ -6,7 +6,7 @@ vi.mock('node:fs/promises',()=>({appendFile:vi.fn(),chmod:vi.fn(),chown:vi.fn(),
 it('retains the exact acquired warm VM identity in the original assigned event before any subsequent guest failure',async()=>{
  for(const warmed of [false,true]){
   const vmId='sandbox-warm-11111111-1111-4111-8111-111111111111',sandboxId='sandbox-original-attempt',events:Array<{type:string;payload:Record<string,unknown>}>=[];
-  const sandbox={assignment:{leaseExpiresAt:new Date(Date.now()+60_000).toISOString(),inputs:[],guestImage:'pinned/guest',guestImageDigest:'sha256:'+'a'.repeat(64),resources:{cpuCores:1,memoryBytes:1073741824}},uploaded:new Set(),directory:'/controlled/owner',inputDirectory:'/controlled/owner/input'};
+  const sandbox={assignment:{leaseExpiresAt:new Date(Date.now()+60_000).toISOString(),profile:'isolated',modelPolicy:{model:'original-unit-model'},inputs:[],guestImage:'pinned/guest',guestImageDigest:'sha256:'+'a'.repeat(64),resources:{cpuCores:1,memoryBytes:1073741824}},uploaded:new Set(),directory:'/controlled/owner',inputDirectory:'/controlled/owner/input'};
   const marker=new Error('Original subsequent guest boundary failure'),acquire=vi.fn(async()=>({id:vmId,warmed}));
   const runtime={authorized:vi.fn(()=>sandbox),configuration:{},warmPool:{acquire},sandboxes:new Map([[sandboxId,sandbox]]),emit:vi.fn(async(_sandbox:unknown,type:string,payload:Record<string,unknown>)=>{events.push({type,payload});if(payload.stage==='vm.assigned')throw marker;})};
   await expect(KataSandboxRuntime.prototype.execute.call(runtime as unknown as KataSandboxRuntime,sandboxId,'original-token',{})).rejects.toBe(marker);
