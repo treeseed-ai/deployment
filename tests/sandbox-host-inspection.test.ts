@@ -4,7 +4,7 @@ import * as doctor from '../src/sandbox/doctor.js';
 
 const observed=vi.hoisted(()=>({tasks:'unrelated-task\n',containers:'unrelated-container\n',mounts:'1 0 0:1 / / rw - rootfs rootfs rw\n',
  namespace:'mnt:[1234]',hostNamespace:'mnt:[1234]',rootPresent:true,rootLink:false,unreadable:'',entries:['sandbox-retained','audit'],
- processes:[] as string[],processReads:0,processChanged:false,pidNamespace:'pid:[4321]',nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
+ processes:[] as string[],processReads:0,processChanged:false,pidNamespace:'pid:[4321]',hostPidNamespace:'pid:[4321]',statReads:0,statChanged:false,nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
  calls:[] as {path:string;args:readonly string[]}[],changed:false,reordered:false,hostFailure:''}));
 vi.mock('node:child_process',()=>({execFile:vi.fn((path:string,args:readonly string[],_options:unknown,callback:(error:Error|null,stdout:string,stderr:string)=>void)=>{
  observed.calls.push({path,args:[...args]});const kind=args.includes('tasks')?'tasks':'containers';
@@ -17,9 +17,9 @@ vi.mock('node:fs',()=>({
  accessSync:vi.fn(),constants:{R_OK:4,W_OK:2},existsSync:()=>false,
  readFileSync:(path:string)=>{if(path!=='/proc/1/mountinfo'){
   if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});
-  if(Object.hasOwn(observed.files,path))return observed.files[path];throw Object.assign(new Error('absent'),{code:'ENOENT'});
+  if(Object.hasOwn(observed.files,path)){if(path==='/proc/1/root/proc/100/stat'){observed.statReads++;if(observed.statChanged&&observed.statReads>1)return processStat('100','999');}return observed.files[path];}throw Object.assign(new Error('absent'),{code:'ENOENT'});
  }if(observed.unreadable==='mounts')throw new Error('denied');return observed.mounts;},
- readlinkSync:(path:string)=>{if(path.endsWith('/ns/pid'))return observed.pidNamespace;if(/^\/proc\/[0-9]+\/exe$/u.test(path)&&!Object.hasOwn(observed.links,path))throw Object.assign(new Error('absent'),{code:'ENOENT'});if(Object.hasOwn(observed.links,path)){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});return observed.links[path];}
+ readlinkSync:(path:string)=>{if(path.endsWith('/ns/pid'))return path.endsWith('/1/ns/pid')?observed.hostPidNamespace:observed.pidNamespace;if(/^\/proc\/(?:1\/root\/proc\/)?[0-9]+\/exe$/u.test(path)&&!Object.hasOwn(observed.links,path))throw Object.assign(new Error('absent'),{code:'ENOENT'});if(Object.hasOwn(observed.links,path)){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});return observed.links[path];}
   if(observed.unreadable==='namespace')throw new Error('denied');return path==='/proc/1/ns/mnt'?observed.hostNamespace:observed.namespace;},
  realpathSync:(path:string)=>observed.rootLink?'/redirected':path,
  lstatSync:(path:string)=>{
@@ -38,7 +38,7 @@ const configuration:SandboxBrokerConfiguration={socketPath:'/run/treeseed/sandbo
  namespace:'treeseed-sandboxes',runtime:'io.containerd.kata.v2',stateRoot:'/var/lib/treeseed/sandboxes',trustedProvidersPath:'/etc/treeseed/sandbox/providers.json',
  relay:{listenHost:'10.89.0.1',port:7443,publicUrl:'https://10.89.0.1:7443',certificateFile:'/etc/treeseed/sandbox/relay.crt',privateKeyFile:'/run/credentials/relay-tls-key'},guestImages:[]};
 beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated-container\n';observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
- observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';observed.processes=[];observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';observed.nbd=[];observed.files={};observed.links={};observed.nbdReads=0;observed.nbdChanged=false;});
+ observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';observed.processes=[];observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';observed.hostPidNamespace='pid:[4321]';observed.statReads=0;observed.statChanged=false;observed.nbd=[];observed.files={};observed.links={};observed.nbdReads=0;observed.nbdChanged=false;});
 
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
  const image='/var/lib/treeseed/agent/workspaces/leases/workspace-lease-11111111-1111-4111-8111-111111111111/work.qcow2';
@@ -164,15 +164,15 @@ it('requires complete stable native VM process identities and original Kata name
  expect(result.complete).toBe(true);expect(JSON.stringify(result)).not.toContain('controlled-private-argument');expect({files:observed.files,links:observed.links,configuration}).toEqual(held);
 });
 it('fails physical closure on unreadable malformed changing or ambiguously named VM inventories without changing original observations',async()=>{
- for(const mode of ['root-denied','exe-denied','stat-denied','stat-malformed','command-denied','truncated-command','missing-name','duplicate-name','invalid-name','changing','foreign-pid-namespace','duplicate-pid']){
-  vmProcesses();observed.unreadable='';observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';
+ for(const mode of ['root-denied','exe-denied','stat-denied','stat-malformed','command-denied','truncated-command','missing-name','duplicate-name','invalid-name','changing','foreign-pid-namespace','malformed-pid-namespace','pid-reused','duplicate-pid']){
+  vmProcesses();observed.unreadable='';observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';observed.hostPidNamespace='pid:[4321]';observed.statReads=0;observed.statChanged=false;
   if(mode==='root-denied')observed.unreadable='/proc/1/root/proc';if(mode==='exe-denied')observed.unreadable='/proc/1/root/proc/100/exe';if(mode==='stat-denied')observed.unreadable='/proc/1/root/proc/100/stat';
   if(mode==='stat-malformed')observed.files['/proc/1/root/proc/100/stat']='100 invalid';if(mode==='command-denied')observed.unreadable='/proc/1/root/proc/100/cmdline';
   if(mode==='truncated-command')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0-name\0sandbox-own';
   if(mode==='missing-name')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0';
   if(mode==='duplicate-name')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0-name\0sandbox-own\0-name\0another\0';
   if(mode==='invalid-name')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0-name\0private unsupported name\0';
-  if(mode==='changing')observed.processChanged=true;if(mode==='foreign-pid-namespace')observed.pidNamespace='foreign';if(mode==='duplicate-pid')observed.processes.push('100');
+  if(mode==='changing')observed.processChanged=true;if(mode==='foreign-pid-namespace')observed.hostPidNamespace='pid:[5678]';if(mode==='malformed-pid-namespace')observed.pidNamespace='foreign';if(mode==='pid-reused')observed.statChanged=true;if(mode==='duplicate-pid')observed.processes.push('100');
   const held=structuredClone({files:observed.files,links:observed.links}),result=await doctor.inspectSandboxInventory(configuration);
   expect(result.complete,mode).toBe(false);expect(result.errors,mode).toContain(mode==='changing'?'vm_inventory_changed':'vm_inventory_unavailable');expect({files:observed.files,links:observed.links}).toEqual(held);
  }
