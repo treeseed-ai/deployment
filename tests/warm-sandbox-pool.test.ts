@@ -133,7 +133,8 @@ it('native owning runtime retains its actual acquired VM identity through guest 
   console.log(JSON.stringify({nativeExecutionVmObserved:{phase,running:current.running,settled,events:current.events.map(event=>({type:event.type,payload:event.payload}))}}));
   const assigned=current.events.filter(event=>event.type==='execution.progress'&&event.payload.stage==='vm.assigned');expect(assigned).toHaveLength(1);
   const vmId=assigned[0]!.payload.vmId;expect(vmId).toMatch(/^sandbox-warm-[a-f0-9-]{36}$/u);expect(vmId).not.toBe(prepared.sandboxId);
-  mark('PRESENT_INVENTORY');const present=await inspectSandboxInventory(configuration);observations.push(present);expect(present.complete).toBe(true);expect(present.errors).toEqual([]);
+  mark('IDLE_POOL_QUIESCENCE');await runtime.drainWarmPool();
+  mark('PRESENT_INVENTORY');const present=await inspectSandboxInventory(configuration);observations.push(present);console.log(JSON.stringify({nativeExecutionVmInventory:{phase,complete:present.complete,errors:present.errors,vmProcesses:present.vmProcesses,tasks:present.tasks,containers:present.containers}}));expect(present.complete).toBe(true);expect(present.errors).toEqual([]);
   const vms=present.vmProcesses!.filter(vm=>vm.name==='sandbox-'+String(vmId));expect(vms).toHaveLength(1);expect(vms[0]!.failure).toBeNull();
   mark('GUEST_CANCELLATION');if(current.running)await runtime.cancel(prepared.sandboxId,prepared.operationToken);
   mark('GUEST_TERMINATION');const outcome=await pending;expect(outcome.failure).toBeInstanceOf(Error);expect(outcome.result).toBeNull();
@@ -146,7 +147,7 @@ it('native owning runtime retains its actual acquired VM identity through guest 
   expect(await readFile('/etc/treeseed/sandbox/broker.json')).toEqual(original);
  }catch(error){failures.push(error);console.error(JSON.stringify({nativeExecutionVmOriginalFailurePhase:phase}));}finally{
   mark('SCOPED_FAILURE_CLEANUP');
-  for(const owner of owned)try{await runtime.cancel(owner.sandboxId,owner.operationToken);await runtime.destroy(owner.sandboxId,owner.operationToken);}catch(error){failures.push(error);}
+  for(const owner of owned)try{await runtime.cancel(owner.sandboxId,owner.operationToken);await pending;await runtime.destroy(owner.sandboxId,owner.operationToken);}catch(error){failures.push(error);}
   try{await pending;}catch(error){failures.push(error);}try{await runtime.drainWarmPool();}catch(error){failures.push(error);}
   console.log(JSON.stringify({nativeExecutionVmCustody:observations,scopedCleanupAttempts:owned.map(owner=>owner.sandboxId),managedWorkday:false,modelDispatched:false}));
  }
