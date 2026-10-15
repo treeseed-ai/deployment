@@ -110,7 +110,11 @@ describe('one-use pristine warm sandbox pool', () => {
 	}, 30_000);
 });
 it('native owning runtime retains its actual acquired VM identity through guest interruption and exact independent host absence',async()=>{
- const {KataSandboxRuntime}=await import('../src/sandbox/runtime.js'),{inspectSandboxInventory}=await import('../src/sandbox/doctor.js');
+ const installed='/usr/lib/treeseed/manager/dist/src/sandbox/runtime.js';
+ expect(await readFile(installed)).toEqual(await readFile('dist/src/sandbox/runtime.js'));
+ expect(await readFile('/usr/lib/treeseed/manager/dist/src/sandbox/guest-startup-monitor.js')).toEqual(await readFile('dist/src/sandbox/guest-startup-monitor.js'));
+ const {KataSandboxRuntime}=await import(installed) as typeof import('../src/sandbox/runtime.js');
+ const {inspectSandboxInventory}=await import('../src/sandbox/doctor.js');
  const original=await readFile('/etc/treeseed/sandbox/broker.json'),configured=sandboxBrokerConfigurationSchema.parse(JSON.parse(original.toString('utf8')));
  const configuration=sandboxBrokerConfigurationSchema.parse({...configured,modelGateway:undefined}),image=configuration.guestImages[0];
  expect(image).toBeDefined();if(!image||!image.profiles[0])throw new Error('Original pinned native guest required');
