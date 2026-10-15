@@ -31,7 +31,7 @@ vi.mock('node:fs',()=>({
   const directory=['/var','/var/lib','/var/lib/treeseed'].includes(path)||path==='/var/lib/treeseed/sandboxes'||path.endsWith('/sandbox-retained')||path.endsWith('/audit');
   return {dev:1,ino:host&&observed.hostFailure==='inode'?456:123,isDirectory:()=>directory,isFile:()=>!directory,isSymbolicLink:()=>observed.rootLink};
  },
- readdirSync:(path:string)=>{if(path==='/proc'){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});observed.processReads++;return [...observed.processes,...(observed.processChanged&&observed.processReads>1?['400']:[])];}if(path==='/sys/block'){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});
+ readdirSync:(path:string)=>{if(path==='/proc/1/root/proc'){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});observed.processReads++;return [...observed.processes,...(observed.processChanged&&observed.processReads>1?['400']:[])];}if(path==='/sys/block'){if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});
   observed.nbdReads++;return [...observed.nbd,...(observed.nbdChanged&&observed.nbdReads>1?['nbd3']:[])];}expect(path).toBe('/proc/1/root/var/lib/treeseed/sandboxes');if(observed.unreadable==='directories')throw new Error('denied');return [...observed.entries];},
 }));
 const configuration:SandboxBrokerConfiguration={socketPath:'/run/treeseed/sandbox/broker.sock',containerdAddress:'/run/containerd/containerd.sock',
@@ -53,7 +53,7 @@ it('reads complete stable owning host inventories without hiding unrelated resou
   +'3 1 0:4 mnt:[4026533684] /run/snapd/ns/retained.mnt rw - nsfs nsfs rw\n';
  const held=structuredClone(configuration),result=await doctor.inspectSandboxInventory(configuration);
  expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
- expect(result.scope).toEqual({brokerSocket:configuration.socketPath,containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace});
+ expect(result.scope).toEqual({brokerSocket:configuration.socketPath,containerdAddress:configuration.containerdAddress,namespace:configuration.namespace,stateRoot:configuration.stateRoot,mountNamespace:observed.namespace,pidNamespace:observed.pidNamespace,procRoot:'/proc/1/root/proc'});
  expect(result.tasks).toBe(observed.tasks);expect(result.containers).toBe(observed.containers);expect(result.mountInfo).toBe(observed.mounts);
  expect(Reflect.get(result,'nbdDevices')).toEqual([
   {device:'/dev/nbd0',threadId:101,processId:100,executable:'/usr/bin/qemu-nbd',image,failure:null},
@@ -147,15 +147,15 @@ it('denies blank or whitespace-normalized native identities while preserving the
 function processStat(pid:string,start:string){return pid+' (qemu system) S '+Array.from({length:18},()=>0).join(' ')+' '+start+' 0\n';}
 function vmProcesses(){
  observed.processes=['100','200','300','500'];
- observed.links={'/proc/100/exe':'/opt/kata/bin/qemu-system-x86_64','/proc/200/exe':'/usr/bin/qemu-system-x86_64 (deleted)','/proc/500/exe':'/usr/bin/node'};
- observed.files={'/proc/100/stat':processStat('100','42'),'/proc/200/stat':processStat('200','43'),'/proc/400/stat':processStat('400','44'),
-  '/proc/100/cmdline':'qemu-system-x86_64\0-name\0sandbox-sandbox-own\0-append\0controlled-private-argument\0',
-  '/proc/200/cmdline':'qemu-system-x86_64\0-name\0unrelated-vm\0','/proc/400/cmdline':'qemu-system-x86_64\0-name\0sandbox-later\0',
-  '/proc/300/status':'Name:\tkworker\nKthread:\t1\nState:\tS (sleeping)\n'};
- observed.links['/proc/400/exe']='/opt/kata/bin/qemu-system-x86_64';
+ observed.links={'/proc/1/root/proc/100/exe':'/opt/kata/bin/qemu-system-x86_64','/proc/1/root/proc/200/exe':'/usr/bin/qemu-system-x86_64 (deleted)','/proc/1/root/proc/500/exe':'/usr/bin/node'};
+ observed.files={'/proc/1/root/proc/100/stat':processStat('100','42'),'/proc/1/root/proc/200/stat':processStat('200','43'),'/proc/1/root/proc/400/stat':processStat('400','44'),
+  '/proc/1/root/proc/100/cmdline':'qemu-system-x86_64\0-name\0sandbox-sandbox-own\0-append\0controlled-private-argument\0',
+  '/proc/1/root/proc/200/cmdline':'qemu-system-x86_64\0-name\0unrelated-vm\0','/proc/1/root/proc/400/cmdline':'qemu-system-x86_64\0-name\0sandbox-later\0',
+  '/proc/1/root/proc/300/status':'Name:\tkworker\nKthread:\t1\nState:\tS (sleeping)\n'};
+ observed.links['/proc/1/root/proc/400/exe']='/opt/kata/bin/qemu-system-x86_64';
 }
 it('requires complete stable native VM process identities and original Kata names while retaining unrelated VMs and withholding private arguments',async()=>{
- vmProcesses();observed.unreadable='/proc/500/cmdline';const held=structuredClone({files:observed.files,links:observed.links,configuration});
+ vmProcesses();observed.unreadable='/proc/1/root/proc/500/cmdline';const held=structuredClone({files:observed.files,links:observed.links,configuration});
  const result=await doctor.inspectSandboxInventory(configuration);
  expect(Reflect.get(result,'vmProcesses')).toEqual([
   {processId:100,startTicks:'42',executable:'/opt/kata/bin/qemu-system-x86_64',name:'sandbox-sandbox-own',failure:null},
@@ -166,12 +166,12 @@ it('requires complete stable native VM process identities and original Kata name
 it('fails physical closure on unreadable malformed changing or ambiguously named VM inventories without changing original observations',async()=>{
  for(const mode of ['root-denied','exe-denied','stat-denied','stat-malformed','command-denied','truncated-command','missing-name','duplicate-name','invalid-name','changing','foreign-pid-namespace','duplicate-pid']){
   vmProcesses();observed.unreadable='';observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';
-  if(mode==='root-denied')observed.unreadable='/proc';if(mode==='exe-denied')observed.unreadable='/proc/100/exe';if(mode==='stat-denied')observed.unreadable='/proc/100/stat';
-  if(mode==='stat-malformed')observed.files['/proc/100/stat']='100 invalid';if(mode==='command-denied')observed.unreadable='/proc/100/cmdline';
-  if(mode==='truncated-command')observed.files['/proc/100/cmdline']='qemu-system-x86_64\0-name\0sandbox-own';
-  if(mode==='missing-name')observed.files['/proc/100/cmdline']='qemu-system-x86_64\0';
-  if(mode==='duplicate-name')observed.files['/proc/100/cmdline']='qemu-system-x86_64\0-name\0sandbox-own\0-name\0another\0';
-  if(mode==='invalid-name')observed.files['/proc/100/cmdline']='qemu-system-x86_64\0-name\0private unsupported name\0';
+  if(mode==='root-denied')observed.unreadable='/proc/1/root/proc';if(mode==='exe-denied')observed.unreadable='/proc/1/root/proc/100/exe';if(mode==='stat-denied')observed.unreadable='/proc/1/root/proc/100/stat';
+  if(mode==='stat-malformed')observed.files['/proc/1/root/proc/100/stat']='100 invalid';if(mode==='command-denied')observed.unreadable='/proc/1/root/proc/100/cmdline';
+  if(mode==='truncated-command')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0-name\0sandbox-own';
+  if(mode==='missing-name')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0';
+  if(mode==='duplicate-name')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0-name\0sandbox-own\0-name\0another\0';
+  if(mode==='invalid-name')observed.files['/proc/1/root/proc/100/cmdline']='qemu-system-x86_64\0-name\0private unsupported name\0';
   if(mode==='changing')observed.processChanged=true;if(mode==='foreign-pid-namespace')observed.pidNamespace='foreign';if(mode==='duplicate-pid')observed.processes.push('100');
   const held=structuredClone({files:observed.files,links:observed.links}),result=await doctor.inspectSandboxInventory(configuration);
   expect(result.complete,mode).toBe(false);expect(result.errors,mode).toContain(mode==='changing'?'vm_inventory_changed':'vm_inventory_unavailable');expect({files:observed.files,links:observed.links}).toEqual(held);
