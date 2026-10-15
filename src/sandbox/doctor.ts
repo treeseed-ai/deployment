@@ -100,9 +100,10 @@ function inspectVmProcesses():{processes:VmProcessObservation[]|null;pidNamespac
    catch(error){
     if((error as NodeJS.ErrnoException).code==='ENOENT'||(error as NodeJS.ErrnoException).code==='ESRCH'){
      try{const status=readFileSync(vmProcRoot+'/'+pid+'/status','utf8');if(/^Kthread:[ \t]+1$/mu.test(status)||/^State:[ \t]+Z(?:[ \t]|$)/mu.test(status))continue;}
-     catch(statusError){if((statusError as NodeJS.ErrnoException).code==='ENOENT'||(statusError as NodeJS.ErrnoException).code==='ESRCH'){
-      try{lstatSync(vmProcRoot+'/'+pid);}catch(absent){if((absent as NodeJS.ErrnoException).code==='ENOENT')continue;}
-     }}
+     catch(statusError){if(!['ENOENT','ESRCH'].includes((statusError as NodeJS.ErrnoException).code??''))throw statusError;}
+     // The process can exit after a successful status read too. Confirm actual
+     // procfs disappearance; a still-present unreadable identity remains fatal.
+     try{lstatSync(vmProcRoot+'/'+pid);}catch(absent){if(['ENOENT','ESRCH'].includes((absent as NodeJS.ErrnoException).code??''))continue;throw absent;}
     }throw error;
    }
    if(!isAbsolute(observation.executable))throw new Error('invalid_executable');

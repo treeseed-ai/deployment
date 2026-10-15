@@ -757,3 +757,7 @@ workflow:
   - id: host-vm-inventory-native
     action: { verifier: deployment.golden.host-vm-inventory-native }
     expect: { status: passed }
+
+  - id: host-vm-exited-process-unit
+    action: { verifier: deployment.golden.host-vm-exited-process-unit }
+    expect: { status: passed }

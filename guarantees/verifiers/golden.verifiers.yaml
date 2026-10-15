@@ -1249,3 +1249,9 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox-host-inspection-native.test.ts
     testName: "native installed CLI manager and supervisor observe actual pinned QEMU process presence and scoped absence while retaining an unrelated VM"
+
+  deployment.golden.host-vm-exited-process-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: "confirms native process disappearance after executable lookup instead of reporting a vanished ordinary process as VM residue"

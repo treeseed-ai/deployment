@@ -246,6 +246,7 @@ it('native installed CLI manager and supervisor retain unrelated NBD transports 
 });
 
 it('native installed CLI manager and supervisor observe actual pinned QEMU process presence and scoped absence while retaining an unrelated VM',async()=>{
+ onTestFailed(()=>{if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)throw new Error('ACCEPTANCE_HOST_INSPECTION_HOST_AUTHORITY: Original denied VM inspection retained.');});
  if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)throw new Error('Disposable privileged owning-host authorization required; VM inspection cannot be skipped.');
  expect(readFileSync('/usr/lib/treeseed/manager/dist/src/sandbox/doctor.js')).toEqual(readFileSync('dist/src/sandbox/doctor.js'));
  const configuration=loadSandboxBrokerConfiguration(),own='sandbox-inspection-'+randomUUID(),unrelated='sandbox-unrelated-'+randomUUID();
