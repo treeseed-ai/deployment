@@ -4,7 +4,7 @@ import * as doctor from '../src/sandbox/doctor.js';
 
 const observed=vi.hoisted(()=>({tasks:'unrelated-task\n',containers:'unrelated-container\n',mounts:'1 0 0:1 / / rw - rootfs rootfs rw\n',
  namespace:'mnt:[1234]',hostNamespace:'mnt:[1234]',rootPresent:true,rootLink:false,unreadable:'',entries:['sandbox-retained','audit'],
- processes:[] as string[],processReads:0,processChanged:false,pidNamespace:'pid:[4321]',hostPidNamespace:'pid:[4321]',statReads:0,statChanged:false,nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
+ goneProcess:'',processes:[] as string[],processReads:0,processChanged:false,pidNamespace:'pid:[4321]',hostPidNamespace:'pid:[4321]',statReads:0,statChanged:false,nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
  calls:[] as {path:string;args:readonly string[]}[],changed:false,reordered:false,hostFailure:''}));
 vi.mock('node:child_process',()=>({execFile:vi.fn((path:string,args:readonly string[],_options:unknown,callback:(error:Error|null,stdout:string,stderr:string)=>void)=>{
  observed.calls.push({path,args:[...args]});const kind=args.includes('tasks')?'tasks':'containers';
@@ -23,6 +23,7 @@ vi.mock('node:fs',()=>({
   if(observed.unreadable==='namespace')throw new Error('denied');return path==='/proc/1/ns/mnt'?observed.hostNamespace:observed.namespace;},
  realpathSync:(path:string)=>observed.rootLink?'/redirected':path,
  lstatSync:(path:string)=>{
+  if(path==='/proc/1/root/proc/'+observed.goneProcess)throw Object.assign(new Error('exited'),{code:'ENOENT'});
   const host=path.startsWith('/proc/1/root');
   if(host&&observed.hostFailure==='missing')throw Object.assign(new Error('absent host'),{code:'ENOENT'});
   path=path.replace(/^\/proc\/1\/root/u,'');
@@ -38,7 +39,7 @@ const configuration:SandboxBrokerConfiguration={socketPath:'/run/treeseed/sandbo
  namespace:'treeseed-sandboxes',runtime:'io.containerd.kata.v2',stateRoot:'/var/lib/treeseed/sandboxes',trustedProvidersPath:'/etc/treeseed/sandbox/providers.json',
  relay:{listenHost:'10.89.0.1',port:7443,publicUrl:'https://10.89.0.1:7443',certificateFile:'/etc/treeseed/sandbox/relay.crt',privateKeyFile:'/run/credentials/relay-tls-key'},guestImages:[]};
 beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated-container\n';observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
- observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';observed.processes=[];observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';observed.hostPidNamespace='pid:[4321]';observed.statReads=0;observed.statChanged=false;observed.nbd=[];observed.files={};observed.links={};observed.nbdReads=0;observed.nbdChanged=false;});
+ observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';observed.goneProcess='';observed.processes=[];observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';observed.hostPidNamespace='pid:[4321]';observed.statReads=0;observed.statChanged=false;observed.nbd=[];observed.files={};observed.links={};observed.nbdReads=0;observed.nbdChanged=false;});
 
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
  const image='/var/lib/treeseed/agent/workspaces/leases/workspace-lease-11111111-1111-4111-8111-111111111111/work.qcow2';
@@ -176,4 +177,13 @@ it('fails physical closure on unreadable malformed changing or ambiguously named
   const held=structuredClone({files:observed.files,links:observed.links}),result=await doctor.inspectSandboxInventory(configuration);
   expect(result.complete,mode).toBe(false);expect(result.errors,mode).toContain(mode==='changing'?'vm_inventory_changed':'vm_inventory_unavailable');expect({files:observed.files,links:observed.links}).toEqual(held);
  }
+});
+it('confirms native process disappearance after executable lookup instead of reporting a vanished ordinary process as VM residue',async()=>{
+ observed.processes=['600'];observed.goneProcess='600';
+ observed.files['/proc/1/root/proc/600/status']='Name:\tnode\nKthread:\t0\nState:\tR (running)\n';
+ const result=await doctor.inspectSandboxInventory(configuration);
+ expect(result.complete).toBe(true);expect(result.errors).toEqual([]);expect(result.vmProcesses).toEqual([]);expect(result.confirmation.vmProcesses).toEqual([]);
+ observed.goneProcess='';const retained=await doctor.inspectSandboxInventory(configuration);
+ expect(retained.complete).toBe(false);expect(retained.errors).toContain('vm_inventory_unavailable');
+ expect(retained.vmProcesses).toContainEqual({processId:600,startTicks:null,executable:null,name:null,failure:'executable:ENOENT'});
 });
