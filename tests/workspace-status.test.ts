@@ -250,3 +250,18 @@ it('reads the original catalog without changing its canonical bytes and retains 
 			assignment_id: 'assignment-fixture', attempt: 1, state: 'released', result_artifact_id: name }] });
 	} finally { db.close(); }
 });
+
+it('reads exact retained independent candidate verification through fixed owning metadata and rejects changed malformed or missing proof without repair',()=>{
+ const sandbox='sandbox-verification-proof',root=join(state.root,'candidates'),path=join(root,sandbox+'.json');mkdirSync(root,{mode:0o700});
+ const source={controlPlaneId:'control',teamId:'team',projectId:'project',repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'};
+ const verification={baseCommit:source.commit,commit:'b'.repeat(40),bytes:100,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true};
+ const original={state:'published',assignmentId:'assignment',attempt:1,providerId:'provider',leaseId:'lease',source,commit:verification.commit,verification,digest:'sha256:'+'c'.repeat(64),verifierId:'sandbox-warm-22222222-2222-4222-8222-222222222222',verifierStopped:true,privateArgument:'never-public'};
+ const write=(value:unknown)=>writeFileSync(path,JSON.stringify(value),{mode:0o600}),entry=()=>workspaceStatus().journals!.candidates.entries[0]!;write(original);const bytes=readFileSync(path),expected={...original};delete (expected as Partial<typeof original>).privateArgument;
+ expect(entry().metadata).toEqual(expected);expect(JSON.stringify(entry())).not.toContain('never-public');expect(readFileSync(path)).toEqual(bytes);
+ const failures:unknown[]=[];
+ for(const changed of [{...original,verification:undefined},{...original,verification:{...verification,baseCommit:'d'.repeat(40)}},{...original,verification:{...verification,commit:'e'.repeat(40)}},{...original,verification:{...verification,bytes:0}},{...original,verification:{...verification,bytes:'100'}},...['clean','objectClosure','ancestry','isolatedVerifier'].map(key=>({...original,verification:{...verification,[key]:false}})),{...original,digest:'invalid'},{...original,source:{...source,commit:'staging'}},{...original,source:{...source,credential:'never-public'}}]){
+  write(changed);const held=readFileSync(path);expect(entry().metadata).toBeNull();expect(workspaceStatus().errors).toContain('workspace_candidates_metadata_unavailable');expect(readFileSync(path)).toEqual(held);failures.push(held);
+ }
+ write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual(expected);expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
+ write({...original,state:'retained',reason:'source_publication_failed',detail:'never-public'});expect(entry().metadata).toEqual({...expected,state:'retained'});
+});

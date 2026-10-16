@@ -125,3 +125,11 @@ it('retains the exact independent candidate verification in the final publicatio
  const before=structuredClone(vi.mocked(input.operations.journal).mock.calls);expect(job.publishedReference()).toEqual(input.reference);await job.drain();expect(job.status()).toEqual({state:'published',reference:input.reference});
  expect(input.operations.verify).toHaveBeenCalledOnce();expect(input.operations.publish).toHaveBeenCalledOnce();expect(vi.mocked(input.operations.journal).mock.calls).toEqual(before);expect(verified[0]).toEqual(original);expect(current).toEqual(held);
 });
+
+it('retains already verified candidate evidence beside the original failed publication instead of replacing it with failure text alone',async()=>{
+ const input=fixture(),current=input.operations.current(),held=structuredClone(current),failure=new Error('retained original publication failure');vi.mocked(input.operations.publish).mockRejectedValueOnce(failure);
+ const job=input.start();await job.drain();const values=vi.mocked(input.operations.journal).mock.calls.map(([value])=>value),verified=values.filter(value=>value.state==='verified');expect(verified).toHaveLength(1);
+ expect(values.at(-1)).toMatchObject({state:'retained',reason:'source_publication_failed',detail:failure.message,leaseId:current.leaseId,source:current.authorization.source,commit:input.reference.commit,
+  verification:verified[0]!.verification,digest:verified[0]!.digest,verifierId:verified[0]!.verifierId,verifierStopped:true});
+ const before=structuredClone(values);await job.drain();expect(job.publishedReference()).toBeUndefined();expect(job.status()).toMatchObject({state:'retained',failure:failure.message});expect(input.operations.verify).toHaveBeenCalledOnce();expect(input.operations.publish).toHaveBeenCalledOnce();expect(values).toEqual(before);expect(current).toEqual(held);
+});
