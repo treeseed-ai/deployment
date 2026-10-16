@@ -773,3 +773,15 @@ workflow:
   - id: execution-vm-custody-native
     action: { verifier: deployment.golden.execution-vm-custody-native }
     expect: { status: passed }
+  - id: publication-verification-1
+    action: { verifier: deployment.golden.execution-publication-verification-1 }
+    expect: { status: passed }
+  - id: publication-verification-2
+    action: { verifier: deployment.golden.execution-publication-verification-2 }
+    expect: { status: passed }
+  - id: publication-verification-3
+    action: { verifier: deployment.golden.execution-publication-verification-3 }
+    expect: { status: passed }
+  - id: publication-verification-4
+    action: { verifier: deployment.golden.execution-publication-verification-4 }
+    expect: { status: passed }
