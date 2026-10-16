@@ -1,3 +1,4 @@
+import {sourceInspectionAuthority} from './source-inspection-authority-fixture.ts';
 import { expect, it, onTestFailed } from 'vitest';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -104,7 +105,7 @@ it('native installed CLI manager and supervisor observe exact task container mou
   for(const [sandbox,diskId,diskRoot] of [[id,workspaceId,workspace],[unrelatedSandboxId,unrelatedWorkspaceId,unrelatedWorkspace]])
    journal('jobs',sandbox!,{schemaVersion:'treeseed.assignment-source-job/v1',owner:sandbox===id?owner:unrelatedOwner,state:'stopped',leaseId:`lease-${sandbox}`,
     disk:{id:diskId,directory:diskRoot,image:join(diskRoot!,'work.qcow2'),device:'/dev/nbd99',unit:`treeseed-${diskId}.service`},
-    authority:{private:'controlled-private-journal-content'}});
+    authority:sourceInspectionAuthority(sandbox===id?owner:unrelatedOwner,sourceKey,sourceReference.branch),privateAuthorityArgument:'controlled-private-journal-content'});
   mkdirSync(simulationRepository,{recursive:true,mode:0o700});
   journal('results',id,{source:sourceKey,sourceReference,schemaVersion:'treeseed.source-result/v1',sandboxId:id,leaseId:`lease-${id}`,status:'completed',
    teardownVerified:true,completedAt:new Date().toISOString(),result:{private:'controlled-private-journal-content'}});

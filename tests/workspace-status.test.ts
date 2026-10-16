@@ -1,3 +1,4 @@
+import {sourceInspectionAuthority} from './source-inspection-authority-fixture.ts';
 import { afterAll, beforeEach, expect, it, vi } from 'vitest';
 import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -290,4 +291,11 @@ it('reads exact original source authorization from bounded owning jobs and rejec
  write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
  const production={...authority,acquisition:'upstream-authorized',publication:'assignment-branch',publicationRef:'treeseed/assignments/assignment-authority',credentialBindingId:'binding-original'};
  write({...original,authority:production});expect(entry().metadata?.authority).toEqual(production);expect(JSON.stringify(entry())).not.toContain(original.privateArgument);
+});
+
+it('native host inspection positive fixture carries canonical source authority for each original owner rather than a private placeholder',()=>{
+ const owner={assignmentId:'native-positive',providerId:'native-provider',teamId:'native-team',projectId:'native-project',attempt:1},source={controlPlaneId:'native-control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1 as const,profile:'source-only' as const};
+ const authority=sourceInspectionAuthority(owner,source,'simulation/native/workday/assignment'),root=join(state.root,'jobs'),path=join(root,'sandbox-native-positive.json');mkdirSync(root,{mode:0o700});
+ const original={schemaVersion:'treeseed.assignment-source-job/v1',owner,state:'stopped',authority,privateAuthorityArgument:'controlled-private-journal-content'};writeFileSync(path,JSON.stringify(original),{mode:0o600});const bytes=readFileSync(path),observed=workspaceStatus();
+ expect(observed.journals!.jobs.entries[0]!.metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(JSON.stringify(observed)).not.toContain(original.privateAuthorityArgument);expect(readFileSync(path)).toEqual(bytes);
 });
