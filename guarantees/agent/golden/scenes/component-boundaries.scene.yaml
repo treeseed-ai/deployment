@@ -785,3 +785,9 @@ workflow:
   - id: publication-verification-4
     action: { verifier: deployment.golden.execution-publication-verification-4 }
     expect: { status: passed }
+  - id: source-authorization-1
+    action: { verifier: deployment.golden.execution-source-authorization-1 }
+    expect: { status: passed }
+  - id: source-authorization-2
+    action: { verifier: deployment.golden.execution-source-authorization-2 }
+    expect: { status: passed }
