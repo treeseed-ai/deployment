@@ -115,3 +115,13 @@ it('preserves exact native verifier ownership in the same durable publication jo
 	const original = structuredClone(vi.mocked(input.operations.journal).mock.calls);
 	await job.drain(); expect(vi.mocked(input.operations.journal).mock.calls).toEqual(original);
 });
+
+it('retains the exact independent candidate verification in the final publication journal before unchanged readback and drain retry',async()=>{
+ const input=fixture(),current=input.operations.current(),held=structuredClone(current),job=input.start();await job.drain();
+ const verified=vi.mocked(input.operations.journal).mock.calls.map(([value])=>value).filter(value=>value.state==='verified');expect(verified).toHaveLength(1);
+ const original=structuredClone(verified[0]!),published=vi.mocked(input.operations.journal).mock.calls.map(([value])=>value).filter(value=>value.state==='published');expect(published).toHaveLength(1);
+ expect(published[0]).toMatchObject({leaseId:current.leaseId,source:current.authorization.source,commit:input.reference.commit,
+  verification:original.verification,digest:original.digest,verifierId:original.verifierId,verifierStopped:true});
+ const before=structuredClone(vi.mocked(input.operations.journal).mock.calls);expect(job.publishedReference()).toEqual(input.reference);await job.drain();expect(job.status()).toEqual({state:'published',reference:input.reference});
+ expect(input.operations.verify).toHaveBeenCalledOnce();expect(input.operations.publish).toHaveBeenCalledOnce();expect(vi.mocked(input.operations.journal).mock.calls).toEqual(before);expect(verified[0]).toEqual(original);expect(current).toEqual(held);
+});
