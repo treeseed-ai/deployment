@@ -1293,3 +1293,18 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/source-publication-journal-native.test.ts
     testName: "native publication and installed CLI manager supervisor preserve exact successful and failed candidate verification without changing local Git or unrelated custody on readback"
+  deployment.golden.execution-source-authorization-1:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: "reads exact original source authorization from bounded owning jobs and rejects foreign malformed authority without exposing private data or changing history"
+  deployment.golden.execution-source-authorization-2:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-publication-journal-native.test.ts
+    testName: "native source controller and installed CLI manager supervisor retain exact acquisition publication and credential-binding authority without exposing sealed delivery or changing original journals"
+  deployment.golden.execution-source-authorization-3:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: "native host inspection positive fixture carries canonical source authority for each original owner rather than a private placeholder"

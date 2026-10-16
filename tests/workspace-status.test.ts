@@ -1,3 +1,4 @@
+import {sourceInspectionAuthority} from './source-inspection-authority-fixture.js';
 import { afterAll, beforeEach, expect, it, vi } from 'vitest';
 import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -79,7 +80,9 @@ it('retains orphan lease files when the catalog is absent without inventing empt
 		teamId: 'team-status', projectId: 'project-status', attempt: 1 };
 	const job = { schemaVersion: 'treeseed.assignment-source-job/v1', owner, state: 'stopped', leaseId: 'original-lease',
 		disk: { id, directory: directory(), image: join(directory(), 'work.qcow2'), device: '/dev/nbd99', unit: `treeseed-${id}.service` },
-		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { private: 'controlled-private-authority' }, failure: 'controlled-private-failure' };
+		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { schemaVersion:'treeseed.source-workspace-authorization/v1',id:'authority-status',providerId:owner.providerId,assignmentId:owner.assignmentId,attempt:owner.attempt,
+   source:{controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'},mode:'work',acquisition:'upstream-public',publication:'simulation-branch',publicationRef:'simulation/status/workday/assignment',issuedAt:'2026-10-11T00:00:00.000Z',expiresAt:'2026-10-11T01:00:00.000Z'},
+  privateAuthorityArgument:'controlled-private-authority', failure: 'controlled-private-failure' };
 	const candidate = { state: 'published', assignmentId: owner.assignmentId, attempt: 1, providerId: owner.providerId,
 		leaseId: job.leaseId, source: {controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'repository',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'}, commit:'b'.repeat(40),digest:'sha256:'+'c'.repeat(64),
 		verification:{baseCommit:'a'.repeat(40),commit:'b'.repeat(40),bytes:10,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true},
@@ -268,4 +271,31 @@ it('reads exact retained independent candidate verification through fixed owning
  }
  write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual(expected);expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
  write({...original,state:'retained',reason:'source_publication_failed',detail:'never-public'});expect(entry().metadata).toEqual({...expected,state:'retained'});
+});
+
+it('reads exact original source authorization from bounded owning jobs and rejects foreign malformed authority without exposing private data or changing history',()=>{
+ const owner={assignmentId:'assignment-authority',providerId:'provider-authority',teamId:'team-authority',projectId:'project-authority',attempt:1};
+ const authority={schemaVersion:'treeseed.source-workspace-authorization/v1',id:'authorization-original',providerId:owner.providerId,assignmentId:owner.assignmentId,attempt:1,
+  source:{controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'},
+  mode:'work',acquisition:'upstream-public',publication:'simulation-branch',publicationRef:'simulation/campaign/workday/assignment-authority',issuedAt:'2026-10-16T00:00:00.000Z',expiresAt:'2026-10-16T01:00:00.000Z'};
+ const original={schemaVersion:'treeseed.assignment-source-job/v1',owner,state:'stopped',authority,privateArgument:'never-public-authority-secret'},root=join(state.root,'jobs'),path=join(root,'sandbox-authority.json');mkdirSync(root,{mode:0o700});
+ const write=(value:unknown)=>writeFileSync(path,JSON.stringify(value),{mode:0o600}),entry=()=>workspaceStatus().journals!.jobs.entries[0]!;write(original);const bytes=readFileSync(path);
+ expect(entry().metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(JSON.stringify(entry())).not.toContain(original.privateArgument);expect(readFileSync(path)).toEqual(bytes);
+ const failures:unknown[]=[];
+ for(const value of [null,{}, {...authority,assignmentId:'foreign'}, {...authority,providerId:'foreign'}, {...authority,attempt:2},
+  {...authority,source:{...authority.source,teamId:'foreign'}},{...authority,source:{...authority.source,projectId:'foreign'}},{...authority,source:{...authority.source,commit:'staging'}},
+  {...authority,mode:'unknown'},{...authority,publicationRef:undefined},{...authority,credentialBindingId:'forbidden-in-simulation'},
+  {...authority,issuedAt:'invalid'},{...authority,expiresAt:authority.issuedAt},{...authority,credential:{token:original.privateArgument}}]){
+  write({...original,authority:value});const held=readFileSync(path);expect(entry().metadata).toBeNull();expect(workspaceStatus().errors).toContain('workspace_jobs_metadata_unavailable');expect(readFileSync(path)).toEqual(held);failures.push(held.toString('hex'));
+ }
+ write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
+ const production={...authority,acquisition:'upstream-authorized',publication:'assignment-branch',publicationRef:'treeseed/assignments/assignment-authority',credentialBindingId:'binding-original'};
+ write({...original,authority:production});expect(entry().metadata?.authority).toEqual(production);expect(JSON.stringify(entry())).not.toContain(original.privateArgument);
+});
+
+it('native host inspection positive fixture carries canonical source authority for each original owner rather than a private placeholder',()=>{
+ const owner={assignmentId:'native-positive',providerId:'native-provider',teamId:'native-team',projectId:'native-project',attempt:1},source={controlPlaneId:'native-control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1 as const,profile:'source-only' as const};
+ const authority=sourceInspectionAuthority(owner,source,'simulation/native/workday/assignment'),root=join(state.root,'jobs'),path=join(root,'sandbox-native-positive.json');mkdirSync(root,{mode:0o700});
+ const original={schemaVersion:'treeseed.assignment-source-job/v1',owner,state:'stopped',authority,privateAuthorityArgument:'controlled-private-journal-content'};writeFileSync(path,JSON.stringify(original),{mode:0o600});const bytes=readFileSync(path),observed=workspaceStatus();
+ expect(observed.journals!.jobs.entries[0]!.metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(JSON.stringify(observed)).not.toContain(original.privateAuthorityArgument);expect(readFileSync(path)).toEqual(bytes);
 });
