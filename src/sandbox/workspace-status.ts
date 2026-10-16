@@ -106,6 +106,20 @@ function journalMetadata(kind: 'jobs' | 'candidates' | 'results', name: string, 
   if (result.state === 'published' && (result.attempt === undefined || result.providerId === undefined
    || typeof result.verifierId !== 'string' || !/^sandbox-warm-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(result.verifierId)
    || typeof result.verifierStopped !== 'boolean')) throw new Error();
+  if (result.state === 'published' || ['leaseId', 'source', 'commit', 'verification', 'digest'].some(field => Object.hasOwn(original, field))) {
+   const source = sourceWorkspaceKeySchema.parse(original.source), verification = object(original.verification);
+   if (Object.keys(verification).sort().join(',') !== 'ancestry,baseCommit,bytes,clean,commit,isolatedVerifier,objectClosure'
+    || verification.baseCommit !== source.commit || verification.commit !== original.commit
+    || typeof original.commit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(original.commit)
+    || !Number.isSafeInteger(verification.bytes) || Number(verification.bytes) < 1
+    || ['clean', 'objectClosure', 'ancestry', 'isolatedVerifier'].some(field => verification[field] !== true)
+    || typeof original.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(original.digest)
+    || !Number.isSafeInteger(result.attempt) || Number(result.attempt) < 1 || !result.providerId
+    || typeof result.verifierId !== 'string' || !/^sandbox-warm-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(result.verifierId)
+    || result.verifierStopped !== true) throw new Error();
+   result.leaseId = identity(original.leaseId); result.source = source; result.commit = original.commit;
+   result.verification = verification; result.digest = original.digest;
+  }
  } else {
   if (result.schemaVersion !== 'treeseed.source-result/v1' || result.sandboxId !== name.slice(0, -5)
    || !result.leaseId || (result.status !== 'interrupted' && !sandboxResultSchema.shape.status.safeParse(result.status).success)

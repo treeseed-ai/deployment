@@ -81,6 +81,8 @@ it('retains orphan lease files when the catalog is absent without inventing empt
 		disk: { id, directory: directory(), image: join(directory(), 'work.qcow2'), device: '/dev/nbd99', unit: `treeseed-${id}.service` },
 		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { private: 'controlled-private-authority' }, failure: 'controlled-private-failure' };
 	const candidate = { state: 'published', assignmentId: owner.assignmentId, attempt: 1, providerId: owner.providerId,
+		leaseId: job.leaseId, source: {controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'repository',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'}, commit:'b'.repeat(40),digest:'sha256:'+'c'.repeat(64),
+		verification:{baseCommit:'a'.repeat(40),commit:'b'.repeat(40),bytes:10,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true},
 		verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true, reference: { private: 'controlled-private-reference' } };
 	const result = { schemaVersion: 'treeseed.source-result/v1', sandboxId, leaseId: job.leaseId, status: 'completed',
 		teardownVerified: true, completedAt: '2026-10-11T00:00:00.000Z', result: { private: 'controlled-private-result' } };

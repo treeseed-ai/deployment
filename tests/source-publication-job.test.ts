@@ -73,7 +73,8 @@ it('publishes only the exact current destination and preserves supplied authorit
 	const published = vi.mocked(input.operations.journal).mock.calls.filter(([value]) => value.state === 'published');
 	expect(published).toEqual([[{ state: 'published', assignmentId: 'assignment', attempt: 1, providerId: 'provider', reference,
 		verifierId: 'sandbox-warm-01234567-89ab-4cde-8fab-0123456789ab',
-		verifierStopped: true }]]);
+		verifierStopped: true, leaseId: current.leaseId, source: current.authorization.source, commit: reference.commit,
+		verification: {baseCommit: current.authorization.source.commit,commit: reference.commit,bytes: 10,clean: true,objectClosure: true,ancestry: true,isolatedVerifier: true},digest: 'sha256:'+'c'.repeat(64) }]]);
 });
 
 it('retains every changed missing or malformed destination receipt rather than announcing a published candidate', async () => {

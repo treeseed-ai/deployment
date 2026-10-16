@@ -14,16 +14,17 @@ it('native publication and installed CLI manager supervisor preserve exact succe
  if(process.env.TREESEED_PRIVILEGED_CACHE_TESTS!=='1'||process.getuid?.()!==0)throw new Error('Disposable privileged owning-host authorization required; native publication observations cannot be skipped.');
  for(const path of ['src/sandbox/workspace-status.js','src/sandbox/directory-inspection.js','src/supervisor/execute.js','src/manager/operations.js'])expect(readFileSync('/usr/lib/treeseed/manager/dist/'+path)).toEqual(readFileSync('dist/'+path));
  const suffix=randomUUID(),root=mkdtempSync(join(tmpdir(),'publication-journal-native-')),work=join(root,'work'),journalRoot=join(workspaceStorageRoot,'candidates'),journals:string[]=[],observations:unknown[]=[];
+ let cleanupRepository:string|undefined;
+ try{
  mkdirSync(work);mkdirSync(journalRoot,{recursive:true,mode:0o700});
  const git=(directory:string,...args:string[])=>execFileSync('/usr/bin/git',['-C',directory,...args],{encoding:'utf8',timeout:5000,maxBuffer:1024*1024,env:{PATH:'/usr/bin:/bin',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_AUTHOR_NAME:'Native controlled source',GIT_AUTHOR_EMAIL:'fixture@example.invalid',GIT_COMMITTER_NAME:'Native controlled source',GIT_COMMITTER_EMAIL:'fixture@example.invalid'}}).trim();
  git(work,'init','--template=');writeFileSync(join(work,'source.ts'),'export const value=1;\n');git(work,'add','.');git(work,'commit','-m','controlled original base');const base=git(work,'rev-parse','HEAD');
  writeFileSync(join(work,'source.ts'),'export const value=2;\n');git(work,'add','.');git(work,'commit','-m','controlled candidate');const commit=git(work,'rev-parse','HEAD');
  const source={controlPlaneId:'native-publication',teamId:'team-'+suffix,projectId:'project-'+suffix,repositoryId:'treeseed-ai/sdk',commit:base,formatVersion:1 as const,profile:'source-only' as const},repository=simulationSourceRepository(workspaceStorageRoot,source);
  const cli=await import('/usr/lib/treeseed/cli/dist/cli/runtime.js' as string)as{runCommandLine:(args:string[],options:{interactiveUi:boolean;write:(value:string)=>void})=>Promise<number>};
- try{
-  mkdirSync(repository,{recursive:true,mode:0o700});git(repository,'init','--bare','--template=');git(repository,'fetch',work,commit);const objectBytes=git(repository,'show',commit+':source.ts');
+ mkdirSync(join(workspaceStorageRoot,'simulations'),{recursive:true,mode:0o700});mkdirSync(repository,{mode:0o700});cleanupRepository=repository;git(repository,'init','--bare','--template=');git(repository,'fetch',work,commit);const objectBytes=git(repository,'show',commit+':source.ts');
   for(const failed of [false,true]){
-   const assignmentId='assignment-'+suffix+'-'+String(failed),sandboxId='sandbox-'+suffix+'-'+String(failed),path=join(journalRoot,sandboxId+'.json'),now=new Date();journals.push(path);
+   const assignmentId='assignment-'+suffix+'-'+String(failed),sandboxId='sandbox-'+suffix+'-'+String(failed),path=join(journalRoot,sandboxId+'.json'),now=new Date();writeFileSync(path,'',{mode:0o600,flag:'wx'});journals.push(path);
    const authorization:SourceWorkspaceAuthorization={schemaVersion:'treeseed.source-workspace-authorization/v1',id:'authorization-'+suffix,providerId:'native-provider',assignmentId,attempt:1,source,mode:'work',acquisition:'upstream-public',publication:'simulation-branch',publicationRef:'simulation/'+suffix+'/workday/'+assignmentId,issuedAt:now.toISOString(),expiresAt:new Date(now.getTime()+60_000).toISOString()};
    const verification={baseCommit:base,commit,bytes:Buffer.byteLength(objectBytes),clean:true as const,objectClosure:true as const,ancestry:true as const,isolatedVerifier:true as const},digest='sha256:'+createHash('sha256').update(objectBytes).digest('hex'),leaseId='lease-'+suffix,verifierId='sandbox-warm-'+suffix;
    const states:Array<Record<string,unknown>>=[];
@@ -44,6 +45,6 @@ it('native publication and installed CLI manager supervisor preserve exact succe
   // inputs are controlled DTOs; this is not Kata verification, API admission,
   // model execution, measured usage or a managed campaign receipt.
  }finally{
-  console.log(JSON.stringify({nativePublicationJournalObservations:observations}));for(const path of journals)rmSync(path,{force:true});rmSync(repository,{recursive:true,force:true});rmSync(root,{recursive:true,force:true});
+  console.log(JSON.stringify({nativePublicationJournalObservations:observations}));for(const path of journals)rmSync(path,{force:true});if(cleanupRepository)rmSync(cleanupRepository,{recursive:true,force:true});rmSync(root,{recursive:true,force:true});
  }
 },30_000);
