@@ -79,7 +79,9 @@ it('retains orphan lease files when the catalog is absent without inventing empt
 		teamId: 'team-status', projectId: 'project-status', attempt: 1 };
 	const job = { schemaVersion: 'treeseed.assignment-source-job/v1', owner, state: 'stopped', leaseId: 'original-lease',
 		disk: { id, directory: directory(), image: join(directory(), 'work.qcow2'), device: '/dev/nbd99', unit: `treeseed-${id}.service` },
-		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { private: 'controlled-private-authority' }, failure: 'controlled-private-failure' };
+		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { schemaVersion:'treeseed.source-workspace-authorization/v1',id:'authority-status',providerId:owner.providerId,assignmentId:owner.assignmentId,attempt:owner.attempt,
+   source:{controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'},mode:'work',acquisition:'upstream-public',publication:'simulation-branch',publicationRef:'simulation/status/workday/assignment',issuedAt:'2026-10-11T00:00:00.000Z',expiresAt:'2026-10-11T01:00:00.000Z'},
+  privateAuthorityArgument:'controlled-private-authority', failure: 'controlled-private-failure' };
 	const candidate = { state: 'published', assignmentId: owner.assignmentId, attempt: 1, providerId: owner.providerId,
 		leaseId: job.leaseId, source: {controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'repository',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'}, commit:'b'.repeat(40),digest:'sha256:'+'c'.repeat(64),
 		verification:{baseCommit:'a'.repeat(40),commit:'b'.repeat(40),bytes:10,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true},

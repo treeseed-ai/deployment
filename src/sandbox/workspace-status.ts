@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { sandboxResultSchema, sourceWorkspaceKeySchema } from '@treeseed/sdk/capacity-provider/sandbox';
+import { sandboxResultSchema, sourceWorkspaceKeySchema, sourceWorkspaceAuthorizationSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { assignmentReferenceSchema } from '@treeseed/sdk/agent-capacity';
 import { closeSync, constants, fstatSync, openSync, readlinkSync, readSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -82,6 +82,14 @@ function journalMetadata(kind: 'jobs' | 'candidates' | 'results', name: string, 
   for (const field of ['assignmentId', 'providerId', 'teamId', 'projectId']) held[field] = identity(owner[field]);
   if (!Number.isSafeInteger(owner.attempt) || Number(owner.attempt) < 1) throw new Error();
   held.attempt = owner.attempt; result.owner = held;
+  if (Object.hasOwn(original, 'authority')) {
+   const authority = sourceWorkspaceAuthorizationSchema.parse(original.authority);
+   if (authority.assignmentId !== owner.assignmentId || authority.providerId !== owner.providerId
+    || authority.attempt !== owner.attempt || authority.source.teamId !== owner.teamId
+    || authority.source.projectId !== owner.projectId) throw new Error('Owning source authority differs from its job owner.');
+   result.authority = authority;
+  }
+
   if (Object.hasOwn(original, 'disk')) {
    const disk = object(original.disk), id = identity(disk.id), directory = join(workspaceStorageRoot, 'leases', id);
    if (!/^workspace-lease-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(id)
