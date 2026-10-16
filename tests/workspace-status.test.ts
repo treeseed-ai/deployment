@@ -269,3 +269,23 @@ it('reads exact retained independent candidate verification through fixed owning
  write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual(expected);expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
  write({...original,state:'retained',reason:'source_publication_failed',detail:'never-public'});expect(entry().metadata).toEqual({...expected,state:'retained'});
 });
+
+it('reads exact original source authorization from bounded owning jobs and rejects foreign malformed authority without exposing private data or changing history',()=>{
+ const owner={assignmentId:'assignment-authority',providerId:'provider-authority',teamId:'team-authority',projectId:'project-authority',attempt:1};
+ const authority={schemaVersion:'treeseed.source-workspace-authorization/v1',id:'authorization-original',providerId:owner.providerId,assignmentId:owner.assignmentId,attempt:1,
+  source:{controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'},
+  mode:'work',acquisition:'upstream-public',publication:'simulation-branch',publicationRef:'simulation/campaign/workday/assignment-authority',issuedAt:'2026-10-16T00:00:00.000Z',expiresAt:'2026-10-16T01:00:00.000Z'};
+ const original={schemaVersion:'treeseed.assignment-source-job/v1',owner,state:'stopped',authority,privateArgument:'never-public-authority-secret'},root=join(state.root,'jobs'),path=join(root,'sandbox-authority.json');mkdirSync(root,{mode:0o700});
+ const write=(value:unknown)=>writeFileSync(path,JSON.stringify(value),{mode:0o600}),entry=()=>workspaceStatus().journals!.jobs.entries[0]!;write(original);const bytes=readFileSync(path);
+ expect(entry().metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(JSON.stringify(entry())).not.toContain(original.privateArgument);expect(readFileSync(path)).toEqual(bytes);
+ const failures:unknown[]=[];
+ for(const value of [null,{}, {...authority,assignmentId:'foreign'}, {...authority,providerId:'foreign'}, {...authority,attempt:2},
+  {...authority,source:{...authority.source,teamId:'foreign'}},{...authority,source:{...authority.source,projectId:'foreign'}},{...authority,source:{...authority.source,commit:'staging'}},
+  {...authority,mode:'unknown'},{...authority,publicationRef:undefined},{...authority,credentialBindingId:'forbidden-in-simulation'},
+  {...authority,issuedAt:'invalid'},{...authority,expiresAt:authority.issuedAt},{...authority,credential:{token:original.privateArgument}}]){
+  write({...original,authority:value});const held=readFileSync(path);expect(entry().metadata).toBeNull();expect(workspaceStatus().errors).toContain('workspace_jobs_metadata_unavailable');expect(readFileSync(path)).toEqual(held);failures.push(held.toString('hex'));
+ }
+ write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual({schemaVersion:original.schemaVersion,owner,state:'stopped',authority});expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
+ const production={...authority,acquisition:'upstream-authorized',publication:'assignment-branch',publicationRef:'treeseed/assignments/assignment-authority',credentialBindingId:'binding-original'};
+ write({...original,authority:production});expect(entry().metadata?.authority).toEqual(production);expect(JSON.stringify(entry())).not.toContain(original.privateArgument);
+});
