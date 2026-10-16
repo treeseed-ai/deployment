@@ -1,4 +1,4 @@
-import {sourceInspectionAuthority} from './source-inspection-authority-fixture.ts';
+import {sourceInspectionAuthority} from './source-inspection-authority-fixture.js';
 import { expect, it, onTestFailed } from 'vitest';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';

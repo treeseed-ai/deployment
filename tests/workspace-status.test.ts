@@ -1,4 +1,4 @@
-import {sourceInspectionAuthority} from './source-inspection-authority-fixture.ts';
+import {sourceInspectionAuthority} from './source-inspection-authority-fixture.js';
 import { afterAll, beforeEach, expect, it, vi } from 'vitest';
 import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
