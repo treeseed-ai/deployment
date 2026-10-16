@@ -13,6 +13,8 @@ export class SourcePublicationJob {
 	private state: 'verifying' | 'published' | 'retained' = 'verifying';
 	private reference?: { kind: 'git'; repository: string; commit: string; branch: string };
 	private failure?: string;
+	// Retain the original verified context for either final journal outcome.
+	private verifiedJournal?: Record<string, unknown>;
 	private readonly pending: Promise<void>;
 	constructor(private readonly assignment: Pick<SandboxAssignment, 'assignmentId' | 'attempt' | 'providerId'>,
 		readonly commit: string, maximum: number, executionStopped: boolean,
@@ -20,7 +22,7 @@ export class SourcePublicationJob {
 		this.pending = this.prepare(maximum, executionStopped).catch(async (error: unknown) => {
 			this.state = 'retained';
 			this.failure = error instanceof Error ? error.message.slice(0, 768) : 'Unknown source publication failure.';
-			await operations.journal({ state: this.state, assignmentId: assignment.assignmentId,
+			await operations.journal({ ...(this.verifiedJournal ?? {}), state: this.state, assignmentId: assignment.assignmentId,
 				reason: 'source_publication_failed', detail: this.failure });
 		});
 		void this.pending.catch(() => { this.state = 'retained'; });
@@ -32,12 +34,13 @@ export class SourcePublicationJob {
 		const current = this.operations.current();
 		await this.operations.detachExecution(current.disk);
 		const result = await verifyWorkspaceCandidate({ ...current, commit: this.commit, maxBytes: maximum, executionStopped }, this.operations);
+		this.verifiedJournal = { assignmentId: this.assignment.assignmentId, attempt: this.assignment.attempt, providerId: this.assignment.providerId,
+			leaseId: current.leaseId, source: structuredClone(current.authorization.source), commit: this.commit,
+			verification: structuredClone(result.verification), digest: result.digest, verifierId: result.verifierId, verifierStopped: result.verifierStopped };
 		this.reference = await this.operations.publish(result.bundlePath);
 		if (this.reference.commit !== this.commit || typeof this.reference.branch !== 'string'
 			|| !this.reference.branch || this.reference.branch !== current.authorization.publicationRef) throw new Error('Published source reference changed the verified destination.');
-		await this.operations.journal({ state: 'published', assignmentId: this.assignment.assignmentId,
-			attempt: this.assignment.attempt, providerId: this.assignment.providerId, reference: this.reference,
-			verifierId: result.verifierId, verifierStopped: result.verifierStopped });
+		await this.operations.journal({ ...this.verifiedJournal, state: 'published', reference: this.reference });
 		this.state = 'published';
 	}
 	publishedReference() { return this.state === 'published' ? this.reference : undefined; }

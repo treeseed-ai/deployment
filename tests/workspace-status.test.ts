@@ -81,6 +81,8 @@ it('retains orphan lease files when the catalog is absent without inventing empt
 		disk: { id, directory: directory(), image: join(directory(), 'work.qcow2'), device: '/dev/nbd99', unit: `treeseed-${id}.service` },
 		builderIds: ['sandbox-warm-11111111-1111-4111-8111-111111111111'], authority: { private: 'controlled-private-authority' }, failure: 'controlled-private-failure' };
 	const candidate = { state: 'published', assignmentId: owner.assignmentId, attempt: 1, providerId: owner.providerId,
+		leaseId: job.leaseId, source: {controlPlaneId:'control',teamId:owner.teamId,projectId:owner.projectId,repositoryId:'repository',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'}, commit:'b'.repeat(40),digest:'sha256:'+'c'.repeat(64),
+		verification:{baseCommit:'a'.repeat(40),commit:'b'.repeat(40),bytes:10,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true},
 		verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true, reference: { private: 'controlled-private-reference' } };
 	const result = { schemaVersion: 'treeseed.source-result/v1', sandboxId, leaseId: job.leaseId, status: 'completed',
 		teardownVerified: true, completedAt: '2026-10-11T00:00:00.000Z', result: { private: 'controlled-private-result' } };
@@ -220,7 +222,9 @@ it('reads the original catalog without changing its canonical bytes and retains 
 	expect(workspaceStatus()).toMatchObject({ complete: true, journals: { jobs: { entries: [{ metadata: { state: 'failed' } }] } } });
 	for (const kind of ['candidates', 'results'] as const) {
 		const root = join(state.root, kind), held = kind === 'candidates' ? { state: 'published', assignmentId: valid.owner.assignmentId,
-			attempt: 1, providerId: valid.owner.providerId, verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true }
+			attempt: 1, providerId: valid.owner.providerId, verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true,
+			leaseId:'lease-status',source:{controlPlaneId:'control',teamId:valid.owner.teamId,projectId:valid.owner.projectId,repositoryId:'repository',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'},commit:'b'.repeat(40),digest:'sha256:'+'c'.repeat(64),
+			verification:{baseCommit:'a'.repeat(40),commit:'b'.repeat(40),bytes:10,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true} }
 			: { schemaVersion: 'treeseed.source-result/v1', sandboxId: name.slice(0, -5), leaseId: 'lease-status', status: 'completed',
 				teardownVerified: true, completedAt: '2026-10-11T00:00:00.000Z' };
 		mkdirSync(root, { mode: 0o700 }); const target = join(root, name);
@@ -249,4 +253,19 @@ it('reads the original catalog without changing its canonical bytes and retains 
 		expect(workspaceStatus()).toMatchObject({ complete: true, leases: [{ id: 'lease-fixture', provider_id: 'provider-fixture',
 			assignment_id: 'assignment-fixture', attempt: 1, state: 'released', result_artifact_id: name }] });
 	} finally { db.close(); }
+});
+
+it('reads exact retained independent candidate verification through fixed owning metadata and rejects changed malformed or missing proof without repair',()=>{
+ const sandbox='sandbox-verification-proof',root=join(state.root,'candidates'),path=join(root,sandbox+'.json');mkdirSync(root,{mode:0o700});
+ const source={controlPlaneId:'control',teamId:'team',projectId:'project',repositoryId:'treeseed-ai/sdk',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'};
+ const verification={baseCommit:source.commit,commit:'b'.repeat(40),bytes:100,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true};
+ const original={state:'published',assignmentId:'assignment',attempt:1,providerId:'provider',leaseId:'lease',source,commit:verification.commit,verification,digest:'sha256:'+'c'.repeat(64),verifierId:'sandbox-warm-22222222-2222-4222-8222-222222222222',verifierStopped:true,privateArgument:'never-public'};
+ const write=(value:unknown)=>writeFileSync(path,JSON.stringify(value),{mode:0o600}),entry=()=>workspaceStatus().journals!.candidates.entries[0]!;write(original);const bytes=readFileSync(path),expected={...original};delete (expected as Partial<typeof original>).privateArgument;
+ expect(entry().metadata).toEqual(expected);expect(JSON.stringify(entry())).not.toContain('never-public');expect(readFileSync(path)).toEqual(bytes);
+ const failures:unknown[]=[];
+ for(const changed of [{...original,verification:undefined},{...original,verification:{...verification,baseCommit:'d'.repeat(40)}},{...original,verification:{...verification,commit:'e'.repeat(40)}},{...original,verification:{...verification,bytes:0}},{...original,verification:{...verification,bytes:'100'}},...['clean','objectClosure','ancestry','isolatedVerifier'].map(key=>({...original,verification:{...verification,[key]:false}})),{...original,digest:'invalid'},{...original,source:{...source,commit:'staging'}},{...original,source:{...source,credential:'never-public'}}]){
+  write(changed);const held=readFileSync(path);expect(entry().metadata).toBeNull();expect(workspaceStatus().errors).toContain('workspace_candidates_metadata_unavailable');expect(readFileSync(path)).toEqual(held);failures.push(held.toString('hex'));
+ }
+ write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual(expected);expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
+ write({...original,state:'retained',reason:'source_publication_failed',detail:'never-public'});expect(entry().metadata).toEqual({...expected,state:'retained'});
 });
