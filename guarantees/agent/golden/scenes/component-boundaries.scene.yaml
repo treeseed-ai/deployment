@@ -791,3 +791,6 @@ workflow:
   - id: source-authorization-2
     action: { verifier: deployment.golden.execution-source-authorization-2 }
     expect: { status: passed }
+  - id: source-authorization-3
+    action: { verifier: deployment.golden.execution-source-authorization-3 }
+    expect: { status: passed }
