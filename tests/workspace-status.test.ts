@@ -222,7 +222,9 @@ it('reads the original catalog without changing its canonical bytes and retains 
 	expect(workspaceStatus()).toMatchObject({ complete: true, journals: { jobs: { entries: [{ metadata: { state: 'failed' } }] } } });
 	for (const kind of ['candidates', 'results'] as const) {
 		const root = join(state.root, kind), held = kind === 'candidates' ? { state: 'published', assignmentId: valid.owner.assignmentId,
-			attempt: 1, providerId: valid.owner.providerId, verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true }
+			attempt: 1, providerId: valid.owner.providerId, verifierId: 'sandbox-warm-22222222-2222-4222-8222-222222222222', verifierStopped: true,
+			leaseId:'lease-status',source:{controlPlaneId:'control',teamId:valid.owner.teamId,projectId:valid.owner.projectId,repositoryId:'repository',commit:'a'.repeat(40),formatVersion:1,profile:'source-only'},commit:'b'.repeat(40),digest:'sha256:'+'c'.repeat(64),
+			verification:{baseCommit:'a'.repeat(40),commit:'b'.repeat(40),bytes:10,clean:true,objectClosure:true,ancestry:true,isolatedVerifier:true} }
 			: { schemaVersion: 'treeseed.source-result/v1', sandboxId: name.slice(0, -5), leaseId: 'lease-status', status: 'completed',
 				teardownVerified: true, completedAt: '2026-10-11T00:00:00.000Z' };
 		mkdirSync(root, { mode: 0o700 }); const target = join(root, name);
@@ -262,7 +264,7 @@ it('reads exact retained independent candidate verification through fixed owning
  expect(entry().metadata).toEqual(expected);expect(JSON.stringify(entry())).not.toContain('never-public');expect(readFileSync(path)).toEqual(bytes);
  const failures:unknown[]=[];
  for(const changed of [{...original,verification:undefined},{...original,verification:{...verification,baseCommit:'d'.repeat(40)}},{...original,verification:{...verification,commit:'e'.repeat(40)}},{...original,verification:{...verification,bytes:0}},{...original,verification:{...verification,bytes:'100'}},...['clean','objectClosure','ancestry','isolatedVerifier'].map(key=>({...original,verification:{...verification,[key]:false}})),{...original,digest:'invalid'},{...original,source:{...source,commit:'staging'}},{...original,source:{...source,credential:'never-public'}}]){
-  write(changed);const held=readFileSync(path);expect(entry().metadata).toBeNull();expect(workspaceStatus().errors).toContain('workspace_candidates_metadata_unavailable');expect(readFileSync(path)).toEqual(held);failures.push(held);
+  write(changed);const held=readFileSync(path);expect(entry().metadata).toBeNull();expect(workspaceStatus().errors).toContain('workspace_candidates_metadata_unavailable');expect(readFileSync(path)).toEqual(held);failures.push(held.toString('hex'));
  }
  write(original);const retained=structuredClone(failures);expect(entry().metadata).toEqual(expected);expect(readFileSync(path)).toEqual(bytes);expect(failures).toEqual(retained);
  write({...original,state:'retained',reason:'source_publication_failed',detail:'never-public'});expect(entry().metadata).toEqual({...expected,state:'retained'});
