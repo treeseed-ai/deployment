@@ -156,8 +156,7 @@ export function managedContainerDevelopmentConnectionEnvironment(host: HostConfi
 		if (!route) continue;
 		const prefix = `TREESEED_${dependency.id.replaceAll('-', '_').toUpperCase()}`;
 		values[`${prefix}_URL`] = route.upstream;
-		if (component.componentId === 'admin' && dependency.id === 'api'
-			&& !(selection.configuration.environment as Record<string, unknown> | undefined)?.TREESEED_IDENTITY_ISSUER) values.TREESEED_API_BASE_URL = route.upstream;
+		if (component.componentId === 'admin' && dependency.id === 'api' && !(selection.configuration.environment as Record<string, unknown> | undefined)?.TREESEED_IDENTITY_ISSUER) values.TREESEED_API_BASE_URL = route.upstream;
 		if (component.componentId === 'agent' && dependency.capability === 'control-plane-api') {
 			values.TREESEED_CONTROL_PLANE_URL = route.upstream;
 			values.TREESEED_SERVER_PROFILE_LOCAL_URL = route.upstream;
