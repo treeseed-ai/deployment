@@ -2,8 +2,30 @@ import { describe, expect, it } from 'vitest';
 import { componentActivationInputs } from '../src/manager/reconcile.js';
 import { connectionDigest, reconcilePeerConnections } from '../src/manager/development-peer-connections.js';
 import { component, host } from './fixtures.js';
+import { hostComponentSchema } from '@treeseed/sdk/deployment';
+import { identityEndpointSchema } from '@treeseed/sdk/identity';
+import { renderComponentEnvironment } from '../src/supervisor/component.js';
 
 describe('managed development peer routing', () => {
+	it('renders an HTTPS Admin Identity resource while a selected API retains its independent internal transport', () => {
+		const configuration = host(), api = component('api', 'stable', 'a'), admin = component('admin', 'stable', 'b');
+		configuration.runtime.environment = 'development';
+		configuration.runtime.dataRoot = '/var/lib/treeseed/development';
+		admin.runtime.dependencies = [{ id: 'api', capability: 'control-plane-api', locality: 'either', optional: false }];
+		configuration.components.admin = hostComponentSchema.parse({ enabled: true, track: 'stable',
+			connections: { api: { kind: 'local', componentId: 'api', serviceId: 'service', endpointId: 'http' } },
+			configuration: { environment: { TREESEED_IDENTITY_ISSUER: 'https://identity.treeseed.localhost/realms/treeseed' } } });
+		for (const upstream of ['http://api-live:3000', 'http://host.docker.internal:3100']) {
+			const inputs = componentActivationInputs(configuration, admin, [api, admin], [{ alias: 'api.treeseed.localhost', upstream, authentication: 'application', projectId: 'api', targetId: 'service' }]);
+			const environment = Object.fromEntries(renderComponentEnvironment(configuration, 'admin', inputs.connectionEnvironment).trim().split('\n').map(line => {
+				const separator = line.indexOf('='); return [line.slice(0, separator), JSON.parse(line.slice(separator + 1))];
+			}));
+			expect(identityEndpointSchema.parse(environment.TREESEED_API_BASE_URL)).toBe('https://api.treeseed.localhost');
+			expect(environment.TREESEED_API_URL).toBe(upstream);
+			expect(environment.TREESEED_API_HOSTNAME).toBe('api.treeseed.localhost');
+			expect(environment.TREESEED_IDENTITY_HOSTNAME).toBe('identity.treeseed.localhost');
+		}
+	});
 	it('selects and restores local API routes without changing audience or remote/production connections', () => {
 		const configuration = host(), api = component('api', 'stable', 'a'), treedx = component('treedx', 'development', 'b');
 		configuration.runtime.environment = 'development';
