@@ -44,7 +44,7 @@ function verifySelectedProviderCode(phase: 'preflight' | 'completed'): void {
   const freezeBytes = readFileSync(freezePath), frozen: unknown = JSON.parse(freezeBytes.toString('utf8'));
   const heldHead = () => execFileSync('/usr/bin/git', ['-C', resolve(platform, 'packages/agent'), 'rev-parse', 'HEAD'],
     { encoding: 'utf8', timeout: remaining() }).trim();
-  verifySelectedProviderCandidate(head, heldHead(), frozen, status);
+  verifySelectedProviderCandidate(head, heldHead(), frozen, status, read(['dev', 'host', 'status']));
   const cleanSource = () => execFileSync('/usr/bin/git', ['-C', worktree, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8', timeout: remaining() });
   assert.equal(cleanSource(), '', 'SOURCE_BUILD_SOURCE: A saved clean candidate cannot authorize currently changed source');
   const candidates = status.candidates.map(value => developmentCandidateSchema.parse(value)).filter(value => value.sessionId === session.sessionId
@@ -146,7 +146,7 @@ function verifySelectedProviderCode(phase: 'preflight' | 'completed'): void {
     for (const [name, bytes] of inputs) { assert.ok(readFileSync(join(worktree, name)).equals(bytes)); assert.ok(readFileSync(join(clone, name)).equals(bytes)); }
     assert.deepEqual(read(['dev', 'status']), status);
     if (completedWorkday) { assert.ok(workdayId); assert.deepEqual(read(['workdays', 'show', workdayId]), completedWorkday); }
-    verifySelectedProviderCandidate(head, heldHead(), frozen, status); assert.ok(readFileSync(freezePath).equals(freezeBytes));
+    verifySelectedProviderCandidate(head, heldHead(), frozen, status, read(['dev', 'host', 'status'])); assert.ok(readFileSync(freezePath).equals(freezeBytes));
     assert.equal(execFileSync('/usr/bin/git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: remaining() }).trim(), head);
     assert.equal(cleanSource(), ''); assert.ok(readFileSync(cli).equals(cliBytes));
     // Read-only selected native code + actual canonical execution, not a claim
