@@ -1,4 +1,7 @@
 workflow:
+  - id: admin-public-identity-resource
+    action: { verifier: deployment.golden.admin-public-identity-resource }
+    expect: { status: passed }
   - id: host-nbd-inventory-native
     action: { verifier: deployment.golden.host-nbd-inventory-native }
     expect: { status: passed }

@@ -1,6 +1,11 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.admin-public-identity-resource:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-peer-connections.test.ts
+    testName: renders an HTTPS Admin Identity resource while a selected API retains its independent internal transport
   deployment.golden.host-nbd-inventory-native:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
