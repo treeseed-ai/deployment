@@ -104,6 +104,10 @@ function inspectVmProcesses():{processes:VmProcessObservation[]|null;pidNamespac
      // The process can exit after a successful status read too. Confirm actual
      // procfs disappearance; a still-present unreadable identity remains fatal.
      try{lstatSync(vmProcRoot+'/'+pid);}catch(absent){if(['ENOENT','ESRCH'].includes((absent as NodeJS.ErrnoException).code??''))continue;throw absent;}
+     // Exit can leave a zombie directory after the first running status read.
+     // Reobserve that state; a still-live unreadable executable remains fatal.
+     try{const status=readFileSync(vmProcRoot+'/'+pid+'/status','utf8');if(/^Kthread:[ \t]+1$/mu.test(status)||/^State:[ \t]+Z(?:[ \t]|$)/mu.test(status))continue;}
+     catch(statusError){if(!['ENOENT','ESRCH'].includes((statusError as NodeJS.ErrnoException).code??''))throw statusError;}
     }throw error;
    }
    if(!isAbsolute(observation.executable))throw new Error('invalid_executable');
