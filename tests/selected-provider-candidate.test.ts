@@ -14,7 +14,8 @@ it('retains one exact selected held and frozen Agent candidate without changing 
   const frozen = { sourceHeads: { agent: head }, runtimeTargets: runtime }, before = structuredClone({ frozen, runtime });
   verifySelectedProviderCandidate(head, head, frozen, runtime);
   expect({ frozen, runtime }).toEqual(before);
-  const host={generationId:'dev-1788100000000-deadbeef',status:'active',manifestDigest:'sha256:'+'c'.repeat(64),guestImageDigest:'sha256:'+'d'.repeat(64),files:[{path:'package.json',size:2,sha256:'sha256:'+'e'.repeat(64)}]},captured={...frozen,host,guest:{digest:host.guestImageDigest}},held=structuredClone({captured,host});
+  const files=['package.json','dist/src/bin/api.js','dist/src/bin/supervisor.js','node_modules/zod/index.js'].sort((a,b)=>a.localeCompare(b)).map(path=>{const value=path==='package.json'?'{"type":"module"}':'export const selected = 1;';return{path,size:Buffer.byteLength(value),sha256:'sha256:'+createHash('sha256').update(value).digest('hex')};});
+  const host={generationId:'dev-1788100000000-deadbeef',status:'active',manifestDigest:'sha256:'+createHash('sha256').update(JSON.stringify(files)).digest('hex'),guestImageDigest:'sha256:'+'d'.repeat(64),files},captured={...frozen,host,guest:{digest:host.guestImageDigest}},held=structuredClone({captured,host});
   Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,host]);
   for(const observed of [undefined,null,{}, {...host,status:'installed'}, {...host,generationId:'dev-1788100000000-feedbeef'},{...host,manifestDigest:'sha256:'+'f'.repeat(64)},{...host,guestImageDigest:'sha256:'+'f'.repeat(64)},{...host,files:[]},{...host,files:[{...host.files[0],sha256:'sha256:'+'f'.repeat(64)}]}]){
     expect(()=>Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,observed])).toThrow('SOURCE_BUILD_HELD_CANDIDATE');expect({captured,host}).toEqual(held);
