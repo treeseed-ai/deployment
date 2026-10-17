@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {hostDevelopmentRuntimeStatus} from '../src/supervisor/host-development-custody.js';
 import { expect, it } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -12,6 +14,11 @@ it('retains one exact selected held and frozen Agent candidate without changing 
   const frozen = { sourceHeads: { agent: head }, runtimeTargets: runtime }, before = structuredClone({ frozen, runtime });
   verifySelectedProviderCandidate(head, head, frozen, runtime);
   expect({ frozen, runtime }).toEqual(before);
+  const host={generationId:'dev-1788100000000-deadbeef',status:'active',manifestDigest:'sha256:'+'c'.repeat(64),guestImageDigest:'sha256:'+'d'.repeat(64),files:[{path:'package.json',size:2,sha256:'sha256:'+'e'.repeat(64)}]},captured={...frozen,host,guest:{digest:host.guestImageDigest}},held=structuredClone({captured,host});
+  Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,host]);
+  for(const observed of [undefined,null,{}, {...host,status:'installed'}, {...host,generationId:'dev-1788100000000-feedbeef'},{...host,manifestDigest:'sha256:'+'f'.repeat(64)},{...host,guestImageDigest:'sha256:'+'f'.repeat(64)},{...host,files:[]},{...host,files:[{...host.files[0],sha256:'sha256:'+'f'.repeat(64)}]}]){
+    expect(()=>Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,observed])).toThrow('SOURCE_BUILD_HELD_CANDIDATE');expect({captured,host}).toEqual(held);
+  }
 });
 
 it('denies absent malformed moved contradictory or substituted selected candidate authority without repairing failed inputs', () => {
@@ -49,6 +56,14 @@ it('native Git and public immutable materialization deny a moved held candidate 
     writeFileSync(join(directory, 'runtime-receipt.json'), JSON.stringify(receipt), { mode: 0o600 });
     const runtime = { session: { sessionId: 'dev-controlled', status: 'active' }, receipt }, frozen = { sourceHeads: { agent: head }, runtimeTargets: runtime };
     const before = structuredClone({ frozen, runtime, receipt }), bytes = readFileSync(join(directory, 'runtime/dist/entry.js'));
+    const hostRoot=join(root,'host'),generationId='dev-1788100000000-deadbeef',generation=join(hostRoot,'generations',generationId),hash=(value:string)=>'sha256:'+createHash('sha256').update(value).digest('hex');
+    const files=['package.json','dist/src/bin/api.js','dist/src/bin/supervisor.js','node_modules/zod/index.js'].sort((a,b)=>a.localeCompare(b)).map(path=>{const bytes=path==='package.json'?'{"type":"module"}':'export const selected = 1;';mkdirSync(join(generation,path,'..'),{recursive:true});writeFileSync(join(generation,path),bytes);return{path,size:Buffer.byteLength(bytes),sha256:hash(bytes)};});
+    const state={schemaVersion:'treeseed.host-development-generation/v1',generationId,status:'active',worktree,manifestDigest:hash(JSON.stringify(files)),guestImageDigest:'sha256:'+'d'.repeat(64),message:null,updatedAt:'2026-10-17T00:00:00.000Z'},statePath=join(hostRoot,'state.json');writeFileSync(statePath,JSON.stringify(state));
+    const host=hostDevelopmentRuntimeStatus(hostRoot),captured={...frozen,host,guest:{digest:state.guestImageDigest}},originalState=readFileSync(statePath),capturedBefore=structuredClone(captured);
+    Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,host]);
+    writeFileSync(statePath,JSON.stringify({...state,guestImageDigest:'sha256:'+'f'.repeat(64)}));const movedHost=hostDevelopmentRuntimeStatus(hostRoot),failedState=readFileSync(statePath);
+    expect(()=>Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,movedHost])).toThrow('SOURCE_BUILD_HELD_CANDIDATE');expect(readFileSync(statePath)).toEqual(failedState);expect(captured).toEqual(capturedBefore);writeFileSync(statePath,originalState);
+    for(const observed of await Promise.all(Array.from({length:4},async()=>hostDevelopmentRuntimeStatus(hostRoot))))Reflect.apply(verifySelectedProviderCandidate,undefined,[head,head,captured,runtime,observed]);expect(readFileSync(statePath)).toEqual(originalState);expect(captured).toEqual(capturedBefore);
     expect(developmentRuntimeStatus(directory, undefined, process.getuid!())).toEqual(receipt);
     verifySelectedProviderCandidate(head, git(['rev-parse', 'HEAD']), frozen, runtime);
     writeFileSync(join(worktree, 'dist/entry.js'), 'export const value = 2;'); git(['add', '.']); git(['commit', '-m', 'Different held source']);
