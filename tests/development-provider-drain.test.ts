@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -57,4 +57,13 @@ it('propagates restoration failure instead of claiming recovered execution',()=>
 it('rejects unowned containers before any stop or restoration side effect',()=>{
   const f=fixture(inventory('polling'),'',true,false);expect(()=>f.run()).toThrow('ownership');
   expect(f.states).toEqual({manager:true,runner:true});expect(f.effects).toEqual([]);
+});
+
+it('drains a physically closed recovery for code handoff while retaining its original accounting and product bytes',()=>{
+ const at=new Date().toISOString(),claim={id:'closed',status:'recovery',activeStartedAt:at,activeFinishedAt:at,
+  requestedSeconds:162,failureMessage:'retained failure',dispatchEnvelope:{original:'held'},
+  closeoutOutput:{sandboxId:'original-sandbox',teardown:{verified:true,completedAt:at},product:'original'}};
+ const value=JSON.stringify({schemaVersion:1,claims:[claim]});const f=fixture(value);f.run();
+ expect(f.states).toEqual({manager:false,runner:false});expect(f.effects).toEqual(['stop:manager','stop:runner']);
+ expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);
 });

@@ -37,9 +37,13 @@ new DevelopmentSessionStore().save({
   runtimes:[],routes:[],candidates:[],
 });
 const claims = '/var/lib/treeseed/components/agent/runtime/capacity-state.json';
-const succeeds=['polling','empty','first-start'].includes(shape);
+const succeeds=['polling','empty','first-start','closed-recovery'].includes(shape);
 make(claims, shape==='malformed' ? 'not-json' : JSON.stringify({schemaVersion:1,claims:shape==='empty'||shape==='first-start'?[]:
-  [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape}]}));
+  [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')?'recovery':shape,
+    ...(shape.includes('recovery') && shape !== 'recovery' ? { activeStartedAt: now, ...(shape !== 'ongoing-recovery' ? {activeFinishedAt:now}:{}),
+      closeoutOutput:{sandboxId:'original-sandbox',teardown:{verified:shape!=='unverified-recovery',
+        completedAt:shape==='invalid-recovery'?'invalid':shape==='future-recovery'?'2999-01-01T00:00:00.000Z':shape==='early-recovery'?'2000-01-01T00:00:00.000Z':now}}}: {})}]}));
+const originalClaims=readFileSync(claims);
 if(shape!=='first-start') {
 make(`${directory}/runtime/dist/main.js`, 'old-runtime');
 make(`${directory}/runtime-receipt.json`, 'original-receipt');
@@ -70,6 +74,7 @@ const transport=(_executable:string,args:readonly string[])=>{
 let rejected=false, failure='', result:unknown;
 try { result=executeAgentDevelopmentContainer({sessionId,projectId:'agent',targetId:'provider',action:'start'},transport); }
 catch(error) { rejected=true; failure=String(error); }
+assert.deepEqual(readFileSync(claims),originalClaims,'handoff must preserve complete provider recovery bytes');
 if(succeeds) {
   assert.equal(rejected,false,failure);
   const runtime=developmentRuntimeStatus(directory,['dist','package.json','node_modules']);

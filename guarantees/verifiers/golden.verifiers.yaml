@@ -1313,3 +1313,51 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-status.test.ts
     testName: "native host inspection positive fixture carries canonical source authority for each original owner rather than a private placeholder"
+
+  deployment.golden.provider-closed-recovery-drain:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-drain.test.ts
+    testName: "drains a physically closed recovery for code handoff while retaining its original accounting and product bytes"
+
+  deployment.golden.provider-closed-recovery-claims:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-claims.test.ts
+    testName: "keeps physically closed recovery active for guest changes while allowing provider code handoff without rewriting custody"
+
+  deployment.golden.provider-handoff-closed-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-handoff.test.ts
+    testName: "selects the prepared provider snapshot after closed-recovery admission through the original boundary"
+
+  deployment.golden.provider-handoff-ongoing-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-handoff.test.ts
+    testName: "preserves selected provider bytes and execution after ongoing-recovery rejection in an isolated filesystem"
+
+  deployment.golden.provider-handoff-unverified-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-handoff.test.ts
+    testName: "preserves selected provider bytes and execution after unverified-recovery rejection in an isolated filesystem"
+
+  deployment.golden.provider-handoff-invalid-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-handoff.test.ts
+    testName: "preserves selected provider bytes and execution after invalid-recovery rejection in an isolated filesystem"
+
+  deployment.golden.provider-handoff-future-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-handoff.test.ts
+    testName: "preserves selected provider bytes and execution after future-recovery rejection in an isolated filesystem"
+
+  deployment.golden.provider-handoff-early-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-handoff.test.ts
+    testName: "preserves selected provider bytes and execution after early-recovery rejection in an isolated filesystem"
