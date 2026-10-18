@@ -797,3 +797,27 @@ workflow:
   - id: source-authorization-3
     action: { verifier: deployment.golden.execution-source-authorization-3 }
     expect: { status: passed }
+
+  - id: provider-closed-recovery-drain
+    action: { verifier: deployment.golden.provider-closed-recovery-drain }
+
+  - id: provider-closed-recovery-claims
+    action: { verifier: deployment.golden.provider-closed-recovery-claims }
+
+  - id: provider-handoff-closed-recovery
+    action: { verifier: deployment.golden.provider-handoff-closed-recovery }
+
+  - id: provider-handoff-ongoing-recovery
+    action: { verifier: deployment.golden.provider-handoff-ongoing-recovery }
+
+  - id: provider-handoff-unverified-recovery
+    action: { verifier: deployment.golden.provider-handoff-unverified-recovery }
+
+  - id: provider-handoff-invalid-recovery
+    action: { verifier: deployment.golden.provider-handoff-invalid-recovery }
+
+  - id: provider-handoff-future-recovery
+    action: { verifier: deployment.golden.provider-handoff-future-recovery }
+
+  - id: provider-handoff-early-recovery
+    action: { verifier: deployment.golden.provider-handoff-early-recovery }

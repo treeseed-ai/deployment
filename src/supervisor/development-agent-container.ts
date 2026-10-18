@@ -83,18 +83,30 @@ export function writeAgentDevelopmentManifest(path: string, manifest: string, ow
 	chmodSync(path, 0o640);
 }
 
-export function activeAgentClaims(stateRoot: string) {
+export function activeAgentClaims(stateRoot: string, providerHandoff = false) {
 	const path = resolve(stateRoot, 'runtime', 'capacity-state.json');
 	if (!existsSync(path)) return [];
 	const state = JSON.parse(readFileSync(path, 'utf8')) as { schemaVersion?: unknown; claims?: unknown };
 	if (state.schemaVersion !== 1 || !Array.isArray(state.claims)) throw new Error('Provider-local capacity state is invalid.');
 	return state.claims.filter((claim): claim is { id: string; status: string } => {
 		if (!claim || typeof claim !== 'object') throw new Error('Provider-local capacity claim is invalid.');
-		const value = claim as { id?: unknown; status?: unknown };
+		const value = claim as Record<string, unknown>;
 		if (typeof value.id !== 'string' || !['polling', 'ready', 'running', 'recovery', 'unresolved'].includes(String(value.status)))
 			throw new Error('Provider-local capacity claim is invalid.');
 		// The owning provider retains unresolved usage custody and period holds;
 		// this reader only observes whether a live execution slot blocks handoff.
+		if (providerHandoff && value.status === 'recovery') {
+			// Replace only provider code after its trusted executor physically closed.
+			// The complete recovery journal and accounting holds remain untouched.
+			const output = value.closeoutOutput as Record<string, unknown> | undefined;
+			const teardown = output?.teardown as Record<string, unknown> | undefined;
+			const completed = typeof teardown?.completedAt === 'string' ? Date.parse(teardown.completedAt) : NaN;
+			const started = typeof value.activeStartedAt === 'string' ? Date.parse(value.activeStartedAt) : NaN;
+			const finished = typeof value.activeFinishedAt === 'string' ? Date.parse(value.activeFinishedAt) : NaN;
+			if (typeof output?.sandboxId === 'string' && output.sandboxId && teardown?.verified === true
+				&& Number.isFinite(completed) && completed <= Date.now()
+				&& Number.isFinite(started) && Number.isFinite(finished) && started <= finished && finished <= completed) return false;
+		}
 		return value.status !== 'polling' && value.status !== 'unresolved';
 	});
 }
@@ -138,7 +150,7 @@ export function stopForHandoff(command: CommandRunner, stateRoot: string, restor
 	const running = new Set(services.filter(service => containerState(command, service).running));
 	try {
 		stopService(command, 'manager');
-		const active = activeAgentClaims(stateRoot);
+		const active = activeAgentClaims(stateRoot, true);
 		if (active.length) throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
 		stopService(command, 'runner');
 	} catch (error) {

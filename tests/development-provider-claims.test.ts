@@ -59,3 +59,18 @@ process.stdout.write(JSON.stringify(activeAgentClaims(process.argv[2])));`);
   expect(denied.stdout).toBe('');expect(denied.stderr).toContain('Provider-local capacity claim is invalid');
   expect(readFileSync(path)).toEqual(bytes);
 });
+
+it('keeps physically closed recovery active for guest changes while allowing provider code handoff without rewriting custody',()=>{
+ const at=new Date().toISOString(),claim={id:'closed',status:'recovery',activeStartedAt:at,activeFinishedAt:at,
+  closeoutOutput:{sandboxId:'original',teardown:{verified:true,completedAt:at}}};
+ const root=fixture({schemaVersion:1,claims:[claim]}),path=resolve(root,'runtime/capacity-state.json'),bytes=readFileSync(path);
+ expect(activeAgentClaims(root)).toEqual([claim]);expect(activeAgentClaims(root,true)).toEqual([]);expect(readFileSync(path)).toEqual(bytes);
+ for(const changed of [{...claim,status:'running'},{...claim,status:'ready'},{...claim,activeFinishedAt:undefined},
+  {...claim,closeoutOutput:undefined},{...claim,closeoutOutput:{sandboxId:'original',teardown:{verified:false,completedAt:at}}},
+  {...claim,closeoutOutput:{sandboxId:'original',teardown:{verified:true,completedAt:'invalid'}}},
+  {...claim,closeoutOutput:{sandboxId:'original',teardown:{verified:true,completedAt:'2999-01-01T00:00:00.000Z'}}},
+  {...claim,closeoutOutput:{sandboxId:'original',teardown:{verified:true,completedAt:'2000-01-01T00:00:00.000Z'}}}]) {
+  const root=fixture({schemaVersion:1,claims:[changed]}),path=resolve(root,'runtime/capacity-state.json'),bytes=readFileSync(path);
+  expect(activeAgentClaims(root,true)).toEqual(JSON.parse(bytes.toString()).claims);expect(readFileSync(path)).toEqual(bytes);
+ }
+});
