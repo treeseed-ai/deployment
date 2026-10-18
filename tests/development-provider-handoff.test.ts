@@ -38,11 +38,11 @@ it.each(['readiness-failure','cleanup-failure','orphan-preparation','interrupted
 it('serializes concurrent API restart requests through the native supervisor socket without overlapping execution',()=>{
     expect(apiRestart('concurrent')).toEqual({concurrent:true,restarts:2,privateBytesVerified:true,teardownVerified:true});
 },240_000);
-it.each(['ready','running','recovery','malformed','bad-claim','copy-failure','runner-stop-failure','runner-stop-uncertain','manager-stop-uncertain'])(
+it.each(['ready','running','recovery','malformed','bad-claim','copy-failure','runner-stop-failure','runner-stop-uncertain','manager-stop-uncertain','ongoing-recovery','unverified-recovery','invalid-recovery','future-recovery','early-recovery'])(
   'preserves selected provider bytes and execution after %s rejection in an isolated filesystem', shape=>{
     expect(run(shape)).toEqual({shape,rejected:true,selectedBytesUnchanged:true,executionUnchanged:true});
   },240_000);
-it.each(['polling','empty','first-start'])(
+it.each(['polling','empty','first-start','closed-recovery'])(
   'selects the prepared provider snapshot after %s admission through the original boundary',shape=>{
     expect(run(shape)).toEqual({shape,started:true,runtimeCustodyVerified:true});
   },240_000);
