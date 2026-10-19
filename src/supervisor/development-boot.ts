@@ -3,12 +3,14 @@ import { resolve } from 'node:path';
 import { DevelopmentSessionStore, type ManagedDevelopmentSession } from '../manager/development-sessions.js';
 import { assertDevelopmentNotHeld } from '../core/development-backup-hold.js';
 import { runtimeStopped } from '../manager/update-state.js';
+import { loadHostConfiguration } from '../core/configuration.js';
 
 type Command = (command: string, args: string[], input?: string) => unknown;
 const worker = '/usr/lib/treeseed/cli/dist/cli/development/boot-resume.js';
 
-export function developmentResumeRequired(record: ManagedDevelopmentSession) {
-	return record.session.targets.some(target => target.mode !== 'released' && target.health !== 'ready');
+export function developmentResumeRequired(record: ManagedDevelopmentSession, components: Readonly<Record<string, { enabled?: boolean }>> = {}) {
+	return record.session.targets.some(target => target.mode !== 'released' && target.health !== 'ready'
+		&& components[target.projectId === 'ai' ? target.targetId : target.projectId]?.enabled !== false);
 }
 
 export function captureBootCommand(command: Command, executable: string, args: string[]) {
@@ -52,7 +54,7 @@ export function resumeDevelopmentAtBoot(sessionId: string, command: Command) {
 		// RemainAfterExit can be active from an earlier successful boot even after
 		// host stop marked the live selections stopped. Rerun the fixed worker.
 		if (state === 'active') {
-			if (!developmentResumeRequired(record)) return { ready: true };
+			if (!developmentResumeRequired(record, loadHostConfiguration().components)) return { ready: true };
 			command('/usr/bin/systemctl', ['restart', '--no-block', unit]);
 			return { ready: false };
 		}
