@@ -101,6 +101,11 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/workspace-status.test.ts
     testName: reads the original catalog without changing its canonical bytes and retains malformed device failures as incomplete observations
+  deployment.golden.disabled-target-resume-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-component-status-native.test.ts
+    testName: native disabled target recovery retains healthy managed processes and exact persisted selections through repeated authoritative reads
   deployment.golden.stopped-candidate-resume-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

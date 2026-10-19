@@ -829,3 +829,7 @@ workflow:
   - id: provider-handoff-early-recovery
     action: { verifier: deployment.golden.provider-handoff-early-recovery }
     expect: { status: passed }
+
+  - id: disabled-target-resume-native
+    action: { verifier: deployment.golden.disabled-target-resume-native }
+    expect: { status: passed }
