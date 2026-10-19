@@ -35,6 +35,20 @@ describe('development boot process custody', () => {
 		const before = structuredClone(record);
 		expect(developmentResumeRequired(record)).toBe(true);
 		expect(record).toEqual(before);
+			const disabled = {session:{targets:[{projectId:'admin',targetId:'web',mode:'live',health:'ready',generation:9},
+				...['ai-inference','ai-training','ai-lab'].map(targetId=>({projectId:'ai',targetId,mode:'candidate',health:'stopped',generation:2}))]}} as ManagedDevelopmentSession;
+			const components = {'ai-inference':{enabled:false},'ai-training':{enabled:false},'ai-lab':{enabled:false},admin:{enabled:true}};
+			const held = structuredClone(disabled), configuration = structuredClone(components);
+			expect(developmentResumeRequired(disabled, components)).toBe(false);
+			for(const component of ['ai-inference','ai-training','ai-lab'] as const)
+				expect(developmentResumeRequired(disabled,{...components,[component]:{enabled:true}})).toBe(true);
+			expect(developmentResumeRequired(disabled,{})).toBe(true);
+			for(const health of ['pending','stopped','degraded'] as const){
+				const failed = structuredClone(disabled);failed.session.targets[0]!.health=health;
+				expect(developmentResumeRequired(failed,components)).toBe(true);
+			}
+			expect(developmentResumeRequired({session:{targets:[{projectId:'admin',targetId:'web',mode:'candidate',health:'stopped'}]}} as ManagedDevelopmentSession,{admin:{enabled:false}})).toBe(false);
+			expect(disabled).toEqual(held);expect(components).toEqual(configuration);
 		expect(developmentResumeRequired({ session: { targets: [{ mode: 'candidate', health: 'ready' },
 			{ mode: 'released', health: 'stopped' }] } } as ManagedDevelopmentSession)).toBe(false);
 	});
