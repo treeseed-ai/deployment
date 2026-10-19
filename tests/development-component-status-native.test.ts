@@ -12,7 +12,8 @@ import {beginDevelopmentBackup,finishDevelopmentBackup,planDevelopmentBackup,typ
 import {quiescedBackup} from '../src/manager/quiesced-backup.js';
 import {assertNoBackupWriters} from '../src/supervisor/backup-writers.js';
 import {encryptBackupStream,decryptBackupStream} from '../src/supervisor/backup-stream.js';
-import {component} from './fixtures.js';
+import {component,host} from './fixtures.js';
+import {loadHostConfiguration} from '../src/core/configuration.js';
 import {DevelopmentSessionStore} from '../src/manager/development-sessions.js';
 import {suspendStoppedDevelopmentSessions} from '../src/manager/development-handoff.js';
 import {developmentResumeRequired} from '../src/supervisor/development-boot.js';
@@ -307,3 +308,42 @@ it('enforces the exact selected RAM ceiling through real Compose cgroups and rej
   expect(f.status()).toMatchObject({ready:false});expect(readFileSync(f.override)).toEqual(held);
  }finally{f.close();}
 },30_000);
+
+it('native disabled target recovery retains healthy managed processes and exact persisted selections through repeated authoritative reads',()=>{
+ const f=fixture();let id='';try{
+  id=f.create();expect(f.status()).toMatchObject({ready:true});
+  const inspect=()=>JSON.parse(f.docker('/usr/bin/docker',['inspect',id,'--format','{{json .State}}']));
+  const original=inspect();expect(original.Running).toBe(true);expect(original.Pid).toBeGreaterThan(0);
+  const contract=(project:string,targetIds:string[])=>developmentRuntimeSchema.parse({schemaVersion:'treeseed.development-runtime/v2',
+   project:{id:project,repository:'treeseed-ai/'+project},defaults:{restoreOnFailure:true},targets:targetIds.map(targetId=>({
+    id:targetId,kind:'rebuild-restart',executionCustody:'manager',platforms:['linux-amd64'],runtimeRequirements:[],sourceRoots:['src'],ignoredPaths:[],
+    operations:{start:{command:'manager-runtime',args:[],environment:{},timeoutSeconds:30}},ready:{kind:'process',graceSeconds:0},outputs:[],endpoints:[],dependencies:[],
+    statePolicy:'stateless',migrationPolicy:'none',secretRefs:{},shutdown:{graceSeconds:1,activeWorkPolicy:'block'},resources:{},logs:[],forbiddenOperations:[],
+    promotion:{liveAdmissible:false,candidateRequiresVerification:true}}))});
+  const ai=['ai-inference','ai-training','ai-lab'],sessions=new DevelopmentSessionStore(resolve(f.root,'sessions'));
+  const session=developmentSessionSchema.parse({schemaVersion:'treeseed.development-session/v2',sessionId:f.input.sessionId,actor:'native-test',hostId:'native-host',
+   createdAt:new Date().toISOString(),status:'active',repositories:[],leases:[],restoredReceiptId:null,blockers:[],targets:[
+    {projectId:'treedx',targetId:'service',mode:'candidate',generation:9,health:'ready'},
+    ...ai.map(targetId=>({projectId:'ai',targetId,mode:'candidate',generation:2,health:'stopped'}))]});
+  sessions.start(session,[contract('treedx',['service']),contract('ai',ai)]);
+  const configuration=host();configuration.components.treedx={...configuration.components.api!,enabled:true};
+  for(const component of ai)configuration.components[component]={...configuration.components.api!,enabled:false};
+  const configPath=resolve(f.root,'host.json');writeFileSync(configPath,JSON.stringify(configuration));
+  const saved=sessions.load(session.sessionId),recordPath=resolve(f.root,'sessions',session.sessionId+'.json');
+  const recordBytes=readFileSync(recordPath),configurationBytes=readFileSync(configPath);
+  for(let iteration=0;iteration<3;iteration++){
+   expect(developmentResumeRequired(sessions.load(session.sessionId),loadHostConfiguration(configPath).components)).toBe(false);
+   expect(f.status()).toMatchObject({ready:true});expect(inspect()).toMatchObject({Running:true,Pid:original.Pid,StartedAt:original.StartedAt});
+   expect(readFileSync(recordPath)).toEqual(recordBytes);expect(readFileSync(configPath)).toEqual(configurationBytes);
+  }
+  for(const component of ai){const enabled=loadHostConfiguration(configPath);enabled.components[component]!.enabled=true;
+   writeFileSync(configPath,JSON.stringify({...enabled,generation:enabled.generation+1}));
+   expect(developmentResumeRequired(sessions.load(session.sessionId),loadHostConfiguration(configPath).components)).toBe(true);
+   writeFileSync(configPath,configurationBytes);
+  }
+  const failed=structuredClone(saved);failed.session.targets[0]!.health='stopped';sessions.save(failed);
+  expect(developmentResumeRequired(sessions.load(session.sessionId),loadHostConfiguration(configPath).components)).toBe(true);
+  expect(inspect()).toMatchObject({Running:true,Pid:original.Pid,StartedAt:original.StartedAt});
+ }finally{f.close();}
+ expect(existsSync(f.root)).toBe(false);expect(()=>f.docker('/usr/bin/docker',['inspect',id])).toThrow();
+});
