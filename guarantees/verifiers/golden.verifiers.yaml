@@ -1378,3 +1378,15 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/development-provider-handoff.test.ts
     testName: "preserves selected provider bytes and execution after early-recovery rejection in an isolated filesystem"
+
+  deployment.golden.package-proxy-hosts-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/security-contract.test.ts
+    testName: "routes immutable Git and release-package HTTPS hosts through package authority only"
+
+  deployment.golden.package-proxy-custody-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/package-proxy-native.test.ts
+    testName: "reads the real immutable release through guest authentication and denies foreign, missing and expired authority"
