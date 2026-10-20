@@ -108,6 +108,8 @@ function inspectVmProcesses():{processes:VmProcessObservation[]|null;pidNamespac
      // Reobserve that state; a still-live unreadable executable remains fatal.
      try{const status=readFileSync(vmProcRoot+'/'+pid+'/status','utf8');if(/^Kthread:[ \t]+1$/mu.test(status)||/^State:[ \t]+Z(?:[ \t]|$)/mu.test(status))continue;}
      catch(statusError){if(!['ENOENT','ESRCH'].includes((statusError as NodeJS.ErrnoException).code??''))throw statusError;}
+     // The final status lookup may itself observe exit after the directory check.
+     try{lstatSync(vmProcRoot+'/'+pid);}catch(absent){if(['ENOENT','ESRCH'].includes((absent as NodeJS.ErrnoException).code??''))continue;throw absent;}
     }throw error;
    }
    if(!isAbsolute(observation.executable))throw new Error('invalid_executable');

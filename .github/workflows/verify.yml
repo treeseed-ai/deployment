@@ -69,7 +69,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: treeseed-ai/reviewer
-          ref: 108f153b18896e62cd0fb7507c2fa78c4ffaec36
+          ref: 001329f305c79beb6c1c8dfb9b85a36c6360e3eb
           path: .treeseed/tools/reviewer
       - name: Install the executing Reviewer suite dependencies
         run: npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund

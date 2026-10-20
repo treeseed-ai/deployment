@@ -1266,6 +1266,18 @@ verifiers:
     testFile: tests/sandbox-host-inspection.test.ts
     testName: "confirms native process disappearance after executable lookup instead of reporting a vanished ordinary process as VM residue"
 
+  deployment.golden.host-vm-final-process-absence-enoent-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: "confirms final process absence after the last status lookup exits with ENOENT"
+
+  deployment.golden.host-vm-final-process-absence-esrch-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox-host-inspection.test.ts
+    testName: "confirms final process absence after the last status lookup exits with ESRCH"
+
   deployment.golden.execution-vm-custody-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
