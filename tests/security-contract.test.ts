@@ -86,6 +86,18 @@ describe('host security contracts', () => {
 		expect(sandboxNetworkRules).toContain('tcp dport { 7443, 7444 } accept');
 		expect(sandboxNetworkRules).not.toContain('tcp dport { 53, 443 } accept');
 	});
+	it('routes immutable Git and release-package HTTPS hosts through package authority only', () => {
+		for (const host of ['github.com', 'codeload.github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com']) {
+			expect(allowedPackageRegistryHost(host)).toBe(true);
+			expect(assignmentProxyService(host)).toBe('package-registry');
+			expect(allowedSubscriptionProxyHost(host)).toBe(false);
+		}
+		for (const host of ['', 'github.com.attacker.invalid', 'attacker.github.com', 'api.github.com',
+			'raw.githubusercontent.com', 'attacker.githubusercontent.com', 'github.com:22', '127.0.0.1', 'registry.npmjs.org.attacker.invalid']) {
+			expect(allowedPackageRegistryHost(host)).toBe(false);
+			expect(assignmentProxyService(host)).toBeNull();
+		}
+	});
 	it('uses canonical containerd registry references for sandbox images', () => {
 		const digest = `sha256:${'a'.repeat(64)}`;
 		expect(containerdImageReference('treeseed/sandbox-codex', digest)).toBe(`docker.io/treeseed/sandbox-codex@${digest}`);

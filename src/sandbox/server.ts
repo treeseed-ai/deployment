@@ -20,7 +20,10 @@ const token = (request: IncomingMessage) => String(request.headers.authorization
 // Codex subscription transport uses ChatGPT plus OpenAI's first-party response
 // transport hosts. Keep this deliberately narrower than general egress.
 export const allowedSubscriptionProxyHost = (host: string) => ['openai.com', 'chatgpt.com', 'oaiusercontent.com'].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
-export const allowedPackageRegistryHost = (host: string) => host === 'registry.npmjs.org';
+export const allowedPackageRegistryHost = (host: string) => [
+	'registry.npmjs.org', 'github.com', 'codeload.github.com',
+	'release-assets.githubusercontent.com', 'objects.githubusercontent.com',
+].includes(host);
 export const assignmentProxyService = (host: string) => allowedPackageRegistryHost(host) ? 'package-registry' as const
 	: allowedSubscriptionProxyHost(host) ? 'codex-subscription' as const : null;
 
@@ -103,6 +106,12 @@ export async function startSandboxBroker() {
 		} catch (error) { respond(response, 400, { error: error instanceof Error ? error.message : 'relay_operation_failed' }); }
 	});
 	relay.listen(configuration.relay.port, configuration.relay.listenHost);
+	createAssignmentProxy(runtime).listen(configuration.relay.port + 1, configuration.relay.listenHost);
+	return server;
+}
+
+/** The same authenticated CONNECT boundary used by every assignment guest. */
+export function createAssignmentProxy(runtime: Pick<KataSandboxRuntime, 'authorizePackageRegistryProxy' | 'authorizeSubscriptionProxy'>) {
 	const subscriptionProxy = createServer();
 	const proxyLog = boundedProxyLogger();
 	subscriptionProxy.on('connect', (request, client, head) => {
@@ -122,6 +131,5 @@ export async function startSandboxBroker() {
 			upstream.once('error', () => client.destroy()); client.once('error', () => upstream.destroy());
 		} catch (error) { proxyLog({ source: 'sandbox-assignment-proxy', status: 'denied', ...(requestedHost ? { host: requestedHost } : {}), reason: error instanceof Error ? error.message : 'invalid_request', authorizationPresent: Boolean(request.headers['proxy-authorization']) }); client.end('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="TreeSeed assignment"\r\nConnection: close\r\n\r\n'); }
 	});
-	subscriptionProxy.listen(configuration.relay.port + 1, configuration.relay.listenHost);
-	return server;
+	return subscriptionProxy;
 }
