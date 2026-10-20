@@ -765,6 +765,14 @@ workflow:
     action: { verifier: deployment.golden.host-vm-exited-process-unit }
     expect: { status: passed }
 
+  - id: host-vm-final-process-absence-enoent-unit
+    action: { verifier: deployment.golden.host-vm-final-process-absence-enoent-unit }
+    expect: { status: passed }
+
+  - id: host-vm-final-process-absence-esrch-unit
+    action: { verifier: deployment.golden.host-vm-final-process-absence-esrch-unit }
+    expect: { status: passed }
+
   - id: execution-vm-custody-unit
     action: { verifier: deployment.golden.execution-vm-custody-unit }
     expect: { status: passed }

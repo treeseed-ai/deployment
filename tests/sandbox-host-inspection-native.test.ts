@@ -275,6 +275,15 @@ it('native installed CLI manager and supervisor observe actual pinned QEMU proce
  try{
   const selected=await start(own),other=await start(unrelated),present=await inspect();
   for(const [state,name]of [[selected,own],[other,unrelated]] as const){const exact=present.filter(row=>row.processId===state.child.pid);expect(exact).toHaveLength(1);expect(exact[0]).toMatchObject({name:'sandbox-'+name,failure:null,startTicks:expect.stringMatching(/^[1-9][0-9]*$/u)});}
+  // Ordinary build children may exit while the owning supervisor scans procfs.
+  // Keep both real VMs live and require the complete same inventory throughout.
+  for(let round=0;round<2;round++){
+   const exits=Array.from({length:16},()=>{
+    const child=spawn('/bin/true',[],{stdio:'ignore'}),state={child,closed:false};children.push(state);
+    return new Promise<void>((done,reject)=>{child.once('close',()=>{state.closed=true;done();});child.once('error',reject);});
+   });
+   const during=await inspect();await Promise.all(exits);expect(during).toEqual(present);
+  }
   await stop(selected);const absent=await inspect();expect(absent.some(row=>row.processId===selected.child.pid||row.name==='sandbox-'+own)).toBe(false);
   expect(absent.find(row=>row.processId===other.child.pid)).toEqual(present.find(row=>row.processId===other.child.pid));expect(other.closed).toBe(false);
   const replay=await inspect();expect(replay.find(row=>row.processId===other.child.pid)).toEqual(absent.find(row=>row.processId===other.child.pid));
