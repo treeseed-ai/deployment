@@ -117,6 +117,12 @@ jobs:
           else
             gh release upload "${{ inputs.tag }}" "${catalog[0]}"
           fi
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
+        env:
+          NODE_ENV: production
+        with:
+          github-token: ${{ github.token }}
+        if: ${{ !inputs.resume_apt_only }}
       - name: Verify native owning candidate
         if: ${{ !inputs.resume_apt_only }}
         uses: ./.github/actions/verify-native
