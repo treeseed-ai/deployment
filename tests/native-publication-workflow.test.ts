@@ -11,6 +11,9 @@ it('shares the complete original native prerequisites suites and scenes before v
 		const declared = owner.steps as { uses?: string; if?: string }[];
 		const shared = declared.filter(step => step.uses === nativeVerificationAction);
 		expect(shared, name).toHaveLength(1);
+		const directSdk = declared.filter(step => step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
+		expect(directSdk, name).toHaveLength(1);
+		expect(declared.indexOf(directSdk[0]!)).toBeLessThan(declared.indexOf(shared[0]!));
 		expect(owner['runs-on']).toBe('ubuntu-26.04');
 		expect(owner.env.NPM_CONFIG_CACHE).toBe('${{ github.workspace }}/.treeseed/npm-cache');
 		if (name === 'publish') {
@@ -32,5 +35,8 @@ it('shares the complete original native prerequisites suites and scenes before v
 	const path = '.github/actions/verify-native/action.yml', bytes = readFileSync(path); held.set(path, bytes);
 	const action = parse(bytes.toString()); expect(action.inputs).toBeUndefined();
 	for (const step of action.runs.steps) if (step.run) expect(step.shell).toBe('bash');
+	for (const step of action.runs.steps) if (step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@')) {
+		expect(typeof step.with?.commit).toBe('string'); expect(step.with.commit.trim().length).toBeGreaterThan(0);
+	}
 	for (const [path, bytes] of held) expect(readFileSync(path)).toEqual(bytes);
 });
