@@ -847,3 +847,6 @@ workflow:
   - id: package-proxy-custody-native
     action: { verifier: deployment.golden.package-proxy-custody-native }
     expect: { status: passed }
+  - id: native-publication-shared-prerequisites-unit
+    action: { verifier: deployment.golden.native-publication-shared-prerequisites-unit }
+    expect: { status: passed }
