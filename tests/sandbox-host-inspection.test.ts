@@ -4,7 +4,7 @@ import * as doctor from '../src/sandbox/doctor.js';
 
 const observed=vi.hoisted(()=>({tasks:'unrelated-task\n',containers:'unrelated-container\n',mounts:'1 0 0:1 / / rw - rootfs rootfs rw\n',
  namespace:'mnt:[1234]',hostNamespace:'mnt:[1234]',rootPresent:true,rootLink:false,unreadable:'',entries:['sandbox-retained','audit'],
- zombieAfterRead:false,statusReads:0,goneProcess:'',processes:[] as string[],processReads:0,processChanged:false,pidNamespace:'pid:[4321]',hostPidNamespace:'pid:[4321]',statReads:0,statChanged:false,nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
+ exitAfterRead:'',zombieAfterRead:false,statusReads:0,goneProcess:'',processes:[] as string[],processReads:0,processChanged:false,pidNamespace:'pid:[4321]',hostPidNamespace:'pid:[4321]',statReads:0,statChanged:false,nbd:[] as string[],files:{} as Record<string,string>,links:{} as Record<string,string>,nbdReads:0,nbdChanged:false,
  calls:[] as {path:string;args:readonly string[]}[],changed:false,reordered:false,hostFailure:''}));
 vi.mock('node:child_process',()=>({execFile:vi.fn((path:string,args:readonly string[],_options:unknown,callback:(error:Error|null,stdout:string,stderr:string)=>void)=>{
  observed.calls.push({path,args:[...args]});const kind=args.includes('tasks')?'tasks':'containers';
@@ -17,6 +17,7 @@ vi.mock('node:fs',()=>({
  accessSync:vi.fn(),constants:{R_OK:4,W_OK:2},existsSync:()=>false,
  readFileSync:(path:string)=>{if(path!=='/proc/1/mountinfo'){
   if(observed.unreadable===path)throw Object.assign(new Error('denied'),{code:'EACCES'});
+  if(path==='/proc/1/root/proc/600/status'&&observed.exitAfterRead&&++observed.statusReads>1){observed.goneProcess='600';throw Object.assign(new Error('exited'),{code:observed.exitAfterRead});}
   if(path==='/proc/1/root/proc/600/status'&&observed.zombieAfterRead&&++observed.statusReads>1)return 'Name:\tnode\nKthread:\t0\nState:\tZ (zombie)\n';
   if(Object.hasOwn(observed.files,path)){if(path==='/proc/1/root/proc/100/stat'){observed.statReads++;if(observed.statChanged&&observed.statReads>1)return processStat('100','999');}return observed.files[path];}throw Object.assign(new Error('absent'),{code:'ENOENT'});
  }if(observed.unreadable==='mounts')throw new Error('denied');return observed.mounts;},
@@ -39,7 +40,7 @@ vi.mock('node:fs',()=>({
 const configuration:SandboxBrokerConfiguration={socketPath:'/run/treeseed/sandbox/broker.sock',containerdAddress:'/run/containerd/containerd.sock',
  namespace:'treeseed-sandboxes',runtime:'io.containerd.kata.v2',stateRoot:'/var/lib/treeseed/sandboxes',trustedProvidersPath:'/etc/treeseed/sandbox/providers.json',
  relay:{listenHost:'10.89.0.1',port:7443,publicUrl:'https://10.89.0.1:7443',certificateFile:'/etc/treeseed/sandbox/relay.crt',privateKeyFile:'/run/credentials/relay-tls-key'},guestImages:[]};
-beforeEach(()=>{observed.tasks='unrelated-task\n';observed.containers='unrelated-container\n';observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
+beforeEach(()=>{observed.exitAfterRead='';observed.tasks='unrelated-task\n';observed.containers='unrelated-container\n';observed.mounts='1 0 0:1 / / rw - rootfs rootfs rw\n';
  observed.namespace='mnt:[1234]';observed.hostNamespace='mnt:[1234]';observed.rootPresent=true;observed.rootLink=false;observed.unreadable='';observed.entries=['sandbox-retained','audit'];observed.calls=[];observed.changed=false;observed.reordered=false;observed.hostFailure='';observed.zombieAfterRead=false;observed.statusReads=0;observed.goneProcess='';observed.processes=[];observed.processReads=0;observed.processChanged=false;observed.pidNamespace='pid:[4321]';observed.hostPidNamespace='pid:[4321]';observed.statReads=0;observed.statChanged=false;observed.nbd=[];observed.files={};observed.links={};observed.nbdReads=0;observed.nbdChanged=false;});
 
 it('reads complete stable owning host inventories without hiding unrelated resources or starting a runtime',async()=>{
@@ -190,4 +191,12 @@ it('confirms native process disappearance after executable lookup instead of rep
  observed.zombieAfterRead=true;observed.statusReads=0;const exited=await doctor.inspectSandboxInventory(configuration);
  expect(exited.complete).toBe(true);expect(exited.errors).toEqual([]);expect(exited.vmProcesses).toEqual([]);expect(exited.confirmation.vmProcesses).toEqual([]);
  expect(observed.files['/proc/1/root/proc/600/status']).toContain('R (running)');
+});
+it.each(['ENOENT','ESRCH'])('confirms final process absence after the last status lookup exits with %s',async(code)=>{
+ vmProcesses();observed.processes.push('600');observed.exitAfterRead=code;
+ observed.files['/proc/1/root/proc/600/status']='Name:\tnode\nKthread:\t0\nState:\tR (running)\n';
+ const result=await doctor.inspectSandboxInventory(configuration);
+ expect(result.complete).toBe(true);expect(result.errors).toEqual([]);
+ expect(result.vmProcesses?.map(vm=>vm.processId)).toEqual([100,200]);
+ expect(result.confirmation.vmProcesses).toEqual(result.vmProcesses);
 });
