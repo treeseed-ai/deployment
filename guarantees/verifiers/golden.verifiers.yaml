@@ -1390,3 +1390,9 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/package-proxy-native.test.ts
     testName: "reads the real immutable release through guest authentication and denies foreign, missing and expired authority"
+
+  deployment.golden.native-publication-shared-prerequisites-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publication-workflow.test.ts
+    testName: "shares the complete original native prerequisites suites and scenes before verification or release packaging"

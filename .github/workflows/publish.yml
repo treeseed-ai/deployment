@@ -28,6 +28,7 @@ permissions:
   id-token: write
   attestations: write
   packages: write
+  actions: read
 
 concurrency:
   group: ${{ inputs.suite }}-apt-publication
@@ -36,10 +37,11 @@ concurrency:
 jobs:
   publish:
     environment: ${{ inputs.suite == 'stable' && 'production' || 'staging' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       TREESEED_APT_SUITE: ${{ inputs.suite }}
       TREESEED_INTEGRATION_RELEASES: ${{ inputs.stable_lock_url }},${{ inputs.development_lock_url }}
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.treeseed/npm-cache
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -67,7 +69,7 @@ jobs:
         run: test -n "$APT_SIGNING_KEY"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: 24.12.0
           cache: npm
       - run: npm ci
       - name: Restore exact release assets for APT-only resume
@@ -115,8 +117,9 @@ jobs:
           else
             gh release upload "${{ inputs.tag }}" "${catalog[0]}"
           fi
-      - run: npm run verify:direct
+      - name: Verify native owning candidate
         if: ${{ !inputs.resume_apt_only }}
+        uses: ./.github/actions/verify-native
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
         if: ${{ false }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f

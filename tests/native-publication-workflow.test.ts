@@ -13,7 +13,10 @@ it('shares the complete original native prerequisites suites and scenes before v
 		expect(shared, name).toHaveLength(1);
 		expect(owner['runs-on']).toBe('ubuntu-26.04');
 		expect(owner.env.NPM_CONFIG_CACHE).toBe('${{ github.workspace }}/.treeseed/npm-cache');
-		if (name === 'publish') expect(shared[0]!.if).toBe('${{ !inputs.resume_apt_only }}');
+		if (name === 'publish') {
+			expect(shared[0]!.if).toBe('${{ !inputs.resume_apt_only }}');
+			expect(workflow.permissions.actions).toBe('read');
+		}
 		const steps = expandNativeSteps(owner.steps) as { name?: string; run?: string; env?: Record<string, string> }[];
 		const installed = steps.findIndex(step => step.name === 'Initialize disposable native capacity host');
 		const complete = steps.findIndex(step => step.run?.includes('npm run verify:direct'));

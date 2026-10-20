@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { expandNativeSteps } from './fixtures/native-verification-steps.js';
 
 describe('Debian and systemd contracts', () => {
 	it.each(['publish.yml', 'publish-lab.yml'])('uses environment-scoped Docker Hub username/password in %s', (filename) => {
@@ -252,8 +253,13 @@ console.log(JSON.stringify({response:JSON.parse(output), events}));
 		const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 		expect(publisher).toContain('release/apt/${suite}.fingerprint');
 		expect(publisher).toContain('does not match its published keyring');
-		expect(workflow.indexOf('Require protected publication credentials before building')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
-		expect(workflow.indexOf('Require the protected workflow ref for the selected suite')).toBeLessThan(workflow.indexOf('npm run verify:direct'));
+		const steps = expandNativeSteps(parse(workflow).jobs.publish.steps) as { name?: string; run?: string }[];
+		const complete = steps.findIndex(step => step.run?.includes('npm run verify:direct'));
+		expect(complete).toBeGreaterThan(-1);
+		for (const name of ['Require protected publication credentials before building', 'Require the protected workflow ref for the selected suite']) {
+			const guard = steps.findIndex(step => step.name === name);
+			expect(guard).toBeGreaterThan(-1); expect(guard).toBeLessThan(complete);
+		}
 		expect(workflow).toContain("refs/heads/main' || 'refs/heads/staging");
 		expect(workflow).toContain('Published release asset differs: $name');
 		expect(workflow).toContain('cmp --silent "$asset" "$existing_dir/$name"');
