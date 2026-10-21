@@ -1,3 +1,4 @@
+import { sourceExportSelectionSchema } from '../sandbox/source-export.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { hostConfigurationSchema, type HostConfiguration } from '@treeseed/sdk/deployment';
@@ -368,6 +369,13 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		case 'local.host.security.recovery.verify': {
 			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
 			return requestSupervisor({ operation: 'security.recovery.verify', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase });
+		}
+		case 'local.host.sandbox.source.export': {
+			if (!context.local || request.arguments.length || request.configuration !== undefined
+				|| Object.keys(request.options).length !== 1 || typeof request.options.payload !== 'string')
+				throw new Error('Source export requires the protected local manager socket and an exact selection only.');
+			const selection = sourceExportSelectionSchema.parse(JSON.parse(request.options.payload));
+			return requestSupervisor({ operation: 'sandbox.source.export', ...selection });
 		}
 		case 'local.host.sandbox.status': {
 			if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined) throw new Error('Sandbox status accepts no caller-selected paths, commands or resource scope.');
