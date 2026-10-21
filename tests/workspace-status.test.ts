@@ -1,6 +1,6 @@
 import {sourceInspectionAuthority} from './source-inspection-authority-fixture.js';
 import { afterAll, beforeEach, expect, it, vi } from 'vitest';
-import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statfsSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
@@ -29,6 +29,18 @@ const directory = () => join(state.root, 'leases', id);
 beforeEach(() => { state.afterRead = undefined; state.namespace = undefined;
 	rmSync(state.root, { recursive: true, force: true }); mkdirSync(directory(), { recursive: true }); });
 afterAll(() => rmSync(state.root, { recursive: true, force: true }));
+
+it('reports capacity on the exact workspace filesystem without preparing or modifying storage', () => {
+ const before = readdirSync(state.root, { recursive: true }), capacity = statfsSync(state.root);
+ const observed = workspaceStatus();
+ expect(observed.storage?.totalBytes).toBe(capacity.blocks * capacity.bsize);
+ expect(observed.storage?.availableBytes).toBeGreaterThanOrEqual(0);
+ expect(observed.storage?.availableBytes).toBeLessThanOrEqual(observed.storage!.totalBytes);
+ expect(readdirSync(state.root, { recursive: true })).toEqual(before);
+ rmSync(state.root, { recursive: true });
+ expect(workspaceStatus()).toMatchObject({ storage: null,
+  errors: expect.arrayContaining(['workspace_storage_capacity_unavailable']) });
+});
 
 it('reads canonical published source custody from the owning journal without exposing private results or accepting redirected repositories', () => {
 	const source = { controlPlaneId: 'control', teamId: 'team', projectId: 'sdk', repositoryId: 'repository',
@@ -136,7 +148,7 @@ it('retains unrelated and redirected lease entries while denying incomplete phys
 	state.namespace = undefined;
 	rmSync(state.root, { recursive: true });
 	expect(workspaceStatus()).toMatchObject({ initialized: false, complete: false, images: null, leases: null,
-		leaseDirectoryPresent: null, errors: ['workspace_lease_inventory_unavailable', 'workspace_catalog_unavailable'] });
+		leaseDirectoryPresent: null, errors: ['workspace_lease_inventory_unavailable', 'workspace_storage_capacity_unavailable', 'workspace_catalog_unavailable'] });
 	expect(existsSync(state.root)).toBe(false);
 });
 
