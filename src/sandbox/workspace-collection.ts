@@ -18,6 +18,12 @@ export function assertCollectionIdle(tasks: string, activeLeases: number, builds
   }
 }
 
+export function assertGitCollectionIdle(tasks: string, builds: number, unfinishedJobs: number) {
+  if (tasks.trim() || [builds, unfinishedJobs].some(value => !Number.isSafeInteger(value) || value !== 0)) {
+    throw new Error('Git cache collection requires no guests, builds, or unfinished source jobs.');
+  }
+}
+
 export function assertImageCustody(info: { isFile(): boolean; uid: number; nlink: number; mode: number }) {
   if (!info.isFile() || info.uid !== 0 || info.nlink !== 1 || (info.mode & 0o222)) throw new Error('Source image custody changed.');
 }
@@ -152,7 +158,7 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
 }
 
 interface CollectionOperations {
-  idle(): Promise<void>;
+  idle(scope: 'git' | 'workspace'): Promise<void>;
   state(): Promise<string>;
   stop(): Promise<void>;
   start(): Promise<void>;
@@ -162,15 +168,16 @@ interface CollectionOperations {
 }
 
 export async function runFencedCollection(operations: CollectionOperations) {
-  await operations.idle();
+  await operations.idle('git');
   const state = await operations.state();
   if (!['active', 'inactive', 'failed'].includes(state)) throw new Error('Sandbox broker is transitioning.');
   try {
     if (state === 'active') await operations.stop();
-    await operations.idle();
+    await operations.idle('git');
     const retainedDisks = await operations.disks();
     const gitCache = operations.collectGit ? await operations.collectGit() : undefined;
     if (retainedDisks.length) return { ...(gitCache ? { gitCache } : {}), removed: [], retainedDisks, reason: 'overlay_custody_retained', hostFilesystemMounts: 0 };
+    await operations.idle('workspace');
     return { ...await operations.collect(), ...(gitCache ? { gitCache } : {}), retainedDisks: [], hostFilesystemMounts: 0 };
   } finally { if (state === 'active') await operations.start(); }
 }
@@ -180,10 +187,13 @@ export async function collectWorkspaceCache(configuration: SandboxBrokerConfigur
   await initializeWorkspaceStorage();
   const catalog = new WorkspaceCatalog(join(workspaceStorageRoot, 'catalog.db'));
   const broker = 'treeseed-sandbox-broker.service';
-  const idle = async () => {
+  const idle = async (scope: 'git' | 'workspace') => {
     const snapshot = catalog.collectionState();
-    assertCollectionIdle(await run('/usr/bin/ctr', ['--address', configuration.containerdAddress,
-      '--namespace', configuration.namespace, 'tasks', 'list', '--quiet']), snapshot.activeLeases, snapshot.builds, await unfinishedJobs());
+    const tasks = await run('/usr/bin/ctr', ['--address', configuration.containerdAddress,
+      '--namespace', configuration.namespace, 'tasks', 'list', '--quiet']);
+    const jobs = await unfinishedJobs();
+    if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds, jobs);
+    else assertCollectionIdle(tasks, snapshot.activeLeases, snapshot.builds, jobs);
   };
   try {
     return await runFencedCollection({ idle,
