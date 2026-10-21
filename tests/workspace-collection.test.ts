@@ -3,7 +3,7 @@ import { chmod, lstat, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
-import { assertCollectionIdle, assertGitCollectionIdle, assertImageCustody, collectGitCacheBatch, collectLeafBatch, runFencedCollection } from '../src/sandbox/workspace-collection.js';
+import { assertCollectionIdle, assertGitCollectionIdle, assertImageCustody, collectGitCacheBatch, collectLeafBatch, runFencedCollection, unfinishedJobs } from '../src/sandbox/workspace-collection.js';
 import type { SourceWorkspaceKey } from '@treeseed/sdk/capacity-provider/sandbox';
 
 const source: SourceWorkspaceKey = { controlPlaneId: 'api', teamId: 'team', projectId: 'project', repositoryId: 'repo',
@@ -43,6 +43,19 @@ describe('fenced source collection', () => {
     expect(withGit.idle).toHaveBeenCalledTimes(2);
     expect(withGit.collectGit).toHaveBeenCalledOnce(); expect(withGit.collect).not.toHaveBeenCalled();
   });
+  it('allows idle Git collection through an exact released analysis journal while retaining overlays', async () => {
+    const ops = operations();
+    ops.idle.mockImplementation(async scope => {
+      if (scope === 'git') assertGitCollectionIdle('', 0, 0);
+      else assertCollectionIdle('', 1, 0, 0);
+    });
+    ops.disks.mockResolvedValue(['unpublished-work-overlay']);
+    const cache = { examinedBytes: 100, reclaimedBytes: 100, reclaimedCaches: ['a'], retained: [] };
+    const withGit = { ...ops, collectGit: vi.fn(async () => cache) };
+    expect(await runFencedCollection(withGit)).toMatchObject({ gitCache: cache, removed: [], retainedDisks: ['unpublished-work-overlay'] });
+    expect(withGit.idle.mock.calls.map(([scope]) => scope)).toEqual(['git', 'git']);
+    expect(withGit.collect).not.toHaveBeenCalled();
+  });
   it('rechecks custody after stopping and restarts on changed ownership', async () => {
     const ops = operations(); ops.idle.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('new lease'));
     await expect(runFencedCollection(ops)).rejects.toThrow('new lease');
@@ -67,6 +80,40 @@ describe('fenced source collection', () => {
     for (const values of [['warm-guest', 0, 0], ['', 1, 0], ['', 0, 1], ['', -1, 0], ['', NaN, 0]]) {
       expect(() => assertGitCollectionIdle(values[0] as string, values[1] as number, values[2] as number)).toThrow();
     }
+  });
+  it('recognizes only valid non-stopped journals bound to their released analysis lease and owner', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-history-'));
+    const catalog = new WorkspaceCatalog(join(root, 'catalog.db'));
+    try {
+      const id = publish(catalog), sourceLease = catalog.lease({ schemaVersion: 'treeseed.source-workspace-authorization/v1',
+        id: 'authority', providerId: 'provider', assignmentId: 'assignment', attempt: 1, source, mode: 'analysis',
+        acquisition: 'upstream-authorized', publication: 'denied', credentialBindingId: 'binding',
+        issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T01:00:00Z' }, new Date('2026-01-01T00:01:00Z'));
+      const jobs = join(root, 'jobs'), diskId = `workspace-lease-${'a'.repeat(8)}-${'b'.repeat(4)}-${'c'.repeat(4)}-${'d'.repeat(4)}-${'e'.repeat(12)}`;
+      await mkdir(jobs, { mode: 0o700 });
+      const journal = { schemaVersion: 'treeseed.assignment-source-job/v1', state: 'attached', leaseId: sourceLease.id,
+        owner: { assignmentId: 'assignment', providerId: 'provider', teamId: 'team', projectId: 'project', attempt: 1 },
+        authority: { id: 'authority', assignmentId: 'assignment', providerId: 'provider', attempt: 1,
+          mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied' },
+        disk: { id: diskId, directory: join(root, 'leases', diskId), image: join(root, 'leases', diskId, 'work.qcow2') } };
+      const path = join(jobs, 'sandbox-history.json');
+      const writeJournal = async (value: unknown) => writeFile(path, JSON.stringify(value), { mode: 0o600 });
+      await writeJournal(journal);
+      const ownerUid = process.getuid?.() ?? 0;
+      expect(await unfinishedJobs(root, ownerUid)).toBe(1);
+      catalog.recordDurableResult(sourceLease.id, 'sandbox-history.json'); catalog.release(sourceLease.id, true);
+      expect(await unfinishedJobs(root, ownerUid)).toBe(0);
+      await writeJournal({ ...journal, owner: { ...journal.owner, providerId: 'other' } });
+      expect(await unfinishedJobs(root, ownerUid)).toBe(1);
+      await writeJournal({ ...journal, authority: { ...journal.authority, id: 'other' } });
+      expect(await unfinishedJobs(root, ownerUid)).toBe(1);
+      await writeJournal({ ...journal, disk: { ...journal.disk, image: '/tmp/unrelated.qcow2' } });
+      expect(await unfinishedJobs(root, ownerUid)).toBe(1);
+      await writeJournal({ ...journal, leaseId: 'unmatched' });
+      expect(await unfinishedJobs(root, ownerUid)).toBe(1);
+      await writeJournal({ ...journal, state: 'stopped' });
+      expect(await unfinishedJobs(root, ownerUid)).toBe(0);
+    } finally { catalog.close(); await rm(root, { recursive: true, force: true }); }
   });
   it('rejects symlinks, hardlinks, writable images and foreign ownership', () => {
     const info = { isFile: () => true, uid: 0, nlink: 1, mode: 0o400 };

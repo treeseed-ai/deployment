@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { DatabaseSync } from 'node:sqlite';
 import { WorkspaceCatalog } from './workspace-catalog.js';
 import { initializeWorkspaceStorage, workspaceImagePath, workspaceStorageRoot } from './workspace-block-store.js';
 import type { SandboxBrokerConfiguration } from './protocol.js';
@@ -42,17 +43,57 @@ async function entries(name: string) {
   return readdir(path);
 }
 
-async function unfinishedJobs() {
+interface CollectionLease {
+  id: string; authorization_id: string; image_id: string; assignment_id: string; provider_id: string; attempt: number;
+  mode: string; acquisition: string; publication: string; state: string;
+}
+
+/** A journal is historical only when its full owner matches released catalog authority. */
+export function isReleasedAnalysisHistory(job: unknown, leases: CollectionLease[], root: string) {
+  if (!job || typeof job !== 'object') return false;
+  const record = job as Record<string, unknown>;
+  const owner = record.owner as Record<string, unknown> | undefined;
+  const disk = record.disk as Record<string, unknown> | undefined;
+  const authority = record.authority as Record<string, unknown> | undefined;
+  if (record.schemaVersion !== 'treeseed.assignment-source-job/v1'
+    || !['awaiting-authority', 'building', 'ready', 'attaching', 'attached', 'failed'].includes(String(record.state))
+    || typeof record.leaseId !== 'string' || !owner || typeof owner !== 'object' || !disk || typeof disk !== 'object'
+    || !authority || typeof authority !== 'object' || typeof owner.assignmentId !== 'string'
+    || typeof owner.providerId !== 'string' || typeof owner.teamId !== 'string' || typeof owner.projectId !== 'string'
+    || !Number.isSafeInteger(owner.attempt) || !/^workspace-lease-[a-f0-9-]{36}$/u.test(String(disk.id))
+    || disk.directory !== join(root, 'leases', String(disk.id)) || disk.image !== join(String(disk.directory), 'work.qcow2')
+    || authority.mode !== 'analysis' || authority.publication !== 'denied') return false;
+  const matches = leases.filter(lease => lease.id === record.leaseId);
+  if (matches.length !== 1) return false;
+  const lease = matches[0]!;
+  return lease.mode === 'analysis' && lease.publication === 'denied' && lease.state === 'released'
+    && typeof lease.authorization_id === 'string' && typeof lease.image_id === 'string'
+    && authority.id === lease.authorization_id && authority.acquisition === lease.acquisition
+    && typeof lease.assignment_id === 'string' && typeof lease.provider_id === 'string'
+    && Number.isSafeInteger(lease.attempt) && owner.assignmentId === lease.assignment_id
+    && owner.providerId === lease.provider_id && owner.attempt === lease.attempt
+    && authority.assignmentId === lease.assignment_id && authority.providerId === lease.provider_id
+    && authority.attempt === lease.attempt;
+}
+
+export async function unfinishedJobs(root = workspaceStorageRoot, owner = 0) {
   let unfinished = 0;
-  for (const name of await entries('jobs')) {
+  const db = new DatabaseSync(join(root, 'catalog.db'), { readOnly: true });
+  let leases: CollectionLease[];
+  try { leases = db.prepare('SELECT id, authorization_id, image_id, assignment_id, provider_id, attempt, mode, acquisition, publication, state FROM workspace_leases').all() as unknown as CollectionLease[]; }
+  finally { db.close(); }
+  let names: string[];
+  try { await privateDirectory(join(root, 'jobs'), owner); names = await readdir(join(root, 'jobs')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error; }
+  for (const name of names) {
     if (!/^sandbox-[a-zA-Z0-9-]{1,128}\.json$/u.test(name)) { unfinished++; continue; }
-    const path = join(workspaceStorageRoot, 'jobs', name), info = await lstat(path);
-    if (!info.isFile() || info.uid !== 0 || info.nlink !== 1 || (info.mode & 0o077) || info.size > 1_048_576) {
+    const path = join(root, 'jobs', name), info = await lstat(path);
+    if (!info.isFile() || info.uid !== owner || info.nlink !== 1 || (info.mode & 0o077) || info.size > 1_048_576) {
       throw new Error('Source collection journal custody changed.');
     }
     const job: unknown = JSON.parse(await readFile(path, 'utf8'));
     if (!job || typeof job !== 'object' || !('schemaVersion' in job) || job.schemaVersion !== 'treeseed.assignment-source-job/v1'
-      || !('state' in job) || job.state !== 'stopped') unfinished++;
+      || !('state' in job) || (job.state !== 'stopped' && !isReleasedAnalysisHistory(job, leases, root))) unfinished++;
   }
   return unfinished;
 }
