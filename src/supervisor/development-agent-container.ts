@@ -105,6 +105,22 @@ export function activeAgentClaims(stateRoot: string, providerHandoff = false) {
 			const completed = typeof teardown?.completedAt === 'string' ? Date.parse(teardown.completedAt) : NaN;
 			const started = typeof value.activeStartedAt === 'string' ? Date.parse(value.activeStartedAt) : NaN;
 			const finished = typeof value.activeFinishedAt === 'string' ? Date.parse(value.activeFinishedAt) : NaN;
+			const frozen = (value.dispatchEnvelope as { assignment?: { assignmentAttempt?: Record<string, unknown> } } | undefined)?.assignment?.assignmentAttempt;
+			const workspace = frozen?.workspace as Record<string, unknown> | undefined;
+			const result = output?.assignmentResult as Record<string, unknown> | undefined;
+			// Native Kernel work may close an empty resource scope before the enclosing
+			// provider stops accounting. This permits code handoff only: the new
+			// provider must still verify original authority, results and settlement.
+			const nativeClosed = output && !Object.hasOwn(output, 'sandboxId')
+				&& Object.keys(output).every(key => ['assignmentResult', 'teardown', 'artifacts'].includes(key))
+				&& Array.isArray(output.artifacts) && output.artifacts.length === 0
+				&& typeof value.assignmentId === 'string' && frozen?.id === value.assignmentId && result?.assignmentId === value.assignmentId
+				&& workspace?.mode === 'treedx' && result?.status === 'completed'
+				&& typeof result.completedAt === 'string' && Number.isFinite(Date.parse(result.completedAt))
+				&& started <= Date.parse(result.completedAt) && Date.parse(result.completedAt) <= completed && completed <= finished
+				&& value.accountedThrough === value.activeFinishedAt;
+			if (nativeClosed && teardown?.verified === true && Number.isFinite(completed) && completed <= Date.now()
+				&& Number.isFinite(started) && Number.isFinite(finished) && started <= finished && finished <= Date.now()) return false;
 			if (typeof output?.sandboxId === 'string' && output.sandboxId && teardown?.verified === true
 				&& Number.isFinite(completed) && completed <= Date.now()
 				&& Number.isFinite(started) && Number.isFinite(finished) && started <= finished && finished <= completed) return false;
