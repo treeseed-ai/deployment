@@ -37,7 +37,6 @@ import { availableCatalogSummary } from './catalog-summary.js';
 import { setComponentEnabled } from './component-selection.js';
 import { executeProviderLimitSet, showProviderLimits } from './provider-limits.js';
 import { bootstrapStatus } from './bootstrap-status.js';
-
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z][a-z0-9-]*)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),
@@ -373,6 +372,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined) throw new Error('Sandbox status accepts no caller-selected paths, commands or resource scope.');
 			return requestSupervisor({ operation: 'sandbox.status' });
 		}
+		case 'local.host.sandbox.cache.collect': if (!context.local) throw new Error('Sandbox cache collection is available only through the protected local manager socket.'); if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined) throw new Error('Sandbox cache collection accepts no caller-selected paths, commands or resource scope.'); return requestSupervisor({ operation: 'sandbox.workspace.cache.collect' });
 		case 'local.host.sandbox.doctor': return requestSupervisor({ operation: 'sandbox.doctor' });
 		case 'local.host.storage.status': {
 			const payload = z.object({ action: z.literal('status'), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
