@@ -37,10 +37,13 @@ new DevelopmentSessionStore().save({
   runtimes:[],routes:[],candidates:[],
 });
 const claims = '/var/lib/treeseed/components/agent/runtime/capacity-state.json';
-const succeeds=['polling','empty','first-start','closed-recovery'].includes(shape);
+const succeeds=['polling','empty','first-start','closed-recovery','native-closed-recovery'].includes(shape);
 make(claims, shape==='malformed' ? 'not-json' : JSON.stringify({schemaVersion:1,claims:shape==='empty'||shape==='first-start'?[]:
   [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')?'recovery':shape,
-    ...(shape.includes('recovery') && shape !== 'recovery' ? { activeStartedAt: now, ...(shape !== 'ongoing-recovery' ? {activeFinishedAt:now}:{}),
+    ...(shape==='native-closed-recovery' ? {assignmentId:'native-assignment',activeStartedAt:new Date(Date.parse(now)-1000).toISOString(),activeFinishedAt:now,accountedThrough:now,
+      dispatchEnvelope:{assignment:{assignmentAttempt:{id:'native-assignment',workspace:{mode:'treedx'}}}},
+      closeoutOutput:{assignmentResult:{assignmentId:'native-assignment',status:'completed',completedAt:new Date(Date.parse(now)-10).toISOString()},
+        teardown:{verified:true,completedAt:new Date(Date.parse(now)-10).toISOString()},artifacts:[]}} : shape.includes('recovery') && shape !== 'recovery' ? { activeStartedAt: now, ...(shape !== 'ongoing-recovery' ? {activeFinishedAt:now}:{}),
       closeoutOutput:{sandboxId:'original-sandbox',teardown:{verified:shape!=='unverified-recovery',
         completedAt:shape==='invalid-recovery'?'invalid':shape==='future-recovery'?'2999-01-01T00:00:00.000Z':shape==='early-recovery'?'2000-01-01T00:00:00.000Z':now}}}: {})}]}));
 const originalClaims=readFileSync(claims);
