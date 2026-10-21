@@ -155,6 +155,20 @@ function journalMetadata(kind: 'jobs' | 'candidates' | 'results', name: string, 
  return result;
 }
 
+/** Reuse the canonical bounded private journal parser for one fixed source publication. */
+export function readSourcePublicationJournal(kind: 'jobs' | 'candidates' | 'results', sandboxId: string) {
+ if (!/^sandbox-[a-zA-Z0-9-]{1,128}$/u.test(sandboxId)) throw new Error('Invalid source export sandbox.');
+ const root = join(workspaceStorageRoot, kind);
+ for (const path of [workspaceStorageRoot, root]) {
+  const stat = owningHostStat(path);
+  if (!stat.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 || realpathSync(path) !== path)
+   throw new Error('Source journal escaped private manager custody.');
+ }
+ const name = sandboxId + '.json', metadata = metadataFile(join(root, name), 1_048_576, true);
+ if (!metadata) throw new Error('Source publication journal unavailable.');
+ return journalMetadata(kind, name, metadata.value);
+}
+
 function journalInventory(kind: 'jobs' | 'candidates' | 'results', errors: Set<string>) {
  const observed = { rootPresent: null as boolean | null, entries: [] as Array<{ name: string; type: Disk['type'];
   metadata: Record<string, unknown> | null; digest: string | null }> };
@@ -219,7 +233,7 @@ export function workspaceStatus() {
   try {
    db.exec('BEGIN');
    const heldImages = db.prepare('SELECT id,state,job_id,bytes,parent_id FROM workspace_images ORDER BY id').all();
-   const heldLeases = db.prepare('SELECT id,image_id,provider_id,assignment_id,attempt,mode,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
+   const heldLeases = db.prepare('SELECT id,image_id,provider_id,assignment_id,attempt,mode,acquisition,publication,expires_at,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
    db.exec('COMMIT'); images = heldImages; leases = heldLeases;
   } finally { db.close(); }
  } catch { errors.add('workspace_catalog_unavailable'); }

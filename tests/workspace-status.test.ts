@@ -254,7 +254,8 @@ it('reads the original catalog without changing its canonical bytes and retains 
 		db.exec("INSERT INTO workspace_images(id,source_json,state) VALUES('image-fixture','{}','ready')");
 		db.exec("INSERT INTO workspace_leases(id,image_id,authorization_id,provider_id,assignment_id,attempt,mode,acquisition,publication,state,expires_at,result_artifact_id) VALUES('lease-fixture','image-fixture','authority-fixture','provider-fixture','assignment-fixture',1,'analysis','upstream-public','denied','released','2026-10-11T00:00:00.000Z','sandbox-status-1-12345678.json')");
 		expect(workspaceStatus()).toMatchObject({ complete: true, leases: [{ id: 'lease-fixture', provider_id: 'provider-fixture',
-			assignment_id: 'assignment-fixture', attempt: 1, state: 'released', result_artifact_id: name }] });
+			assignment_id: 'assignment-fixture', attempt: 1, mode: 'analysis', acquisition: 'upstream-public', publication: 'denied',
+			expires_at: '2026-10-11T00:00:00.000Z', state: 'released', result_artifact_id: name }] });
 	} finally { db.close(); }
 });
 

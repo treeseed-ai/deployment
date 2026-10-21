@@ -1,3 +1,4 @@
+import { sourceExportSelectionSchema } from '../sandbox/source-export.js';
 import { hostConfigurationSchema, postgresTransitionSelectionSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { hostDevelopmentActivationSchema } from './host-development.js';
@@ -45,6 +46,7 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('security.rotate'), target: z.enum(['volume', 'credentials', 'diagnostics']), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), newRecoveryBundle: z.string().startsWith('/').max(4_096), newRecoveryPassphrase: z.string().min(12).max(1_024), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('security.recovery.verify'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024) }).strict(),
 	z.object({ operation: z.literal('sandbox.status') }).strict(),
+	sourceExportSelectionSchema.extend({ operation: z.literal('sandbox.source.export') }),
 	z.object({ operation: z.literal('sandbox.doctor') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.qualify'), mode: z.enum(['cold', 'warm', 'hold']).default('cold') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.source.qualify') }).strict(),
