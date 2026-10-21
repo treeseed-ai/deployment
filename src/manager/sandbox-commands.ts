@@ -1,5 +1,5 @@
 import type { HostCommandRequest } from './operations.js';
-import { sourceExportSelectionSchema } from '../sandbox/source-export.js';
+import { sourceExportSelectionSchema } from '../sandbox/protocol.js';
 import { requestSupervisor } from '../supervisor/client.js';
 
 /** Fixed sandbox commands share the existing manager/supervisor boundary. */
