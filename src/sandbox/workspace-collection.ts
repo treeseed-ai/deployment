@@ -182,14 +182,18 @@ async function brokerIdentity() {
   return { pid: Number(pidText), cgroup };
 }
 
-async function brokerCgroupEmpty(original: { pid: number; cgroup: string } | null) {
+export async function brokerCgroupEmpty(original: { pid: number; cgroup: string } | null) {
   const pid = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=MainPID', '--value']);
-  const group = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=ControlGroup', '--value']);
+  const reportedGroup = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=ControlGroup', '--value']);
+  // systemd clears ControlGroup when the stopped unit's cgroup disappears.
+  // Inspect the original issued identity, never substitute another unit.
+  const group = reportedGroup || original?.cgroup || '';
   if (pid !== '0' || !/^\/system\.slice\/[a-zA-Z0-9_.@:-]+$/u.test(group) || (original && group !== original.cgroup)) return false;
   if (original) {
     try { await readFile(`/proc/${original.pid}/stat`, 'utf8'); return false; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
+  await readFile('/sys/fs/cgroup/cgroup.controllers', 'utf8');
   const root = `/sys/fs/cgroup${group}`;
   const pending = [root];
   try {
@@ -199,7 +203,14 @@ async function brokerCgroupEmpty(original: { pid: number; cgroup: string } | nul
       for (const entry of await readdir(directory, { withFileTypes: true })) if (entry.isDirectory()) pending.push(join(directory, entry.name));
     }
     return true;
-  } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true; throw error; }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // A missing descendant is incomplete evidence. Only the removed original
+    // root under a still-observable cgroup filesystem establishes closure.
+    await readFile('/sys/fs/cgroup/cgroup.controllers', 'utf8');
+    try { await lstat(root); return false; }
+    catch (missing) { if ((missing as NodeJS.ErrnoException).code === 'ENOENT') return true; throw missing; }
+  }
 }
 
 async function workspaceMounts() {
