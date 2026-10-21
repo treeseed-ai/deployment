@@ -44,7 +44,6 @@ export const hostCommandRequestSchema = z.object({
 	options: z.record(z.union([z.string().max(1_100_000), z.number().finite(), z.boolean(), z.array(z.string().max(4_096)).max(32)])).default({}),
 	configuration: hostConfigurationSchema.optional(),
 }).strict();
-
 export type HostCommandRequest = z.infer<typeof hostCommandRequestSchema>;
 
 export const developmentEnvironmentPayloadSchema = z.object({
@@ -373,6 +372,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined) throw new Error('Sandbox status accepts no caller-selected paths, commands or resource scope.');
 			return requestSupervisor({ operation: 'sandbox.status' });
 		}
+		case 'local.host.sandbox.cache.collect': { if (!context.local) throw new Error('Sandbox cache collection is available only through the protected local manager socket.'); if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined) throw new Error('Sandbox cache collection accepts no caller-selected paths, commands or resource scope.'); return requestSupervisor({ operation: 'sandbox.workspace.cache.collect' }); }
 		case 'local.host.sandbox.doctor': return requestSupervisor({ operation: 'sandbox.doctor' });
 		case 'local.host.storage.status': {
 			const payload = z.object({ action: z.literal('status'), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));

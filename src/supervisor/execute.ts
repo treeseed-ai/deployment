@@ -30,7 +30,7 @@ import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandb
 import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
 import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
 import { workspaceStatus } from '../sandbox/workspace-status.js';
-import { collectWorkspaceCache } from '../sandbox/workspace-collection.js';
+import { collectWorkspaceCache, withWorkspaceCacheProducerFence } from '../sandbox/workspace-collection.js';
 import { recoverWorkspaceBuilds } from '../sandbox/workspace-build-recovery.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { containerdImageReference } from '../sandbox/image-reference.js';
@@ -292,13 +292,13 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 			return inventory.then(observation => ({ ...status, inventory: observation, workspace: workspaceStatus() }));
 		}
 		case 'sandbox.doctor': return inspectSandboxHost(loadSandboxBrokerConfiguration(), { requireBrokerSocket: true });
-		case 'sandbox.workspace.qualify': return qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode);
-		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());
-		case 'sandbox.workspace.cache.qualify': return qualifySourceCacheQuota();
+		case 'sandbox.workspace.qualify': return withWorkspaceCacheProducerFence(() => qualifyWorkspaceStorage(loadSandboxBrokerConfiguration(), operation.mode));
+		case 'sandbox.workspace.source.qualify': return withWorkspaceCacheProducerFence(() => qualifySourceWorkspace(loadSandboxBrokerConfiguration()));
+		case 'sandbox.workspace.cache.qualify': return withWorkspaceCacheProducerFence(() => qualifySourceCacheQuota());
 		case 'sandbox.workspace.cache.collect': return collectWorkspaceCache(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.status': return workspaceStatus();
-		case 'sandbox.workspace.build.recover': return recoverWorkspaceBuilds(loadSandboxBrokerConfiguration());
-		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());
+		case 'sandbox.workspace.build.recover': return withWorkspaceCacheProducerFence(() => recoverWorkspaceBuilds(loadSandboxBrokerConfiguration()));
+		case 'sandbox.workspace.qualification.recover': return withWorkspaceCacheProducerFence(() => recoverWorkspaceQualification(loadSandboxBrokerConfiguration()));
 		case 'sandbox.trust-anchor.repair': return repairSandboxTrustAnchor();
 		case 'sandbox.guest-trust.digests': return loadSandboxBrokerConfiguration().guestImages.map(({ digest }) => digest);
 		case 'sandbox.model-policy.reconcile': return reconcileSandboxModelPolicy(loadHostConfiguration(), command);

@@ -17,6 +17,13 @@ async function body(request: IncomingMessage) {
 }
 function respond(response: ServerResponse, status: number, value: unknown) { response.writeHead(status, { 'content-type': 'application/json' }); response.end(`${JSON.stringify(value)}\n`); }
 const token = (request: IncomingMessage) => String(request.headers.authorization ?? '').replace(/^Bearer\s+/iu, '');
+
+export async function closeBrokerAdmissionAndDrain(listeners: ReadonlyArray<{ close(callback: (error?: Error) => void): unknown }>, drain: () => Promise<void>) {
+	await Promise.all(listeners.map(listener => new Promise<void>((resolve, reject) => {
+		listener.close(error => error ? reject(error) : resolve());
+	})));
+	await drain();
+}
 // Codex subscription transport uses ChatGPT plus OpenAI's first-party response
 // transport hosts. Keep this deliberately narrower than general egress.
 export const allowedSubscriptionProxyHost = (host: string) => ['openai.com', 'chatgpt.com', 'oaiusercontent.com'].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
@@ -106,7 +113,19 @@ export async function startSandboxBroker() {
 		} catch (error) { respond(response, 400, { error: error instanceof Error ? error.message : 'relay_operation_failed' }); }
 	});
 	relay.listen(configuration.relay.port, configuration.relay.listenHost);
-	createAssignmentProxy(runtime).listen(configuration.relay.port + 1, configuration.relay.listenHost);
+	const assignmentProxy = createAssignmentProxy(runtime);
+	assignmentProxy.listen(configuration.relay.port + 1, configuration.relay.listenHost);
+	process.once('SIGTERM', () => {
+		void (async () => {
+			// Stop admission on every broker socket and wait for accepted operations
+			// to finish before draining owned idle warm VMs. Active assignments remain
+			// untouched and are reported by the supervisor's post-stop inventory.
+			await closeBrokerAdmissionAndDrain([server, relay, assignmentProxy], () => runtime.drainWarmPool());
+		})().catch(error => {
+			process.stderr.write(`${JSON.stringify({ source: 'sandbox-broker-shutdown', status: 'drain-failed', reason: error instanceof Error ? error.message : 'unknown' })}\n`);
+			process.exitCode = 1;
+		});
+	});
 	return server;
 }
 

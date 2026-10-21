@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
-import { assertCollectionIdle, assertImageCustody, collectLeafBatch, runFencedCollection } from '../src/sandbox/workspace-collection.js';
+import { assertCollectionIdle, assertImageCustody, CollectionRefusal, collectLeafBatch, physicalCollectionBlockers, runFencedCollection } from '../src/sandbox/workspace-collection.js';
 import type { SourceWorkspaceKey } from '@treeseed/sdk/capacity-provider/sandbox';
 
 const source: SourceWorkspaceKey = { controlPlaneId: 'api', teamId: 'team', projectId: 'project', repositoryId: 'repo',
@@ -12,32 +12,79 @@ function publish(catalog: WorkspaceCatalog, commit = source.commit, parent: stri
 }
 
 describe('fenced source collection', () => {
-  const operations = () => ({ idle: vi.fn(async () => {}), state: vi.fn(async () => 'active'), stop: vi.fn(async () => {}),
-    start: vi.fn(async () => {}), disks: vi.fn(async (): Promise<string[]> => []), collect: vi.fn(async () => ({ removed: ['base'], remainingLeaves: 0 })) });
+  const physicalInventory = (overrides: Record<string, unknown> = {}) => ({ complete: true, errors: [], mountInfo: '',
+    confirmation: { tasks: '', containers: '', vmProcesses: [], nbdDevices: [] }, ...overrides } as any);
+  const operations = () => { const releaseFence = vi.fn(async () => {}); return { releaseFence, idle: vi.fn(async () => {}), state: vi.fn(async () => 'active'), stop: vi.fn(async () => {}),
+    identity: vi.fn(async () => ({ pid: 42, cgroup: '/system.slice/treeseed-sandbox-broker.service' })),
+    start: vi.fn(async () => {}), restored: vi.fn(async () => true), closed: vi.fn(async (_original: { pid: number; cgroup: string } | null) => true),
+    fence: vi.fn(async () => releaseFence), disks: vi.fn(async (): Promise<string[]> => []),
+    hostFilesystemMounts: vi.fn(async (): Promise<string[]> => []), collect: vi.fn(async () => ({ removed: ['base'], remainingLeaves: 0 })), finish: vi.fn(async () => {}) }; };
   it('preserves detached and unclassified overlays and restores the broker', async () => {
     const ops = operations(); ops.disks.mockResolvedValue(['unclassified']);
     expect(await runFencedCollection(ops)).toMatchObject({ removed: [], retainedDisks: ['unclassified'], reason: 'overlay_custody_retained' });
-    expect(ops.idle).toHaveBeenCalledTimes(2);
+    expect(ops.idle).toHaveBeenCalledOnce();
     expect(ops.collect).not.toHaveBeenCalled(); expect(ops.stop).toHaveBeenCalledOnce(); expect(ops.start).toHaveBeenCalledOnce();
+    expect(ops.fence.mock.invocationCallOrder[0]).toBeLessThan(ops.idle.mock.invocationCallOrder[0]!);
+    expect(ops.releaseFence).toHaveBeenCalledOnce();
+    expect(ops.closed).toHaveBeenCalledWith({ pid: 42, cgroup: '/system.slice/treeseed-sandbox-broker.service' });
+  });
+  it('holds the producer fence through leaf collection and queues prior-state restoration before release', async () => {
+    const ops = operations();
+    await expect(runFencedCollection(ops)).resolves.toMatchObject({ collected: true, removed: ['base'] });
+    expect(ops.collect.mock.invocationCallOrder[0]).toBeLessThan(ops.start.mock.invocationCallOrder[0]!);
+    expect(ops.collect.mock.invocationCallOrder[0]).toBeLessThan(ops.finish.mock.invocationCallOrder[0]!);
+    expect(ops.finish.mock.invocationCallOrder[0]).toBeLessThan(ops.start.mock.invocationCallOrder[0]!);
+    expect(ops.start.mock.invocationCallOrder[0]).toBeLessThan(ops.releaseFence.mock.invocationCallOrder[0]!);
+    expect(ops.releaseFence.mock.invocationCallOrder[0]).toBeLessThan(ops.restored.mock.invocationCallOrder[0]!);
   });
   it('rechecks custody after stopping and restarts on changed ownership', async () => {
-    const ops = operations(); ops.idle.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('new lease'));
-    await expect(runFencedCollection(ops)).rejects.toThrow('new lease');
-    expect(ops.collect).not.toHaveBeenCalled(); expect(ops.start).toHaveBeenCalledOnce();
+    const ops = operations(); ops.idle.mockRejectedValueOnce(new CollectionRefusal('resources_not_idle', { activeLeases: 1 }));
+    await expect(runFencedCollection(ops)).resolves.toMatchObject({ collected: false, reason: 'resources_not_idle', unresolved: { activeLeases: 1 } });
+    expect(ops.collect).not.toHaveBeenCalled(); expect(ops.start).toHaveBeenCalledOnce(); expect(ops.releaseFence).toHaveBeenCalledOnce();
   });
   it('restores service on collection failure but preserves originally stopped services', async () => {
     const ops = operations(); ops.collect.mockRejectedValue(new Error('unlink failed'));
     await expect(runFencedCollection(ops)).rejects.toThrow('unlink failed'); expect(ops.start).toHaveBeenCalledOnce();
+    expect(ops.releaseFence).toHaveBeenCalledOnce();
     const stopped = operations(); stopped.state.mockResolvedValue('inactive');
     expect(await runFencedCollection(stopped)).toMatchObject({ removed: ['base'] });
     expect(stopped.start).not.toHaveBeenCalled(); expect(stopped.stop).not.toHaveBeenCalled();
   });
+  it('refuses active or unknown containers and host mounts after admission closes, then restores prior state', async () => {
+    const active = operations(); active.idle.mockRejectedValue(new CollectionRefusal('resources_not_idle', { containers: ['unknown-container'] }));
+    await expect(runFencedCollection(active)).resolves.toMatchObject({ collected: false, reason: 'resources_not_idle', unresolved: { containers: ['unknown-container'] } });
+    expect(active.stop).toHaveBeenCalledOnce(); expect(active.collect).not.toHaveBeenCalled(); expect(active.start).toHaveBeenCalledOnce();
+    const mounted = operations(); mounted.hostFilesystemMounts.mockResolvedValue(['/var/lib/treeseed/agent/workspaces/leases/x']);
+    expect(await runFencedCollection(mounted)).toMatchObject({ collected: false, reason: 'host_mount_retained', removed: [] });
+    expect(mounted.collect).not.toHaveBeenCalled(); expect(mounted.start).toHaveBeenCalledOnce();
+  });
+  it('refuses a producer race or incomplete broker closure without collecting and releases/restores', async () => {
+    const race = operations(); race.fence.mockRejectedValue(new CollectionRefusal('producer_fence_unavailable', { producerFenceAcquired: false }));
+    await expect(runFencedCollection(race)).resolves.toMatchObject({ collected: false, reason: 'producer_fence_unavailable' });
+    expect(race.collect).not.toHaveBeenCalled(); expect(race.start).toHaveBeenCalledOnce();
+    const open = operations(); open.closed.mockResolvedValue(false);
+    await expect(runFencedCollection(open)).resolves.toMatchObject({ collected: false, reason: 'broker_not_closed' });
+    expect(open.collect).not.toHaveBeenCalled(); expect(open.releaseFence).toHaveBeenCalledOnce();
+    expect(open.start).toHaveBeenCalledOnce();
+  });
   it('rejects active guests, leases, builds and preparations including invalid counts', () => {
     expect(() => assertCollectionIdle('', 0, 0, 0)).not.toThrow();
-    for (const counts of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [NaN, 0, 0]]) {
+    for (const counts of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [NaN, 0, 0], [Infinity, 0, 0]]) {
       expect(() => assertCollectionIdle('', counts[0]!, counts[1]!, counts[2]!)).toThrow();
     }
     expect(() => assertCollectionIdle('warm-guest', 0, 0, 0)).toThrow();
+    expect(() => assertCollectionIdle('', 0, 0, 0, 'unknown-container')).toThrow();
+  });
+  it('requires complete stable task, VM, NBD and host mount inventories', () => {
+    expect(physicalCollectionBlockers(physicalInventory())).toBeNull();
+    const unknownContainer = physicalInventory({ confirmation: { tasks: '', containers: 'unknown', vmProcesses: [], nbdDevices: [] } });
+    expect(physicalCollectionBlockers(unknownContainer)).toMatchObject({ containers: ['unknown'] });
+    const vm = physicalInventory({ confirmation: { tasks: '', containers: '', vmProcesses: [{ processId: 99, name: 'sandbox-unknown' }], nbdDevices: [] } });
+    expect(physicalCollectionBlockers(vm)).toMatchObject({ virtualMachines: [{ processId: 99 }] });
+    const nbd = physicalInventory({ confirmation: { tasks: '', containers: '', vmProcesses: [], nbdDevices: [{ device: '/dev/nbd0', processId: 20, failure: null }] } });
+    expect(physicalCollectionBlockers(nbd)).toMatchObject({ nbdDevices: [{ device: '/dev/nbd0' }] });
+    expect(physicalCollectionBlockers(physicalInventory({ mountInfo: '1 0 0:1 / /var/lib/treeseed/agent/workspaces/leases/x rw - ext4 /dev/loop0 rw' }))).toMatchObject({ hostFilesystemMounts: ['/var/lib/treeseed/agent/workspaces/leases/x'] });
+    expect(physicalCollectionBlockers(physicalInventory({ complete: false, errors: ['vm_inventory_unavailable'] }))).toMatchObject({ physicalInventoryComplete: false, inventoryErrors: ['vm_inventory_unavailable'] });
   });
   it('rejects symlinks, hardlinks, writable images and foreign ownership', () => {
     const info = { isFile: () => true, uid: 0, nlink: 1, mode: 0o400 };
