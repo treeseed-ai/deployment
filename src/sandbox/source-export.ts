@@ -4,20 +4,11 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { sourceWorkspaceKeySchema, sourceWorkspaceAuthorizationSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { assignmentReferenceSchema } from '@treeseed/sdk/agent-capacity';
-import { z } from 'zod';
+import { sourceExportSelectionSchema } from './protocol.js';
 import { readSourcePublicationJournal } from './workspace-status.js';
 import { simulationSourceRepository } from './simulation-source-repository.js';
 import { workspaceStorageRoot } from './workspace-block-store.js';
 import { runSourceGit } from './source-git-transport.js';
-
-export const sourceExportSelectionSchema = z.object({
- sandboxId: z.string().regex(/^sandbox-[a-zA-Z0-9-]{1,128}$/u),
- assignmentId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/u),
- providerId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/u),
- attempt: z.number().int().positive().safe(),
- source: sourceWorkspaceKeySchema,
- commit: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u),
-}).strict();
 
 // This operator transfer has its own fixed bound; it cannot expand issued agent authority.
 export const maximumSourceExportBytes = 32 * 1024 * 1024;

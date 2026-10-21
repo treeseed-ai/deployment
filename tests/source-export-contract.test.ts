@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { sourceExportSelectionSchema } from '../src/sandbox/source-export.js';
+import { sourceExportSelectionSchema } from '../src/sandbox/protocol.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 
 const selection = { sandboxId: 'sandbox-assignment-source-1', assignmentId: 'assignment_source', providerId: 'provider_source', attempt: 1,

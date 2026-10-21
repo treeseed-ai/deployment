@@ -1,4 +1,4 @@
-import { sourceExportSelectionSchema } from '../sandbox/source-export.js';
+import { sourceExportSelectionSchema } from '../sandbox/protocol.js';
 import { hostConfigurationSchema, postgresTransitionSelectionSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { hostDevelopmentActivationSchema } from './host-development.js';
