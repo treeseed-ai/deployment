@@ -1,3 +1,4 @@
+import { exportPublishedSource } from '../sandbox/source-export.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { composeFailureDiagnostics } from './compose-diagnostics.js';
 import { installedComponentRelease } from './component-release.js';
@@ -296,6 +297,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'sandbox.workspace.source.qualify': return qualifySourceWorkspace(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.cache.qualify': return qualifySourceCacheQuota();
 		case 'sandbox.workspace.cache.collect': return collectWorkspaceCache(loadSandboxBrokerConfiguration());
+		case 'sandbox.source.export': { const { operation: _operation, ...selection } = operation; return exportPublishedSource(selection); }
 		case 'sandbox.workspace.status': return workspaceStatus();
 		case 'sandbox.workspace.build.recover': return recoverWorkspaceBuilds(loadSandboxBrokerConfiguration());
 		case 'sandbox.workspace.qualification.recover': return recoverWorkspaceQualification(loadSandboxBrokerConfiguration());
