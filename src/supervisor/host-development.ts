@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { atomicJson } from '../core/files.js';
 import type { CommandRunner } from './execute.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
+import { collectionFencePath } from '../sandbox/workspace-collection.js';
 
 const defaultRoot = '/var/lib/treeseed/manager/host-development';
 const defaultSystemdRoot = '/etc/systemd/system';
@@ -82,6 +83,8 @@ function dropIn(unit: typeof units[number], generationRoot: string, systemdRoot:
 	const arguments_ = unit === 'treeseed-manager-stable.service' ? ' --track=stable' : unit === 'treeseed-manager-development.service' ? ' --track=development' : '';
 	const command = reconcileUnits.includes(unit as typeof reconcileUnits[number])
 		? `/usr/bin/flock --exclusive --close --wait 3500 /run/treeseed/manager/reconcile.lock /usr/lib/treeseed/runtime/bin/node ${executable}${arguments_}`
+		: unit === 'treeseed-sandbox-broker.service'
+			? `/usr/bin/flock --shared --no-fork ${collectionFencePath} /usr/lib/treeseed/runtime/bin/node ${executable}`
 		: `/usr/lib/treeseed/runtime/bin/node ${executable}`;
 	const sourceStorage = unit === 'treeseed-sandbox-broker.service' ? 'RuntimeDirectoryPreserve=yes\nReadWritePaths=/var/lib/treeseed/agent\nDeviceAllow=/dev/loop-control rw\nDeviceAllow=block-loop rw\n'
 		: unit === 'treeseed-manager-supervisor.service' ? 'ReadWritePaths=/run/cryptsetup\n' : '';

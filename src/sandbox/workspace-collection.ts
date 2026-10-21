@@ -133,7 +133,7 @@ export async function runFencedCollection(operations: CollectionOperations) {
   }
 }
 
-const collectionFencePath = '/run/treeseed/sandbox/workspace-cache-collection.lock';
+export const collectionFencePath = '/run/treeseed/sandbox/workspace-cache-collection.lock';
 const collectionFenceDirectory = '/run/treeseed/sandbox';
 
 /** Acquire the exclusive side of the broker's lifetime shared flock. A timeout
