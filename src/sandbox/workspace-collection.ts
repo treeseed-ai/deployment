@@ -6,7 +6,8 @@ import { once } from 'node:events';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { WorkspaceCatalog } from './workspace-catalog.js';
+import { WorkspaceCatalog, sourceWorkspaceId } from './workspace-catalog.js';
+import { sourceWorkspaceAuthorizationSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { initializeWorkspaceStorage, workspaceImagePath, workspaceStorageRoot } from './workspace-block-store.js';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { inspectSandboxInventory } from './doctor.js';
@@ -65,7 +66,9 @@ export function isReleasedAnalysisHistory(job: unknown, leases: CollectionLease[
   const record = job as Record<string, unknown>;
   const owner = record.owner as Record<string, unknown> | undefined;
   const disk = record.disk as Record<string, unknown> | undefined;
-  const authority = record.authority as Record<string, unknown> | undefined;
+  const parsed = sourceWorkspaceAuthorizationSchema.safeParse(record.authority);
+  if (!parsed.success) return false;
+  const authority = parsed.data;
   if (record.schemaVersion !== 'treeseed.assignment-source-job/v1'
     || !['awaiting-authority', 'building', 'ready', 'attaching', 'attached', 'failed'].includes(String(record.state))
     || typeof record.leaseId !== 'string' || !owner || typeof owner !== 'object' || !disk || typeof disk !== 'object'
@@ -78,7 +81,8 @@ export function isReleasedAnalysisHistory(job: unknown, leases: CollectionLease[
   if (matches.length !== 1) return false;
   const lease = matches[0]!;
   return lease.mode === 'analysis' && lease.publication === 'denied' && lease.state === 'released'
-    && typeof lease.authorization_id === 'string' && typeof lease.image_id === 'string'
+    && typeof lease.authorization_id === 'string' && lease.image_id === sourceWorkspaceId(authority.source)
+    && owner.teamId === authority.source.teamId && owner.projectId === authority.source.projectId
     && authority.id === lease.authorization_id && authority.acquisition === lease.acquisition
     && typeof lease.assignment_id === 'string' && typeof lease.provider_id === 'string'
     && Number.isSafeInteger(lease.attempt) && owner.assignmentId === lease.assignment_id
@@ -172,7 +176,10 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
     const image = join(cache, 'objects.ext4'), mount = join(cache, 'mounted');
     const imageInfo = await lstat(image).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
     if (!imageInfo) { result.retained.push({ cacheId, reason: 'cache_volume_missing' }); continue; }
-    if (!imageInfo.isFile() || imageInfo.uid !== process.getuid?.() || imageInfo.nlink !== 1 || (imageInfo.mode & 0o222)
+    // This is private mutable host Git metadata, not an immutable QCOW2 base.
+    // Its owning writer creates mode0600; exclusion is established by fences
+    // and absent mount/loop custody, not by pretending the file is read-only.
+    if (!imageInfo.isFile() || imageInfo.uid !== process.getuid?.() || imageInfo.nlink !== 1
       || (imageInfo.mode & 0o077) || await realpath(image) !== image) throw new Error('Source cache image custody changed.');
     const allocatedBytes = imageInfo.blocks * 512;
     if (!Number.isSafeInteger(allocatedBytes)) throw new Error('Source cache image size is uncertain.');
@@ -195,6 +202,10 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
       if (mountInfo && (await readdir(mount)).length) { result.retained.push({ cacheId, reason: 'cache_mount_not_empty' }); keepFence = false; continue; }
       // Recheck mount custody immediately before unlink while holding the fence.
       if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); keepFence = false; continue; }
+      const current = await lstat(image);
+      if (!current.isFile() || current.dev !== imageInfo.dev || current.ino !== imageInfo.ino
+        || current.uid !== imageInfo.uid || current.nlink !== 1 || current.mode !== imageInfo.mode
+        || current.size !== imageInfo.size || await realpath(image) !== image) throw new Error('Source cache image custody changed under its fence.');
       await unlink(image);
       if (mountInfo) { const directory = await open(mount, 'r'); try { await directory.sync(); } finally { await directory.close(); } }
       const directory = await open(cache, 'r'); try { await directory.sync(); } finally { await directory.close(); }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { chmod, lstat, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
@@ -146,7 +146,9 @@ describe('fenced source collection', () => {
       const journal = { schemaVersion: 'treeseed.assignment-source-job/v1', state: 'attached', leaseId: sourceLease.id,
         owner: { assignmentId: 'assignment', providerId: 'provider', teamId: 'team', projectId: 'project', attempt: 1 },
         authority: { id: 'authority', assignmentId: 'assignment', providerId: 'provider', attempt: 1,
-          mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied' },
+          schemaVersion: 'treeseed.source-workspace-authorization/v1', source,
+          mode: 'analysis', acquisition: 'upstream-authorized', publication: 'denied', credentialBindingId: 'binding',
+          issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T01:00:00Z' },
         disk: { id: diskId, directory: join(root, 'leases', diskId), image: join(root, 'leases', diskId, 'work.qcow2') } };
       const path = join(jobs, 'sandbox-history.json');
       const writeJournal = async (value: unknown) => writeFile(path, JSON.stringify(value), { mode: 0o600 });
@@ -155,6 +157,15 @@ describe('fenced source collection', () => {
       expect(await unfinishedJobs(root, ownerUid)).toBe(1);
       catalog.recordDurableResult(sourceLease.id, 'sandbox-history.json'); catalog.release(sourceLease.id, true);
       expect(await unfinishedJobs(root, ownerUid)).toBe(0);
+      for (const invalid of [
+        { ...journal, owner: { ...journal.owner, teamId: 'foreign' } },
+        { ...journal, owner: { ...journal.owner, projectId: 'foreign' } },
+        { ...journal, authority: { ...journal.authority, source: { ...source, commit: 'b'.repeat(40) } } },
+        { ...journal, authority: { ...journal.authority, source: { ...source, commit: 'malformed' } } },
+        { ...journal, authority: { ...journal.authority, schemaVersion: 'foreign' } },
+      ]) {
+        await writeJournal(invalid); expect(await unfinishedJobs(root, ownerUid)).toBe(1);
+      }
       await writeJournal({ ...journal, owner: { ...journal.owner, providerId: 'other' } });
       expect(await unfinishedJobs(root, ownerUid)).toBe(1);
       await writeJournal({ ...journal, authority: { ...journal.authority, id: 'other' } });
@@ -179,7 +190,9 @@ describe('fenced source collection', () => {
     try {
       const id = 'a'.repeat(64), cache = join(root, 'git', id), mounted = join(cache, 'mounted');
       await mkdir(mounted, { recursive: true, mode: 0o700 }); await chmod(join(root, 'git'), 0o700); await chmod(cache, 0o700);
-      await writeFile(join(cache, 'objects.ext4'), 'volume', { mode: 0o400 });
+      // The real host Git writer produces private mutable metadata, unlike an
+      // immutable QCOW2 workspace base. Collection still owns its closed fence.
+      await writeFile(join(cache, 'objects.ext4'), 'volume', { mode: 0o600 });
       const allocatedBytes = (await lstat(join(cache, 'objects.ext4'))).blocks * 512;
       const products = ['bundles', 'simulation-git', 'source-publication', 'results', 'candidates', 'assignments', 'images'];
       for (const name of products) { await mkdir(join(root, name)); await writeFile(join(root, name, 'retained'), name); }
@@ -209,7 +222,7 @@ describe('fenced source collection', () => {
       await expect(lstat(join(root, 'git', uncertainTransportId, 'acquisition.lock'))).resolves.toBeDefined();
       await expect(collectGitCacheBatch(root, async () => false, 33)).rejects.toThrow('limit');
       const unsafe = join(root, 'git', 'd'.repeat(64)); await mkdir(join(unsafe, 'mounted'), { recursive: true, mode: 0o700 });
-      await chmod(unsafe, 0o700); await writeFile(join(unsafe, 'objects.ext4'), 'unsafe', { mode: 0o600 });
+      await chmod(unsafe, 0o700); await writeFile(join(unsafe, 'objects.ext4'), 'unsafe', { mode: 0o640 });
       await expect(collectGitCacheBatch(root, async () => false)).rejects.toThrow('custody');
     } finally { await rm(root, { recursive: true, force: true }); }
   });
@@ -236,6 +249,30 @@ describe('fenced source collection', () => {
       await expect(lstat(join(cache, 'objects.ext4'))).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(lstat(join(cache, 'acquisition.lock'))).resolves.toBeDefined();
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  it('retains a replaced or newly exposed Git image under the acquisition fence', async () => {
+    for (const changed of ['replacement', 'permissions']) {
+      const root = await mkdtemp(join(tmpdir(), 'workspace-collection-race-'));
+      try {
+        const id = 'f'.repeat(64), cache = join(root, 'git', id), image = join(cache, 'objects.ext4');
+        await mkdir(join(cache, 'mounted'), { recursive: true, mode: 0o700 });
+        await writeFile(image, 'original', { mode: 0o600 });
+        let checks = 0;
+        const result = await collectGitCacheBatch(root, async () => {
+          if (++checks === 2) {
+            if (changed === 'replacement') {
+              await rename(image, join(cache, 'retained-original'));
+              await writeFile(image, 'replacement', { mode: 0o600 });
+            } else await chmod(image, 0o640);
+          }
+          return false;
+        });
+        expect(result).toMatchObject({ reclaimedBytes: 0, reclaimedCaches: [],
+          retained: [{ cacheId: id, reason: 'cache_reclamation_uncertain' }] });
+        expect(await readFile(image, 'utf8')).toBe(changed === 'replacement' ? 'replacement' : 'original');
+        await expect(lstat(join(cache, 'acquisition.lock'))).resolves.toBeDefined();
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
   });
   it('deletes only leaves, bounds each batch and repeats as noop', async () => {
     const catalog = new WorkspaceCatalog(':memory:');
