@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { atomicJson } from '../core/files.js';
 import type { CommandRunner } from './execute.js';
 import { ensureSandboxNetwork } from '../sandbox/network.js';
-import { collectionFencePath } from '../sandbox/workspace-collection.js';
+import { collectionFencePath } from '../core/paths.js';
 
 const defaultRoot = '/var/lib/treeseed/manager/host-development';
 const defaultSystemdRoot = '/etc/systemd/system';

@@ -8,6 +8,7 @@ import { WorkspaceCatalog } from './workspace-catalog.js';
 import { initializeWorkspaceStorage, workspaceImagePath, workspaceStorageRoot } from './workspace-block-store.js';
 import type { SandboxBrokerConfiguration } from './protocol.js';
 import { inspectSandboxInventory } from './doctor.js';
+import { collectionFencePath } from '../core/paths.js';
 
 const exec = promisify(execFile);
 const brokerUnit = 'treeseed-sandbox-broker.service';
@@ -133,7 +134,6 @@ export async function runFencedCollection(operations: CollectionOperations) {
   }
 }
 
-export const collectionFencePath = '/run/treeseed/sandbox/workspace-cache-collection.lock';
 const collectionFenceDirectory = '/run/treeseed/sandbox';
 
 /** Acquire the exclusive side of the broker's lifetime shared flock. A timeout
