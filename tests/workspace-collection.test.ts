@@ -3,7 +3,7 @@ import { chmod, lstat, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
-import { assertCollectionIdle, assertImageCustody, collectGitCacheBatch, collectLeafBatch, runFencedCollection } from '../src/sandbox/workspace-collection.js';
+import { assertCollectionIdle, assertGitCollectionIdle, assertImageCustody, collectGitCacheBatch, collectLeafBatch, runFencedCollection } from '../src/sandbox/workspace-collection.js';
 import type { SourceWorkspaceKey } from '@treeseed/sdk/capacity-provider/sandbox';
 
 const source: SourceWorkspaceKey = { controlPlaneId: 'api', teamId: 'team', projectId: 'project', repositoryId: 'repo',
@@ -15,12 +15,12 @@ function publish(catalog: WorkspaceCatalog, commit = source.commit, parent: stri
 }
 
 describe('fenced source collection', () => {
-  const operations = () => ({ idle: vi.fn(async () => {}), state: vi.fn(async () => 'active'), stop: vi.fn(async () => {}),
+  const operations = () => ({ idle: vi.fn(async (_scope: 'git' | 'workspace') => {}), state: vi.fn(async () => 'active'), stop: vi.fn(async () => {}),
     start: vi.fn(async () => {}), disks: vi.fn(async (): Promise<string[]> => []), collect: vi.fn(async () => ({ removed: ['base'], remainingLeaves: 0 })) });
   it('preserves detached and unclassified overlays and restores the broker', async () => {
     const ops = operations(); ops.disks.mockResolvedValue(['unclassified']);
     expect(await runFencedCollection(ops)).toMatchObject({ removed: [], retainedDisks: ['unclassified'], reason: 'overlay_custody_retained' });
-    expect(ops.idle).toHaveBeenCalledTimes(2);
+    expect(ops.idle).toHaveBeenNthCalledWith(1, 'git'); expect(ops.idle).toHaveBeenNthCalledWith(2, 'git');
     expect(ops.collect).not.toHaveBeenCalled(); expect(ops.stop).toHaveBeenCalledOnce(); expect(ops.start).toHaveBeenCalledOnce();
   });
   it('collects independently fenced Git caches even when retained overlays block QCOW2 collection', async () => {
@@ -28,6 +28,20 @@ describe('fenced source collection', () => {
     ops.disks.mockResolvedValue(['unclassified']);
     expect(await runFencedCollection(ops)).toMatchObject({ gitCache: { reclaimedBytes: 100 }, removed: [], reason: 'overlay_custody_retained' });
     expect(ops.collectGit).toHaveBeenCalledOnce(); expect(ops.collect).not.toHaveBeenCalled();
+    expect(ops.idle).toHaveBeenCalledTimes(2);
+  });
+  it('reclaims Git caches through retained unpublished work leases without collecting image ancestry', async () => {
+    const ops = operations();
+    ops.idle.mockImplementation(async scope => {
+      if (scope === 'git') assertGitCollectionIdle('', 0, 0);
+      else assertCollectionIdle('', 46, 0, 0);
+    });
+    ops.disks.mockResolvedValue(['detached-unpublished-work']);
+    const cache = { examinedBytes: 100, reclaimedBytes: 100, reclaimedCaches: ['a'], retained: [] };
+    const withGit = { ...ops, collectGit: vi.fn(async () => cache) };
+    expect(await runFencedCollection(withGit)).toMatchObject({ gitCache: cache, removed: [], retainedDisks: ['detached-unpublished-work'], reason: 'overlay_custody_retained' });
+    expect(withGit.idle).toHaveBeenCalledTimes(2);
+    expect(withGit.collectGit).toHaveBeenCalledOnce(); expect(withGit.collect).not.toHaveBeenCalled();
   });
   it('rechecks custody after stopping and restarts on changed ownership', async () => {
     const ops = operations(); ops.idle.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('new lease'));
@@ -47,6 +61,12 @@ describe('fenced source collection', () => {
       expect(() => assertCollectionIdle('', counts[0]!, counts[1]!, counts[2]!)).toThrow();
     }
     expect(() => assertCollectionIdle('warm-guest', 0, 0, 0)).toThrow();
+  });
+  it('keeps Git eligibility strict for guests, builds, unfinished jobs and uncertain counts', () => {
+    expect(() => assertGitCollectionIdle('', 0, 0)).not.toThrow();
+    for (const values of [['warm-guest', 0, 0], ['', 1, 0], ['', 0, 1], ['', -1, 0], ['', NaN, 0]]) {
+      expect(() => assertGitCollectionIdle(values[0] as string, values[1] as number, values[2] as number)).toThrow();
+    }
   });
   it('rejects symlinks, hardlinks, writable images and foreign ownership', () => {
     const info = { isFile: () => true, uid: 0, nlink: 1, mode: 0o400 };
@@ -72,16 +92,22 @@ describe('fenced source collection', () => {
   it('retains caches with acquisition fences or loop mounts and fails on uncertain custody', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-collection-'));
     try {
-      const fenceId = 'b'.repeat(64), mountId = 'c'.repeat(64);
-      for (const id of [fenceId, mountId]) {
+      const fenceId = 'b'.repeat(64), mountId = 'c'.repeat(64), uncertainTransportId = 'f'.repeat(64);
+      for (const id of [fenceId, mountId, uncertainTransportId]) {
         const cache = join(root, 'git', id); await mkdir(join(cache, 'mounted'), { recursive: true, mode: 0o700 });
         await chmod(cache, 0o700); await writeFile(join(cache, 'objects.ext4'), 'volume', { mode: 0o400 });
       }
       await mkdir(join(root, 'git', fenceId, 'acquisition.lock'), { mode: 0o700 });
-      const result = await collectGitCacheBatch(root, async path => path.includes(mountId));
+      const result = await collectGitCacheBatch(root, async path => {
+        if (path.includes(uncertainTransportId)) throw new Error('mount inspection unavailable');
+        return path.includes(mountId);
+      });
       expect(result.reclaimedBytes).toBe(0);
       expect(result.retained.map(({ reason }) => reason)).toContain('acquisition_fence_present_or_unknown');
       expect(result.retained.map(({ reason }) => reason)).toContain('cache_mount_present_or_unknown');
+      expect(result.retained).toContainEqual({ cacheId: uncertainTransportId, reason: 'cache_reclamation_uncertain' });
+      await expect(lstat(join(root, 'git', uncertainTransportId, 'objects.ext4'))).resolves.toBeDefined();
+      await expect(lstat(join(root, 'git', uncertainTransportId, 'acquisition.lock'))).resolves.toBeDefined();
       await expect(collectGitCacheBatch(root, async () => false, 33)).rejects.toThrow('limit');
       const unsafe = join(root, 'git', 'd'.repeat(64)); await mkdir(join(unsafe, 'mounted'), { recursive: true, mode: 0o700 });
       await chmod(unsafe, 0o700); await writeFile(join(unsafe, 'objects.ext4'), 'unsafe', { mode: 0o600 });
