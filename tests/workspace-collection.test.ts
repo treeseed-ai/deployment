@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { chmod, lstat, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkspaceCatalog } from '../src/sandbox/workspace-catalog.js';
@@ -86,6 +86,30 @@ describe('fenced source collection', () => {
       const unsafe = join(root, 'git', 'd'.repeat(64)); await mkdir(join(unsafe, 'mounted'), { recursive: true, mode: 0o700 });
       await chmod(unsafe, 0o700); await writeFile(join(unsafe, 'objects.ext4'), 'unsafe', { mode: 0o600 });
       await expect(collectGitCacheBatch(root, async () => false)).rejects.toThrow('custody');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  it('holds the atomic acquisition fence through collection and retains partial deletion uncertainty', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-collection-'));
+    try {
+      const id = 'e'.repeat(64), cache = join(root, 'git', id), mounted = join(cache, 'mounted');
+      await mkdir(mounted, { recursive: true, mode: 0o700 }); await chmod(join(root, 'git'), 0o700); await chmod(cache, 0o700);
+      await writeFile(join(cache, 'objects.ext4'), 'volume', { mode: 0o400 });
+      await writeFile(join(root, 'git', 'unexpected'), 'preserve');
+      const bytes = (await lstat(join(cache, 'objects.ext4'))).blocks * 512;
+      let checks = 0, acquisitionDenied = false;
+      const result = await collectGitCacheBatch(root, async () => {
+        const lock = join(cache, 'acquisition.lock');
+        try { await mkdir(lock); } catch (error) { acquisitionDenied = (error as NodeJS.ErrnoException).code === 'EEXIST'; }
+        if (++checks === 2) await unlink(join(cache, 'objects.ext4'));
+        return false;
+      });
+      expect(acquisitionDenied).toBe(true);
+      expect(result).toMatchObject({ examinedBytes: bytes, reclaimedBytes: 0, reclaimedCaches: [] });
+      expect(result.retained).toEqual(expect.arrayContaining([
+        { cacheId: 'unexpected', reason: 'noncanonical_cache_entry' }, { cacheId: id, reason: 'cache_reclamation_uncertain' },
+      ]));
+      await expect(lstat(join(cache, 'objects.ext4'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(lstat(join(cache, 'acquisition.lock'))).resolves.toBeDefined();
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   it('deletes only leaves, bounds each batch and repeats as noop', async () => {

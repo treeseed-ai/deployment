@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { lstat, open, readFile, readdir, realpath, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { WorkspaceCatalog } from './workspace-catalog.js';
@@ -93,7 +94,12 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
   const gitInfo = await lstat(git).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
   if (!gitInfo) return result;
   await privateDirectory(git, process.getuid?.());
-  for (const cacheId of (await readdir(git)).filter(name => /^[a-f0-9]{64}$/u.test(name)).slice(0, limit)) {
+  const entries = await readdir(git);
+  for (const cacheId of entries.slice(0, limit)) {
+    if (!/^[a-f0-9]{64}$/u.test(cacheId)) {
+      result.retained.push({ cacheId, reason: 'noncanonical_cache_entry' });
+      continue;
+    }
     const cache = join(git, cacheId);
     await privateDirectory(cache, process.getuid?.());
     const names = await readdir(cache);
@@ -110,22 +116,37 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
     const allocatedBytes = imageInfo.blocks * 512;
     if (!Number.isSafeInteger(allocatedBytes)) throw new Error('Source cache image size is uncertain.');
     result.examinedBytes += allocatedBytes;
-    if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); continue; }
-    const mountInfo = await lstat(mount).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
-    if (mountInfo && (!mountInfo.isDirectory() || mountInfo.uid !== process.getuid?.() || mountInfo.mode & 0o077 || await realpath(mount) !== mount)) {
-      result.retained.push({ cacheId, reason: 'cache_mount_custody_uncertain' }); continue;
+    // mkdir is the same atomic fence used by acquisition. Hold it across every
+    // custody recheck and unlink so acquisition cannot recreate the image.
+    try { await mkdir(lock, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') { result.retained.push({ cacheId, reason: 'acquisition_fence_present_or_unknown' }); continue; }
+      throw error;
     }
-    if (mountInfo && (await readdir(mount)).length) { result.retained.push({ cacheId, reason: 'cache_mount_not_empty' }); continue; }
-    // A newly appearing fence or mount is a hard denial immediately before unlink.
-    if (await lstat(lock).then(() => true, error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; })) {
-      result.retained.push({ cacheId, reason: 'acquisition_fence_present_or_unknown' }); continue;
+    let keepFence = true;
+    try {
+      await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId: randomUUID(), pid: process.pid }), { mode: 0o600, flag: 'wx' });
+      if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); keepFence = false; continue; }
+      const mountInfo = await lstat(mount).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
+      if (mountInfo && (!mountInfo.isDirectory() || mountInfo.uid !== process.getuid?.() || mountInfo.mode & 0o077 || await realpath(mount) !== mount)) {
+        result.retained.push({ cacheId, reason: 'cache_mount_custody_uncertain' }); keepFence = false; continue;
+      }
+      if (mountInfo && (await readdir(mount)).length) { result.retained.push({ cacheId, reason: 'cache_mount_not_empty' }); keepFence = false; continue; }
+      // Recheck mount custody immediately before unlink while holding the fence.
+      if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); keepFence = false; continue; }
+      await unlink(image);
+      if (mountInfo) { const directory = await open(mount, 'r'); try { await directory.sync(); } finally { await directory.close(); } }
+      const directory = await open(cache, 'r'); try { await directory.sync(); } finally { await directory.close(); }
+      result.reclaimedBytes += allocatedBytes;
+      result.reclaimedCaches.push(cacheId);
+      keepFence = false;
+    } catch {
+      result.retained.push({ cacheId, reason: 'cache_reclamation_uncertain' });
+    } finally {
+      // Keep ownership on any uncertain/partial deletion; recovery validates
+      // this journal and releases it only after proving the owner stopped.
+      if (!keepFence) await rm(lock, { recursive: true });
     }
-    if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); continue; }
-    await unlink(image);
-    if (mountInfo) { const directory = await open(mount, 'r'); try { await directory.sync(); } finally { await directory.close(); } }
-    const directory = await open(cache, 'r'); try { await directory.sync(); } finally { await directory.close(); }
-    result.reclaimedBytes += allocatedBytes;
-    result.reclaimedCaches.push(cacheId);
   }
   return result;
 }
