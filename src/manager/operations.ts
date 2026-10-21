@@ -38,7 +38,6 @@ import { availableCatalogSummary } from './catalog-summary.js';
 import { setComponentEnabled } from './component-selection.js';
 import { executeProviderLimitSet, showProviderLimits } from './provider-limits.js';
 import { bootstrapStatus } from './bootstrap-status.js';
-
 export const hostCommandRequestSchema = z.object({
 	handlerId: z.string().regex(/^local\.(?:host|dev)(?:\.[a-z][a-z0-9-]*)+$/u),
 	arguments: z.array(z.string().max(256)).max(16).default([]),

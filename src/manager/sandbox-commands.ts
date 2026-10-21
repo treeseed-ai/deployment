@@ -9,6 +9,11 @@ export function executeSandboxHostCommand(request: HostCommandRequest, local: bo
    if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined)
     throw new Error('Sandbox status accepts no caller-selected paths, commands or resource scope.');
    return requestSupervisor({ operation: 'sandbox.status' });
+  case 'local.host.sandbox.cache.collect':
+   if (!local) throw new Error('Sandbox cache collection is available only through the protected local manager socket.');
+   if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined)
+    throw new Error('Sandbox cache collection accepts no caller-selected paths, commands or resource scope.');
+   return requestSupervisor({ operation: 'sandbox.workspace.cache.collect' });
   case 'local.host.sandbox.doctor': return requestSupervisor({ operation: 'sandbox.doctor' });
   case 'local.host.sandbox.source.export': {
    if (!local || request.arguments.length || request.configuration !== undefined
