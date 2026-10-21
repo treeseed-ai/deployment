@@ -10,6 +10,7 @@ import type { SandboxBrokerConfiguration } from './protocol.js';
 import { inspectSandboxInventory } from './doctor.js';
 
 const exec = promisify(execFile);
+const brokerUnit = 'treeseed-sandbox-broker.service';
 const run = async (command: string, args: string[]) => (await exec(command, args, {
   encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
 })).stdout.trim();
@@ -174,8 +175,8 @@ export async function withWorkspaceCacheProducerFence<T>(operation: () => Promis
 }
 
 async function brokerIdentity() {
-  const pidText = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=MainPID', '--value']);
-  const cgroup = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=ControlGroup', '--value']);
+  const pidText = await run('/usr/bin/systemctl', ['show', brokerUnit, '--property=MainPID', '--value']);
+  const cgroup = await run('/usr/bin/systemctl', ['show', brokerUnit, '--property=ControlGroup', '--value']);
   if (!/^[1-9][0-9]{0,9}$/u.test(pidText) || !/^\/system\.slice\/[a-zA-Z0-9_.@:-]+$/u.test(cgroup)) {
     throw new Error('Sandbox broker original PID or cgroup identity is unavailable.');
   }
@@ -183,11 +184,19 @@ async function brokerIdentity() {
 }
 
 export async function brokerCgroupEmpty(original: { pid: number; cgroup: string } | null) {
-  const pid = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=MainPID', '--value']);
-  const reportedGroup = await run('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=ControlGroup', '--value']);
+  const pid = await run('/usr/bin/systemctl', ['show', brokerUnit, '--property=MainPID', '--value']);
+  const reportedGroup = await run('/usr/bin/systemctl', ['show', brokerUnit, '--property=ControlGroup', '--value']);
   // systemd clears ControlGroup when the stopped unit's cgroup disappears.
   // Inspect the original issued identity, never substitute another unit.
-  const group = reportedGroup || original?.cgroup || '';
+  let group = reportedGroup || original?.cgroup || '';
+  if (!group && !original) {
+    const [state, slice] = await Promise.all([
+      run('/usr/bin/systemctl', ['show', brokerUnit, '--property=ActiveState', '--value']),
+      run('/usr/bin/systemctl', ['show', brokerUnit, '--property=Slice', '--value']),
+    ]);
+    if (!['inactive', 'failed'].includes(state) || slice !== 'system.slice') return false;
+    group = `/${slice}/${brokerUnit}`;
+  }
   if (pid !== '0' || !/^\/system\.slice\/[a-zA-Z0-9_.@:-]+$/u.test(group) || (original && group !== original.cgroup)) return false;
   if (original) {
     try { await readFile(`/proc/${original.pid}/stat`, 'utf8'); return false; }
@@ -246,7 +255,7 @@ export async function collectWorkspaceCache(configuration: SandboxBrokerConfigur
     }
     return catalog;
   };
-  const broker = 'treeseed-sandbox-broker.service';
+  const broker = brokerUnit;
   const idle = async () => {
     const workspaceCatalog = await ensureCatalog(), snapshot = workspaceCatalog.collectionState();
     const [physical, jobs, leaseEntries, candidates, results] = await Promise.all([
