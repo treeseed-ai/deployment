@@ -54,3 +54,7 @@ it('resumes stopped selected provider with retained recovery claims without repl
 it.each(['stopped-foreign','stopped-runtime','stopped-trust'])('refuses stopped recovery with %s without starting or changing custody',shape=>{
  expect(run(shape)).toEqual({shape,rejected:true,selectedBytesUnchanged:true,claimsUnchanged:true});
 },240_000);
+
+it('applies daily allowance to the selected running provider without replacement or interruption',()=>{
+ expect(run('running-limit-reload')).toEqual({shape:'running-limit-reload',resumed:true,selectedBytesUnchanged:true,claimsUnchanged:true});
+},240_000);

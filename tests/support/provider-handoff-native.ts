@@ -9,7 +9,8 @@ import { copyDevelopmentRuntime, developmentRuntimeStatus } from '../../src/supe
 // Runs only inside a disposable Docker filesystem, with no Docker socket or host state mount.
 assert.equal(process.env.TREESEED_HANDOFF_DISPOSABLE, '1');
 const shape = process.argv[2]!;
-const resume = shape.startsWith('stopped-');
+const limitReload=shape==='running-limit-reload';
+const resume = shape.startsWith('stopped-')||limitReload;
 const sessionId = 'dev-handoff-regression';
 const directory = `/run/treeseed/development-containers/${sessionId}/agent/provider`;
 const source = '/fixture/workspace/agent';
@@ -23,7 +24,9 @@ if(shape==='copy-failure') symlinkSync('/etc/hosts', `${source}/dist/bad`);
 const own = (path: string) => { chownSync(path, 1000, 1000); for (const entry of readdirSync(path, { withFileTypes: true })) { const child=resolve(path, entry.name); if(entry.isDirectory()) own(child); else lchownSync(child,1000,1000); } };
 own('/fixture');
 const configuration = host();
-configuration.components.agent!.configuration = { files: { 'treeseed.capacity-provider.yaml': 'schemaVersion: 5\n' } };
+const oldManifest=JSON.stringify({schemaVersion:5,adapters:[{id:'implementation',nativeLimits:{modelConfigurationId:'original-model',dailyActiveSecondsLimit:28800,capabilityLimits:{acting:{dailyActiveSecondsLimit:28800}}}}]});
+const nextManifest=oldManifest.replaceAll('28800','57600');
+configuration.components.agent!.configuration = { files: { 'treeseed.capacity-provider.yaml': limitReload?nextManifest:'schemaVersion: 5\n' } };
 make('/etc/treeseed/platform.json', JSON.stringify(configuration));
 make('/etc/treeseed/sandbox/broker.json', JSON.stringify({socketPath:'/run/treeseed/sandbox/broker.sock',containerdAddress:'/run/containerd/containerd.sock',
   namespace:'treeseed-sandboxes',runtime:'io.containerd.kata.v2',stateRoot:'/var/lib/treeseed/sandboxes',trustedProvidersPath:'/etc/treeseed/sandbox/providers.json',
@@ -40,7 +43,7 @@ new DevelopmentSessionStore().save({
 const claims = '/var/lib/treeseed/components/agent/runtime/capacity-state.json';
 const succeeds=['polling','empty','first-start','closed-recovery'].includes(shape);
 make(claims, shape==='malformed' ? 'not-json' : JSON.stringify({schemaVersion:1,claims:shape==='empty'||shape==='first-start'?[]:
-  [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')?'recovery':shape,
+  [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')||limitReload?'recovery':shape,
     ...(shape.includes('recovery') && shape !== 'recovery' && !resume ? { activeStartedAt: now, ...(shape !== 'ongoing-recovery' ? {activeFinishedAt:now}:{}),
       closeoutOutput:{sandboxId:'original-sandbox',teardown:{verified:shape!=='unverified-recovery',
         completedAt:shape==='invalid-recovery'?'invalid':shape==='future-recovery'?'2999-01-01T00:00:00.000Z':shape==='early-recovery'?'2000-01-01T00:00:00.000Z':now}}}: {})}]}));
@@ -59,9 +62,10 @@ if(resume) {
  make(`${directory}/runtime-receipt.json`, 'original-receipt');
 }
 make(`${directory}/compose.json`, 'original-compose');
+if(limitReload)make(`${directory}/treeseed.capacity-provider.yaml`,oldManifest);
 }
 const before = shape==='first-start'?[]:['runtime/dist/main.js','runtime-receipt.json','compose.json'].map(name=>readFileSync(`${directory}/${name}`));
-const states:Record<string,boolean>={manager:!resume,runner:!resume};
+const states:Record<string,boolean>={manager:!resume||limitReload,runner:!resume||limitReload};
 const commands:string[][]=[];
 const transport=(_executable:string,args:readonly string[])=>{
   commands.push([...args]);
@@ -86,7 +90,7 @@ let rejected=false, failure='', result:unknown;
 try { result=executeAgentDevelopmentContainer({sessionId,projectId:'agent',targetId:'provider',action:'start'},transport); }
 catch(error) { rejected=true; failure=String(error); }
 assert.deepEqual(readFileSync(claims),originalClaims,'handoff must preserve complete provider recovery bytes');
-if(resume && shape!=='stopped-recovery') {
+if(resume && shape!=='stopped-recovery' && !limitReload) {
  assert.equal(rejected,true);
  assert.deepEqual(states,{manager:false,runner:false});
  assert.equal(commands.some(args=>['start','stop','compose'].includes(args[0]!)),false);
@@ -97,6 +101,7 @@ if(resume && shape!=='stopped-recovery') {
  assert.deepEqual(states,{manager:true,runner:true});
  assert.deepEqual(result,{started:true,resumed:true,runtime:developmentRuntimeStatus(directory,['dist','package.json','node_modules'])});
  assert.equal(commands.some(args=>args[0]==='stop'||args[0]==='compose'),false);
+ if(limitReload)assert.equal(readFileSync(`${directory}/treeseed.capacity-provider.yaml`,'utf8'),nextManifest);
  for(const [index,name] of ['runtime/dist/main.js','runtime-receipt.json','compose.json'].entries()) assert.deepEqual(readFileSync(`${directory}/${name}`),before[index]);
  console.log(JSON.stringify({shape,resumed:true,selectedBytesUnchanged:true,claimsUnchanged:true}));
 } else if(succeeds) {
