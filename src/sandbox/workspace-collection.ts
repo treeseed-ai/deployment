@@ -31,9 +31,9 @@ export class CollectionRefusal extends Error {
   }
 }
 
-export function assertGitCollectionIdle(tasks: string, builds: number, unfinishedJobs: number) {
-  if (tasks.trim() || [builds, unfinishedJobs].some(value => !Number.isSafeInteger(value) || value !== 0)) {
-    throw new Error('Git cache collection requires no guests, builds, or unfinished source jobs.');
+export function assertGitCollectionIdle(tasks: string, builds: number) {
+  if (tasks.trim() || !Number.isSafeInteger(builds) || builds !== 0) {
+    throw new Error('Git cache collection requires no guests or builds.');
   }
 }
 
@@ -411,7 +411,9 @@ export async function collectWorkspaceCache(configuration: SandboxBrokerConfigur
     const tasks = physical.confirmation.tasks ?? '', containers = physical.confirmation.containers ?? '';
     const physicalBlockers = physicalCollectionBlockers(physical);
     try {
-      if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds, jobs.count);
+      // Historical work journals retain their overlays; producer closure and
+      // the physical inventory fence disposable host Git metadata separately.
+      if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds);
       else assertCollectionIdle(tasks, snapshot.activeLeases, snapshot.builds, jobs.count, containers);
       if (physicalBlockers) throw new Error('Physical sandbox inventory is unresolved.');
     } catch {

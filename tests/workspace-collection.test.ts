@@ -53,7 +53,7 @@ describe('fenced source collection', () => {
   it('reclaims Git caches through retained unpublished work leases without collecting image ancestry', async () => {
     const ops = operations();
     ops.idle.mockImplementation(async scope => {
-      if (scope === 'git') assertGitCollectionIdle('', 0, 0);
+      if (scope === 'git') assertGitCollectionIdle('', 0);
       else assertCollectionIdle('', 46, 0, 0);
     });
     ops.disks.mockResolvedValue(['detached-unpublished-work']);
@@ -68,7 +68,7 @@ describe('fenced source collection', () => {
   it('allows idle Git collection through an exact released analysis journal while retaining overlays', async () => {
     const ops = operations();
     ops.idle.mockImplementation(async scope => {
-      if (scope === 'git') assertGitCollectionIdle('', 0, 0);
+      if (scope === 'git') assertGitCollectionIdle('', 0);
       else assertCollectionIdle('', 1, 0, 0);
     });
     ops.disks.mockResolvedValue(['unpublished-work-overlay']);
@@ -77,6 +77,21 @@ describe('fenced source collection', () => {
     expect(await runFencedCollection(withGit)).toMatchObject({ gitCache: cache, removed: [], retainedDisks: ['unpublished-work-overlay'] });
     expect(withGit.idle.mock.calls.map(([scope]) => scope)).toEqual(['git']);
     expect(withGit.collect).not.toHaveBeenCalled();
+  });
+  it('keeps historical work held while closed producers permit only disposable Git metadata cleanup', async () => {
+    const ops = operations();
+    ops.idle.mockImplementation(async scope => {
+      if (scope === 'git') assertGitCollectionIdle('', 0);
+      else assertCollectionIdle('', 48, 0, 2);
+    });
+    ops.disks.mockResolvedValue(['retained-candidate-only-work']);
+    const withGit = { ...ops, collectGit: vi.fn(async () => ({ examinedBytes: 4096, reclaimedBytes: 4096,
+      reclaimedCaches: ['disposable'], retained: [] })) };
+    expect(await runFencedCollection(withGit)).toMatchObject({ collected: false, reason: 'overlay_custody_retained',
+      retainedDisks: ['retained-candidate-only-work'], gitCache: { reclaimedBytes: 4096 } });
+    expect(withGit.collect).not.toHaveBeenCalled();
+    expect(withGit.closed.mock.invocationCallOrder[0]).toBeLessThan(withGit.collectGit.mock.invocationCallOrder[0]!);
+    expect(withGit.releaseFence).toHaveBeenCalledOnce();
   });
   it('rechecks custody after stopping and restarts on changed ownership', async () => {
     const ops = operations(); ops.idle.mockRejectedValueOnce(new CollectionRefusal('resources_not_idle', { activeLeases: 1 }));
@@ -127,10 +142,10 @@ describe('fenced source collection', () => {
     expect(physicalCollectionBlockers(physicalInventory({ mountInfo: '1 0 0:1 / /var/lib/treeseed/agent/workspaces/leases/x rw - ext4 /dev/loop0 rw' }))).toMatchObject({ hostFilesystemMounts: ['/var/lib/treeseed/agent/workspaces/leases/x'] });
     expect(physicalCollectionBlockers(physicalInventory({ complete: false, errors: ['vm_inventory_unavailable'] }))).toMatchObject({ physicalInventoryComplete: false, inventoryErrors: ['vm_inventory_unavailable'] });
   });
-  it('keeps Git eligibility strict for guests, builds, unfinished jobs and uncertain counts', () => {
-    expect(() => assertGitCollectionIdle('', 0, 0)).not.toThrow();
-    for (const values of [['warm-guest', 0, 0], ['', 1, 0], ['', 0, 1], ['', -1, 0], ['', NaN, 0]]) {
-      expect(() => assertGitCollectionIdle(values[0] as string, values[1] as number, values[2] as number)).toThrow();
+  it('keeps Git eligibility strict for guests, builds and uncertain build counts', () => {
+    expect(() => assertGitCollectionIdle('', 0)).not.toThrow();
+    for (const values of [['warm-guest', 0], ['', 1], ['', -1], ['', NaN], ['', Infinity], ['', 0.5]]) {
+      expect(() => assertGitCollectionIdle(values[0] as string, values[1] as number)).toThrow();
     }
   });
   it('recognizes only valid non-stopped journals bound to their released analysis lease and owner', async () => {
