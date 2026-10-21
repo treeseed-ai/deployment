@@ -74,3 +74,21 @@ it('keeps physically closed recovery active for guest changes while allowing pro
   expect(activeAgentClaims(root,true)).toEqual(JSON.parse(bytes.toString()).claims);expect(readFileSync(path)).toEqual(bytes);
  }
 });
+
+it('allows provider-only handoff after native empty-scope closure without inventing a sandbox or discarding recovery custody',()=>{
+ const now=Date.now()-1000,start=new Date(now-1000).toISOString(),closed=new Date(now-10).toISOString(),finish=new Date(now).toISOString();
+ const claim={id:'native-closed',assignmentId:'original-assignment',status:'recovery',activeStartedAt:start,activeFinishedAt:finish,accountedThrough:finish,
+  dispatchEnvelope:{assignment:{assignmentAttempt:{id:'original-assignment',workspace:{mode:'treedx'}}}},
+  closeoutOutput:{assignmentResult:{assignmentId:'original-assignment',status:'completed',completedAt:closed},teardown:{verified:true,completedAt:closed},artifacts:[]}};
+ const root=fixture({schemaVersion:1,claims:[claim]}),path=resolve(root,'runtime/capacity-state.json'),bytes=readFileSync(path);
+ expect(activeAgentClaims(root)).toEqual([claim]);expect(activeAgentClaims(root,true)).toEqual([]);expect(readFileSync(path)).toEqual(bytes);
+ for(const changed of [{...claim,status:'running'},{...claim,accountedThrough:start},{...claim,activeFinishedAt:undefined},
+  {...claim,dispatchEnvelope:undefined},{...claim,assignmentId:'foreign'},
+  {...claim,closeoutOutput:{...claim.closeoutOutput,sandboxId:'unclosed-guest'}},
+  {...claim,closeoutOutput:{...claim.closeoutOutput,environmentReceipt:{}}},
+  {...claim,closeoutOutput:{...claim.closeoutOutput,artifacts:[{id:'guest'}]}},
+  {...claim,closeoutOutput:{...claim.closeoutOutput,teardown:{verified:false,completedAt:closed}}}]){
+  const root=fixture({schemaVersion:1,claims:[changed]}),path=resolve(root,'runtime/capacity-state.json'),bytes=readFileSync(path);
+  expect(activeAgentClaims(root,true)).toEqual(JSON.parse(bytes.toString()).claims);expect(readFileSync(path)).toEqual(bytes);
+ }
+});
