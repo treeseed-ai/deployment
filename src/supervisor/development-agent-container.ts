@@ -128,6 +128,14 @@ function containerState(command: CommandRunner, service: typeof services[number]
 		mounts:value.mounts as unknown,runtimeBuild:runtimeBuild.length===1?runtimeBuild[0]!.slice('TREESEED_PROVIDER_RUNTIME_BUILD='.length):null };
 }
 
+function selectedProviderRuntime(command: CommandRunner, sessionId: string, directory: string) {
+ const states = services.map(service => containerState(command, service));
+ for(const state of states) assertDevelopmentRuntimeMounts(state,sessionId,'agent.provider',directory,runtimeRoots.map(root=>root.target));
+ const runtime=developmentRuntimeStatus(directory,runtimeRoots.map(root=>root.target));
+ if(states.some(state=>state.runtimeBuild!==runtime.digest)) throw new Error('Provider runtime build does not match its selected copy.');
+ return {states,runtime};
+}
+
 export function providerGuestTrustReady(expectedDigest: string, instances: readonly { running: boolean; guestDigest: string | null }[]) {
 	return instances.length === services.length && instances.every(({ running, guestDigest }) => running && guestDigest === expectedDigest);
 }
@@ -264,10 +272,7 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	}
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
-		const states = services.map((service) => containerState(command, service));
-		for(const state of states)assertDevelopmentRuntimeMounts(state,input.sessionId,'agent.provider',directory,runtimeRoots.map(root=>root.target));
-		const runtime=developmentRuntimeStatus(directory,runtimeRoots.map(root=>root.target));
-		if(states.some(state=>state.runtimeBuild!==runtime.digest))throw new Error('Provider runtime build does not match its selected copy.');
+		const {states,runtime}=selectedProviderRuntime(command,input.sessionId,directory);
 		const expectedDigest = configuredSandboxGuestDigest();
 		const instances = states.map(({ name, running, labels, connectionEnvironment, guestDigest }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'], connectionEnvironment, guestDigest }));
 		return { registered: true, instances, ready: providerGuestTrustReady(expectedDigest, instances), expectedGuestDigest: expectedDigest, runtime };
@@ -285,6 +290,16 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	}
 
 	if (record.session.status !== 'active') throw new Error('Development session is not active.');
+	// Resume original immutable execution after interruption; replacement still requires drain.
+	if (existsSync(override) && activeAgentClaims(stateRoot).length
+		&& services.every(service => !containerState(command,service).running)) {
+		const {states,runtime}=selectedProviderRuntime(command,input.sessionId,directory);
+		if(states.some(state=>state.guestDigest!==configuredSandboxGuestDigest()))
+			throw new Error('Stopped provider guest trust does not match its selected runtime.');
+		startService(command,'runner');
+		startService(command,'manager');
+		return {started:true,resumed:true,runtime};
+	}
 	const source = sourceFor(record);
 	const host = loadHostConfiguration();
 	const environment = managedContainerDevelopmentConnectionEnvironment(host, component, releases, record.routes);

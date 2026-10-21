@@ -1,14 +1,15 @@
 import { strict as assert } from 'node:assert';
-import { chownSync, existsSync, lchownSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, lchownSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { component, host } from '../fixtures.js';
 import { DevelopmentSessionStore } from '../../src/manager/development-sessions.js';
 import { executeAgentDevelopmentContainer } from '../../src/supervisor/development-agent-container.js';
-import { developmentRuntimeStatus } from '../../src/supervisor/development-runtime-copy.js';
+import { copyDevelopmentRuntime, developmentRuntimeStatus } from '../../src/supervisor/development-runtime-copy.js';
 
 // Runs only inside a disposable Docker filesystem, with no Docker socket or host state mount.
 assert.equal(process.env.TREESEED_HANDOFF_DISPOSABLE, '1');
 const shape = process.argv[2]!;
+const resume = shape.startsWith('stopped-');
 const sessionId = 'dev-handoff-regression';
 const directory = `/run/treeseed/development-containers/${sessionId}/agent/provider`;
 const source = '/fixture/workspace/agent';
@@ -40,22 +41,32 @@ const claims = '/var/lib/treeseed/components/agent/runtime/capacity-state.json';
 const succeeds=['polling','empty','first-start','closed-recovery'].includes(shape);
 make(claims, shape==='malformed' ? 'not-json' : JSON.stringify({schemaVersion:1,claims:shape==='empty'||shape==='first-start'?[]:
   [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')?'recovery':shape,
-    ...(shape.includes('recovery') && shape !== 'recovery' ? { activeStartedAt: now, ...(shape !== 'ongoing-recovery' ? {activeFinishedAt:now}:{}),
+    ...(shape.includes('recovery') && shape !== 'recovery' && !resume ? { activeStartedAt: now, ...(shape !== 'ongoing-recovery' ? {activeFinishedAt:now}:{}),
       closeoutOutput:{sandboxId:'original-sandbox',teardown:{verified:shape!=='unverified-recovery',
         completedAt:shape==='invalid-recovery'?'invalid':shape==='future-recovery'?'2999-01-01T00:00:00.000Z':shape==='early-recovery'?'2000-01-01T00:00:00.000Z':now}}}: {})}]}));
 const originalClaims=readFileSync(claims);
 if(shape!=='first-start') {
-make(`${directory}/runtime/dist/main.js`, 'old-runtime');
-make(`${directory}/runtime-receipt.json`, 'original-receipt');
+if(resume) {
+ mkdirSync(directory,{recursive:true});
+ const receipt=copyDevelopmentRuntime({worktree:source,workspace:'/fixture/workspace',destination:`${directory}/runtime`,sourceUid:1000,roots:[{source:'dist',target:'dist'},{source:'.treeseed/docker/runtime/shared/package.json',target:'package.json'},{source:'.treeseed/docker/runtime/shared/node_modules',target:'node_modules'}]});
+ make(`${directory}/runtime-receipt.json`,JSON.stringify(receipt));
+ chmodSync(`${directory}/runtime-receipt.json`,0o600);
+ chownSync(`${source}/dist/main.js`,0,0);
+ writeFileSync(`${source}/dist/main.js`,'replacement-runtime');
+ chownSync(`${source}/dist/main.js`,1000,1000);
+} else {
+ make(`${directory}/runtime/dist/main.js`, 'old-runtime');
+ make(`${directory}/runtime-receipt.json`, 'original-receipt');
+}
 make(`${directory}/compose.json`, 'original-compose');
 }
 const before = shape==='first-start'?[]:['runtime/dist/main.js','runtime-receipt.json','compose.json'].map(name=>readFileSync(`${directory}/${name}`));
-const states:Record<string,boolean>={manager:true,runner:true};
+const states:Record<string,boolean>={manager:!resume,runner:!resume};
 const commands:string[][]=[];
 const transport=(_executable:string,args:readonly string[])=>{
   commands.push([...args]);
   const service=args[1]?.includes('manager')?'manager':'runner';
-  if(args[0]==='inspect') return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},running:states[service],environment:[]});
+  if(args[0]==='inspect') return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},...(resume?{labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service,'org.treeseed.development.session':shape==='stopped-foreign'?'dev-foreign':sessionId,'org.treeseed.development.target':'agent.provider'},mounts:['dist','package.json','node_modules'].map(name=>({Source:`${directory}/runtime/${name}`,Destination:`/app/${name}`,RW:false,Type:'bind'}))}:{}),running:states[service],environment:resume?[`TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST=sha256:${(shape==='stopped-trust'?'b':'a').repeat(64)}`,`TREESEED_PROVIDER_RUNTIME_BUILD=${shape==='stopped-runtime'?`sha256:${'b'.repeat(64)}`:developmentRuntimeStatus(directory,['dist','package.json','node_modules']).digest}`]:[]});
   if(args[0]==='stop') {
     const stopped=args.at(-1)!.includes('manager')?'manager':'runner';
     if(shape==='runner-stop-failure'&&stopped==='runner') throw new Error('fixture runner stop denied');
@@ -75,7 +86,20 @@ let rejected=false, failure='', result:unknown;
 try { result=executeAgentDevelopmentContainer({sessionId,projectId:'agent',targetId:'provider',action:'start'},transport); }
 catch(error) { rejected=true; failure=String(error); }
 assert.deepEqual(readFileSync(claims),originalClaims,'handoff must preserve complete provider recovery bytes');
-if(succeeds) {
+if(resume && shape!=='stopped-recovery') {
+ assert.equal(rejected,true);
+ assert.deepEqual(states,{manager:false,runner:false});
+ assert.equal(commands.some(args=>['start','stop','compose'].includes(args[0]!)),false);
+ for(const [index,name] of ['runtime/dist/main.js','runtime-receipt.json','compose.json'].entries()) assert.deepEqual(readFileSync(`${directory}/${name}`),before[index]);
+ console.log(JSON.stringify({shape,rejected:true,selectedBytesUnchanged:true,claimsUnchanged:true}));
+} else if(resume) {
+ assert.equal(rejected,false,failure);
+ assert.deepEqual(states,{manager:true,runner:true});
+ assert.deepEqual(result,{started:true,resumed:true,runtime:developmentRuntimeStatus(directory,['dist','package.json','node_modules'])});
+ assert.equal(commands.some(args=>args[0]==='stop'||args[0]==='compose'),false);
+ for(const [index,name] of ['runtime/dist/main.js','runtime-receipt.json','compose.json'].entries()) assert.deepEqual(readFileSync(`${directory}/${name}`),before[index]);
+ console.log(JSON.stringify({shape,resumed:true,selectedBytesUnchanged:true,claimsUnchanged:true}));
+} else if(succeeds) {
   assert.equal(rejected,false,failure);
   const runtime=developmentRuntimeStatus(directory,['dist','package.json','node_modules']);
   assert.deepEqual(result,{started:true,runtime});
