@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 /** Finite CLI login, not a week-long bearer token. Other clients retain their
  * effective realm defaults when the shared SSO parent is extended. */
 export const CLI_SESSION_SECONDS = 604_800;
@@ -5,21 +7,21 @@ export async function reconcileCliSessionPolicy(options: {
   resource: string; clientId: string; token: string; transport: typeof fetch;
 }) {
   if (!/^[A-Za-z0-9-]{1,128}$/u.test(options.clientId)) throw new Error('Invalid managed CLI client identity');
-  const request = async (suffix: string, method = 'GET', body?: unknown): Promise<Record<string, any>> => {
+  const request = async <T extends object = Record<string, any>>(suffix: string, method = 'GET', body?: unknown): Promise<T> => {
     const response = await options.transport(`${options.resource}${suffix}`, { method, redirect: 'error', credentials: 'omit',
       signal: AbortSignal.timeout(10_000), headers: { authorization: `Bearer ${options.token}`, accept: 'application/json',
         ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     if (response.redirected || !response.ok) { await response.body?.cancel(); throw new Error('CLI session policy request failed'); }
-    if (method === 'PUT') { await response.body?.cancel(); return {}; }
+    if (method === 'PUT') { await response.body?.cancel(); return {} as T; }
     const reader = response.body?.getReader(); if (!reader) throw new Error('CLI session policy read-back missing');
     const chunks: Uint8Array[] = []; let size = 0;
     try { for (;;) { const chunk = await reader.read(); if (chunk.done) break;
       size += chunk.value.length; if (size > 1_048_576) throw new Error('CLI session policy response exceeds limit'); chunks.push(chunk.value);
     } } finally { await reader.cancel(); reader.releaseLock(); }
     const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid CLI session policy response');
-    return value as Record<string, any>;
+    if (!value || typeof value !== 'object' || Array.isArray(value) !== (suffix === '/client-scopes')) throw new Error('Invalid CLI session policy response');
+    return value as T;
   };
   const path = `/clients/${encodeURIComponent(options.clientId)}`;
   const realm = await request(''), client = await request(path);
@@ -51,5 +53,26 @@ export async function reconcileCliSessionPolicy(options: {
   }
   const actual = await request(path);
   if (actual.clientId !== 'trsd' || !matches(actual.attributes ?? {}, desiredAttributes)) throw new Error('CLI client session policy read-back differs');
+  // Managed applications deliberately disallow offline_access. Do not advertise
+  // that unavailable grant to MCP clients which infer refresh scopes from OIDC
+  // discovery. Only the public metadata flag changes; grants and lifetimes stay.
+  const scopes = await request<Array<Record<string, unknown>>>('/client-scopes');
+  if (scopes.length > 4096 || scopes.some(scope => !scope || typeof scope !== 'object' || Array.isArray(scope)))
+    throw new Error('Invalid Identity scope inventory');
+  const offline = scopes.filter(scope => scope.name === 'offline_access');
+  if (offline.length > 1) throw new Error('Ambiguous offline scope inventory');
+  if (offline.length) {
+    const id = offline[0]!.id;
+    if (typeof id !== 'string' || !/^[A-Za-z0-9-]{1,128}$/u.test(id)) throw new Error('Invalid offline scope identity');
+    const scopePath = `/client-scopes/${encodeURIComponent(id)}`, before = await request(scopePath);
+    if (before.id !== id || before.name !== 'offline_access' || before.protocol !== 'openid-connect'
+      || !before.attributes || typeof before.attributes !== 'object' || Array.isArray(before.attributes)) throw new Error('Invalid offline scope representation');
+    if (before.attributes['include.in.openid.provider.metadata'] !== 'false') {
+      const expected = { ...before, attributes: { ...before.attributes, 'include.in.openid.provider.metadata': 'false' } };
+      await request(scopePath, 'PUT', expected);
+      if (!isDeepStrictEqual(await request(scopePath), expected)) throw new Error('Offline scope discovery read-back differs');
+      action = 'updated';
+    }
+  }
   return { action, sessionIdleSeconds: CLI_SESSION_SECONDS, sessionMaxSeconds: CLI_SESSION_SECONDS, accessTokenSeconds: 300 };
 }

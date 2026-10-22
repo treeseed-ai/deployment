@@ -111,7 +111,12 @@ describe('one-use pristine warm sandbox pool', () => {
 });
 it('native owning runtime retains its actual acquired VM identity through guest interruption and exact independent host absence',async()=>{
  let phase='INSTALLED_BYTES';const mark=(value:string)=>{phase=value;console.log(JSON.stringify({nativeExecutionVmPhase:phase,observedAt:new Date().toISOString()}));};
- onTestFailed(()=>console.error(JSON.stringify({nativeExecutionVmFailedPhase:phase,originalBoundMillis:30000})));
+ onTestFailed(()=>{
+  console.error(JSON.stringify({nativeExecutionVmFailedPhase:phase,originalBoundMillis:30000}));
+  // The existing prerequisite receipt retains approved phase criteria while
+  // redacting private assertion output. Vitest keeps the original failure too.
+  throw new Error(`ACCEPTANCE_NATIVE_PHASE_${phase}`);
+ });
  const installed='/usr/lib/treeseed/manager/dist/src/sandbox/runtime.js';
  expect(await readFile(installed)).toEqual(await readFile('dist/src/sandbox/runtime.js'));
  expect(await readFile('/usr/lib/treeseed/manager/dist/src/sandbox/guest-startup-monitor.js')).toEqual(await readFile('dist/src/sandbox/guest-startup-monitor.js'));
