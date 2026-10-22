@@ -419,6 +419,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			recordEvent('development.boot-recovery-pending', {});
 			return previous;
 		}
+		if (host.components.identity?.enabled && host.components.api?.enabled && host.components.api.configuration.identityRuntime)
+			await requestSupervisor({ operation: 'identity.clients.reconcile' });
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}
