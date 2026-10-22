@@ -116,7 +116,9 @@ it('native installed CLI manager and supervisor observe exact task container mou
   const guest=configuration.guestImages[0];expect(guest).toBeDefined();
   const image=containerdImageReference(guest!.image,guest!.digest);
   expect(ctr(['containers','list','--quiet']).split('\n')).not.toContain(id);
-  phase='NATIVE_START';attempted=true;ctr(['run','--detach','--runtime','io.containerd.runc.v2',image,id,'/bin/sleep','60']);
+  // This is a noninteractive presence probe, like the production warm task.
+  // Detached task pipes must not hold the bounded observer command open.
+  phase='NATIVE_START';attempted=true;ctr(['run','--detach','--null-io','--runtime','io.containerd.runc.v2',image,id,'/bin/sleep','60']);
   phase='PUBLIC_PRESENCE';
   const present=await inspect();
   expect(present.tasks!.split('\n')).toContain(id);expect(present.containers!.split('\n')).toContain(id);
