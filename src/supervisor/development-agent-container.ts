@@ -211,6 +211,8 @@ function fenceExpiredRecovery(command: CommandRunner, stateRoot: string) {
 	command('/usr/bin/systemctl', ['is-active', '--quiet', broker]);
 	try {
 		command('/usr/bin/systemctl', ['stop', broker]);
+		if (String(command('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value'])).trim() !== 'inactive')
+			throw new Error('Expired recovery handoff requires confirmed broker shutdown.');
 		for (let observation = 0; observation < 2; observation++) {
 			const prefix = ['--address', configuration.containerdAddress, '--namespace', configuration.namespace];
 			for (const kind of ['tasks', 'containers']) {
@@ -236,6 +238,7 @@ export function stopForHandoff(command: CommandRunner, stateRoot: string, restor
 		const drained = activeAgentClaims(stateRoot, true);
 		if (drained.some(claim => !expiredRecoveryClaim(claim))) throw new Error('Managed Agent development cannot interrupt authority acquired during drain.');
 		if (drained.length) fenceExpiredRecovery(command, stateRoot);
+		if (services.some(service => containerState(command, service).running)) throw new Error('Managed Agent provider drain was not confirmed.');
 	} catch (error) {
 		// Restore only services that were running; reopen admissions last.
 		if (running.has('runner')) startService(command, 'runner');
