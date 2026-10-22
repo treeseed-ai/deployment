@@ -77,7 +77,7 @@ const vmProcRoot='/proc/1/root/proc';
 /** Fixed owning-host procfs, never the supervisor's possibly private mount
  * view. Kata4.1.0 emits -name sandbox-<id>; only that public name is retained.
  * https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/crates/hypervisor/src/qemu/cmdline_generator.rs */
-function inspectVmProcesses():{processes:VmProcessObservation[]|null;pidNamespace:string|null;complete:boolean}{
+export function inspectVmProcesses():{processes:VmProcessObservation[]|null;pidNamespace:string|null;complete:boolean}{
  let names:string[],pidNamespace:string|null=null;
  try{
   pidNamespace=readlinkSync(vmProcRoot+'/1/ns/pid');

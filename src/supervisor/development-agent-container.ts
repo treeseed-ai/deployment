@@ -12,6 +12,8 @@ import { componentComposeArguments, type CommandRunner } from './compose-runtime
 import { copyDevelopmentRuntime, developmentRuntimeStatus, assertDevelopmentRuntimeMounts } from './development-runtime-copy.js';
 import { bindExistingSandboxGuestTrust, configuredSandboxGuestDigest, importSandboxGuestArchive } from './sandbox-guest-import.js';
 import { recordHostDevelopmentGuestImage } from './host-development.js';
+import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
+import { inspectVmProcesses } from '../sandbox/doctor.js';
 
 const root = '/run/treeseed/development-containers';
 const projectName = 'treeseed-agent';
@@ -191,13 +193,49 @@ function restoreReleasedAgent(command: CommandRunner, compose: string[]) {
 	command('/usr/bin/docker', [...compose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
 }
 
+function expiredRecoveryClaim(value: unknown) {
+	const row = (input: unknown): Record<string, unknown> => input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+	const claim = row(value), assignment = row(row(claim.dispatchEnvelope).assignment), attempt = row(assignment.assignmentAttempt);
+	const clock = (input: unknown) => typeof input === 'string' && /^\d{4}-\d{2}-\d{2}T.*Z$/u.test(input) ? Date.parse(input) : NaN;
+	const deadline = clock(attempt.deadline), lease = clock(claim.leaseExpiresAt), start = clock(claim.activeStartedAt), now = Date.now();
+	return claim.status === 'recovery' && typeof claim.assignmentId === 'string' && claim.assignmentId.length > 0
+		&& attempt.schemaVersion === 'treeseed.assignment-attempt/v1' && attempt.id === claim.assignmentId
+		&& Number.isFinite(deadline) && Number.isFinite(lease) && Number.isFinite(start) && start <= deadline
+		&& deadline <= now && lease <= now;
+}
+
+/** Quiesce the existing producer and observe execution absence. This permits
+ * provider code replacement only; retained clocks, usage and leases stay held. */
+function fenceExpiredRecovery(command: CommandRunner, stateRoot: string) {
+	const broker = 'treeseed-sandbox-broker.service', configuration = loadSandboxBrokerConfiguration();
+	command('/usr/bin/systemctl', ['is-active', '--quiet', broker]);
+	try {
+		command('/usr/bin/systemctl', ['stop', broker]);
+		for (let observation = 0; observation < 2; observation++) {
+			const prefix = ['--address', configuration.containerdAddress, '--namespace', configuration.namespace];
+			for (const kind of ['tasks', 'containers']) {
+				if (String(command('/usr/bin/ctr', [...prefix, kind, 'list', '--quiet'])).trim())
+					throw new Error('Expired recovery handoff requires no remaining sandbox tasks or containers.');
+			}
+			const vms = inspectVmProcesses();
+			if (!vms.complete || vms.processes === null || vms.processes.length)
+				throw new Error('Expired recovery handoff requires complete physical VM absence.');
+			if (activeAgentClaims(stateRoot, true).some(claim => !expiredRecoveryClaim(claim)))
+				throw new Error('Provider recovery authority changed while execution was fenced.');
+		}
+	} finally { command('/usr/bin/systemctl', ['start', broker]); }
+}
+
 export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
 	const running = new Set(services.filter(service => containerState(command, service).running));
 	try {
 		stopService(command, 'manager');
 		const active = activeAgentClaims(stateRoot, true);
-		if (active.length) throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
+		if (active.some(claim => !expiredRecoveryClaim(claim))) throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
 		stopService(command, 'runner');
+		const drained = activeAgentClaims(stateRoot, true);
+		if (drained.some(claim => !expiredRecoveryClaim(claim))) throw new Error('Managed Agent development cannot interrupt authority acquired during drain.');
+		if (drained.length) fenceExpiredRecovery(command, stateRoot);
 	} catch (error) {
 		// Restore only services that were running; reopen admissions last.
 		if (running.has('runner')) startService(command, 'runner');
