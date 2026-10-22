@@ -53,7 +53,7 @@ describe('fenced source collection', () => {
   it('reclaims Git caches through retained unpublished work leases without collecting image ancestry', async () => {
     const ops = operations();
     ops.idle.mockImplementation(async scope => {
-      if (scope === 'git') assertGitCollectionIdle('', 0, 0);
+      if (scope === 'git') assertGitCollectionIdle('', 0);
       else assertCollectionIdle('', 46, 0, 0);
     });
     ops.disks.mockResolvedValue(['detached-unpublished-work']);
@@ -68,7 +68,7 @@ describe('fenced source collection', () => {
   it('allows idle Git collection through an exact released analysis journal while retaining overlays', async () => {
     const ops = operations();
     ops.idle.mockImplementation(async scope => {
-      if (scope === 'git') assertGitCollectionIdle('', 0, 0);
+      if (scope === 'git') assertGitCollectionIdle('', 0);
       else assertCollectionIdle('', 1, 0, 0);
     });
     ops.disks.mockResolvedValue(['unpublished-work-overlay']);
@@ -128,10 +128,9 @@ describe('fenced source collection', () => {
     expect(physicalCollectionBlockers(physicalInventory({ complete: false, errors: ['vm_inventory_unavailable'] }))).toMatchObject({ physicalInventoryComplete: false, inventoryErrors: ['vm_inventory_unavailable'] });
   });
   it('keeps Git eligibility strict for guests and builds while ignoring retained work journals', () => {
-    expect(() => assertGitCollectionIdle('', 0, 0)).not.toThrow();
-    expect(() => assertGitCollectionIdle('', 0, 48)).not.toThrow();
-    for (const values of [['warm-guest', 0, 0], ['', 1, 0], ['', -1, 0], ['', NaN, 0]]) {
-      expect(() => assertGitCollectionIdle(values[0] as string, values[1] as number, values[2] as number)).toThrow();
+    expect(() => assertGitCollectionIdle('', 0)).not.toThrow();
+    for (const values of [['warm-guest', 0], ['', 1], ['', -1], ['', NaN]]) {
+      expect(() => assertGitCollectionIdle(values[0] as string, values[1] as number)).toThrow();
     }
   });
   it('recognizes only valid non-stopped journals bound to their released analysis lease and owner', async () => {
@@ -226,6 +225,32 @@ describe('fenced source collection', () => {
       const unsafe = join(root, 'git', 'd'.repeat(64)); await mkdir(join(unsafe, 'mounted'), { recursive: true, mode: 0o700 });
       await chmod(unsafe, 0o700); await writeFile(join(unsafe, 'objects.ext4'), 'unsafe', { mode: 0o640 });
       await expect(collectGitCacheBatch(root, async () => false)).rejects.toThrow('custody');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  it('counts acquisition-fence collisions through the bounded retention details', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-collection-collisions-'));
+    try {
+      const ids = Array.from({ length: 40 }, (_, index) => index.toString(16).padStart(64, '0'));
+      await Promise.all(ids.map(async id => {
+        const cache = join(root, 'git', id);
+        await mkdir(join(cache, 'mounted'), { recursive: true, mode: 0o700 });
+        await chmod(cache, 0o700);
+        await writeFile(join(cache, 'objects.ext4'), 'volume', { mode: 0o600 });
+      }));
+      await chmod(join(root, 'git'), 0o700);
+      let raced = false;
+      const result = await collectGitCacheBatch(root, async () => {
+        if (!raced) {
+          raced = true;
+          await Promise.all(ids.slice(1).map(id => mkdir(join(root, 'git', id, 'acquisition.lock'), { mode: 0o700 })));
+        }
+        return false;
+      });
+      expect(result.reclaimedCaches).toHaveLength(1);
+      expect(result.retainedCount).toBe(39);
+      expect(result.retained).toHaveLength(32);
+      expect(result.retainedTruncated).toBe(true);
+      expect(result.retained.every(({ reason }) => reason === 'acquisition_fence_present_or_unknown')).toBe(true);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   it('scans past retained entries, bounds retained details and reaches later caches on repeated calls', async () => {

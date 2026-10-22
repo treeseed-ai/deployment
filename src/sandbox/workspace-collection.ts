@@ -31,7 +31,7 @@ export class CollectionRefusal extends Error {
   }
 }
 
-export function assertGitCollectionIdle(tasks: string, builds: number, _unfinishedJobs: number) {
+export function assertGitCollectionIdle(tasks: string, builds: number) {
   // The caller has already proved the broker lifetime fence and physical
   // closure. Historical source journals and leases describe retained work,
   // not users of this independent trusted-host metadata volume.
@@ -203,7 +203,7 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
     // custody recheck and unlink so acquisition cannot recreate the image.
     try { await mkdir(lock, { mode: 0o700 }); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') { result.retained.push({ cacheId, reason: 'acquisition_fence_present_or_unknown' }); continue; }
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') { retain(cacheId, 'acquisition_fence_present_or_unknown'); continue; }
       throw error;
     }
     let keepFence = true;
@@ -436,7 +436,7 @@ export async function collectWorkspaceCache(configuration: SandboxBrokerConfigur
     const tasks = physical.confirmation.tasks ?? '', containers = physical.confirmation.containers ?? '';
     const physicalBlockers = physicalCollectionBlockers(physical);
     try {
-      if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds, jobs.count);
+      if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds);
       else assertCollectionIdle(tasks, snapshot.activeLeases, snapshot.builds, jobs.count, containers);
       if (physicalBlockers) throw new Error('Physical sandbox inventory is unresolved.');
     } catch {
