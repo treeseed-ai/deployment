@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { providerRuntimeStatus } from '../src/supervisor/provider-runtime.js';
@@ -14,6 +14,38 @@ function fixture(extra: Record<string, unknown> = {}) {
 }
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 describe('bounded provider runtime observation', () => {
+	it('reads original retained claim closure without mutating clocks, usage or exposing credentials', () => {
+		const root = fixture(), path = join(root, 'runtime/capacity-state.json');
+		const original = JSON.stringify({ schemaVersion: 1, revision: 7, claims: [{ id: 'claim-retained', assignmentId: 'assignment_retained', status: 'recovery',
+			activeStartedAt: '2026-09-01T11:00:00Z', activeFinishedAt: '2026-09-01T11:01:00Z', accountedThrough: '2026-09-01T11:01:00Z',
+			leaseToken: 'never-output', dispatchEnvelope: { token: 'never-output' }, closeoutOutput: { sandboxId: 'sandbox-retained',
+				teardown: { verified: false, completedAt: '2026-09-01T11:01:02Z' }, artifacts: ['never-output'] } }], usage: { unknown: 123 }, tokens: ['never-output'] });
+		writeFileSync(path, original, { mode: 0o600 });
+		const status = providerRuntimeStatus(root, process.getuid!(), now);
+		expect(status).toMatchObject({ recovery: { observed: true, revision: 7, complete: true, claims: [{ id: 'claim-retained', assignmentId: 'assignment_retained', status: 'recovery',
+			activeStartedAt: '2026-09-01T11:00:00Z', activeFinishedAt: '2026-09-01T11:01:00Z', accountedThrough: '2026-09-01T11:01:00Z',
+			sandboxId: 'sandbox-retained', teardownVerified: false, teardownCompletedAt: '2026-09-01T11:01:02Z' }] } });
+		expect(JSON.stringify(status)).not.toContain('never-output');
+		expect(readFileSync(path, 'utf8')).toBe(original);
+	});
+	it('keeps missing closure unknown, bounds claims and rejects unsafe or invalid recovery records', () => {
+		const root = fixture(), path = join(root, 'runtime/capacity-state.json');
+		expect(providerRuntimeStatus(root, process.getuid!(), now).recovery).toMatchObject({ observed: false, complete: false, reason: 'not_observed' });
+		writeFileSync(path, JSON.stringify({ schemaVersion: 1, revision: 0, claims: Array.from({ length: 129 }, (_, n) => ({ id: `claim-${n}`, status: 'recovery' })) }), { mode: 0o600 });
+		const recovery = providerRuntimeStatus(root, process.getuid!(), now).recovery;
+		expect(recovery).toMatchObject({ observed: true, complete: false, claimCount: 129 });
+		expect(recovery.claims).toHaveLength(128);
+		expect(recovery.claims![0]).toMatchObject({ activeStartedAt: null, activeFinishedAt: null, accountedThrough: null, closeoutRecorded: false, teardownVerified: null });
+		for (const value of [{ schemaVersion: 2, revision: 0, claims: [] }, { schemaVersion: 1, revision: 0, claims: [{ id: 'ok', status: 'other' }] },
+			{ schemaVersion: 1, revision: 0, claims: [{ id: '../unsafe', status: 'recovery' }] }, { schemaVersion: 1, revision: 0, claims: [{ id: 'ok', status: 'recovery', activeFinishedAt: 'invalid' }] }]) {
+			writeFileSync(path, JSON.stringify(value));
+			expect(providerRuntimeStatus(root, process.getuid!(), now).recovery).toMatchObject({ observed: false, reason: 'unsafe_or_invalid_record' });
+		}
+		writeFileSync(path, JSON.stringify({ schemaVersion: 1, revision: 0, claims: [] })); chmodSync(path, 0o644);
+		expect(providerRuntimeStatus(root, process.getuid!(), now).recovery).toMatchObject({ observed: false });
+		rmSync(path); symlinkSync(join(root, 'runtime/manager.json'), path);
+		expect(providerRuntimeStatus(root, process.getuid!(), now).recovery).toMatchObject({ observed: false });
+	});
 	it('reports fixed idle reasons without reflecting arbitrary status or reason text', () => {
 		const root = fixture({ result: { results: [
 			{ status: 'idle', reason: 'no_assignment', assignment: 'never-output' },
