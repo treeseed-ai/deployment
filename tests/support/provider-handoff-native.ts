@@ -9,6 +9,7 @@ import { copyDevelopmentRuntime, developmentRuntimeStatus } from '../../src/supe
 // Runs only inside a disposable Docker filesystem, with no Docker socket or host state mount.
 assert.equal(process.env.TREESEED_HANDOFF_DISPOSABLE, '1');
 const shape = process.argv[2]!;
+const expiredTrust=shape==='stopped-expired-trust';
 const limitReload=shape==='running-limit-reload';
 const resume = shape.startsWith('stopped-')||limitReload;
 const sessionId = 'dev-handoff-regression';
@@ -41,9 +42,10 @@ new DevelopmentSessionStore().save({
   runtimes:[],routes:[],candidates:[],
 });
 const claims = '/var/lib/treeseed/components/agent/runtime/capacity-state.json';
-const succeeds=['polling','empty','first-start','closed-recovery','native-closed-recovery'].includes(shape);
+const succeeds=expiredTrust||['polling','empty','first-start','closed-recovery','native-closed-recovery'].includes(shape);
 make(claims, shape==='malformed' ? 'not-json' : JSON.stringify({schemaVersion:1,claims:shape==='empty'||shape==='first-start'?[]:
-  [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')||limitReload?'recovery':shape,
+  [{id:'fixture',status:shape==='copy-failure'||shape.includes('stop-')?'polling':shape==='bad-claim'?'unknown':shape.includes('recovery')||resume?'recovery':shape,
+    ...(expiredTrust?{assignmentId:'original',activeStartedAt:new Date(Date.parse(now)-120000).toISOString(),leaseExpiresAt:new Date(Date.parse(now)-60000).toISOString(),dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original',deadline:new Date(Date.parse(now)-60000).toISOString()}}}}:{}),
     ...(shape==='native-closed-recovery' ? {assignmentId:'native-assignment',activeStartedAt:new Date(Date.parse(now)-1000).toISOString(),activeFinishedAt:now,accountedThrough:now,
       dispatchEnvelope:{assignment:{assignmentAttempt:{id:'native-assignment',workspace:{mode:'treedx'}}}},
       closeoutOutput:{assignmentResult:{assignmentId:'native-assignment',status:'completed',completedAt:new Date(Date.parse(now)-10).toISOString()},
@@ -72,8 +74,10 @@ const states:Record<string,boolean>={manager:!resume||limitReload,runner:!resume
 const commands:string[][]=[];
 const transport=(_executable:string,args:readonly string[])=>{
   commands.push([...args]);
+  if(_executable==='/usr/bin/systemctl')return args[0]==='show'?'inactive\n':'';
+  if(_executable==='/usr/bin/ctr')return '';
   const service=args[1]?.includes('manager')?'manager':'runner';
-  if(args[0]==='inspect') return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},...(resume?{labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service,'org.treeseed.development.session':shape==='stopped-foreign'?'dev-foreign':sessionId,'org.treeseed.development.target':'agent.provider'},mounts:['dist','package.json','node_modules'].map(name=>({Source:`${directory}/runtime/${name}`,Destination:`/app/${name}`,RW:false,Type:'bind'}))}:{}),running:states[service],environment:resume?[`TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST=sha256:${(shape==='stopped-trust'?'b':'a').repeat(64)}`,`TREESEED_PROVIDER_RUNTIME_BUILD=${shape==='stopped-runtime'?`sha256:${'b'.repeat(64)}`:developmentRuntimeStatus(directory,['dist','package.json','node_modules']).digest}`]:[]});
+  if(args[0]==='inspect') return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},...(resume?{labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service,'org.treeseed.development.session':shape==='stopped-foreign'?'dev-foreign':sessionId,'org.treeseed.development.target':'agent.provider'},mounts:['dist','package.json','node_modules'].map(name=>({Source:`${directory}/runtime/${name}`,Destination:`/app/${name}`,RW:false,Type:'bind'}))}:{}),running:states[service],environment:resume?[`TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST=sha256:${(shape==='stopped-trust'||expiredTrust?'b':'a').repeat(64)}`,`TREESEED_PROVIDER_RUNTIME_BUILD=${shape==='stopped-runtime'?`sha256:${'b'.repeat(64)}`:developmentRuntimeStatus(directory,['dist','package.json','node_modules']).digest}`]:[]});
   if(args[0]==='stop') {
     const stopped=args.at(-1)!.includes('manager')?'manager':'runner';
     if(shape==='runner-stop-failure'&&stopped==='runner') throw new Error('fixture runner stop denied');
@@ -84,7 +88,7 @@ const transport=(_executable:string,args:readonly string[])=>{
   if(args[0]==='start') { states[service]=true; return ''; }
   if(args[0]==='compose'&&succeeds) {
     assert.deepEqual(states,{manager:false,runner:false},'no code selection before execution drain');
-    assert.equal(readFileSync(`${directory}/runtime/dist/main.js`,'utf8'),'new-runtime');
+    assert.equal(readFileSync(`${directory}/runtime/dist/main.js`,'utf8'),expiredTrust?'replacement-runtime':'new-runtime');
     states.manager=true;states.runner=true;return '';
   }
   throw new Error(`Unexpected Docker transport command: ${args[0]}`);
@@ -93,7 +97,18 @@ let rejected=false, failure='', result:unknown;
 try { result=executeAgentDevelopmentContainer({sessionId,projectId:'agent',targetId:'provider',action:'start'},transport); }
 catch(error) { rejected=true; failure=String(error); }
 assert.deepEqual(readFileSync(claims),originalClaims,'handoff must preserve complete provider recovery bytes');
-if(resume && shape!=='stopped-recovery' && !limitReload) {
+if(expiredTrust) {
+ assert.equal(rejected,false,failure);
+ assert.deepEqual(states,{manager:true,runner:true});
+ assert.equal(readFileSync(`${directory}/runtime/dist/main.js`,'utf8'),'replacement-runtime');
+ assert.equal((result as {resumed?:boolean}).resumed,undefined);
+ assert.equal(commands.filter(args=>args[0]==='compose').length,1);
+ assert.equal(commands.filter(args=>args.includes('tasks')&&args.includes('list')).length,2);
+ assert.equal(commands.filter(args=>args.includes('containers')&&args.includes('list')).length,2);
+ const selected=JSON.parse(readFileSync(`${directory}/compose.json`,'utf8'));
+ assert.equal(selected.services.manager.environment.TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST,`sha256:${'a'.repeat(64)}`);
+ console.log(JSON.stringify({shape,replaced:true,claimsUnchanged:true,guestTrustMatched:true}));
+} else if(resume && shape!=='stopped-recovery' && !limitReload) {
  assert.equal(rejected,true);
  assert.deepEqual(states,{manager:false,runner:false});
  assert.equal(commands.some(args=>['start','stop','compose'].includes(args[0]!)),false);

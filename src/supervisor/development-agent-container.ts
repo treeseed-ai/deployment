@@ -377,12 +377,17 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	if (existsSync(override) && activeAgentClaims(stateRoot).length
 		&& (reloadLimits||services.every(service => !containerState(command,service).running))) {
 		const {states,runtime}=selectedProviderRuntime(command,input.sessionId,directory);
-		if(states.some(state=>state.guestDigest!==configuredSandboxGuestDigest()))
+		if(states.every(state=>state.guestDigest===configuredSandboxGuestDigest())) {
+			if(reloadLimits)writeAgentDevelopmentManifest(selectedManifest,desiredManifest as string);
+			startService(command,'runner');
+			startService(command,'manager');
+			return {started:true,resumed:true,runtime};
+		}
+		// A changed broker selection cannot resume the original guest. Expired
+		// recovery may instead reach the existing physical handoff below; live
+		// authority must retain its original code and trust without replacement.
+		if(activeAgentClaims(stateRoot,true).some(claim=>!expiredRecoveryClaim(claim)))
 			throw new Error('Stopped provider guest trust does not match its selected runtime.');
-		if(reloadLimits)writeAgentDevelopmentManifest(selectedManifest,desiredManifest as string);
-		startService(command,'runner');
-		startService(command,'manager');
-		return {started:true,resumed:true,runtime};
 	}
 	const source = sourceFor(record);
 	const host = loadHostConfiguration();

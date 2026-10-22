@@ -51,6 +51,10 @@ it('resumes stopped selected provider with retained recovery claims without repl
  expect(run('stopped-recovery')).toEqual({shape:'stopped-recovery',resumed:true,selectedBytesUnchanged:true,claimsUnchanged:true});
 },240_000);
 
+it('replaces stopped mismatched guest selection only through expired recovery physical fencing while retaining unknown claim bytes',()=>{
+ expect(run('stopped-expired-trust')).toEqual({shape:'stopped-expired-trust',replaced:true,claimsUnchanged:true,guestTrustMatched:true});
+},240_000);
+
 it.each(['stopped-foreign','stopped-runtime','stopped-trust'])('refuses stopped recovery with %s without starting or changing custody',shape=>{
  expect(run(shape)).toEqual({shape,rejected:true,selectedBytesUnchanged:true,claimsUnchanged:true});
 },240_000);
