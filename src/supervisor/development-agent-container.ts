@@ -1,4 +1,6 @@
 import { chmodSync, chownSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
+import { parseDocument } from 'yaml';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -144,6 +146,33 @@ function containerState(command: CommandRunner, service: typeof services[number]
 	const runtimeBuild=environment.map(String).filter(entry=>entry.startsWith('TREESEED_PROVIDER_RUNTIME_BUILD='));
 	return { name, running: value.running as boolean, labels: value.labels as Record<string, string>, connectionEnvironment, guestDigest,
 		mounts:value.mounts as unknown,runtimeBuild:runtimeBuild.length===1?runtimeBuild[0]!.slice('TREESEED_PROVIDER_RUNTIME_BUILD='.length):null };
+}
+
+export function providerDailyLimitChange(previous: string, desired: string) {
+ const normalize=(text:string)=>{
+  const document=parseDocument(text); if(document.errors.length) return null;
+  const value=document.toJS() as Record<string,unknown>;
+  if(!value||!Array.isArray(value.adapters)) return null;
+  for(const adapter of value.adapters) {
+   const limits=adapter?.nativeLimits;
+   if(!limits||typeof limits!=='object'||!limits.capabilityLimits||typeof limits.capabilityLimits!=='object') return null;
+   for(const entry of [limits,...Object.values(limits.capabilityLimits)] as Array<Record<string,unknown>>) {
+    if(!entry||!Number.isSafeInteger(entry.dailyActiveSecondsLimit)||Number(entry.dailyActiveSecondsLimit)<0) return null;
+    entry.dailyActiveSecondsLimit=0;
+   }
+  }
+  return value;
+ };
+ const oldPolicy=normalize(previous),newPolicy=normalize(desired);
+ return oldPolicy!==null&&newPolicy!==null&&previous!==desired&&isDeepStrictEqual(oldPolicy,newPolicy);
+}
+
+function selectedProviderRuntime(command: CommandRunner, sessionId: string, directory: string) {
+ const states = services.map(service => containerState(command, service));
+ for(const state of states) assertDevelopmentRuntimeMounts(state,sessionId,'agent.provider',directory,runtimeRoots.map(root=>root.target));
+ const runtime=developmentRuntimeStatus(directory,runtimeRoots.map(root=>root.target));
+ if(states.some(state=>state.runtimeBuild!==runtime.digest)) throw new Error('Provider runtime build does not match its selected copy.');
+ return {states,runtime};
 }
 
 export function providerGuestTrustReady(expectedDigest: string, instances: readonly { running: boolean; guestDigest: string | null }[]) {
@@ -321,10 +350,7 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	}
 	if (input.action === 'status') {
 		if (!existsSync(override)) return { registered: false, state: null };
-		const states = services.map((service) => containerState(command, service));
-		for(const state of states)assertDevelopmentRuntimeMounts(state,input.sessionId,'agent.provider',directory,runtimeRoots.map(root=>root.target));
-		const runtime=developmentRuntimeStatus(directory,runtimeRoots.map(root=>root.target));
-		if(states.some(state=>state.runtimeBuild!==runtime.digest))throw new Error('Provider runtime build does not match its selected copy.');
+		const {states,runtime}=selectedProviderRuntime(command,input.sessionId,directory);
 		const expectedDigest = configuredSandboxGuestDigest();
 		const instances = states.map(({ name, running, labels, connectionEnvironment, guestDigest }) => ({ name, running, health: running ? 'healthy' : 'stopped', sessionId: labels['org.treeseed.development.session'], target: labels['org.treeseed.development.target'], connectionEnvironment, guestDigest }));
 		return { registered: true, instances, ready: providerGuestTrustReady(expectedDigest, instances), expectedGuestDigest: expectedDigest, runtime };
@@ -342,6 +368,27 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	}
 
 	if (record.session.status !== 'active') throw new Error('Development session is not active.');
+	// Daily limits govern prospective admission; issued claims and selected code stay intact.
+	const desiredManifest=(loadHostConfiguration().components.agent?.configuration?.files as Record<string,unknown>|undefined)?.['treeseed.capacity-provider.yaml'];
+	const selectedManifest=resolve(directory,'treeseed.capacity-provider.yaml');
+	const reloadLimits=typeof desiredManifest==='string'&&existsSync(selectedManifest)
+		&&providerDailyLimitChange(readFileSync(selectedManifest,'utf8'),desiredManifest);
+	// Resume original immutable execution after interruption; replacement still requires drain.
+	if (existsSync(override) && activeAgentClaims(stateRoot).length
+		&& (reloadLimits||services.every(service => !containerState(command,service).running))) {
+		const {states,runtime}=selectedProviderRuntime(command,input.sessionId,directory);
+		if(states.every(state=>state.guestDigest===configuredSandboxGuestDigest())) {
+			if(reloadLimits)writeAgentDevelopmentManifest(selectedManifest,desiredManifest as string);
+			startService(command,'runner');
+			startService(command,'manager');
+			return {started:true,resumed:true,runtime};
+		}
+		// A changed broker selection cannot resume the original guest. Expired
+		// recovery may instead reach the existing physical handoff below; live
+		// authority must retain its original code and trust without replacement.
+		if(activeAgentClaims(stateRoot,true).some(claim=>!expiredRecoveryClaim(claim)))
+			throw new Error('Stopped provider guest trust does not match its selected runtime.');
+	}
 	const source = sourceFor(record);
 	const host = loadHostConfiguration();
 	const environment = managedContainerDevelopmentConnectionEnvironment(host, component, releases, record.routes);

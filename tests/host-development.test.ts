@@ -91,6 +91,7 @@ describe('host development bridge contracts', () => {
 		expect(supervisorDropIn).toContain('ReadWritePaths=/run/cryptsetup\n');
 		expect(supervisorDropIn).not.toContain('ProtectSystem=false');
 		expect(brokerDropIn).toContain('ReadWritePaths=/var/lib/treeseed/agent\n');
+		expect(brokerDropIn).toContain('ExecStart=/usr/bin/flock --shared --no-fork /run/treeseed/sandbox/workspace-cache-collection.lock /usr/lib/treeseed/runtime/bin/node ');
 		expect(readFileSync(new URL('../systemd/treeseed-sandbox-broker.service', import.meta.url), 'utf8')).toMatch(/^ReadWritePaths=.*\/var\/lib\/treeseed\/agent$/mu);
 	});
 });

@@ -39,8 +39,10 @@ it('retains unresolved operator custody as inactive without hiding ready running
 it('native independent claim reader preserves unresolved bytes and exact active inventory without repair',()=>{
   const root=fixture({schemaVersion:1,claims:[]}),path=resolve(root,'runtime/capacity-state.json');
   const reader=resolve(root,'reader.ts');
-  writeFileSync(reader,`import {activeAgentClaims} from ${JSON.stringify(pathToFileURL(resolve('src/supervisor/development-agent-container.ts')).href)};
-process.stdout.write(JSON.stringify(activeAgentClaims(process.argv[2])));`);
+  writeFileSync(reader,`import {registerHooks} from 'node:module';
+registerHooks({resolve(specifier,context,next){if(specifier==='node:sqlite')throw new Error('Independent claim reading must not load the workspace database.');return next(specifier,context);}});
+void import(${JSON.stringify(pathToFileURL(resolve('src/supervisor/development-agent-container.ts')).href)}).then(({activeAgentClaims})=>{
+process.stdout.write(JSON.stringify(activeAgentClaims(process.argv[2])));});`);
   const unresolved={id:'native-unresolved',status:'unresolved',requestedSeconds:12,
     dispatchEnvelope:{original:'held'},closeoutOutput:{failed:'held'},failureMessage:'original failure'};
   for(const statuses of [[],['ready','running','recovery']]) {

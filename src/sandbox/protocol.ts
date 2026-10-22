@@ -1,5 +1,14 @@
-import { sandboxAssignmentSchema } from '@treeseed/sdk/capacity-provider/sandbox';
+import { sandboxAssignmentSchema, sourceWorkspaceKeySchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { z } from 'zod';
+
+export const sourceExportSelectionSchema = z.object({
+ sandboxId: z.string().regex(/^sandbox-[a-zA-Z0-9-]{1,128}$/u),
+ assignmentId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/u),
+ providerId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/u),
+ attempt: z.number().int().positive().safe(),
+ source: sourceWorkspaceKeySchema,
+ commit: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u),
+}).strict();
 
 export const sandboxCreateRequestSchema = z.object({
 	assignment: sandboxAssignmentSchema,
