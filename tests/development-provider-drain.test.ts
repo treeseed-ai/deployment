@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { stopForHandoff } from '../src/supervisor/development-agent-container.js';
+import { assertSandboxGuestHandoffClaims, stopForHandoff } from '../src/supervisor/development-agent-container.js';
 import * as doctor from '../src/sandbox/doctor.js';
 import * as configuration from '../src/sandbox/configuration.js';
 const temporary:string[]=[];
@@ -22,6 +22,21 @@ function fixture(value:string,failedStop='',manager=true,owned=true) {
   return {root,states,effects,run:(restore=()=>command('/usr/bin/docker',['start','treeseed-agent-manager-1']))=>stopForHandoff(command,root,restore)};
 }
 const inventory=(status:string)=>JSON.stringify({schemaVersion:1,claims:[{id:'arbitrary-configured-agent',status}]});
+it('allows only an expired matching recovery through sandbox selection and preserves its original claim bytes',()=>{
+ const deadline=new Date(Date.now()-60_000).toISOString(),started=new Date(Date.now()-120_000).toISOString();
+ const claim={id:'retained',assignmentId:'original-assignment',status:'recovery',leaseExpiresAt:deadline,activeStartedAt:started,
+  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline}}},
+  usage:{unknown:99},sourceLease:'retained',diskBytes:394788864};
+ const value=JSON.stringify({schemaVersion:1,claims:[claim],usage:{reserved:1234}}),f=fixture(value);
+ expect(()=>assertSandboxGuestHandoffClaims(f.root)).not.toThrow();
+ expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);
+ for(const unsafe of [{...claim,status:'running'},{...claim,leaseExpiresAt:new Date(Date.now()+60_000).toISOString()},
+  {...claim,dispatchEnvelope:{assignment:{assignmentAttempt:{...claim.dispatchEnvelope.assignment.assignmentAttempt,id:'foreign'}}}},
+  {...claim,dispatchEnvelope:undefined}]) {
+  writeFileSync(resolve(f.root,'runtime/capacity-state.json'),JSON.stringify({schemaVersion:1,claims:[unsafe]}));
+  expect(()=>assertSandboxGuestHandoffClaims(f.root)).toThrow('active or recoverable');
+ }
+});
 it('rejects active claims before draining execution and restores admissions',()=>{
   for(const status of ['ready','running','recovery']) {
     const f=fixture(inventory(status));expect(()=>f.run()).toThrow('cannot interrupt');
