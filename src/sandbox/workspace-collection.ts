@@ -31,7 +31,10 @@ export class CollectionRefusal extends Error {
   }
 }
 
-export function assertGitCollectionIdle(tasks: string, builds: number) {
+export function assertGitCollectionIdle(tasks: string, builds: number, _unfinishedJobs: number) {
+  // The caller has already proved the broker lifetime fence and physical
+  // closure. Historical source journals and leases describe retained work,
+  // not users of this independent trusted-host metadata volume.
   if (tasks.trim() || !Number.isSafeInteger(builds) || builds !== 0) {
     throw new Error('Git cache collection requires no guests or builds.');
   }
@@ -149,33 +152,45 @@ export interface GitCacheCollectionResult {
   reclaimedBytes: number;
   reclaimedCaches: string[];
   retained: Array<{ cacheId: string; reason: string }>;
+  retainedCount: number;
+  retainedTruncated: boolean;
 }
 
 /** Reclaims only fixed, private cache volumes after the caller has fenced every source worker. */
 export async function collectGitCacheBatch(root: string, isMounted: (path: string) => Promise<boolean>, limit = 32): Promise<GitCacheCollectionResult> {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32) throw new Error('Invalid source collection limit.');
   const git = join(root, 'git');
-  const result: GitCacheCollectionResult = { examinedBytes: 0, reclaimedBytes: 0, reclaimedCaches: [], retained: [] };
+  const result: GitCacheCollectionResult = { examinedBytes: 0, reclaimedBytes: 0, reclaimedCaches: [], retained: [], retainedCount: 0, retainedTruncated: false };
   const gitInfo = await lstat(git).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
   if (!gitInfo) return result;
   await privateDirectory(git, process.getuid?.());
   const entries = await readdir(git);
-  for (const cacheId of entries.slice(0, limit)) {
+  const retain = (cacheId: string, reason: string) => {
+    result.retainedCount++;
+    if (result.retained.length < 32) result.retained.push({ cacheId, reason });
+    else result.retainedTruncated = true;
+  };
+  for (const cacheId of entries) {
     if (!/^[a-f0-9]{64}$/u.test(cacheId)) {
-      result.retained.push({ cacheId, reason: 'noncanonical_cache_entry' });
+      retain(cacheId, 'noncanonical_cache_entry');
+      continue;
+    }
+    if (result.reclaimedCaches.length >= limit) {
+      retain(cacheId, 'batch_limit');
       continue;
     }
     const cache = join(git, cacheId);
     await privateDirectory(cache, process.getuid?.());
+    const cacheInfo = await lstat(cache);
     const names = await readdir(cache);
     const lock = join(cache, 'acquisition.lock');
-    if (names.includes('acquisition.lock')) { result.retained.push({ cacheId, reason: 'acquisition_fence_present_or_unknown' }); continue; }
+    if (names.includes('acquisition.lock')) { retain(cacheId, 'acquisition_fence_present_or_unknown'); continue; }
     if (names.some(name => name !== 'objects.ext4' && name !== 'mounted')) {
-      result.retained.push({ cacheId, reason: 'unexpected_cache_custody' }); continue;
+      retain(cacheId, 'unexpected_cache_custody'); continue;
     }
     const image = join(cache, 'objects.ext4'), mount = join(cache, 'mounted');
     const imageInfo = await lstat(image).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
-    if (!imageInfo) { result.retained.push({ cacheId, reason: 'cache_volume_missing' }); continue; }
+    if (!imageInfo) { retain(cacheId, 'cache_volume_missing'); continue; }
     // This is private mutable host Git metadata, not an immutable QCOW2 base.
     // Its owning writer creates mode0600; exclusion is established by fences
     // and absent mount/loop custody, not by pretending the file is read-only.
@@ -194,14 +209,21 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
     let keepFence = true;
     try {
       await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId: randomUUID(), pid: process.pid }), { mode: 0o600, flag: 'wx' });
-      if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); keepFence = false; continue; }
+      if (await isMounted(mount)) { retain(cacheId, 'cache_mount_present_or_unknown'); continue; }
       const mountInfo = await lstat(mount).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
       if (mountInfo && (!mountInfo.isDirectory() || mountInfo.uid !== process.getuid?.() || mountInfo.mode & 0o077 || await realpath(mount) !== mount)) {
-        result.retained.push({ cacheId, reason: 'cache_mount_custody_uncertain' }); keepFence = false; continue;
+        retain(cacheId, 'cache_mount_custody_uncertain'); continue;
       }
-      if (mountInfo && (await readdir(mount)).length) { result.retained.push({ cacheId, reason: 'cache_mount_not_empty' }); keepFence = false; continue; }
+      if (mountInfo && (await readdir(mount)).length) { retain(cacheId, 'cache_mount_not_empty'); continue; }
       // Recheck mount custody immediately before unlink while holding the fence.
-      if (await isMounted(mount)) { result.retained.push({ cacheId, reason: 'cache_mount_present_or_unknown' }); keepFence = false; continue; }
+      if (await isMounted(mount)) { retain(cacheId, 'cache_mount_present_or_unknown'); continue; }
+      const currentGit = await lstat(git), currentCache = await lstat(cache);
+      if (!currentGit.isDirectory() || currentGit.dev !== gitInfo.dev || currentGit.ino !== gitInfo.ino
+        || currentGit.uid !== gitInfo.uid || currentGit.mode !== gitInfo.mode || await realpath(git) !== git
+        || !currentCache.isDirectory() || currentCache.dev !== cacheInfo.dev || currentCache.ino !== cacheInfo.ino
+        || currentCache.uid !== cacheInfo.uid || currentCache.mode !== cacheInfo.mode || await realpath(cache) !== cache) {
+        throw new Error('Source cache directory custody changed under its fence.');
+      }
       const current = await lstat(image);
       if (!current.isFile() || current.dev !== imageInfo.dev || current.ino !== imageInfo.ino
         || current.uid !== imageInfo.uid || current.nlink !== 1 || current.mode !== imageInfo.mode
@@ -213,7 +235,7 @@ export async function collectGitCacheBatch(root: string, isMounted: (path: strin
       result.reclaimedCaches.push(cacheId);
       keepFence = false;
     } catch {
-      result.retained.push({ cacheId, reason: 'cache_reclamation_uncertain' });
+      retain(cacheId, 'cache_reclamation_uncertain');
     } finally {
       // Keep ownership on any uncertain/partial deletion; recovery validates
       // this journal and releases it only after proving the owner stopped.
@@ -405,15 +427,16 @@ export async function collectWorkspaceCache(configuration: SandboxBrokerConfigur
   const broker = brokerUnit;
   const idle = async (scope: 'git' | 'workspace') => {
     const workspaceCatalog = await ensureCatalog(), snapshot = workspaceCatalog.collectionState();
-    const [physical, jobs, leaseEntries, candidates, results] = await Promise.all([
-      inspectSandboxInventory(configuration), unfinishedJobSnapshot(), entries('leases'), entries('candidates'), entries('results'),
+    const [physical, leaseEntries, candidates, results] = await Promise.all([
+      inspectSandboxInventory(configuration), entries('leases'), entries('candidates'), entries('results'),
     ]);
+    // Git metadata has no QCOW2 ancestry. Do not make its eligibility depend
+    // on retained or undecodable historical work journals.
+    const jobs = scope === 'workspace' ? await unfinishedJobSnapshot() : { count: 0, entries: [] as string[] };
     const tasks = physical.confirmation.tasks ?? '', containers = physical.confirmation.containers ?? '';
     const physicalBlockers = physicalCollectionBlockers(physical);
     try {
-      // Historical work journals retain their overlays; producer closure and
-      // the physical inventory fence disposable host Git metadata separately.
-      if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds);
+      if (scope === 'git') assertGitCollectionIdle(tasks, snapshot.builds, jobs.count);
       else assertCollectionIdle(tasks, snapshot.activeLeases, snapshot.builds, jobs.count, containers);
       if (physicalBlockers) throw new Error('Physical sandbox inventory is unresolved.');
     } catch {
