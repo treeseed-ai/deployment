@@ -135,7 +135,7 @@ describe('fenced source collection', () => {
     });
     ops.disks.mockResolvedValue(['retained-candidate-only-work']);
     const withGit = { ...ops, collectGit: vi.fn(async () => ({ examinedBytes: 4096, reclaimedBytes: 4096,
-      reclaimedCaches: ['disposable'], retained: [] })) };
+      reclaimedCaches: ['disposable'], retained: [], retainedCount: 0, retainedTruncated: false })) };
     expect(await runFencedCollection(withGit)).toMatchObject({ collected: false, reason: 'overlay_custody_retained',
       retainedDisks: ['retained-candidate-only-work'], gitCache: { reclaimedBytes: 4096 } });
     expect(withGit.collect).not.toHaveBeenCalled();
