@@ -5,6 +5,20 @@ import { componentManagedFiles } from '../core/component-files.js';
 
 const componentConfigurationRoot = '/etc/treeseed/components';
 
+export function managedCliControlPlaneUrl(host: HostConfiguration, releases: ComponentRelease[]) {
+	const api = releases.find((component) => component.componentId === 'api');
+	if (api) {
+		for (const service of api.runtime.services) for (const endpoint of service.endpoints) {
+			if (endpoint.visibility !== 'host') continue;
+			const identity = `api.${service.id}.${endpoint.id}`;
+			const alias = host.components.api?.aliases[identity] ?? endpoint.defaultAlias;
+			if (alias) return `https://${alias}`;
+		}
+	}
+	const remote = host.components.agent?.connections['control-plane'];
+	return remote?.kind === 'remote' ? remote.url.replace(/\/$/u, '') : undefined;
+}
+
 export interface RuntimeInputProbe {
 	runtimeGid(): number;
 }
