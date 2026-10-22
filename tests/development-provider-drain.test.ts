@@ -80,12 +80,18 @@ it('replaces provider code after expired unknown recovery is physically fenced w
  vi.spyOn(doctor,'inspectVmProcesses').mockReturnValue({processes:[],pidNamespace:'pid:[1]',complete:true});
  const transport=(executable:string,args:readonly string[])=>{
   effects.push(executable.endsWith('docker')?`${args[0]}:${args.at(-1)}`:`${executable}:${args.join(' ')}`);
-  if(executable.endsWith('docker')&&args[0]==='inspect'){const service=args[1]!.includes('manager')?'manager':'runner';return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},running:true,environment:[]});}
+	if(executable.endsWith('docker')){
+	 const service=(args[0]==='inspect'?args[1]:args.at(-1))!.includes('manager')?'manager':'runner';
+	 if(args[0]==='inspect')return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},running:f.states[service],environment:[]});
+	 f.states[service]=args[0]==='start';
+	}
+	if(executable.endsWith('systemctl')&&args[0]==='show')return 'inactive\n';
   return '';
  };
  stopForHandoff(transport,f.root,()=>{throw new Error('unexpected restore');});
  expect(effects.some(effect=>effect.includes('stop treeseed-sandbox-broker.service'))).toBe(true);
- expect(effects.at(-1)).toBe('/usr/bin/systemctl:start treeseed-sandbox-broker.service');
+ expect(effects.filter(effect=>effect.startsWith('/usr/bin/systemctl:')).at(-1)).toBe('/usr/bin/systemctl:start treeseed-sandbox-broker.service');
+ expect(f.states).toEqual({manager:false,runner:false});
  expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);
 });
 
@@ -95,7 +101,7 @@ it('restores broker runner and admissions when expired recovery still has physic
   dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline}}}};
  vi.spyOn(configuration,'loadSandboxBrokerConfiguration').mockReturnValue({containerdAddress:'/run/containerd/containerd.sock',namespace:'treeseed-sandboxes'} as ReturnType<typeof configuration.loadSandboxBrokerConfiguration>);
  const vm=vi.spyOn(doctor,'inspectVmProcesses');
- for(const failure of ['tasks','containers','vm','unreadable','changed']) {
+ for(const failure of ['tasks','containers','vm','unreadable','changed','producer']) {
   const value=JSON.stringify({schemaVersion:1,claims:[claim],usage:{unknown:99}}),f=fixture(value),effects:string[]=[];
   vm.mockReturnValue({processes:failure==='vm'?[{processId:1,startTicks:'1',executable:'/qemu',name:'sandbox-foreign',failure:null}]:[],pidNamespace:'pid:[1]',complete:failure!=='unreadable'});
   let lists=0;
@@ -106,6 +112,7 @@ it('restores broker runner and admissions when expired recovery still has physic
     f.states[service]=args[0]==='start';effects.push(`${args[0]}:${service}`);return '';
    }
    effects.push(`${executable}:${args.join(' ')}`);
+	 if(executable.endsWith('systemctl')&&args[0]==='show')return failure==='producer'?'active\n':'inactive\n';
    if(executable.endsWith('ctr')){lists++;return args.includes(failure)||(failure==='changed'&&lists>2)?'remaining\n':'';}
    return '';
   };
