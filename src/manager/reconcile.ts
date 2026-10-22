@@ -16,7 +16,7 @@ import { loadUpdateState, metadataChecked, recoverDevelopmentPauseOwners, runtim
 import { loadActiveComponents, loadCurrentReceipt } from './current-state.js';
 import { DevelopmentSessionStore } from './development-sessions.js';
 import { developmentHeldComponentIds, heldDevelopmentCredentialsMissing, restoreHeldComponentCredentials, resumeDevelopmentSessions, runtimeActivationTargets, sandboxGuestTrustDigest, suspendStoppedDevelopmentSessions } from './development-handoff.js';
-import { managedRuntimeInputEnvironment } from './runtime-inputs.js';
+import { managedCliControlPlaneUrl, managedRuntimeInputEnvironment } from './runtime-inputs.js';
 import { aiModeActivationServices, reconcileAiModeSelection } from './ai-mode.js';
 import { reconcileFailurePolicy, requireAutomaticRollback, failurePolicyForDisabledComponents } from './serialized-reconcile.js';
 import { quiescedBackup } from './quiesced-backup.js';
@@ -163,20 +163,6 @@ export function managedContainerDevelopmentConnectionEnvironment(host: HostConfi
 		}
 	}
 	return values;
-}
-
-export function managedCliControlPlaneUrl(host: HostConfiguration, releases: ComponentRelease[]) {
-	const api = releases.find((component) => component.componentId === 'api');
-	if (api) {
-		for (const service of api.runtime.services) for (const endpoint of service.endpoints) {
-			if (endpoint.visibility !== 'host') continue;
-			const identity = `api.${service.id}.${endpoint.id}`;
-			const alias = host.components.api?.aliases[identity] ?? endpoint.defaultAlias;
-			if (alias) return `https://${alias}`;
-		}
-	}
-	const remote = host.components.agent?.connections['control-plane'];
-	return remote?.kind === 'remote' ? remote.url.replace(/\/$/u, '') : undefined;
 }
 
 function record(value: unknown, label: string) {
@@ -419,6 +405,8 @@ export async function reconcile(track?: 'stable' | 'development', forceMetadata 
 			recordEvent('development.boot-recovery-pending', {});
 			return previous;
 		}
+		if (host.components.identity?.enabled && host.components.api?.enabled && host.components.api.configuration.identityRuntime)
+			await requestSupervisor({ operation: 'identity.clients.reconcile' });
 		recordEvent('reconcile.noop', { track: track ?? 'all', receiptId: previous.receiptId });
 		return previous;
 	}
