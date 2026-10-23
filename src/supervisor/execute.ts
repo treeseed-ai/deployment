@@ -30,7 +30,7 @@ import { inspectSandboxHost, inspectSandboxInventory } from '../sandbox/doctor.j
 import { qualifyWorkspaceStorage, recoverWorkspaceQualification } from '../sandbox/workspace-qualification.js';
 import { qualifySourceWorkspace } from '../sandbox/workspace-source-qualification.js';
 import { qualifySourceCacheQuota } from '../sandbox/source-cache-qualification.js';
-import { workspaceStatus } from '../sandbox/workspace-status.js';
+import { retainedSourceStatus, workspaceStatus } from '../sandbox/workspace-status.js';
 import { collectWorkspaceCache } from '../sandbox/workspace-collection.js';
 import { recoverWorkspaceBuilds } from '../sandbox/workspace-build-recovery.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
@@ -288,6 +288,7 @@ export function executeSupervisorOperation(input: unknown, command: CommandRunne
 		case 'security.rotate': return rotateProviderSecurityKey(operation, command);
 		case 'security.recovery.verify': return verifyProviderRecoveryBundle(operation.recoveryBundle, operation.recoveryPassphrase);
 		case 'sandbox.status': {
+			if (operation.assignmentId && operation.sandboxId) return retainedSourceStatus(operation.assignmentId, operation.sandboxId);
 			const configuration = loadSandboxBrokerConfiguration(), inventory = inspectSandboxInventory(configuration);
 			const status = inspectSandboxHost(configuration, { requireBrokerSocket: true });
 			return inventory.then(observation => ({ ...status, inventory: observation, workspace: workspaceStatus() }));
