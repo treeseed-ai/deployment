@@ -270,7 +270,14 @@ function sandboxReceipt(path: string) {
 }
 
 export function restoreSandboxProviderDirectory(providerSelected: boolean, hadProviderDirectory: boolean, providerSnapshotReady: boolean, providerDirectory: string, providerSnapshot: string) {
-	if (!providerSelected || (hadProviderDirectory && !providerSnapshotReady)) return;
+	if (!providerSelected) return;
+	if (hadProviderDirectory && !providerSnapshotReady) {
+		// cpSync may leave a partial destination when it throws. This path is the
+		// sandbox transaction's owned snapshot, so discard it without touching the
+		// still-selected provider directory.
+		rmSync(providerSnapshot, { recursive: true, force: true });
+		return;
+	}
 	rmSync(providerDirectory, { recursive: true, force: true });
 	if (providerSnapshotReady) renameSync(providerSnapshot, providerDirectory);
 }

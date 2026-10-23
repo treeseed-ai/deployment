@@ -1,7 +1,16 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+
+const snapshotFault = vi.hoisted(() => ({ afterCopy: false }));
+vi.mock('node:fs', async importOriginal => {
+	const actual = await importOriginal<typeof import('node:fs')>();
+	return { ...actual, cpSync: (...args: Parameters<typeof actual.cpSync>) => {
+		actual.cpSync(...args);
+		if (snapshotFault.afterCopy) throw new Error('simulated snapshot copy interruption');
+	} };
+});
 import { restoreSandboxProviderDirectory } from '../src/supervisor/development-agent-container.js';
 
 const temporary: string[] = [];
@@ -16,16 +25,19 @@ it('preserves the selected provider directory when its preselection snapshot cop
 	const original = Buffer.from('{"provider":"prior"}');
 	mkdirSync(provider);
 	writeFileSync(marker, original);
-	mkdirSync(snapshot);
-	writeFileSync(resolve(snapshot, 'settings.json'), 'preexisting snapshot');
+	snapshotFault.afterCopy = true;
 	let snapshotFailure: unknown;
 	try {
 		cpSync(provider, snapshot, { recursive: true, errorOnExist: true, force: false });
 	} catch (error) {
 		snapshotFailure = error;
+	} finally {
+		snapshotFault.afterCopy = false;
 	}
 	expect(snapshotFailure).toBeInstanceOf(Error);
+	expect(readFileSync(resolve(snapshot, 'settings.json'))).toEqual(original);
 	restoreSandboxProviderDirectory(true, true, false, provider, snapshot);
 	expect(existsSync(marker)).toBe(true);
 	expect(readFileSync(marker)).toEqual(original);
+	expect(existsSync(snapshot)).toBe(false);
 });
