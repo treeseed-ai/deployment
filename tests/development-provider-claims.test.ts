@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
-import { activeAgentClaims } from '../src/supervisor/development-agent-container.js';
+import { activeAgentClaims } from '../src/supervisor/development-provider-claims.js';
 const temporary:string[]=[];
 afterEach(()=>{for(const root of temporary.splice(0))rmSync(root,{recursive:true,force:true});});
 function fixture(value?:unknown) {
@@ -41,7 +41,7 @@ it('native independent claim reader preserves unresolved bytes and exact active 
   const reader=resolve(root,'reader.ts');
   writeFileSync(reader,`import {registerHooks} from 'node:module';
 registerHooks({resolve(specifier,context,next){if(specifier==='node:sqlite')throw new Error('Independent claim reading must not load the workspace database.');return next(specifier,context);}});
-void import(${JSON.stringify(pathToFileURL(resolve('src/supervisor/development-agent-container.ts')).href)}).then(({activeAgentClaims})=>{
+void import(${JSON.stringify(pathToFileURL(resolve('src/supervisor/development-provider-claims.ts')).href)}).then(({activeAgentClaims})=>{
 process.stdout.write(JSON.stringify(activeAgentClaims(process.argv[2])));});`);
   const unresolved={id:'native-unresolved',status:'unresolved',requestedSeconds:12,
     dispatchEnvelope:{original:'held'},closeoutOutput:{failed:'held'},failureMessage:'original failure'};

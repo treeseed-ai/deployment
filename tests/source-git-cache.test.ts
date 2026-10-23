@@ -62,18 +62,27 @@ describe('trusted source acquisition', () => {
         return runSourceGit(repository, args, credential);
       },
     };
-    const request = { ...input, authorization: { ...authorization, source: { ...authorization.source, commit } } };
+    // The owning source response includes ref as well as canonical repository
+    // identity. Another authorized commit must reuse that repository's cache.
+    const request = { ...input, repository: { ...input.repository, ref: commit },
+      authorization: { ...authorization, source: { ...authorization.source, commit } } };
     const result = await acquireSourceBundle(request, dependencies);
     const replay = await acquireSourceBundle(request, dependencies);
     expect(replay).toEqual(result); expect(fetches).toHaveBeenCalledTimes(2);
     const cache = join(root, 'git', result.cacheId, 'repository.git');
+    const previousRequest = { ...request, repository: { ...request.repository, ref: base },
+      authorization: { ...request.authorization, source: { ...request.authorization.source, commit: base } } };
+    const previous = await acquireSourceBundle(previousRequest, dependencies);
+    expect(previous.cacheId).toBe(result.cacheId);
+    expect(previous.commit).toBe(base);
+    expect(await readdir(join(root, 'git'))).toEqual([result.cacheId]);
     expect(await runSourceGit(cache, ['rev-list', '--count', commit])).toBe('2');
     expect(await runSourceGit(cache, ['merge-base', '--is-ancestor', base, commit])).toBe('');
     expect(await readFile(join(cache, 'config'), 'utf8')).not.toMatch(/synthetic-source-token|extraHeader|remote /u);
-    expect((await readdir(join(root, 'bundles')))).toHaveLength(1);
+    expect((await readdir(join(root, 'bundles')))).toHaveLength(2);
     expect(await readFile(join(root, 'bundles', `${result.bundleDigest.slice(7)}.bundle`))).not.toContain(Buffer.from(input.credential.token));
     await expect(acquireSourceBundle(request, { ...dependencies, now: () => new Date('2026-09-12T00:00:00Z') })).rejects.toThrow('expired');
-    expect(fetches).toHaveBeenCalledTimes(2);
+    expect(fetches).toHaveBeenCalledTimes(3);
   });
 
 	it('acquires an exact predecessor commit from manager-owned simulation custody without a credential', async () => {

@@ -26,3 +26,18 @@ it('rejects every caller-selected inspection field at the strict supervisor prot
  for(const field of ['path','command','namespace','containerdAddress','stateRoot','socket','payload','workdayId','arguments','options','configuration'])
   expect(supervisorOperationSchema.safeParse({operation:'sandbox.status',[field]:'/untrusted'}).success,field).toBe(false);
 });
+
+it('exposes fixed cache collection only on the protected local manager boundary', async () => {
+ boundary.request.mockClear();
+ await expect(executeHostCommand({handlerId:'local.host.sandbox.cache.collect'},{local:true})).resolves.toEqual({ready:false,inventory:{complete:true}});
+ expect(boundary.request.mock.calls).toEqual([[{operation:'sandbox.workspace.cache.collect'}]]);
+ await expect(executeHostCommand({handlerId:'local.host.sandbox.cache.collect'},{local:false})).rejects.toThrow(/protected local manager socket/u);
+ for (const input of [{arguments:['/private']}, {options:{path:'/private'}}, {options:{command:'rm'}}, {options:{resource:'all'}}, {configuration:host()}]) {
+  boundary.request.mockClear();
+  await expect(executeHostCommand({handlerId:'local.host.sandbox.cache.collect',...input},{local:true})).rejects.toThrow();
+  expect(boundary.request).not.toHaveBeenCalled();
+ }
+ expect(supervisorOperationSchema.parse({operation:'sandbox.workspace.cache.collect'})).toEqual({operation:'sandbox.workspace.cache.collect'});
+ for (const field of ['path','command','namespace','containerdAddress','stateRoot','socket','payload','arguments','options','configuration'])
+  expect(supervisorOperationSchema.safeParse({operation:'sandbox.workspace.cache.collect',[field]:'/untrusted'}).success,field).toBe(false);
+});
