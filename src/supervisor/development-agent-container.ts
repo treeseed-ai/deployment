@@ -1,4 +1,4 @@
-import { chmodSync, chownSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -307,6 +307,11 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 		const rollbackDigest = receipt?.digest ?? configuredSandboxGuestDigest();
 		const priorReceipt = existsSync(receiptPath) ? readFileSync(receiptPath) : null;
 		const priorDigest = receipt?.priorDigest ?? rollbackDigest;
+		const providerSelected = record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released');
+		const providerDirectory = resolve(root, input.sessionId, 'agent', 'provider');
+		const providerSnapshot = resolve(directory, 'provider-prior');
+		const hadProviderDirectory = providerSelected && existsSync(providerDirectory);
+		let providerSnapshotReady = false;
 		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile'), '--target', 'sandbox-base', '--tag', 'treeseed/sandbox-base:local', source]);
 		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile.sandbox-codex'), '--build-arg', 'SANDBOX_BASE=treeseed/sandbox-base:local', '--tag', 'treeseed/sandbox-codex:local', source]);
 		command('/usr/bin/docker', ['image', 'save', '--output', archive, 'treeseed/sandbox-codex:local']);
@@ -318,13 +323,18 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 		// authority read and twice-complete physical absence proof for recovery.
 		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), { keepBrokerStopped: true });
 		try {
+			if (hadProviderDirectory) {
+				cpSync(providerDirectory, providerSnapshot, { recursive: true, errorOnExist: true });
+				providerSnapshotReady = true;
+			}
 			const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command, undefined, false);
 			const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
 			recordHostDevelopmentGuestImage(next.digest);
 			atomicJson(receiptPath, next, 0o600);
-			if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
+			if (providerSelected)
 				executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start', guestReplacement: true }, command);
 			command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
+			if (providerSnapshotReady) rmSync(providerSnapshot, { recursive: true, force: true });
 			return { started: true, ...next };
 		} catch (error) {
 			try {
@@ -344,9 +354,13 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 				recordHostDevelopmentGuestImage(rollbackDigest);
 				if (priorReceipt) writeFileSync(receiptPath, priorReceipt, { mode: 0o600 });
 				else rmSync(receiptPath, { force: true });
+				if (providerSelected) {
+					rmSync(providerDirectory, { recursive: true, force: true });
+					if (providerSnapshotReady) renameSync(providerSnapshot, providerDirectory);
+				}
 				command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			} catch (restoreError) {
-				throw new Error(`Managed sandbox guest replacement failed; prior trust restoration was not confirmed and provider roles were not reopened. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
+				throw new Error(`Managed sandbox guest replacement failed; rollback could not confirm prior trust or provider and broker quiescence. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
 			}
 			throw error;
 		}
