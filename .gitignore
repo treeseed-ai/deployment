@@ -1,9 +1,42 @@
-dist/
+# Project specific
+# Independent project repositories; never track their source or Git metadata here.
+/packages/
+/examples/
+/context/
+.dsh-*
+.codegraph/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Node.js
 node_modules/
-**/.terraform/
-release/out/
-.treeseed/
-*.deb
-*.buildinfo
-*.changes
-.fixtures/
+dist/
+*.tsbuildinfo
+.gyp-cache/
+.npm-cache/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation 
+/docs/.astro/
