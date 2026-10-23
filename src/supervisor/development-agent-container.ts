@@ -368,6 +368,15 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 				if (priorReceipt) writeFileSync(receiptPath, priorReceipt, { mode: 0o600 });
 				else rmSync(receiptPath, { force: true });
 				restoreSandboxProviderDirectory(providerSelected, hadProviderDirectory, providerSnapshotReady, providerDirectory, providerSnapshot);
+				if (providerSelected) {
+					try {
+						startService(command, 'manager');
+						startService(command, 'runner');
+					} catch (startError) {
+						for (const service of ['runner', 'manager'] as const) try { stopService(command, service); } catch { /* keep the broker fence closed */ }
+						throw startError;
+					}
+				}
 				command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			} catch (restoreError) {
 				throw new Error(`Managed sandbox guest replacement failed; rollback could not confirm prior trust or provider and broker quiescence. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
