@@ -814,6 +814,14 @@ workflow:
     action: { verifier: deployment.golden.provider-closed-recovery-claims }
     expect: { status: passed }
 
+  - id: provider-expired-productive-recovery
+    action: { verifier: deployment.golden.provider-expired-productive-recovery }
+    expect: { status: passed }
+
+  - id: provider-live-productive-recovery-denied
+    action: { verifier: deployment.golden.provider-live-productive-recovery-denied }
+    expect: { status: passed }
+
   - id: provider-handoff-closed-recovery
     action: { verifier: deployment.golden.provider-handoff-closed-recovery }
     expect: { status: passed }
