@@ -75,7 +75,7 @@ verifiers:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox-status-command.test.ts
-    testName: forwards only the fixed sandbox status operation and denies every supplied host path command or namespace
+    testName: preserves global sandbox status and forwards paired retained selectors only
   deployment.golden.host-inventory-protocol-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
@@ -1390,3 +1390,21 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/package-proxy-native.test.ts
     testName: "reads the real immutable release through guest authentication and denies foreign, missing and expired authority"
+
+  deployment.golden.retained-source-status-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/workspace-status.test.ts
+    testName: "reads one retained original source owner and result without returning private fields or mutating either record"
+
+  deployment.golden.source-export-identity-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-export-contract.test.ts
+    testName: "accepts exact source identities without a caller-selected filesystem or ref"
+
+  deployment.golden.source-export-denials-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-export-contract.test.ts
+    testName: "rejects path and ref selection and malformed owner attempts at both public protocol boundaries"
