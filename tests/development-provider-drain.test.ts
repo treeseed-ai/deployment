@@ -86,10 +86,11 @@ it('drains a physically closed recovery for code handoff while retaining its ori
 });
 
 it('replaces provider code after expired unknown recovery is physically fenced without inventing closure or settling usage',()=>{
- const deadline=new Date(Date.now()-60_000).toISOString(),started=new Date(Date.now()-120_000).toISOString();
- const claim={id:'retained',assignmentId:'original-assignment',status:'recovery',leaseExpiresAt:deadline,
+ for(const deadlineOffset of [-60_000,3_600_000]){
+ const deadline=new Date(Date.now()+deadlineOffset).toISOString(),started=new Date(Date.now()-120_000).toISOString();
+ const claim={id:'retained',assignmentId:'original-assignment',status:'recovery',leaseExpiresAt:new Date(Date.now()-60_000).toISOString(),
   activeStartedAt:started,accountedThrough:started,requestedSeconds:390,failureMessage:'original failure',
-  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline}}}};
+  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline,limits:{maximumSeconds:60}}}}};
  const value=JSON.stringify({schemaVersion:1,claims:[claim],usage:{original:1234}}),f=fixture(value),effects:string[]=[];
  vi.spyOn(configuration,'loadSandboxBrokerConfiguration').mockReturnValue({containerdAddress:'/run/containerd/containerd.sock',namespace:'treeseed-sandboxes'} as ReturnType<typeof configuration.loadSandboxBrokerConfiguration>);
  vi.spyOn(doctor,'inspectVmProcesses').mockReturnValue({processes:[],pidNamespace:'pid:[1]',complete:true});
@@ -108,6 +109,24 @@ it('replaces provider code after expired unknown recovery is physically fenced w
  expect(effects.filter(effect=>effect.startsWith('/usr/bin/systemctl:')).at(-1)).toBe('/usr/bin/systemctl:start treeseed-sandbox-broker.service');
  expect(f.states).toEqual({manager:false,runner:false});
  expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);
+ }
+});
+
+it('requires original bounded productive authority and an expired lease before an early recovery handoff',()=>{
+ const now=Date.now(),deadline=new Date(now+3_600_000).toISOString(),started=new Date(now-120_000).toISOString();
+ const attempt={schemaVersion:'treeseed.assignment-attempt/v1',id:'original',deadline,limits:{maximumSeconds:60}};
+ const original={id:'retained',assignmentId:'original',status:'recovery',activeStartedAt:started,
+  leaseExpiresAt:new Date(now-60_000).toISOString(),requestedSeconds:1,dispatchEnvelope:{assignment:{assignmentAttempt:attempt}}};
+ const unsafe=[{...original,status:'running'},{...original,status:'ready'},
+  {...original,activeStartedAt:new Date(now-1_000).toISOString()}, {...original,activeStartedAt:undefined},
+  {...original,leaseExpiresAt:new Date(now+60_000).toISOString()},
+  ...[undefined,0,-1,0.5,'60',NaN,Infinity,Number.MAX_SAFE_INTEGER].map(maximumSeconds=>({...original,
+   dispatchEnvelope:{assignment:{assignmentAttempt:{...attempt,limits:{maximumSeconds}}}}})),
+  {...original,dispatchEnvelope:{assignment:{assignmentAttempt:{...attempt,id:'foreign'}}}}];
+ for(const claim of unsafe){const value=JSON.stringify({schemaVersion:1,claims:[claim]}),f=fixture(value);
+  expect(()=>f.run()).toThrow('cannot interrupt');expect(f.states).toEqual({manager:true,runner:true});
+  expect(f.effects).toEqual(['stop:manager','start:manager']);
+  expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);}
 });
 
 it('denies a raced replacement even when the replacement is another valid expired recovery',()=>{
