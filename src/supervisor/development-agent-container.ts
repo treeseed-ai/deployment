@@ -424,7 +424,7 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	const reloadLimits=typeof desiredManifest==='string'&&existsSync(selectedManifest)
 		&&providerDailyLimitChange(readFileSync(selectedManifest,'utf8'),desiredManifest);
 	// Resume original immutable execution after interruption; replacement still requires drain.
-	if (existsSync(override) && activeAgentClaims(stateRoot).length
+	if (!input.guestReplacement && existsSync(override) && activeAgentClaims(stateRoot).length
 		&& (reloadLimits||services.every(service => !containerState(command,service).running))) {
 		const {states,runtime}=selectedProviderRuntime(command,input.sessionId,directory);
 		if(states.some(state=>state.guestDigest!==configuredSandboxGuestDigest()))

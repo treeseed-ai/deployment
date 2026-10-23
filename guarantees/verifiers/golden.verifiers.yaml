@@ -326,6 +326,11 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/development-runtime-public.test.ts
     testName: fails closed on escaped dependencies and source destinations through the native public API without deleting source
+  deployment.golden.guest-replacement-retained-claims:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-sandbox-rollback-operation.test.ts
+    testName: replaces stopped prior-trust roles during intentional guest adoption with retained recovery authority
   deployment.golden.provider-drain-active:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

@@ -16,11 +16,15 @@ vi.mock('../src/manager/current-state.js', () => ({ loadActiveComponents: () => 
 vi.mock('../src/manager/reconcile.js', () => ({ composeFiles: () => [], managedContainerDevelopmentConnectionEnvironment: () => ({}) }));
 vi.mock('../src/supervisor/compose-runtime.js', async original => ({ ...await original<typeof import('../src/supervisor/compose-runtime.js')>(), componentComposeArguments: () => [] }));
 vi.mock('../src/supervisor/development-runtime-copy.js', async original => ({ ...await original<typeof import('../src/supervisor/development-runtime-copy.js')>(),
+	developmentRuntimeStatus: (...args: Parameters<typeof import('../src/supervisor/development-runtime-copy.js')['developmentRuntimeStatus']>) => {
+		if (fixture.fault === 'retained-recovery') return { files: 3, bytes: 1, digest: `sha256:${'c'.repeat(64)}` };
+		throw new Error(`Unexpected selected-runtime observation: ${args[0]}`);
+	},
 	copyDevelopmentRuntime: ({ destination }: { destination: string }) => { mkdirSync(resolve(destination, 'dist'), { recursive: true }); writeFileSync(resolve(destination, 'dist/main.js'), 'candidate'); return { digest: `sha256:${'c'.repeat(64)}` }; },
 }));
 vi.mock('../src/supervisor/sandbox-guest-import.js', () => ({
 	configuredSandboxGuestDigest: () => fixture.guestDigest,
-	importSandboxGuestArchive: () => { if (fixture.fault === 'import') throw new Error('fixture import failure'); return { digest: `sha256:${'b'.repeat(64)}`, image: 'treeseed/sandbox-codex:local' }; },
+	importSandboxGuestArchive: () => { if (fixture.fault === 'import') throw new Error('fixture import failure'); fixture.guestDigest = `sha256:${'b'.repeat(64)}`; return { digest: fixture.guestDigest, image: 'treeseed/sandbox-codex:local' }; },
 	bindExistingSandboxGuestTrust: (digest: string) => { fixture.bindCalls.push(digest); fixture.guestDigest = digest; },
 }));
 vi.mock('../src/supervisor/host-development.js', () => ({ recordHostDevelopmentGuestImage: (digest: string) => { fixture.recordCalls.push(digest); fixture.hostDigest = digest; } }));
@@ -69,6 +73,28 @@ afterEach(() => {
 	fixture.guestDigest = `sha256:${'a'.repeat(64)}`; fixture.hostDigest = fixture.guestDigest; fixture.bindCalls = []; fixture.recordCalls = [];
 });
 
+it('replaces stopped prior-trust roles during intentional guest adoption with retained recovery authority', () => {
+	const f = setup('retained-recovery');
+	writeFileSync(resolve(f.provider, 'compose.json'), '{}');
+	const now = Date.now();
+	const claim = { id: 'retained-recovery', assignmentId: 'retained-assignment', status: 'recovery',
+		activeStartedAt: new Date(now - 120_000).toISOString(), accountedThrough: new Date(now - 100_000).toISOString(),
+		leaseExpiresAt: new Date(now - 60_000).toISOString(),
+		dispatchEnvelope: { assignment: { assignmentAttempt: { schemaVersion: 'treeseed.assignment-attempt/v1',
+			id: 'retained-assignment', deadline: new Date(now + 3_600_000).toISOString(), limits: { maximumSeconds: 60 } } } } };
+	const claimsPath = resolve(fixture.stateRoot, 'runtime/capacity-state.json');
+	writeFileSync(claimsPath, JSON.stringify({ schemaVersion: 1, claims: [claim] }));
+	const claims = readFileSync(claimsPath);
+	expect(executeAgentDevelopmentContainer({ sessionId: fixture.sessionId, projectId: 'agent', targetId: 'sandbox', action: 'start' }, f.command))
+		.toMatchObject({ started: true, digest: `sha256:${'b'.repeat(64)}` });
+	expect(f.commands.some(args => args[0] === 'compose' && args.includes('--force-recreate'))).toBe(true);
+	const selected = JSON.parse(readFileSync(resolve(f.provider, 'compose.json'), 'utf8')) as { services: Record<string, { environment: Record<string, string> }> };
+	for (const role of ['manager', 'runner']) expect(selected.services[role]?.environment.TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST).toBe(`sha256:${'b'.repeat(64)}`);
+	expect(fixture.states).toEqual({ manager: true, runner: true });
+	expect(fixture.brokerActive).toBe(true);
+	expect(readFileSync(claimsPath)).toEqual(claims);
+});
+
 function setup(fault: string) {
 	fixture.fault = fault;
 	fixture.states = { ...fixture.initialStates };
@@ -97,7 +123,12 @@ function setup(fault: string) {
 		commands.push([...args]);
 		if (executable === '/usr/bin/docker' && args[0] === 'inspect') {
 			const service = String(args[1]).includes('manager') ? 'manager' : 'runner';
-			return JSON.stringify({ labels: { 'com.docker.compose.project': 'treeseed-agent', 'com.docker.compose.service': service }, running: fixture.states[service], environment: [], mounts: [] });
+			const retained = fixture.fault === 'retained-recovery';
+			const provider = `/run/treeseed/development-containers/${fixture.sessionId}/agent/provider`;
+			return JSON.stringify({ labels: { 'com.docker.compose.project': 'treeseed-agent', 'com.docker.compose.service': service,
+				...(retained ? { 'org.treeseed.development.session': fixture.sessionId, 'org.treeseed.development.target': 'agent.provider' } : {}) },
+				running: fixture.states[service], environment: retained ? [`TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST=sha256:${'a'.repeat(64)}`, `TREESEED_PROVIDER_RUNTIME_BUILD=sha256:${'c'.repeat(64)}`] : [],
+				mounts: retained ? ['dist', 'package.json', 'node_modules'].map(name => ({ Source: `${provider}/runtime/${name}`, Destination: `/app/${name}`, RW: false, Type: 'bind' })) : [] });
 		}
 		if (executable === '/usr/bin/docker' && args[0] === 'stop') { fixture.states[String(args.at(-1)).includes('manager') ? 'manager' : 'runner'] = false; return ''; }
 		if (executable === '/usr/bin/docker' && args[0] === 'start') {
