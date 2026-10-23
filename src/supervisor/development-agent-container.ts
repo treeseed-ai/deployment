@@ -269,6 +269,12 @@ function sandboxReceipt(path: string) {
 	return value;
 }
 
+export function restoreSandboxProviderDirectory(providerSelected: boolean, hadProviderDirectory: boolean, providerSnapshotReady: boolean, providerDirectory: string, providerSnapshot: string) {
+	if (!providerSelected || (hadProviderDirectory && !providerSnapshotReady)) return;
+	rmSync(providerDirectory, { recursive: true, force: true });
+	if (providerSnapshotReady) renameSync(providerSnapshot, providerDirectory);
+}
+
 function executeSandboxDevelopment(input: AgentDevelopmentInput, record: ManagedDevelopmentSession, command: CommandRunner) {
 	const directory = resolve(root, input.sessionId, 'agent', 'sandbox');
 	const archive = resolve(directory, 'sandbox-codex.tar');
@@ -354,10 +360,7 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 				recordHostDevelopmentGuestImage(rollbackDigest);
 				if (priorReceipt) writeFileSync(receiptPath, priorReceipt, { mode: 0o600 });
 				else rmSync(receiptPath, { force: true });
-				if (providerSelected) {
-					rmSync(providerDirectory, { recursive: true, force: true });
-					if (providerSnapshotReady) renameSync(providerSnapshot, providerDirectory);
-				}
+				restoreSandboxProviderDirectory(providerSelected, hadProviderDirectory, providerSnapshotReady, providerDirectory, providerSnapshot);
 				command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			} catch (restoreError) {
 				throw new Error(`Managed sandbox guest replacement failed; rollback could not confirm prior trust or provider and broker quiescence. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
