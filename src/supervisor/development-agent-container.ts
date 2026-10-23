@@ -1,4 +1,4 @@
-import { chmodSync, chownSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { atomicJson } from '../core/files.js';
 import { loadHostConfiguration } from '../core/configuration.js';
@@ -25,6 +25,7 @@ interface AgentDevelopmentInput {
 	projectId: 'agent';
 	targetId: 'provider' | 'sandbox';
 	action: 'start' | 'stop' | 'status' | 'logs';
+	guestReplacement?: boolean;
 }
 
 function sourceFor(record: ManagedDevelopmentSession) {
@@ -180,13 +181,36 @@ function expiredRecoveryClaim(value: unknown) {
 		&& Math.min(deadline, Number.isFinite(executionDeadline) ? executionDeadline : deadline) <= now && lease <= now;
 }
 
+/** Reject unsafe work before image import can change broker trust. */
+export function assertSandboxGuestHandoffClaims(stateRoot: string) {
+	const active = activeAgentClaims(stateRoot, true);
+	if (active.some(claim => !expiredRecoveryClaim(claim)))
+		throw new Error(`Managed sandbox development cannot replace guest trust while ${active.length} assignment claim(s) are active or recoverable.`);
+}
+
 /** Quiesce the existing producer and observe execution absence. This permits
  * provider code replacement only; retained clocks, usage and leases stay held. */
-function fenceExpiredRecovery(command: CommandRunner, stateRoot: string) {
+function expiredRecoverySnapshot(stateRoot: string) {
+	const path = resolve(stateRoot, 'runtime', 'capacity-state.json');
+	if (!existsSync(path)) return [];
+	const state = JSON.parse(readFileSync(path, 'utf8')) as { schemaVersion?: unknown; claims?: unknown };
+	if (state.schemaVersion !== 1 || !Array.isArray(state.claims)) throw new Error('Provider-local capacity state is invalid.');
+	return state.claims.filter((claim) => {
+		if (!claim || typeof claim !== 'object' || Array.isArray(claim)) throw new Error('Provider-local capacity claim is invalid.');
+		const value = claim as Record<string, unknown>;
+		return value.status === 'recovery' && expiredRecoveryClaim(value);
+	}).map((claim) => JSON.stringify(claim)).sort();
+}
+
+function fenceExpiredRecovery(command: CommandRunner, stateRoot: string, expected: string[], keepBrokerStopped: boolean,
+	brokerAlreadyStopped = false, leaveBrokerStoppedOnFailure = false) {
 	const broker = 'treeseed-sandbox-broker.service', configuration = loadSandboxBrokerConfiguration();
-	command('/usr/bin/systemctl', ['is-active', '--quiet', broker]);
+	if (!brokerAlreadyStopped) command('/usr/bin/systemctl', ['is-active', '--quiet', broker]);
+	else if (String(command('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value'])).trim() !== 'inactive')
+		throw new Error('Expired recovery handoff requires confirmed broker shutdown.');
+	let complete = false;
 	try {
-		command('/usr/bin/systemctl', ['stop', broker]);
+		if (!brokerAlreadyStopped) command('/usr/bin/systemctl', ['stop', broker]);
 		if (String(command('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value'])).trim() !== 'inactive')
 			throw new Error('Expired recovery handoff requires confirmed broker shutdown.');
 		for (let observation = 0; observation < 2; observation++) {
@@ -198,27 +222,48 @@ function fenceExpiredRecovery(command: CommandRunner, stateRoot: string) {
 			const vms = inspectVmProcesses();
 			if (!vms.complete || vms.processes === null || vms.processes.length)
 				throw new Error('Expired recovery handoff requires complete physical VM absence.');
-			if (activeAgentClaims(stateRoot, true).some(claim => !expiredRecoveryClaim(claim)))
+			if (JSON.stringify(expiredRecoverySnapshot(stateRoot)) !== JSON.stringify(expected)
+				|| activeAgentClaims(stateRoot, true).some(claim => !expiredRecoveryClaim(claim)))
 				throw new Error('Provider recovery authority changed while execution was fenced.');
 		}
-	} finally { command('/usr/bin/systemctl', ['start', broker]); }
+		complete = true;
+	} finally { if (!keepBrokerStopped || (!complete && !leaveBrokerStoppedOnFailure)) command('/usr/bin/systemctl', ['start', broker]); }
 }
 
-export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
+export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void,
+	options: { keepBrokerStopped?: boolean; brokerAlreadyStopped?: boolean; leaveBrokerStoppedOnFailure?: boolean; leaveRolesStoppedOnFailure?: boolean } = {}) {
 	const running = new Set(services.filter(service => containerState(command, service).running));
 	try {
 		stopService(command, 'manager');
 		const active = activeAgentClaims(stateRoot, true);
 		if (active.some(claim => !expiredRecoveryClaim(claim))) throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
+		const expected = expiredRecoverySnapshot(stateRoot);
 		stopService(command, 'runner');
 		const drained = activeAgentClaims(stateRoot, true);
 		if (drained.some(claim => !expiredRecoveryClaim(claim))) throw new Error('Managed Agent development cannot interrupt authority acquired during drain.');
-		if (drained.length) fenceExpiredRecovery(command, stateRoot);
+		if (JSON.stringify(expiredRecoverySnapshot(stateRoot)) !== JSON.stringify(expected))
+			throw new Error('Provider recovery authority changed while execution was drained.');
+		if (drained.length || options.keepBrokerStopped) {
+			fenceExpiredRecovery(command, stateRoot, expected, options.keepBrokerStopped === true, options.brokerAlreadyStopped === true, options.leaveBrokerStoppedOnFailure === true);
+		}
 		if (services.some(service => containerState(command, service).running)) throw new Error('Managed Agent provider drain was not confirmed.');
 	} catch (error) {
 		// Restore only services that were running; reopen admissions last.
+		if (!options.leaveRolesStoppedOnFailure) {
+			if (running.has('runner')) startService(command, 'runner');
+			if (running.has('manager')) restoreManager();
+		}
+		throw error;
+	}
+	return running;
+}
+
+function restoreProviderRoles(command: CommandRunner, running: ReadonlySet<'manager' | 'runner'>) {
+	try {
 		if (running.has('runner')) startService(command, 'runner');
-		if (running.has('manager')) restoreManager();
+		if (running.has('manager')) startService(command, 'manager');
+	} catch (error) {
+		for (const service of ['runner', 'manager'] as const) try { stopService(command, service); } catch { /* keep admission closed */ }
 		throw error;
 	}
 }
@@ -238,6 +283,19 @@ function sandboxReceipt(path: string) {
 		|| !/^sha256:[a-f0-9]{64}$/u.test(value.priorDigest) || !/^sha256:[a-f0-9]{64}$/u.test(value.digest)
 		|| value.image !== 'treeseed/sandbox-codex:local') throw new Error('Managed sandbox development receipt is invalid.');
 	return value;
+}
+
+export function restoreSandboxProviderDirectory(providerSelected: boolean, hadProviderDirectory: boolean, providerSnapshotReady: boolean, providerDirectory: string, providerSnapshot: string) {
+	if (!providerSelected) return;
+	if (hadProviderDirectory && !providerSnapshotReady) {
+		// cpSync may leave a partial destination when it throws. This path is the
+		// sandbox transaction's owned snapshot, so discard it without touching the
+		// still-selected provider directory.
+		rmSync(providerSnapshot, { recursive: true, force: true });
+		return;
+	}
+	rmSync(providerDirectory, { recursive: true, force: true });
+	if (providerSnapshotReady) renameSync(providerSnapshot, providerDirectory);
 }
 
 function executeSandboxDevelopment(input: AgentDevelopmentInput, record: ManagedDevelopmentSession, command: CommandRunner) {
@@ -264,8 +322,7 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 	}
 	if (record.session.status !== 'active') throw new Error('Development session is not active.');
 	const stateRoot = componentStateRoot(loadHostConfiguration(), 'agent');
-	const active = activeAgentClaims(stateRoot);
-	if (active.length) throw new Error(`Managed sandbox development cannot replace guest trust while ${active.length} assignment claim(s) are active or recoverable.`);
+	assertSandboxGuestHandoffClaims(stateRoot);
 	const source = sourceFor(record).worktree;
 	for (const path of ['Dockerfile', 'Dockerfile.sandbox-codex', 'dist/sandbox/guest.js', '.treeseed/docker/runtime/shared/node_modules']) {
 		if (!existsSync(resolve(source, path))) throw new Error(`Managed sandbox development input ${path} is unavailable.`);
@@ -276,20 +333,64 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 	try { lock = openSync(lockPath, 'wx', 0o600); }
 	catch { throw new Error('Managed sandbox development rebuild is already active.'); }
 	try {
-		const priorDigest = receipt?.priorDigest ?? configuredSandboxGuestDigest();
+		const rollbackDigest = receipt?.digest ?? configuredSandboxGuestDigest();
+		const priorReceipt = existsSync(receiptPath) ? readFileSync(receiptPath) : null;
+		const priorDigest = receipt?.priorDigest ?? rollbackDigest;
+		const providerSelected = record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released');
+		const providerDirectory = resolve(root, input.sessionId, 'agent', 'provider');
+		const providerSnapshot = resolve(directory, 'provider-prior');
+		const hadProviderDirectory = providerSelected && existsSync(providerDirectory);
+		let providerSnapshotReady = false;
 		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile'), '--target', 'sandbox-base', '--tag', 'treeseed/sandbox-base:local', source]);
 		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile.sandbox-codex'), '--build-arg', 'SANDBOX_BASE=treeseed/sandbox-base:local', '--tag', 'treeseed/sandbox-codex:local', source]);
 		command('/usr/bin/docker', ['image', 'save', '--output', archive, 'treeseed/sandbox-codex:local']);
 		const metadata = lstatSync(archive);
 		if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0)
 			throw new Error('Managed sandbox archive failed bounded supervisor custody validation.');
-		const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command);
-		const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
-		atomicJson(receiptPath, next, 0o600);
-		recordHostDevelopmentGuestImage(next.digest);
-		if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
-			executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start' }, command);
-		return { started: true, ...next };
+		// Image creation above is inert. Reuse the provider's existing handoff
+		// fence before importing or selecting a guest digest, including its second
+		// authority read and twice-complete physical absence proof for recovery.
+		const originalRunningRoles = stopForHandoff(command, stateRoot, () => startService(command, 'manager'), { keepBrokerStopped: true });
+		try {
+			if (hadProviderDirectory) {
+				cpSync(providerDirectory, providerSnapshot, { recursive: true, errorOnExist: true });
+				providerSnapshotReady = true;
+			}
+			const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command, undefined, false);
+			const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
+			recordHostDevelopmentGuestImage(next.digest);
+			atomicJson(receiptPath, next, 0o600);
+			if (providerSelected)
+				executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start', guestReplacement: true }, command);
+			command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
+			if (providerSnapshotReady) rmSync(providerSnapshot, { recursive: true, force: true });
+			return { started: true, ...next };
+		} catch (error) {
+			try {
+				// The provider start can partially recreate roles. Keep them fenced
+				// while restoring the prior guest, host selection, and receipt.
+				command('/usr/bin/systemctl', ['stop', 'treeseed-sandbox-broker.service']);
+				if (String(command('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=ActiveState', '--value'])).trim() !== 'inactive')
+					throw new Error('Broker shutdown could not be confirmed.');
+				try {
+					stopForHandoff(command, stateRoot, () => startService(command, 'manager'), {
+						keepBrokerStopped: true, brokerAlreadyStopped: true, leaveBrokerStoppedOnFailure: true, leaveRolesStoppedOnFailure: true });
+				} catch (drainError) {
+					for (const service of ['runner', 'manager'] as const) try { stopService(command, service); } catch { /* retain the broker fence */ }
+					throw drainError;
+				}
+				bindExistingSandboxGuestTrust(rollbackDigest, command, undefined, false);
+				recordHostDevelopmentGuestImage(rollbackDigest);
+				if (priorReceipt) writeFileSync(receiptPath, priorReceipt, { mode: 0o600 });
+				else rmSync(receiptPath, { force: true });
+				restoreSandboxProviderDirectory(providerSelected, hadProviderDirectory, providerSnapshotReady, providerDirectory, providerSnapshot);
+				restoreProviderRoles(command, originalRunningRoles);
+				command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
+			} catch (restoreError) {
+				throw new Error(`Managed sandbox guest replacement failed; rollback could not confirm prior trust or provider and broker quiescence. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
+			}
+			throw error;
+		}
 	} finally {
 		closeSync(lock!);
 		rmSync(lockPath, { force: true });
@@ -336,7 +437,8 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { if (existsSync(directory)) rmSync(directory, { recursive: true }); return { stopped: true }; }
-		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), input.guestReplacement
+			? { keepBrokerStopped: true, brokerAlreadyStopped: true, leaveRolesStoppedOnFailure: true } : undefined);
 		try { restoreReleasedAgent(command, dockerCompose); }
 		catch (error) {
 			try { command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', ...services]); } catch { /* retain custody for retry */ }
@@ -360,7 +462,8 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 		// Materialize separately while the old immutable selection remains intact.
 		const receipt = copyDevelopmentRuntime({ worktree: source.worktree, workspace: source.workspace,
 			destination: resolve(prepared, 'runtime'), sourceUid: source.uid, roots: runtimeRoots });
-		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), input.guestReplacement
+			? { keepBrokerStopped: true, brokerAlreadyStopped: true, leaveRolesStoppedOnFailure: true } : undefined);
 		try {
 			rmSync(runtimeRoot, { recursive: true, force: true });
 			renameSync(resolve(prepared, 'runtime'), runtimeRoot);
@@ -370,7 +473,9 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 			atomicJson(handoff, { restore: true }, 0o600);
 			command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
 		} catch (error) {
-			try { restoreReleasedAgent(command, dockerCompose); rmSync(directory, { recursive: true }); } catch { /* retain handoff marker for idempotent cleanup */ }
+			if (!input.guestReplacement) {
+				try { restoreReleasedAgent(command, dockerCompose); rmSync(directory, { recursive: true }); } catch { /* retain handoff marker for idempotent cleanup */ }
+			}
 			throw error;
 		}
 		return { started: true, runtime: receipt };
