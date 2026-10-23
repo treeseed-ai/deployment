@@ -22,13 +22,51 @@ vi.mock('node:fs', async original => {
 		readlinkSync: (path: import('node:fs').PathLike) => path === '/proc/1/ns/mnt' && state.namespace !== undefined
 			? state.namespace : fs.readlinkSync(path === '/proc/1/ns/mnt' ? '/proc/self/ns/mnt' : path) };
 });
-import { workspaceStatus } from '../src/sandbox/workspace-status.js';
+import { readSourcePublicationJournal, retainedSourceStatus, workspaceStatus } from '../src/sandbox/workspace-status.js';
 
 const id = 'workspace-lease-11111111-1111-4111-8111-111111111111';
 const directory = () => join(state.root, 'leases', id);
 beforeEach(() => { state.afterRead = undefined; state.namespace = undefined;
-	rmSync(state.root, { recursive: true, force: true }); mkdirSync(directory(), { recursive: true }); });
+	rmSync(state.root, { recursive: true, force: true }); mkdirSync(directory(), { recursive: true }); chmodSync(state.root, 0o700); });
 afterAll(() => rmSync(state.root, { recursive: true, force: true }));
+
+it('reads one retained original source owner and result without returning private fields or mutating either record', () => {
+ const sandboxId = 'sandbox-retained-status', assignmentId = 'assignment-retained-status', leaseId = 'lease-retained-status';
+ const owner = { assignmentId, providerId: 'provider-status', teamId: 'team-status', projectId: 'project-status', attempt: 1 };
+ const authority = { schemaVersion: 'treeseed.source-workspace-authorization/v1', id: 'authorization-status',
+  providerId: owner.providerId, assignmentId, attempt: 1,
+  source: { controlPlaneId: 'control', teamId: owner.teamId, projectId: owner.projectId, repositoryId: 'treeseed-ai/sdk',
+   commit: 'a'.repeat(40), formatVersion: 1, profile: 'source-only' }, mode: 'work', acquisition: 'upstream-public',
+  publication: 'simulation-branch', publicationRef: 'simulation/assignment-retained-status',
+  issuedAt: '2026-10-11T00:00:00.000Z', expiresAt: '2026-10-11T01:00:00.000Z' };
+ const diskId = 'workspace-lease-11111111-1111-4111-8111-111111111111', diskRoot = join(state.root, 'leases', diskId);
+ const job = { schemaVersion: 'treeseed.assignment-source-job/v1', owner, state: 'stopped', leaseId, authority,
+  privateArgument: 'never-return-this', disk: { id: diskId, directory: diskRoot, image: join(diskRoot, 'work.qcow2') } };
+ const result = { schemaVersion: 'treeseed.source-result/v1', sandboxId, leaseId, status: 'interrupted', teardownVerified: false,
+  completedAt: '2026-10-11T00:00:00.000Z', privateResult: 'never-return-this-either' };
+ for (const [kind, value] of [['jobs', job], ['results', result]] as const) {
+  const root = join(state.root, kind); mkdirSync(root, { mode: 0o700 });
+  writeFileSync(join(root, `${sandboxId}.json`), JSON.stringify(value), { mode: 0o600 });
+ }
+ const paths = ['jobs', 'results'].map(kind => join(state.root, kind, `${sandboxId}.json`));
+ const original = paths.map(path => readFileSync(path));
+ expect(readSourcePublicationJournal('jobs', sandboxId)).toMatchObject({ state: 'stopped', leaseId, owner });
+ expect(readSourcePublicationJournal('results', sandboxId)).toMatchObject({ sandboxId, leaseId, status: 'interrupted' });
+ const observed = retainedSourceStatus(assignmentId, sandboxId);
+ expect(observed).toMatchObject({ available: true, assignmentId, sandboxId, owner, state: 'stopped', leaseId,
+  result: { status: 'interrupted', teardownVerified: false }, physicalStatus: 'not_observed' });
+ expect(JSON.stringify(observed)).not.toContain('never-return-this');
+ expect(JSON.stringify(observed)).not.toContain(diskRoot);
+ expect(retainedSourceStatus(assignmentId, sandboxId)).toEqual(observed);
+ expect(paths.map(path => readFileSync(path))).toEqual(original);
+ expect(retainedSourceStatus('another-assignment', sandboxId)).toEqual({ available: false, reason: 'source_owner_binding_conflict' });
+ expect(retainedSourceStatus(assignmentId, 'sandbox-not-present')).toEqual({ available: false, reason: 'source_journal_unavailable' });
+ const changed = { ...job, authority: { ...authority, credential: { token: 'unsafe-secret' } } };
+ writeFileSync(paths[0]!, JSON.stringify(changed), { mode: 0o600 });
+ const unsafeOriginal = readFileSync(paths[0]!);
+ expect(retainedSourceStatus(assignmentId, sandboxId)).toEqual({ available: false, reason: 'source_journal_unavailable' });
+ expect(readFileSync(paths[0]!)).toEqual(unsafeOriginal);
+});
 
 it('reports capacity on the exact workspace filesystem without preparing or modifying storage', () => {
  const before = readdirSync(state.root, { recursive: true }), capacity = statfsSync(state.root);
