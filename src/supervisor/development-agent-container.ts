@@ -25,6 +25,7 @@ interface AgentDevelopmentInput {
 	projectId: 'agent';
 	targetId: 'provider' | 'sandbox';
 	action: 'start' | 'stop' | 'status' | 'logs';
+	guestReplacement?: boolean;
 }
 
 function sourceFor(record: ManagedDevelopmentSession) {
@@ -184,11 +185,27 @@ export function assertSandboxGuestHandoffClaims(stateRoot: string) {
 
 /** Quiesce the existing producer and observe execution absence. This permits
  * provider code replacement only; retained clocks, usage and leases stay held. */
-function fenceExpiredRecovery(command: CommandRunner, stateRoot: string) {
+function expiredRecoverySnapshot(stateRoot: string) {
+	const path = resolve(stateRoot, 'runtime', 'capacity-state.json');
+	if (!existsSync(path)) return [];
+	const state = JSON.parse(readFileSync(path, 'utf8')) as { schemaVersion?: unknown; claims?: unknown };
+	if (state.schemaVersion !== 1 || !Array.isArray(state.claims)) throw new Error('Provider-local capacity state is invalid.');
+	return state.claims.filter((claim) => {
+		if (!claim || typeof claim !== 'object' || Array.isArray(claim)) throw new Error('Provider-local capacity claim is invalid.');
+		const value = claim as Record<string, unknown>;
+		return value.status === 'recovery' && expiredRecoveryClaim(value);
+	}).map((claim) => JSON.stringify(claim)).sort();
+}
+
+function fenceExpiredRecovery(command: CommandRunner, stateRoot: string, expected: string[], keepBrokerStopped: boolean,
+	brokerAlreadyStopped = false, leaveBrokerStoppedOnFailure = false) {
 	const broker = 'treeseed-sandbox-broker.service', configuration = loadSandboxBrokerConfiguration();
-	command('/usr/bin/systemctl', ['is-active', '--quiet', broker]);
+	if (!brokerAlreadyStopped) command('/usr/bin/systemctl', ['is-active', '--quiet', broker]);
+	else if (String(command('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value'])).trim() !== 'inactive')
+		throw new Error('Expired recovery handoff requires confirmed broker shutdown.');
+	let complete = false;
 	try {
-		command('/usr/bin/systemctl', ['stop', broker]);
+		if (!brokerAlreadyStopped) command('/usr/bin/systemctl', ['stop', broker]);
 		if (String(command('/usr/bin/systemctl', ['show', broker, '--property=ActiveState', '--value'])).trim() !== 'inactive')
 			throw new Error('Expired recovery handoff requires confirmed broker shutdown.');
 		for (let observation = 0; observation < 2; observation++) {
@@ -200,27 +217,37 @@ function fenceExpiredRecovery(command: CommandRunner, stateRoot: string) {
 			const vms = inspectVmProcesses();
 			if (!vms.complete || vms.processes === null || vms.processes.length)
 				throw new Error('Expired recovery handoff requires complete physical VM absence.');
-			if (activeAgentClaims(stateRoot, true).some(claim => !expiredRecoveryClaim(claim)))
+			if (JSON.stringify(expiredRecoverySnapshot(stateRoot)) !== JSON.stringify(expected)
+				|| activeAgentClaims(stateRoot, true).some(claim => !expiredRecoveryClaim(claim)))
 				throw new Error('Provider recovery authority changed while execution was fenced.');
 		}
-	} finally { command('/usr/bin/systemctl', ['start', broker]); }
+		complete = true;
+	} finally { if (!keepBrokerStopped || (!complete && !leaveBrokerStoppedOnFailure)) command('/usr/bin/systemctl', ['start', broker]); }
 }
 
-export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void) {
+export function stopForHandoff(command: CommandRunner, stateRoot: string, restoreManager: () => void,
+	options: { keepBrokerStopped?: boolean; brokerAlreadyStopped?: boolean; leaveBrokerStoppedOnFailure?: boolean; leaveRolesStoppedOnFailure?: boolean } = {}) {
 	const running = new Set(services.filter(service => containerState(command, service).running));
 	try {
 		stopService(command, 'manager');
 		const active = activeAgentClaims(stateRoot, true);
 		if (active.some(claim => !expiredRecoveryClaim(claim))) throw new Error(`Managed Agent development cannot interrupt ${active.length} active or recoverable assignment claim(s).`);
+		const expected = expiredRecoverySnapshot(stateRoot);
 		stopService(command, 'runner');
 		const drained = activeAgentClaims(stateRoot, true);
 		if (drained.some(claim => !expiredRecoveryClaim(claim))) throw new Error('Managed Agent development cannot interrupt authority acquired during drain.');
-		if (drained.length) fenceExpiredRecovery(command, stateRoot);
+		if (JSON.stringify(expiredRecoverySnapshot(stateRoot)) !== JSON.stringify(expected))
+			throw new Error('Provider recovery authority changed while execution was drained.');
+		if (drained.length || options.keepBrokerStopped) {
+			fenceExpiredRecovery(command, stateRoot, expected, options.keepBrokerStopped === true, options.brokerAlreadyStopped === true, options.leaveBrokerStoppedOnFailure === true);
+		}
 		if (services.some(service => containerState(command, service).running)) throw new Error('Managed Agent provider drain was not confirmed.');
 	} catch (error) {
 		// Restore only services that were running; reopen admissions last.
-		if (running.has('runner')) startService(command, 'runner');
-		if (running.has('manager')) restoreManager();
+		if (!options.leaveRolesStoppedOnFailure) {
+			if (running.has('runner')) startService(command, 'runner');
+			if (running.has('manager')) restoreManager();
+		}
 		throw error;
 	}
 }
@@ -289,26 +316,37 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 		// Image creation above is inert. Reuse the provider's existing handoff
 		// fence before importing or selecting a guest digest, including its second
 		// authority read and twice-complete physical absence proof for recovery.
-		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), { keepBrokerStopped: true });
 		try {
-			const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command);
+			const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command, undefined, false);
 			const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
 			recordHostDevelopmentGuestImage(next.digest);
 			atomicJson(receiptPath, next, 0o600);
 			if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
-				executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start' }, command);
+				executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start', guestReplacement: true }, command);
+			command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			return { started: true, ...next };
 		} catch (error) {
 			try {
-				// The importer can fail after atomically selecting the new broker
-				// digest. Reconfirm the fence and restore all three selections.
-				stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
-				bindExistingSandboxGuestTrust(rollbackDigest, command);
+				// The provider start can partially recreate roles. Keep them fenced
+				// while restoring the prior guest, host selection, and receipt.
+				command('/usr/bin/systemctl', ['stop', 'treeseed-sandbox-broker.service']);
+				if (String(command('/usr/bin/systemctl', ['show', 'treeseed-sandbox-broker.service', '--property=ActiveState', '--value'])).trim() !== 'inactive')
+					throw new Error('Broker shutdown could not be confirmed.');
+				try {
+					stopForHandoff(command, stateRoot, () => startService(command, 'manager'), {
+						keepBrokerStopped: true, brokerAlreadyStopped: true, leaveBrokerStoppedOnFailure: true, leaveRolesStoppedOnFailure: true });
+				} catch (drainError) {
+					for (const service of ['runner', 'manager'] as const) try { stopService(command, service); } catch { /* retain the broker fence */ }
+					throw drainError;
+				}
+				bindExistingSandboxGuestTrust(rollbackDigest, command, undefined, false);
 				recordHostDevelopmentGuestImage(rollbackDigest);
 				if (priorReceipt) writeFileSync(receiptPath, priorReceipt, { mode: 0o600 });
 				else rmSync(receiptPath, { force: true });
+				command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			} catch (restoreError) {
-				throw new Error(`Managed sandbox guest replacement failed and prior trust restoration was not confirmed; provider roles remain stopped. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
+				throw new Error(`Managed sandbox guest replacement failed; prior trust restoration was not confirmed and provider roles were not reopened. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
 			}
 			throw error;
 		}
@@ -358,7 +396,8 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 	}
 	if (input.action === 'stop') {
 		if (!existsSync(override)) { if (existsSync(directory)) rmSync(directory, { recursive: true }); return { stopped: true }; }
-		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), input.guestReplacement
+			? { keepBrokerStopped: true, brokerAlreadyStopped: true, leaveRolesStoppedOnFailure: true } : undefined);
 		try { restoreReleasedAgent(command, dockerCompose); }
 		catch (error) {
 			try { command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', ...services]); } catch { /* retain custody for retry */ }
@@ -382,7 +421,8 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 		// Materialize separately while the old immutable selection remains intact.
 		const receipt = copyDevelopmentRuntime({ worktree: source.worktree, workspace: source.workspace,
 			destination: resolve(prepared, 'runtime'), sourceUid: source.uid, roots: runtimeRoots });
-		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), input.guestReplacement
+			? { keepBrokerStopped: true, brokerAlreadyStopped: true, leaveRolesStoppedOnFailure: true } : undefined);
 		try {
 			rmSync(runtimeRoot, { recursive: true, force: true });
 			renameSync(resolve(prepared, 'runtime'), runtimeRoot);
@@ -392,7 +432,9 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 			atomicJson(handoff, { restore: true }, 0o600);
 			command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
 		} catch (error) {
-			try { restoreReleasedAgent(command, dockerCompose); rmSync(directory, { recursive: true }); } catch { /* retain handoff marker for idempotent cleanup */ }
+			if (!input.guestReplacement) {
+				try { restoreReleasedAgent(command, dockerCompose); rmSync(directory, { recursive: true }); } catch { /* retain handoff marker for idempotent cleanup */ }
+			}
 			throw error;
 		}
 		return { started: true, runtime: receipt };
