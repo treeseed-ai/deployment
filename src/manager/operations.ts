@@ -1,3 +1,4 @@
+import { executeSandboxHostCommand } from './sandbox-commands.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { hostConfigurationSchema, type HostConfiguration } from '@treeseed/sdk/deployment';
@@ -168,6 +169,7 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 		return { adopted: true, recoveredInvalidConfiguration: true, configurationId: candidate.configurationId, generation: candidate.generation };
 	}
 	if (request.handlerId.startsWith('local.host.provider.environment.')) return executeProviderEnvironmentCommand(request, context);
+	if (request.handlerId.startsWith('local.host.sandbox.')) return executeSandboxHostCommand(request, context.local);
 	switch (request.handlerId) {
 		case 'local.dev.host.activate': {
 			if (!context.local) throw new Error('Host runtime development may be activated only through the protected local manager socket.');
@@ -369,11 +371,6 @@ export async function executeHostCommand(input: unknown, context: { local: boole
 			const payload = z.object({ bundle: z.string().startsWith('/'), recoveryPassphrase: z.string().min(12) }).strict().parse(JSON.parse(String(request.options.payload ?? '')));
 			return requestSupervisor({ operation: 'security.recovery.verify', recoveryBundle: payload.bundle, recoveryPassphrase: payload.recoveryPassphrase });
 		}
-		case 'local.host.sandbox.status': {
-			if (request.arguments.length || Object.keys(request.options).length || request.configuration !== undefined) throw new Error('Sandbox status accepts no caller-selected paths, commands or resource scope.');
-			return requestSupervisor({ operation: 'sandbox.status' });
-		}
-		case 'local.host.sandbox.doctor': return requestSupervisor({ operation: 'sandbox.doctor' });
 		case 'local.host.storage.status': {
 			const payload = z.object({ action: z.literal('status'), backend: z.literal('cloudflare-r2'), teamId: z.string().min(1).max(256), teamSlug: z.string().min(1).max(256) }).passthrough().parse(JSON.parse(String(request.options.payload ?? '')));
 			const host = loadHostConfiguration();

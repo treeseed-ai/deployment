@@ -155,6 +155,44 @@ function journalMetadata(kind: 'jobs' | 'candidates' | 'results', name: string, 
  return result;
 }
 
+/** Reuse the canonical bounded private journal parser for one fixed source publication. */
+export function readSourcePublicationJournal(kind: 'jobs' | 'candidates' | 'results', sandboxId: string) {
+ if (!/^sandbox-[a-zA-Z0-9-]{1,128}$/u.test(sandboxId)) throw new Error('Invalid source export sandbox.');
+ const root = join(workspaceStorageRoot, kind);
+ for (const path of [workspaceStorageRoot, root]) {
+  const stat = owningHostStat(path);
+  if (!stat.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 || realpathSync(path) !== path)
+   throw new Error('Source journal escaped private manager custody.');
+ }
+ const name = sandboxId + '.json', metadata = metadataFile(join(root, name), 1_048_576, true);
+ if (!metadata) throw new Error('Source publication journal unavailable.');
+ return journalMetadata(kind, name, metadata.value);
+}
+
+/** A bounded original status read. It reports journal custody only, never current physical state. */
+export function retainedSourceStatus(assignmentId: string, sandboxId: string) {
+ try {
+  const job = readSourcePublicationJournal('jobs', sandboxId);
+  const result = readSourcePublicationJournal('results', sandboxId);
+  const owner = job.owner as Record<string, unknown>;
+  if (owner.assignmentId !== assignmentId || result.sandboxId !== sandboxId || !job.leaseId || job.leaseId !== result.leaseId)
+   return { available: false as const, reason: 'source_owner_binding_conflict' };
+  const authority = job.authority as Record<string, unknown> | undefined;
+  const source = authority?.source as Record<string, unknown> | undefined;
+  return { available: true as const, assignmentId, sandboxId, owner: {
+   assignmentId: owner.assignmentId, providerId: owner.providerId, teamId: owner.teamId,
+   projectId: owner.projectId, attempt: owner.attempt,
+  }, state: job.state, leaseId: job.leaseId, source: source ? {
+   controlPlaneId: source.controlPlaneId, teamId: source.teamId, projectId: source.projectId,
+   repositoryId: source.repositoryId, commit: source.commit, formatVersion: source.formatVersion, profile: source.profile,
+  } : null, authority: authority ? {
+   mode: authority.mode, acquisition: authority.acquisition, publication: authority.publication,
+   publicationRef: authority.publicationRef, issuedAt: authority.issuedAt, expiresAt: authority.expiresAt,
+  } : null, result: { status: result.status, teardownVerified: result.teardownVerified, completedAt: result.completedAt },
+   physicalStatus: 'not_observed' as const };
+ } catch { return { available: false as const, reason: 'source_journal_unavailable' }; }
+}
+
 function journalInventory(kind: 'jobs' | 'candidates' | 'results', errors: Set<string>) {
  const observed = { rootPresent: null as boolean | null, entries: [] as Array<{ name: string; type: Disk['type'];
   metadata: Record<string, unknown> | null; digest: string | null }> };

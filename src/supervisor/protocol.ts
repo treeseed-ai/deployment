@@ -1,3 +1,4 @@
+import { sourceExportSelectionSchema } from '../sandbox/protocol.js';
 import { hostConfigurationSchema, postgresTransitionSelectionSchema } from '@treeseed/sdk/deployment';
 import { z } from 'zod';
 import { hostDevelopmentActivationSchema } from './host-development.js';
@@ -44,7 +45,8 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('provider.environment.rotate'), profileId: z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/u), name: z.string().regex(/^[A-Z_][A-Z0-9_]*$/u), value: z.string().max(1_048_576) }).strict(),
 	z.object({ operation: z.literal('security.rotate'), target: z.enum(['volume', 'credentials', 'diagnostics']), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024), newRecoveryBundle: z.string().startsWith('/').max(4_096), newRecoveryPassphrase: z.string().min(12).max(1_024), confirm: z.literal(true) }).strict(),
 	z.object({ operation: z.literal('security.recovery.verify'), recoveryBundle: z.string().startsWith('/').max(4_096), recoveryPassphrase: z.string().min(12).max(1_024) }).strict(),
-	z.object({ operation: z.literal('sandbox.status') }).strict(),
+	z.object({ operation: z.literal('sandbox.status'), assignmentId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/u).optional(), sandboxId: z.string().regex(/^sandbox-[a-zA-Z0-9-]{1,128}$/u).optional() }).strict(),
+	sourceExportSelectionSchema.extend({ operation: z.literal('sandbox.source.export') }),
 	z.object({ operation: z.literal('sandbox.doctor') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.qualify'), mode: z.enum(['cold', 'warm', 'hold']).default('cold') }).strict(),
 	z.object({ operation: z.literal('sandbox.workspace.source.qualify') }).strict(),
@@ -109,6 +111,8 @@ const supervisorOperationUnion = z.discriminatedUnion('operation', [
 ]);
 
 export const supervisorOperationSchema = supervisorOperationUnion.superRefine((value, context) => {
+	if (value.operation === 'sandbox.status' && (value.assignmentId === undefined) !== (value.sandboxId === undefined))
+		context.addIssue({ code: z.ZodIssueCode.custom, message: 'Both retained status selectors are required.' });
 	if (value.operation !== 'postgres.transfer.prepare') return;
 	const { operation: _operation, planOnly: _planOnly, ...selection } = value;
 	const parsed = postgresTransitionSelectionSchema.safeParse(selection);
