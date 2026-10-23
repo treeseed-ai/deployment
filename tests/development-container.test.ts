@@ -1,10 +1,11 @@
+import { activeAgentClaims } from '../src/supervisor/development-provider-claims.js';
 import {expect,it} from 'vitest';
 import {mkdtempSync,mkdirSync,rmSync,writeFileSync,statSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {developmentContainerSchema,renderDevelopmentContainer,developmentRuntimeOwner,restoreDevelopmentDatabaseCustody,resolveDevelopmentRuntimeImage} from '../src/supervisor/development-container.js';
 import {developmentStartupCode} from '../src/supervisor/development-diagnostics.js';
-import {activeAgentClaims,renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride,writeAgentDevelopmentManifest,providerGuestTrustReady} from '../src/supervisor/development-agent-container.js';
+import {renderAgentDevelopmentOverride,agentEnrollmentDevelopmentOverride,writeAgentDevelopmentManifest,providerGuestTrustReady} from '../src/supervisor/development-agent-container.js';
 import type {ManagedDevelopmentSession} from '../src/manager/development-sessions.js';
 import {managedPersistentServices,renderManagedComponentOverride} from '../src/supervisor/development-component-container.js';
 import {parseDevelopmentMigrationInventory} from '../src/supervisor/development-postgres-migration.js';
