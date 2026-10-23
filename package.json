@@ -1,0 +1,44 @@
+{
+  "name": "@treeseed-cordis/deployment",
+  "version": "0.0.0-cordis.1",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "packageManager": "bun@1.4.4",
+  "exports": {
+    ".": {
+      "types": "./dist/src/diagnose.d.ts",
+      "default": "./dist/src/diagnose.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "check": "bun scripts/tooling.ts check",
+    "build": "bun scripts/tooling.ts build",
+    "test:unit": "bun test ./tests --test-name-pattern '^unit:'",
+    "test:integration": "bun test ./tests --test-name-pattern '^integration:'",
+    "test:smoke": "bun test ./tests --test-name-pattern '^smoke:'",
+    "verify": "bun run check && bun run build && bun run test:unit && bun run test:integration && bun run test:smoke"
+  },
+  "peerDependencies": {
+    "@treeseed-cordis/sdk": "0.0.0-cordis.1"
+  },
+  "devDependencies": {
+    "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
+    "typescript": "5.9.3",
+    "@types/bun": "1.4.4",
+    "@types/node": "24.10.1"
+  },
+  "cordisCandidate": {
+    "sdk": {
+      "repository": "https://github.com/treeseed-ai/sdk.git",
+      "commit": "2893f754949edcebf0c299726a079205d9296b60",
+      "sha256": "0b946e59b800d6b323583c773744f7d5b3028a67c4da2808f3252834dbda6000"
+    }
+  }
+}

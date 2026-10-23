@@ -1,0 +1,116 @@
+import { PlatformSchemas, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
+import { platform, arch, homedir } from 'node:os';
+import { join, resolve, dirname, parse } from 'node:path';
+import { createServer, type Server } from 'node:net';
+
+export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; }
+export interface DiagnosticCommands { execute(args:string[]):string|null; }
+export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
+export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
+export interface StorageResult { exists:boolean;freeBytes:number|null;code:string;message:string; }
+export class DockerCommands implements DiagnosticCommands {
+  execute(args:string[]):string|null {
+    const executable=this.executable();if(!executable)return null;
+    const result=spawnSync(executable,args,{env:{...process.env},encoding:'utf8',timeout:5000,maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']});
+    if(result.error||result.status!==0)return null;
+    return result.stdout.trim();
+  }
+  private executable():string|null {
+    for(const directory of (process.env.PATH??'').split(':')) {
+      if(!directory)continue;const file=resolve(directory,'docker');
+      try{if(statSync(file).isFile()){accessSync(file,constants.X_OK);return file;}}catch{}
+    }
+    return null;
+  }
+}
+export class HostSystem implements DiagnosticSystem {
+  host():DiagnosticReport['host'] {
+    let release='unknown',distribution='unknown';
+    try {
+      const text=readFileSync('/etc/os-release','utf8');
+      distribution=/^ID=["']?([^\n"']+)/m.exec(text)?.[1]??'unknown';
+      release=/^VERSION_ID=["']?([^\n"']+)/m.exec(text)?.[1]??'unknown';
+    } catch {}
+    return {os:platform(),architecture:arch(),distribution,release};
+  }
+  storage(path:string):StorageResult {
+    let exists=false;
+    try {
+      let current=parse(path).root, missing=false;
+      for(const component of path.slice(current.length).split('/')) {
+        if(!component)continue;current=join(current,component);
+        try {const stat=lstatSync(current);if(stat.isSymbolicLink())return {exists,freeBytes:null,code:'STORAGE_SYMLINK',message:'Installation path must not traverse symlinks.'};if(!stat.isDirectory())return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Installation path must contain only directories.'};}
+        catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT'){missing=true;break;}throw error;}
+      }
+      exists=!missing;
+      if(exists&&readdirSync(path).length)return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing nonempty directory is not a Task 1 installation.'};
+      let ancestor=path;
+      while(true) {try{lstatSync(ancestor);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;const parent=dirname(ancestor);if(parent===ancestor)throw error;ancestor=parent;}}
+      const stat=lstatSync(ancestor);
+      if(stat.uid!==process.getuid?.()||(stat.mode&0o300)!==0o300)return {exists,freeBytes:null,code:'STORAGE_PERMISSION',message:'Nearest existing directory must be owned, writable and searchable by this user.'};
+      accessSync(ancestor,constants.W_OK|constants.X_OK);
+      const space=statfsSync(ancestor),freeBytes=space.bavail*space.bsize;
+      return {exists,freeBytes,code:freeBytes>=1024**3?'OK':'STORAGE_CAPACITY',message:freeBytes>=1024**3?'Owned storage has at least 1 GiB free.':'At least 1 GiB free storage is required.'};
+    }catch {return {exists,freeBytes:null,code:'STORAGE_PERMISSION',message:'Storage permissions or filesystem information are unavailable.'};}
+  }
+}
+class PortAttempt {
+  readonly server:Server=createServer();
+  completion:((result:boolean)=>void)|null=null;
+  constructor(readonly port:number) {}
+  execute(resolveResult:(value:boolean)=>void):void {
+    this.completion=resolveResult;
+    this.server.once('error',this.failed.bind(this));
+    this.server.listen({port:this.port,host:'127.0.0.1',exclusive:true},this.listening.bind(this));
+  }
+  private failed():void {this.completion!(false);}
+  private listening():void {this.server.close(this.closed.bind(this));}
+  private closed():void {this.completion!(true);}
+}
+export class LoopbackProbe implements DiagnosticPorts {
+  available(port:number):Promise<boolean> {const attempt=new PortAttempt(port);return new Promise<boolean>(attempt.execute.bind(attempt));}
+}
+export class ComposeDeploymentHost implements DeploymentHost {
+  constructor(private readonly commands:DiagnosticCommands=new DockerCommands(),private readonly system:DiagnosticSystem=new HostSystem(),private readonly ports:DiagnosticPorts=new LoopbackProbe()) {}
+  async diagnose(configuration:DiagnosticConfiguration={}):Promise<DiagnosticReport> {
+    const options=PlatformSchemas.configuration.parse(configuration),path=resolve(options.installationDirectory??join(homedir(),'.local/share/treeseed-cordis')),port=options.port??8443;
+    const host=this.system.host(),checks:DiagnosticReport['checks']=[],engine:DiagnosticReport['engine']={context:null,endpoint:null,serverVersion:null,serverArchitecture:null,composeVersion:null,cpus:null,memoryBytes:null};
+    this.check(checks,'host',host.os==='linux'&&host.architecture==='x64'&&host.distribution==='ubuntu'&&host.release==='26.04','UNSUPPORTED_HOST','Ubuntu 26.04 x64 is the qualified host.');
+    const context=options.context??this.commands.execute(['context','show']);
+    let endpoint:string|null=null;
+    if(context&&/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(context)) {
+      engine.context=context;
+      endpoint=this.parseString(this.commands.execute(['context','inspect',context,'--format','{{json .Endpoints.docker.Host}}']));
+    }
+    const local=endpoint!==null&&endpoint.startsWith('unix:///')&&(!process.env.DOCKER_HOST||process.env.DOCKER_HOST===endpoint);
+    this.check(checks,'context',local,endpoint?'REMOTE_ENGINE':'DOCKER_UNAVAILABLE',endpoint?'Select a local Unix Docker context and remove conflicting DOCKER_HOST overrides.':'Docker CLI or selected context is unavailable.');
+    if(local&&context) {
+      engine.endpoint=endpoint;
+      const info=this.parseObject(this.commands.execute(['--context',context,'info','--format','{{json .}}']));
+      engine.serverVersion=this.string(info,'ServerVersion');engine.serverArchitecture=this.string(info,'Architecture');
+      engine.cpus=this.number(info,'NCPU');engine.memoryBytes=this.number(info,'MemTotal');
+      const supported=this.string(info,'OSType')==='linux'&&['x86_64','amd64'].includes(engine.serverArchitecture??'');
+      this.check(checks,'engine',engine.serverVersion!==null&&supported,'ENGINE_UNAVAILABLE','A reachable Linux amd64 Docker engine is required.');
+      const compose=this.parseObject(this.commands.execute(['--context',context,'compose','version','--format','json']));
+      engine.composeVersion=this.string(compose,'version');
+      this.check(checks,'compose',engine.composeVersion!==null,'COMPOSE_UNAVAILABLE','Docker Compose must be available in the selected context.');
+      this.check(checks,'resources',(engine.cpus??0)>=2&&(engine.memoryBytes??0)>=2*1024**3,'ENGINE_RESOURCES','The engine requires at least 2 CPUs and 2 GiB memory.');
+    } else {
+      this.check(checks,'engine',false,'ENGINE_NOT_PROBED','Engine was not contacted because context validation failed.');
+      this.check(checks,'compose',false,'COMPOSE_NOT_PROBED','Compose was not queried because context validation failed.');
+      this.check(checks,'resources',false,'RESOURCES_NOT_PROBED','Engine resources were not queried.');
+    }
+    const storage=this.system.storage(path);
+    this.check(checks,'storage',storage.code==='OK',storage.code,storage.message);
+    this.check(checks,'port',await this.ports.available(port),'PORT_UNAVAILABLE','The selected loopback port must be available to this user.');
+    let ready=true;for(const check of checks)if(check.status==='blocked')ready=false;
+    return PlatformSchemas.diagnostic.parse({ready,host,engine,installation:{path,exists:storage.exists,freeBytes:storage.freeBytes},port,checks});
+  }
+  private check(checks:DiagnosticReport['checks'],id:string,passed:boolean,code:string,message:string):void {checks.push({id,status:passed?'pass':'blocked',code:passed?'OK':code,message});}
+  private parseObject(value:string|null):Record<string,unknown>|null {try{const result:unknown=JSON.parse(value??'null');return result!==null&&typeof result==='object'&&!Array.isArray(result)?result as Record<string,unknown>:null;}catch{return null;}}
+  private parseString(value:string|null):string|null {try{const parsed:unknown=JSON.parse(value??'null');return typeof parsed==='string'?parsed:null;}catch{return null;}}
+  private string(value:Record<string,unknown>|null,key:string):string|null {const field=value?.[key];return typeof field==='string'&&field.trim()?field:null;}
+  private number(value:Record<string,unknown>|null,key:string):number|null {const field=value?.[key];return typeof field==='number'&&Number.isFinite(field)&&field>=0?field:null;}
+}

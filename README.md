@@ -51,3 +51,10 @@ archives contain the exact generated package bytes, with source commit and SHA25
 `package.json` and installation integrity in `bun.lock`. Consumers use public package exports,
 never sibling source. These are review candidates, with no registry publication or production
 release. Migration PRs target `cordis`; issues remain open until authorized release.
+
+Docker executable resolution uses the current PATH explicitly and passes the current environment.
+Observed on Bun1.4.4+38afee6c8, Ubuntu26.04.1 x64: `node:child_process.spawnSync('docker',
+['--version'], {env:{...process.env}})` after `process.env.PATH=''` still found Docker29.9.1.
+The missing-engine regression checks our explicit resolver instead of trusting implicit lookup.
+[Bun subprocess PATH documentation](https://bun.com/reference/bun/spawnSync) describes explicit
+PATH handling; this observation records the exact configuration rather than a general limitation.
