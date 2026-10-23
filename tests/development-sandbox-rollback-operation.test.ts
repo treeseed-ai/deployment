@@ -4,11 +4,11 @@ import { resolve } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({ sessionId: 'dev-sandbox-rollback-operation', source: '', stateRoot: '', fsRoot: '', fault: '',
-	providerFailure: false, brokerActive: true, states: { manager: true, runner: true },
+	providerFailure: false, providerSelected: true, initialStates: { manager: true, runner: true }, brokerActive: true, states: { manager: true, runner: true },
 	guestDigest: `sha256:${'a'.repeat(64)}`, hostDigest: `sha256:${'a'.repeat(64)}`, bindCalls: [] as string[], recordCalls: [] as string[] }));
 vi.mock('../src/manager/development-sessions.js', () => ({ DevelopmentSessionStore: class { load() { return { session: {
 	sessionId: fixture.sessionId, status: 'active', repositories: [{ projectId: 'agent', worktree: fixture.source }], routes: [],
-	targets: [{ projectId: 'agent', targetId: 'provider', mode: 'candidate' }, { projectId: 'agent', targetId: 'sandbox', mode: 'candidate' }],
+	targets: [{ projectId: 'agent', targetId: 'provider', mode: fixture.providerSelected ? 'candidate' : 'released' }, { projectId: 'agent', targetId: 'sandbox', mode: 'candidate' }],
 } }; } } }));
 vi.mock('../src/core/configuration.js', () => ({ loadHostConfiguration: () => ({ components: { agent: { configuration: { files: { 'treeseed.capacity-provider.yaml': 'schemaVersion: 5\n' } } } } }) }));
 vi.mock('../src/supervisor/component.js', async original => ({ ...await original<typeof import('../src/supervisor/component.js')>(), componentStateRoot: () => fixture.stateRoot }));
@@ -65,12 +65,13 @@ afterEach(() => {
 	const work = `/run/treeseed/development-containers/${fixture.sessionId}`;
 	rmSync(work, { recursive: true, force: true });
 	rmSync(fixture.fsRoot, { recursive: true, force: true });
-	fixture.fault = ''; fixture.providerFailure = false; fixture.brokerActive = true; fixture.states = { manager: true, runner: true };
+	fixture.fault = ''; fixture.providerFailure = false; fixture.providerSelected = true; fixture.initialStates = { manager: true, runner: true }; fixture.brokerActive = true; fixture.states = { manager: true, runner: true };
 	fixture.guestDigest = `sha256:${'a'.repeat(64)}`; fixture.hostDigest = fixture.guestDigest; fixture.bindCalls = []; fixture.recordCalls = [];
 });
 
 function setup(fault: string) {
 	fixture.fault = fault;
+	fixture.states = { ...fixture.initialStates };
 	const sourceParent = mkdtempSync(resolve(tmpdir(), 'sandbox-rollback-parent-')); temporary.push(sourceParent);
 	const source = mkdtempSync(resolve(sourceParent, 'source-')); temporary.push(source); fixture.source = source;
 	fixture.fsRoot = mkdtempSync(resolve(tmpdir(), 'sandbox-rollback-run-')); temporary.push(fixture.fsRoot);
@@ -145,4 +146,28 @@ it.each(['copy', 'import', 'start', 'restore'])('runs %s failure through sandbox
 	}
 	if (fault === 'restore') expect(fixture.states).toEqual({ manager: false, runner: false });
 	else expect(fixture.states).toEqual({ manager: true, runner: true });
+});
+
+it.each([
+	{ providerSelected: true, manager: true, runner: true },
+	{ providerSelected: true, manager: true, runner: false },
+	{ providerSelected: true, manager: false, runner: true },
+	{ providerSelected: true, manager: false, runner: false },
+	{ providerSelected: false, manager: true, runner: true },
+	{ providerSelected: false, manager: true, runner: false },
+	{ providerSelected: false, manager: false, runner: true },
+	{ providerSelected: false, manager: false, runner: false },
+])('restores exact initial roles after failed guest import ($providerSelected, manager=$manager, runner=$runner)', ({ providerSelected, manager, runner }) => {
+	fixture.providerSelected = providerSelected;
+	fixture.initialStates = { manager, runner };
+	const f = setup('import');
+	const original = { ...fixture.initialStates };
+	expect(() => executeAgentDevelopmentContainer({ sessionId: fixture.sessionId, projectId: 'agent', targetId: 'sandbox', action: 'start' }, f.command)).toThrow();
+	expect(fixture.states).toEqual(original);
+	expect(fixture.brokerActive).toBe(true);
+	const roleStarts = f.commands.filter(args => args[0] === 'start' && /^treeseed-agent-(?:runner|manager)-1$/u.test(String(args.at(-1)))).map(args => args.at(-1));
+	expect(roleStarts).toEqual([...(runner ? ['treeseed-agent-runner-1'] : []), ...(manager ? ['treeseed-agent-manager-1'] : [])]);
+	const brokerStart = f.commands.findIndex(args => args[0] === 'start' && args[1] === 'treeseed-sandbox-broker.service');
+	const lastRoleStart = Math.max(...f.commands.map((args, index) => args[0] === 'start' && /^treeseed-agent-(?:runner|manager)-1$/u.test(String(args.at(-1))) ? index : -1));
+	expect(brokerStart).toBeGreaterThan(lastRoleStart);
 });

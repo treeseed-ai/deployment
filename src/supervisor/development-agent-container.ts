@@ -250,6 +250,17 @@ export function stopForHandoff(command: CommandRunner, stateRoot: string, restor
 		}
 		throw error;
 	}
+	return running;
+}
+
+function restoreProviderRoles(command: CommandRunner, running: ReadonlySet<'manager' | 'runner'>) {
+	try {
+		if (running.has('runner')) startService(command, 'runner');
+		if (running.has('manager')) startService(command, 'manager');
+	} catch (error) {
+		for (const service of ['runner', 'manager'] as const) try { stopService(command, service); } catch { /* keep admission closed */ }
+		throw error;
+	}
 }
 
 interface SandboxDevelopmentReceipt {
@@ -334,7 +345,7 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 		// Image creation above is inert. Reuse the provider's existing handoff
 		// fence before importing or selecting a guest digest, including its second
 		// authority read and twice-complete physical absence proof for recovery.
-		stopForHandoff(command, stateRoot, () => startService(command, 'manager'), { keepBrokerStopped: true });
+		const originalRunningRoles = stopForHandoff(command, stateRoot, () => startService(command, 'manager'), { keepBrokerStopped: true });
 		try {
 			if (hadProviderDirectory) {
 				cpSync(providerDirectory, providerSnapshot, { recursive: true, errorOnExist: true });
@@ -368,15 +379,7 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 				if (priorReceipt) writeFileSync(receiptPath, priorReceipt, { mode: 0o600 });
 				else rmSync(receiptPath, { force: true });
 				restoreSandboxProviderDirectory(providerSelected, hadProviderDirectory, providerSnapshotReady, providerDirectory, providerSnapshot);
-				if (providerSelected) {
-					try {
-						startService(command, 'manager');
-						startService(command, 'runner');
-					} catch (startError) {
-						for (const service of ['runner', 'manager'] as const) try { stopService(command, service); } catch { /* keep the broker fence closed */ }
-						throw startError;
-					}
-				}
+				restoreProviderRoles(command, originalRunningRoles);
 				command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			} catch (restoreError) {
 				throw new Error(`Managed sandbox guest replacement failed; rollback could not confirm prior trust or provider and broker quiescence. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause: error });
