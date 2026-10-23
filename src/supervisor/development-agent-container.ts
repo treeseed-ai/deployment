@@ -198,10 +198,15 @@ function expiredRecoveryClaim(value: unknown) {
 	const claim = row(value), assignment = row(row(claim.dispatchEnvelope).assignment), attempt = row(assignment.assignmentAttempt);
 	const clock = (input: unknown) => typeof input === 'string' && /^\d{4}-\d{2}-\d{2}T.*Z$/u.test(input) ? Date.parse(input) : NaN;
 	const deadline = clock(attempt.deadline), lease = clock(claim.leaseExpiresAt), start = clock(claim.activeStartedAt), now = Date.now();
+	// The provider records this original start after authenticated execution-start.
+	// Its frozen productive limit can expire before the enclosing workday deadline.
+	const maximumSeconds = row(attempt.limits).maximumSeconds;
+	const executionDeadline = typeof maximumSeconds === 'number' && Number.isSafeInteger(maximumSeconds) && maximumSeconds > 0
+		&& Number.isSafeInteger(start + maximumSeconds * 1_000) ? start + maximumSeconds * 1_000 : NaN;
 	return claim.status === 'recovery' && typeof claim.assignmentId === 'string' && claim.assignmentId.length > 0
 		&& attempt.schemaVersion === 'treeseed.assignment-attempt/v1' && attempt.id === claim.assignmentId
 		&& Number.isFinite(deadline) && Number.isFinite(lease) && Number.isFinite(start) && start <= deadline
-		&& deadline <= now && lease <= now;
+		&& Math.min(deadline, Number.isFinite(executionDeadline) ? executionDeadline : deadline) <= now && lease <= now;
 }
 
 /** Quiesce the existing producer and observe execution absence. This permits
