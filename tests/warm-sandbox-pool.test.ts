@@ -110,12 +110,12 @@ describe('one-use pristine warm sandbox pool', () => {
 	}, 30_000);
 });
 it('native owning runtime retains its actual acquired VM identity through guest interruption and exact independent host absence',async()=>{
- let phase='INSTALLED_BYTES';const mark=(value:string)=>{phase=value;console.log(JSON.stringify({nativeExecutionVmPhase:phase,observedAt:new Date().toISOString()}));};
+ let phase='INSTALLED_BYTES',originalFailurePhase:string|undefined;const mark=(value:string)=>{phase=value;console.log(JSON.stringify({nativeExecutionVmPhase:phase,observedAt:new Date().toISOString()}));};
  onTestFailed(()=>{
-  console.error(JSON.stringify({nativeExecutionVmFailedPhase:phase,originalBoundMillis:30000}));
+  console.error(JSON.stringify({nativeExecutionVmFailedPhase:originalFailurePhase??phase,originalBoundMillis:30000}));
   // The existing prerequisite receipt retains approved phase criteria while
   // redacting private assertion output. Vitest keeps the original failure too.
-  throw new Error(`ACCEPTANCE_NATIVE_PHASE_${phase}`);
+  throw new Error(`ACCEPTANCE_NATIVE_PHASE_${originalFailurePhase??phase}`);
  });
  const installed='/usr/lib/treeseed/manager/dist/src/sandbox/runtime.js';
  expect(await readFile(installed)).toEqual(await readFile('dist/src/sandbox/runtime.js'));
@@ -150,11 +150,11 @@ it('native owning runtime retains its actual acquired VM identity through guest 
   expect(absent.vmProcesses!.some(vm=>vm.name==='sandbox-'+String(vmId))).toBe(false);
   for(const kind of ['tasks','containers'] as const)expect(absent[kind]!.trim().split(/\s+/u)).not.toContain(vmId);
   expect(await readFile('/etc/treeseed/sandbox/broker.json')).toEqual(original);
- }catch(error){failures.push(error);console.error(JSON.stringify({nativeExecutionVmOriginalFailurePhase:phase}));}finally{
+ }catch(error){originalFailurePhase=phase;failures.push(error);console.error(JSON.stringify({nativeExecutionVmOriginalFailurePhase:phase}));}finally{
   mark('SCOPED_FAILURE_CLEANUP');
   for(const owner of owned)try{await runtime.cancel(owner.sandboxId,owner.operationToken);await pending;await runtime.destroy(owner.sandboxId,owner.operationToken);}catch(error){failures.push(error);}
   try{await pending;}catch(error){failures.push(error);}try{await runtime.drainWarmPool();}catch(error){failures.push(error);}
   console.log(JSON.stringify({nativeExecutionVmCustody:observations,scopedCleanupAttempts:owned.map(owner=>owner.sandboxId),managedWorkday:false,modelDispatched:false}));
  }
- if(failures.length)throw new AggregateError(failures,'Original native execution VM custody or scoped cleanup failed.');
+ if(failures.length)throw new Error(`ACCEPTANCE_NATIVE_PHASE_${originalFailurePhase??phase}: Original native execution VM custody or scoped cleanup failed.`,{cause:new AggregateError(failures,'Original native execution VM custody or scoped cleanup failed.')});
 },30000);
