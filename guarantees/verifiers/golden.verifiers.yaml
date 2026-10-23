@@ -1337,6 +1337,18 @@ verifiers:
     testFile: tests/development-provider-drain.test.ts
     testName: "drains a physically closed recovery for code handoff while retaining its original accounting and product bytes"
 
+  deployment.golden.provider-expired-productive-recovery:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-drain.test.ts
+    testName: "replaces provider code after expired unknown recovery is physically fenced without inventing closure or settling usage"
+
+  deployment.golden.provider-live-productive-recovery-denied:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/development-provider-drain.test.ts
+    testName: "requires original bounded productive authority and an expired lease before an early recovery handoff"
+
   deployment.golden.provider-closed-recovery-claims:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
