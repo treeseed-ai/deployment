@@ -456,6 +456,9 @@ export function executeAgentDevelopmentContainer(input: AgentDevelopmentInput, c
 			writeAgentDevelopmentManifest(manifestPath, manifest);
 			atomicJson(override, renderAgentDevelopmentOverride({ sessionId: input.sessionId, runtimeRoot, sourceClosureDigest: receipt.digest, environment, sandboxGuestDigest: guestDigest, manifestPath }), 0o600);
 			atomicJson(handoff, { restore: true }, 0o600);
+			// Trust and source are selected while fenced. Provider readiness needs
+			// the broker socket before Compose can wait for the new roles' health.
+			if (input.guestReplacement) command('/usr/bin/systemctl', ['start', 'treeseed-sandbox-broker.service']);
 			command('/usr/bin/docker', [...candidateCompose, 'up', '--detach', '--wait', '--wait-timeout', '120', '--force-recreate', ...services]);
 		} catch (error) {
 			if (!input.guestReplacement) {

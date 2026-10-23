@@ -138,6 +138,8 @@ function setup(fault: string) {
 		if (executable === '/usr/bin/docker' && args[0] === 'image' && args[1] === 'save') { writeFileSync(String(args[args.indexOf('--output') + 1]), Buffer.alloc(2048, 1)); return ''; }
 		if (executable === '/usr/bin/docker' && args[0] === 'compose') {
 			if (fixture.providerFailure) throw new Error('fixture provider start failure');
+			// The real provider healthcheck requires the sandbox broker socket.
+			if (!fixture.brokerActive) throw new Error('Managed development application_unhealthy (broker socket unavailable).');
 			fixture.states = { manager: true, runner: true }; return '';
 		}
 		if (executable === '/usr/bin/systemctl' && args[0] === 'stop') { fixture.brokerActive = false; return ''; }
