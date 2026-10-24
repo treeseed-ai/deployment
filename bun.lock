@@ -16,7 +16,7 @@
     },
   },
   "packages": {
-    "@treeseed-cordis/sdk": ["@treeseed-cordis/sdk@vendor/sdk.tgz", { "dependencies": { "zod": "4.6.7" } }, "sha512-mbIgZ2SeT+n5kQl6RRX/mu5eDZ8pzrrs4DPx6hLHivyG1QdsWavgWQZZK/Mc7yA4D1Dlpd74oV2OlCWL1Lg/9g=="],
+    "@treeseed-cordis/sdk": ["@treeseed-cordis/sdk@vendor/sdk.tgz", { "dependencies": { "zod": "4.6.7" } }, "sha512-+L6Q7Pj5TeReRS5PdqjvjUon+EALz8vj9t1K5Lw76dBeJrC7Iqz9TKXxoQtjNsGAt1nYyHjA2hs4Di5lPU+5tw=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
