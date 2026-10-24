@@ -43,8 +43,8 @@
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "adeccc21a99b55c68ddd2d9f6cc84bc5688d6d86",
-      "sha256": "2cd7924c50fc0ecee64065e7ff61710166f83bc9d35eb0604feedb0a82de764c"
+      "commit": "2aa1cd1a1db9e46b7d324153494e0f411894f597",
+      "sha256": "edc1085f60b6ef38bb13301eaa488a3fbe7af61c3364272ed15103e168e0ff6f"
     }
   },
   "dependencies": {
