@@ -1,14 +1,35 @@
 import { expect, it, vi } from 'vitest';
-import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, restoreReleasedRunner } from '../src/supervisor/development-runner.js';
+import { drainCandidateRunner, drainReleasedRunner, releasedRunnerIdentity, releasedRunnerPresent, restoreReleasedRunner } from '../src/supervisor/development-runner.js';
+
+it('does not require an absent released container to replace the existing development runner', () => {
+  const command = vi.fn((_exe: string, args: readonly string[]) => {
+    if (args[0] === 'ps') return '';
+    throw new Error('No such released container');
+  });
+  expect(releasedRunnerIdentity(command)).toBeNull();
+  expect(command.mock.calls.map(call => call[1][0])).toEqual(['ps']);
+});
+
+it.each(['foreign', 'treeseed-api-operations-runner-1\nforeign', 'null', '[]'])('denies malformed released inventory %s rather than assuming absence', output => {
+  const command = vi.fn(() => output);
+  expect(() => releasedRunnerPresent(command)).toThrow('inventory');
+  expect(command).toHaveBeenCalledTimes(1);
+});
+
+it('preserves an inventory transport failure without inspecting, draining or inventing an identity', () => {
+  const command = vi.fn(() => { throw new Error('Docker inventory unavailable'); });
+  expect(() => releasedRunnerIdentity(command)).toThrow('Docker inventory unavailable');
+  expect(command).toHaveBeenCalledTimes(1);
+});
 
 it('inherits only the owned released runner numeric identity', () => {
-  const inspect = (User: string) => () => JSON.stringify({Config: {User, Labels: {
+  const inspect = (User: string) => (_exe: string, args: readonly string[]) => args[0] === 'ps' ? 'treeseed-api-operations-runner-1' : JSON.stringify({Config: {User, Labels: {
     'com.docker.compose.project':'treeseed-api', 'com.docker.compose.service':'operations-runner',
   }}});
   expect(releasedRunnerIdentity(inspect(''))).toEqual({uid:0,gid:0});
   expect(releasedRunnerIdentity(inspect('65532:65532'))).toEqual({uid:65532,gid:65532});
   for (const user of ['node','1000','-1:0','4294967295:0']) expect(()=>releasedRunnerIdentity(inspect(user))).toThrow();
-  expect(()=>releasedRunnerIdentity(()=>JSON.stringify({Config:{User:'0:0',Labels:{}}}))).toThrow('ownership');
+  expect(()=>releasedRunnerIdentity((_exe, args)=>args[0] === 'ps' ? 'treeseed-api-operations-runner-1' : JSON.stringify({Config:{User:'0:0',Labels:{}}}))).toThrow('ownership');
 });
 
 function runner(owned = true, exit = '0') {

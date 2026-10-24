@@ -2,29 +2,39 @@ import { expect, it, vi } from 'vitest';
 import { probeRunnerCustody, recoverRunnerCustody } from '../src/supervisor/runner-custody-probe.js';
 import { supervisorOperationSchema } from '../src/supervisor/protocol.js';
 
+it('treats proven released-container absence as inactive without inspecting, authenticating or restoring it', () => {
+  const command = vi.fn((_exe: string, args: readonly string[]) => {
+    if (args[0] === 'ps') return '';
+    throw new Error('No such released container');
+  });
+  expect(recoverRunnerCustody(command)).toEqual({ action: 'noop', status: 'inactive', startedAt: null, startedBeforeTrustFile: null });
+  expect(command.mock.calls.map(call => call[1][0])).toEqual(['ps']);
+});
+
 function fixture() {
   const state = { id: 'a'.repeat(64), project: 'treeseed-api', service: 'operations-runner', running: true, startedAt: '2026-09-09T10:00:00Z' };
   const result = { status: 'authenticated', httpStatus: 204, trustModifiedAt: '2026-09-09T10:01:00Z' };
-  const command = vi.fn((_exe: string, args: readonly string[], _input?: string): unknown => JSON.stringify(args[0] === 'inspect' ? state : result));
+  const command = vi.fn((_exe: string, args: readonly string[], _input?: string): unknown => args[0] === 'ps'
+    ? 'treeseed-api-operations-runner-1' : JSON.stringify(args[0] === 'inspect' ? state : result));
   return { state, result, command };
 }
 it('probes only the observed managed container and identifies startup trust ordering', () => {
   const f = fixture(); expect(probeRunnerCustody(f.command)).toMatchObject({ status: 'authenticated', startedBeforeTrustFile: true });
-  expect(f.command.mock.calls[1]![1]).toEqual(['exec', '-i', 'a'.repeat(64), 'node', '--input-type=module']);
-  expect(f.command.mock.calls[1]![2]).toContain('auth/token/revoke-self');
+  expect(f.command.mock.calls[2]![1]).toEqual(['exec', '-i', 'a'.repeat(64), 'node', '--input-type=module']);
+  expect(f.command.mock.calls[2]![2]).toContain('auth/token/revoke-self');
 });
 it.each(['project', 'service', 'id', 'startedAt'])('rejects invalid %s before execution', key => {
   const f = fixture(); Object.assign(f.state, { [key]: key === 'running' ? false : 'foreign' });
-  expect(() => probeRunnerCustody(f.command)).toThrow('unavailable'); expect(f.command).toHaveBeenCalledTimes(1);
+  expect(() => probeRunnerCustody(f.command)).toThrow('unavailable'); expect(f.command).toHaveBeenCalledTimes(2);
 });
 it('leaves an explicitly stopped released runner stopped', () => {
   const f = fixture(); f.state.running = false;
   expect(recoverRunnerCustody(f.command)).toMatchObject({action:'noop',status:'inactive'});
-  expect(f.command).toHaveBeenCalledTimes(1);
+  expect(f.command).toHaveBeenCalledTimes(2);
 });
 it('renders a complete JSON object around the Docker template fields', () => {
   const f = fixture(); probeRunnerCustody(f.command);
-  const format = f.command.mock.calls[0]![1][3]!;
+  const format = f.command.mock.calls[1]![1][3]!;
   expect(JSON.parse(format.replace(/\{\{.*?\}\}/gu, 'null'))).toEqual({id:null,project:null,service:null,running:null,startedAt:null});
 });
 

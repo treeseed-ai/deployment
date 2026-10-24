@@ -11,6 +11,7 @@ import { executeDevelopmentContainer } from '../../src/supervisor/development-co
 import { developmentRuntimeStatus } from '../../src/supervisor/development-runtime-copy.js';
 import { supervisorConnectionHandler } from '../../src/supervisor/server.js';
 import { requestSupervisor } from '../../src/supervisor/client.js';
+import { recoverRunnerCustody } from '../../src/supervisor/runner-custody-probe.js';
 import { paths } from '../../src/core/paths.js';
 
 // The original supervisor and immutable copier run in a disposable filesystem.
@@ -53,16 +54,20 @@ const runtime=developmentRuntimeSchema.parse({schemaVersion:'treeseed.developmen
 new DevelopmentSessionStore().save({session:{schemaVersion:'treeseed.development-session/v2',sessionId,actor:'fixture',hostId:'fixture',createdAt:new Date().toISOString(),status:'active',
  repositories:[{projectId:'api',repository:'treeseed-ai/api',worktree:source,commit:'a'.repeat(40),branch:'staging',dirty:false,dirtyDigest:null,recipeDigest:`sha256:${'a'.repeat(64)}`}],
  targets:[{projectId:'api',targetId:'operations-runner',mode:'candidate',generation:1,health:'ready'}],leases:[],restoredReceiptId:null,blockers:[]},runtimes:[runtime],routes:[],candidates:[]});
-let running=false,starts=0,drains=0,releasedRunning=true,failing=false;
+const releasedPresent=shape!=='absent-released';
+let running=false,starts=0,drains=0,releasedRunning=releasedPresent,failing=false;
 const image=`sha256:${'a'.repeat(64)}`;
 const transport=(_exe:string,args:readonly string[])=>{
  if(args[0]==='image')return image;
  if(args[0]==='ps'&&args.includes('label=com.docker.compose.project=treeseed-api'))return 'fixture-vault';
  if(args[0]==='inspect'&&args[1]==='--format')return 'openbao\trunning\thealthy\tfixture-image';
  if(args[0]==='compose'&&args.includes('config'))return JSON.stringify({services:{openbao:{image:'fixture-image'}}});
- if(args[0]==='ps'&&args.includes('name=^/treeseed-api-operations-runner-1$'))return 'treeseed-api-operations-runner-1';
+ if(args[0]==='ps'&&args.includes('name=^/treeseed-api-operations-runner-1$'))return releasedPresent?'treeseed-api-operations-runner-1':'';
  if(args[0]==='ps')return running?`treeseed-${sessionId}-api-operations-runner`:'';
- if(args[0]==='inspect'&&args[1]==='treeseed-api-operations-runner-1')return JSON.stringify({Config:{User:'65532:65532',Labels:{'com.docker.compose.project':'treeseed-api','com.docker.compose.service':'operations-runner'}},State:{Running:releasedRunning}});
+ if(args[0]==='inspect'&&args[1]==='treeseed-api-operations-runner-1') {
+  assert.ok(releasedPresent,'Never inspect an absent released container');
+  return JSON.stringify({Config:{User:'65532:65532',Labels:{'com.docker.compose.project':'treeseed-api','com.docker.compose.service':'operations-runner'}},State:{Running:releasedRunning}});
+ }
  if(args[0]==='inspect')return JSON.stringify({Config:{Labels:{'org.treeseed.development.session':failing&&shape==='foreign-owner'?'dev-foreign':sessionId,'org.treeseed.development.target':'api.operations-runner'}},State:{Running:running}});
  if(args[0]==='kill'){
   if(args.at(-1)==='treeseed-api-operations-runner-1')releasedRunning=false;
@@ -83,6 +88,7 @@ const transport=(_exe:string,args:readonly string[])=>{
  throw new Error(`Unexpected Docker fixture operation: ${args[0]}`);
 };
 const input={operation:'development.container' as const,sessionId,projectId:'api' as const,targetId:'operations-runner' as const,action:'start' as const};
+if(!releasedPresent)assert.deepEqual(recoverRunnerCustody(transport),{action:'noop',status:'inactive',startedAt:null,startedBeforeTrustFile:null});
 assert.deepEqual(executeDevelopmentContainer(input,transport),{started:true});
 const first=developmentRuntimeStatus(directory);
 make(`${source}/dist/main.js`,'second-runtime');chownSync(`${source}/dist/main.js`,1000,1000);
@@ -147,5 +153,9 @@ assert.equal(readFileSync(`${directory}/runtime/dist/main.js`,'utf8'),'second-ru
 assert.equal(starts,2);assert.equal(drains,1);assert.equal(running,true);
 assert.equal(existsSync(`${source}/dist/main.js`),true);
 assert.equal(readdirSync(directory).some(name=>name.startsWith('prepare-')),false);
+if(!releasedPresent) {
+ assert.deepEqual(executeDevelopmentContainer({...input,action:'stop'},transport),{stopped:true});
+ assert.equal(existsSync(directory),false);assert.equal(running,false);assert.equal(releasedRunning,false);
+}
 console.log(JSON.stringify({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true}));
 }

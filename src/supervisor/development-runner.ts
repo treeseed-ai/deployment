@@ -2,8 +2,16 @@ import type { CommandRunner } from './compose-runtime.js';
 
 const name = 'treeseed-api-operations-runner-1';
 
+/** A successful exact inventory distinguishes absence from a failed inspection. */
+export function releasedRunnerPresent(command: CommandRunner): boolean {
+  const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'])).trim();
+  if (found && found !== name) throw new Error('Released runner inventory does not match the managed API.');
+  return found === name;
+}
+
 /** Preserve the installed runner's state identity without changing host permissions. */
-export function releasedRunnerIdentity(command: CommandRunner): { uid: number; gid: number } {
+export function releasedRunnerIdentity(command: CommandRunner): { uid: number; gid: number } | null {
+  if (!releasedRunnerPresent(command)) return null;
   const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{"Config":{"User":{{json .Config.User}},"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}}}}'])));
   if (state.Config?.Labels?.['com.docker.compose.project'] !== 'treeseed-api' || state.Config?.Labels?.['com.docker.compose.service'] !== 'operations-runner')
     throw new Error('Released runner ownership does not match the managed API.');
@@ -17,8 +25,7 @@ export function releasedRunnerIdentity(command: CommandRunner): { uid: number; g
 
 /** Fixed managed runner only; never force-kill work to enter development. */
 export function drainReleasedRunner(command: CommandRunner): boolean {
-  const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'])).trim();
-  if (!found) return false;
+  if (!releasedRunnerPresent(command)) return false;
   const state = JSON.parse(String(command('/usr/bin/docker', ['inspect', name, '--format', '{"Config":{"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}}}}'])));
   if (state.Config?.Labels?.['com.docker.compose.project'] !== 'treeseed-api' || state.Config?.Labels?.['com.docker.compose.service'] !== 'operations-runner')
     throw new Error('Released runner ownership does not match the managed API.');

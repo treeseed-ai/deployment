@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
 import type { CommandRunner } from './compose-runtime.js';
-import { drainReleasedRunner, restoreReleasedRunner } from './development-runner.js';
+import { drainReleasedRunner, releasedRunnerPresent, restoreReleasedRunner } from './development-runner.js';
 
 const name = 'treeseed-api-operations-runner-1';
 const resultSchema = z.object({
@@ -58,6 +58,7 @@ const bounded: CommandRunner = (executable, args, input) => {
 export function probeRunnerCustody(command: CommandRunner = bounded) {
   let stage = 'inspect';
   try {
+    if (!releasedRunnerPresent(command)) return { status: 'inactive' as const, startedAt: null, startedBeforeTrustFile: null };
     const raw = String(command('/usr/bin/docker', ['inspect', name, '--format', '{"id":{{json .Id}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"running":{{json .State.Running}},"startedAt":{{json .State.StartedAt}}}'], ''));
     const state = JSON.parse(raw);
     if (!/^[a-f0-9]{64}$/u.test(state.id) || state.project !== 'treeseed-api' || state.service !== 'operations-runner' || typeof state.running !== 'boolean'

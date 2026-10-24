@@ -209,7 +209,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   environment.TREESEED_IDENTITY_HOSTNAME=new URL(managedIdentityClientPlan(host).issuer).hostname;
   if(targetId==='operations-runner') {
     const runner=releasedRunnerIdentity(command);
-    if(runner.uid!==identity.uid||runner.gid!==identity.gid)throw new Error('Managed development runner custody identity mismatch.');
+    if(runner&&(runner.uid!==identity.uid||runner.gid!==identity.gid))throw new Error('Managed development runner custody identity mismatch.');
   }
   for(const path of ['/run/treeseed/postgres-clients/api/api/runtime/url','/run/treeseed/identity-clients/api/runtime.json']) {
     const stat=lstatSync(path);
