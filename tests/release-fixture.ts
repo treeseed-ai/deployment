@@ -20,11 +20,11 @@ export class PreparedReleaseFixture {
   async prepare(port=58443):Promise<this> {
     mkdirSync(this.bundle);mkdirSync(join(this.bundle,'oci/blobs/sha256'),{recursive:true});mkdirSync(join(this.bundle,'archives'));
     const source=join(this.root,'plugin');mkdirSync(join(source,'package'),{recursive:true});
-    const module=`export class FixturePlugin { static readonly declaration = ${JSON.stringify(this.metadata)}; static readonly provide=this.declaration.provide; static readonly inject=this.declaration.inject; }`;
+    const module=`import {writeFileSync} from "node:fs"; export class FixturePlugin { static readonly declaration = ${JSON.stringify(this.metadata)}; static readonly provide=this.declaration.provide; static readonly inject=this.declaration.inject; static mark():void {writeFileSync(${JSON.stringify(join(this.root,'SCRIPT_CANARY'))},"unexpected execution");} } FixturePlugin.mark();`;
     writeFileSync(join(source,'fixture.ts'),module);
     const build=spawnSync('bun',['build',join(source,'fixture.ts'),'--target=node','--outfile',join(source,'package/index.js')],{encoding:'utf8'});
     if(build.status!==0)throw new Error('Fixture class compilation failed');
-    writeFileSync(join(source,'package/package.json'),JSON.stringify({name:'@fixture/plugin',version:'1.0.0',type:'module',exports:'./index.js',cordis:this.metadata,scripts:{postinstall:'touch '+join(this.root,'SCRIPT_CANARY')}}));
+    writeFileSync(join(source,'package/package.json'),JSON.stringify({name:'@fixture/plugin',version:'1.0.0',type:'module',exports:'./index.js',cordis:this.metadata,scripts:{postinstall:'node ./index.js'}}));
     await create({cwd:source,file:join(this.bundle,'archives/plugin.tgz'),gzip:true,portable:true},['package']);
     const packageDigest=PreparedReleaseFixture.sha(readFileSync(join(this.bundle,'archives/plugin.tgz')));
     this.write('package.json',{name:'cordis-fixture-composition',version:'1.0.0',private:true,dependencies:{'@fixture/plugin':'file:archives/plugin.tgz'}});

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
 import { test, expect } from 'bun:test';
 import { existsSync, readFileSync, writeFileSync, symlinkSync, mkdirSync, readdirSync, chmodSync, statSync, renameSync, rmSync } from 'node:fs';
@@ -32,6 +32,7 @@ class ArtifactTests {
       const result=await new ArtifactResolver().resolve(fixture.configuration);
       expect(result.artifacts.length).toBe(2);expect(result.artifacts[0]!.kind).toBe('package');expect(result.recipe).toEqual(fixture.recipe);
       expect(existsSync(join(fixture.root,'SCRIPT_CANARY'))).toBe(false);expect(existsSync(fixture.installation)).toBe(false);
+      const calibration=spawnSync('node',[join(fixture.root,'plugin/package/index.js')],{encoding:'utf8'});expect(calibration.status).toBe(0);expect(existsSync(join(fixture.root,'SCRIPT_CANARY'))).toBe(true);
       writeFileSync(join(fixture.bundle,'archives/plugin.tgz'),'tampered');
       await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
     }finally{fixture.close();}
