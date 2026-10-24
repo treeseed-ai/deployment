@@ -1,12 +1,10 @@
-import type { CommandRunner } from './compose-runtime.js';
+import { managedContainerPresent, type CommandRunner } from './compose-runtime.js';
 
 const name = 'treeseed-api-operations-runner-1';
 
 /** A successful exact inventory distinguishes absence from a failed inspection. */
 export function releasedRunnerPresent(command: CommandRunner): boolean {
-  const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'])).trim();
-  if (found && found !== name) throw new Error('Released runner inventory does not match the managed API.');
-  return found === name;
+  return managedContainerPresent(command, name);
 }
 
 /** Preserve the installed runner's state identity without changing host permissions. */

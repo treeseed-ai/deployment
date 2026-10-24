@@ -196,7 +196,7 @@ export function executeDevelopmentContainer(value:unknown,command:CommandRunner=
   });
   // A released Node runner may have auto-started before /run trust existed.
   // A stopped runner belongs to an explicit development handoff and stays stopped.
-  if(targetId==='service') recoverRunnerCustody();
+  if(targetId==='service') recoverRunnerCustody(command);
   const environment=resolveDevelopmentSecretEnvironment(host,'api',target.secretRefs,
     managedContainerDevelopmentConnectionEnvironment(host,component,releases,record.routes));
   const aiStorageKeys=prepareAiStorageIdentities(host,'api');

@@ -1,4 +1,4 @@
-import type { CommandRunner } from './compose-runtime.js';
+import { managedContainerPresent, type CommandRunner } from './compose-runtime.js';
 
 const name = 'treeseed-api-api-1';
 function state(command: CommandRunner) {
@@ -13,6 +13,7 @@ function state(command: CommandRunner) {
 
 /** Only the fixed managed API listener. Vault and operations runner remain independent. */
 export function stopReleasedApi(command: CommandRunner, beforeStop: () => void) {
+  if (!managedContainerPresent(command, name)) return false;
   if (!state(command).running) return false;
   beforeStop(); // durable restoration intent precedes interruption
   command('/usr/bin/docker', ['stop', '--time', '30', name]);

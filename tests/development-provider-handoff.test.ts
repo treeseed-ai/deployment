@@ -28,6 +28,7 @@ it('restarts the API operations runner through the original supervisor with a fr
     expect(apiRestart()).toEqual({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true});
     // The real development handoff can retain only the candidate container.
     expect(apiRestart('absent-released')).toEqual({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true});
+    expect(apiRestart('absent-api-listener')).toEqual({started:true,restarted:true,retainedRunnerUnchanged:true,teardownVerified:true});
 },240_000);
 it.each(['copy-failure','credential-failure','foreign-owner','drain-failure'])(
   'retains exact selected API bytes after %s and retries through the original supervisor',shape=>{
