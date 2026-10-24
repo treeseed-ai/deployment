@@ -160,3 +160,5 @@ export class TcpTableProbe implements DiagnosticPorts {
   }
 }
 export { PlanStore } from './filesystem.js';
+
+export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from './composition.js';
