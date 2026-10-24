@@ -168,4 +168,4 @@ export { PlanStore } from './filesystem.js';
 
 export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from './composition.js';
 
-export {InstallationStore,DeploymentWorkerClient,DeploymentWorker,WorkerComposition,PostgresContainerPlugin,CaddyContainerPlugin} from './installed.js';
+export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,DeploymentWorker,WorkerComposition,PostgresContainerPlugin,CaddyContainerPlugin} from './installed.js';
