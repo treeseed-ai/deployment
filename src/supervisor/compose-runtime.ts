@@ -6,6 +6,13 @@ import { missingRuntimeCredentialServices, type RuntimeCredentialService } from 
 
 export type CommandRunner = (executable: string, arguments_: readonly string[], input?: string) => unknown;
 
+/** Successful exact inventory distinguishes absence from a failed inspection. */
+export function managedContainerPresent(command: CommandRunner, name: string): boolean {
+	const found = String(command('/usr/bin/docker', ['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'])).trim();
+	if (found && found !== name) throw new Error('Managed container inventory does not match the requested identity.');
+	return found === name;
+}
+
 function bundledComposeFiles(files: readonly string[]) {
 	return files.flatMap((file) => {
 		const absolute = resolve(paths.bundles, file), root = resolve(paths.bundles);

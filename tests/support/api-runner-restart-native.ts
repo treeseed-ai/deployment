@@ -51,9 +51,12 @@ const runtime=developmentRuntimeSchema.parse({schemaVersion:'treeseed.developmen
  targets:[{id:'operations-runner',kind:'rebuild-restart',executionCustody:'manager',platforms:['linux-amd64'],sourceRoots:['dist'],
  operations:{start:{command:'manager-runtime',args:[],environment:{}}},ready:{kind:'process',graceSeconds:0},statePolicy:'shared-compatible',migrationPolicy:'explicit-review',
  shutdown:{graceSeconds:30,activeWorkPolicy:'block'},promotion:{liveAdmissible:false,candidateRequiresVerification:true}}]});
+if(shape==='absent-api-listener')runtime.targets.push({...runtime.targets[0]!,id:'service'});
 new DevelopmentSessionStore().save({session:{schemaVersion:'treeseed.development-session/v2',sessionId,actor:'fixture',hostId:'fixture',createdAt:new Date().toISOString(),status:'active',
  repositories:[{projectId:'api',repository:'treeseed-ai/api',worktree:source,commit:'a'.repeat(40),branch:'staging',dirty:false,dirtyDigest:null,recipeDigest:`sha256:${'a'.repeat(64)}`}],
- targets:[{projectId:'api',targetId:'operations-runner',mode:'candidate',generation:1,health:'ready'}],leases:[],restoredReceiptId:null,blockers:[]},runtimes:[runtime],routes:[],candidates:[]});
+ targets:[{projectId:'api',targetId:'operations-runner',mode:'candidate',generation:1,health:'ready'},
+  ...(shape==='absent-api-listener'?[{projectId:'api',targetId:'service',mode:'candidate' as const,generation:1,health:'ready' as const}]:[])],
+ leases:[],restoredReceiptId:null,blockers:[]},runtimes:[runtime],routes:[],candidates:[]});
 const releasedPresent=shape!=='absent-released';
 let running=false,starts=0,drains=0,releasedRunning=releasedPresent,failing=false;
 const image=`sha256:${'a'.repeat(64)}`;
@@ -91,6 +94,44 @@ const input={operation:'development.container' as const,sessionId,projectId:'api
 if(!releasedPresent)assert.deepEqual(recoverRunnerCustody(transport),{action:'noop',status:'inactive',startedAt:null,startedBeforeTrustFile:null});
 assert.deepEqual(executeDevelopmentContainer(input,transport),{started:true});
 const first=developmentRuntimeStatus(directory);
+if(shape==='absent-api-listener') {
+ const serviceDirectory=`/run/treeseed/development-containers/${sessionId}/service`;
+ let serviceRunning=false,serviceStarts=0,listenerInventory='absent';
+ const serviceTransport=(_exe:string,args:readonly string[])=>{
+  if(args[0]==='ps'&&args.includes('name=^/treeseed-api-api-1$')) {
+   if(listenerInventory==='unavailable')throw new Error('fixture inventory unavailable');
+   return listenerInventory==='foreign'?'foreign':'';
+  }
+  if(args[0]==='inspect'&&args[1]==='treeseed-api-api-1')throw new Error('Never inspect an absent released listener');
+  if(args[0]==='inspect'&&args[1]==='treeseed-api-operations-runner-1'&&args.at(-1)?.includes('startedAt'))
+   return JSON.stringify({id:'a'.repeat(64),project:'treeseed-api',service:'operations-runner',running:releasedRunning,startedAt:'2026-10-23T00:00:00Z'});
+  if(args[0]==='compose'&&args.includes(`treeseed-${sessionId}-api-service`)) {
+   if(args.includes('up')){serviceRunning=true;serviceStarts++;return '';}
+   if(args.includes('down')){serviceRunning=false;return '';}
+  }
+  return transport(_exe,args);
+ };
+ const serviceInput={...input,targetId:'service' as const};
+ for(listenerInventory of ['foreign','unavailable']) {
+  assert.throws(()=>executeDevelopmentContainer(serviceInput,serviceTransport),/inventory/);
+  assert.equal(existsSync(serviceDirectory),false);assert.equal(serviceStarts,0);
+  assert.equal(running,true);assert.equal(starts,1);assert.equal(drains,0);
+  assert.equal(developmentRuntimeStatus(directory).digest,first.digest);
+ }
+ listenerInventory='absent';
+ assert.deepEqual(executeDevelopmentContainer(serviceInput,serviceTransport),{started:true});
+ assert.deepEqual(executeDevelopmentContainer(serviceInput,serviceTransport),{started:true});
+ assert.equal(serviceRunning,true);assert.equal(serviceStarts,2);
+ assert.equal(existsSync(`${serviceDirectory}/released-api.json`),false);
+ assert.deepEqual(executeDevelopmentContainer({...serviceInput,action:'stop'},serviceTransport),{stopped:true});
+ assert.equal(existsSync(serviceDirectory),false);assert.equal(serviceRunning,false);
+ assert.equal(running,true);assert.equal(starts,1);assert.equal(drains,0);
+ assert.equal(developmentRuntimeStatus(directory).digest,first.digest);
+ assert.equal(readFileSync(`${directory}/runtime/dist/main.js`,'utf8'),'first-runtime');
+ assert.deepEqual(executeDevelopmentContainer({...input,action:'stop'},transport),{stopped:true});
+ assert.equal(existsSync(directory),false);assert.equal(running,false);assert.equal(releasedRunning,true);
+ console.log(JSON.stringify({started:true,restarted:true,retainedRunnerUnchanged:true,teardownVerified:true}));
+} else {
 make(`${source}/dist/main.js`,'second-runtime');chownSync(`${source}/dist/main.js`,1000,1000);
 if(['copy-failure','credential-failure','foreign-owner','drain-failure'].includes(shape)) {
  const names=['runtime/dist/main.js','runtime-receipt.json','compose.json','openbao/identity.json','keys/credentials'];
@@ -158,4 +199,5 @@ if(!releasedPresent) {
  assert.equal(existsSync(directory),false);assert.equal(running,false);assert.equal(releasedRunning,false);
 }
 console.log(JSON.stringify({started:true,restarted:true,privateBytesVerified:true,priorProcessDrained:true}));
+}
 }
