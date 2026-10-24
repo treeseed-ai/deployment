@@ -1,8 +1,8 @@
-import { constants, openSync, closeSync, fstatSync, lstatSync, readSync, readdirSync, type Stats } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { constants, openSync, closeSync, fstatSync, lstatSync, readSync, readdirSync, mkdirSync, fsyncSync, writeFileSync, linkSync, unlinkSync, type Stats } from 'node:fs';
+import { resolve, join, basename, dirname } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { parse, visit, type ParseError } from 'jsonc-parser';
-import { PlanningBlockedError } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type DeploymentPlan, type DeploymentConfiguration } from '@treeseed-cordis/sdk';
 
 export class PlanningFailure {
   static block(code:string):never {throw new PlanningBlockedError([{code,message:'Planning validation failed: '+code+'. No activation was performed.'}]);}
@@ -54,7 +54,7 @@ export class SafeDirectory {
     const parts=path.split('/');PlanningFailure.require(parts.length>0&&parts.every(SafeDirectory.segment),'UNSAFE_RELATIVE_PATH');return parts;
   }
   static segment(part:string):boolean {return /^[a-zA-Z0-9_@.-]+$/.test(part)&&part!=='.'&&part!=='..';}
-  childPath(name:string):string {PlanningFailure.require(SafeDirectory.segment(name),'UNSAFE_RELATIVE_PATH');return `/proc/self/fd/${this.fd}/${name}`;}
+  childPath(name:string):string {PlanningFailure.require(name.length>0&&name!=='.'&&name!=='..'&&!name.includes('/')&&!name.includes('\0'),'UNSAFE_RELATIVE_PATH');return `/proc/self/fd/${this.fd}/${name}`;}
   directory(path:string,privateMode=false):SafeDirectory {
     let fd=openSync(`/proc/self/fd/${this.fd}`,constants.O_RDONLY|constants.O_DIRECTORY);let current=this.path;const identities=[...this.identities];
     try {
@@ -102,4 +102,74 @@ export class SafeDirectory {
     finally{if(directory!==this)directory.close();}
   }
   close():void {if(!this.closed){closeSync(this.fd);this.closed=true;}}
+}
+
+/** Accepted plan bytes are the only Task 2 lifecycle records. No active-state transitions. */
+export class PlanStore {
+  constructor(readonly installationDirectory:string) {}
+  private scope(plan:DeploymentPlan):void {
+    PlanningFailure.require(plan.configuration.installationDirectory===resolve(this.installationDirectory),'FOREIGN_INSTALLATION');
+    const {id,digest,...payload}=plan;PlanningFailure.require(id==='plan-'+digest&&CanonicalJson.digest(payload)===digest,'PLAN_DIGEST');
+    PlanningFailure.require(plan.configurationDigest===CanonicalJson.digest(plan.configuration)&&plan.releaseDigest===plan.configuration.release.manifestDigest,'PLAN_BINDING');
+    PlanningFailure.require(plan.projectName==='cordis-'+CanonicalJson.digest({installationId:plan.configuration.installationId,installationDirectory:plan.configuration.installationDirectory}).slice(0,16),'PLAN_BINDING');
+  }
+  private anchor():{directory:SafeDirectory;missing:string[]} {
+    const missing:string[]=[];let path=resolve(this.installationDirectory);
+    while(true){try{lstatSync(path);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')return PlanningFailure.block('STORAGE_PERMISSION');missing.unshift(basename(path));const parent=dirname(path);PlanningFailure.require(parent!==path,'UNSAFE_PATH');path=parent;}}
+    const directory=SafeDirectory.open(path),stat=fstatSync(directory.fd);
+    try {PlanningFailure.require(stat.uid===process.getuid?.()&&(stat.mode&0o300)===0o300,'STORAGE_PERMISSION');return {directory,missing};}catch(error){directory.close();throw error;}
+  }
+  inspect(configuration?:DeploymentConfiguration,engine?:DeploymentPlan['expectedEngine']):boolean {
+    const anchor=this.anchor();
+    try {
+      if(anchor.missing.length)return false;const entries=anchor.directory.entries();if(entries.length===0)return false;
+      PlanningFailure.require(entries.length===1&&entries[0]==='.cordis','FOREIGN_INSTALLATION');
+      const state=anchor.directory.directory('.cordis',true);
+      try {
+        PlanningFailure.require(state.entries().join(',')==='plans,receipt.json','INVALID_JOURNAL');
+        const receipt=StrictJson.object(StrictJson.parse(state.file('receipt.json',undefined,1024*1024,true)));
+        PlanningFailure.require(Object.keys(receipt).sort().join(',')==='activeComposition,expectedEngine,formatVersion,installationDirectory,installationId,ownerUid','INVALID_JOURNAL');
+        PlanningFailure.require(receipt.formatVersion===1&&receipt.activeComposition===null&&receipt.ownerUid===process.getuid?.()&&receipt.installationDirectory===resolve(this.installationDirectory)&&typeof receipt.installationId==='string','FOREIGN_INSTALLATION');
+        const expected=PlatformSchemas.expectedEngine.safeParse(receipt.expectedEngine);PlanningFailure.require(expected.success,'INVALID_JOURNAL');
+        if(configuration)PlanningFailure.require(receipt.installationId===configuration.installationId,'FOREIGN_INSTALLATION');
+        if(engine)PlanningFailure.require(CanonicalJson.stringify(expected.data)===CanonicalJson.stringify(engine),'ENGINE_IDENTITY_CHANGED');
+        const plans=state.directory('plans',true);
+        try {
+          const names=plans.entries();PlanningFailure.require(names.length>0&&names.length<=10000,'INCOMPLETE_JOURNAL');
+          for(const name of names){PlanningFailure.require(/^plan-[a-f0-9]{64}\.json$/.test(name),'INVALID_JOURNAL');const plan=this.parse(plans.file(name,undefined,4*1024*1024,true));this.scope(plan);PlanningFailure.require(name===plan.id+'.json'&&plan.configuration.installationId===receipt.installationId&&CanonicalJson.stringify(plan.expectedEngine)===CanonicalJson.stringify(expected.data),'FOREIGN_INSTALLATION');}
+          state.verify();anchor.directory.verify();return true;
+        }finally{plans.close();}
+      }finally{state.close();}
+    }catch(error){if(error instanceof PlanningBlockedError)throw error;return PlanningFailure.block('INVALID_JOURNAL');}finally{anchor.directory.close();}
+  }
+  read(id:string,digest:string):DeploymentPlan {
+    PlanningFailure.require(/^plan-[a-f0-9]{64}$/.test(id)&&id==='plan-'+digest,'PLAN_IDENTITY');this.inspect();
+    const installation=SafeDirectory.open(this.installationDirectory);
+    try {const plans=installation.directory('.cordis/plans',true);try{const plan=this.parse(plans.file(id+'.json',undefined,4*1024*1024,true));this.scope(plan);PlanningFailure.require(plan.id===id&&plan.digest===digest,'PLAN_IDENTITY');return plan;}finally{plans.close();}}finally{installation.close();}
+  }
+  publish(plan:DeploymentPlan):DeploymentPlan {
+    this.scope(plan);const exists=this.inspect(plan.configuration,plan.expectedEngine),anchor=this.anchor();let installation=anchor.directory;
+    try {
+      for(const part of anchor.missing){const next=this.mkdir(installation,part);if(installation!==anchor.directory)installation.close();installation=next;}
+      if(!exists) {
+        PlanningFailure.require(installation.entries().length===0,'INITIALIZATION_CONFLICT');
+        const state=this.mkdir(installation,'.cordis');
+        try{const plans=this.mkdir(state,'plans');plans.close();this.publishFile(state,'receipt.json',CanonicalJson.stringify({formatVersion:1,installationId:plan.configuration.installationId,installationDirectory:plan.configuration.installationDirectory,ownerUid:process.getuid!(),expectedEngine:plan.expectedEngine,activeComposition:null})+'\n');}finally{state.close();}
+      }
+      const plans=installation.directory('.cordis/plans',true);
+      try{installation.verify();this.publishFile(plans,plan.id+'.json',CanonicalJson.stringify(plan)+'\n');plans.verify();}finally{plans.close();}
+    }finally{if(installation!==anchor.directory)installation.close();anchor.directory.close();}
+    return this.read(plan.id,plan.digest);
+  }
+  private mkdir(parent:SafeDirectory,name:string):SafeDirectory {mkdirSync(parent.childPath(name),{mode:0o700});fsyncSync(parent.fd);parent.verify();return parent.directory(name,true);}
+  private publishFile(directory:SafeDirectory,name:string,bytes:string):void {
+    const temporary='.tmp-'+randomUUID(),path=directory.childPath(temporary);const fd=openSync(path,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+    try {writeFileSync(fd,bytes);fsyncSync(fd);}finally{closeSync(fd);}
+    try {
+      directory.verify();
+      try{linkSync(path,directory.childPath(name));}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;PlanningFailure.require(directory.file(name,undefined,4*1024*1024,true).toString()===bytes,'PLAN_CONFLICT');}
+      fsyncSync(directory.fd);
+    }finally{unlinkSync(path);}
+  }
+  private parse(bytes:Buffer):DeploymentPlan {const result=PlatformSchemas.plan.safeParse(StrictJson.parse(bytes));PlanningFailure.require(result.success,'INVALID_PLAN');return result.data;}
 }

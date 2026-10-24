@@ -1,11 +1,13 @@
-import { PlatformSchemas, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
 import { platform, arch, homedir } from 'node:os';
 import { join, resolve, dirname, parse } from 'node:path';
 import { createServer, type Server } from 'node:net';
+import { ArtifactResolver } from './artifacts.js';
+import { PlanStore, PlanningFailure as Check } from './filesystem.js';
 
-export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; }
+export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan>; }
 export interface DiagnosticCommands { execute(args:string[]):string|null; }
 export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
 export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
@@ -45,7 +47,7 @@ export class HostSystem implements DiagnosticSystem {
         catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT'){missing=true;break;}throw error;}
       }
       exists=!missing;
-      if(exists&&readdirSync(path).length)return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing nonempty directory is not a Task 1 installation.'};
+      if(exists&&readdirSync(path).length){try{new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
       let ancestor=path;
       while(true) {try{lstatSync(ancestor);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;const parent=dirname(ancestor);if(parent===ancestor)throw error;ancestor=parent;}}
       const stat=lstatSync(ancestor);
@@ -75,6 +77,9 @@ export class LoopbackProbe implements DiagnosticPorts {
 export class ComposeDeploymentHost implements DeploymentHost {
   constructor(private readonly commands:DiagnosticCommands=new DockerCommands(),private readonly system:DiagnosticSystem=new HostSystem(),private readonly ports:DiagnosticPorts=new LoopbackProbe()) {}
   async diagnose(configuration:DiagnosticConfiguration={}):Promise<DiagnosticReport> {
+    return this.inspect(configuration,this.ports);
+  }
+  private async inspect(configuration:DiagnosticConfiguration,ports:DiagnosticPorts):Promise<DiagnosticReport> {
     const options=PlatformSchemas.configuration.parse(configuration),path=resolve(options.installationDirectory??join(homedir(),'.local/share/treeseed-cordis')),port=options.port??8443;
     const host=this.system.host(),checks:DiagnosticReport['checks']=[],engine:DiagnosticReport['engine']={context:null,endpoint:null,serverVersion:null,serverArchitecture:null,composeVersion:null,cpus:null,memoryBytes:null};
     this.check(checks,'host',host.os==='linux'&&host.architecture==='x64'&&host.distribution==='ubuntu'&&host.release==='26.04','UNSUPPORTED_HOST','Ubuntu 26.04 x64 is the qualified host.');
@@ -104,9 +109,40 @@ export class ComposeDeploymentHost implements DeploymentHost {
     }
     const storage=this.system.storage(path);
     this.check(checks,'storage',storage.code==='OK',storage.code,storage.message);
-    this.check(checks,'port',await this.ports.available(port),'PORT_UNAVAILABLE','The selected loopback port must be available to this user.');
+    this.check(checks,'port',await ports.available(port),'PORT_UNAVAILABLE','The selected loopback port must be available to this user.');
     let ready=true;for(const check of checks)if(check.status==='blocked')ready=false;
     return PlatformSchemas.diagnostic.parse({ready,host,engine,installation:{path,exists:storage.exists,freeBytes:storage.freeBytes},port,checks});
+  }
+  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan> {
+    const options=PlatformSchemas.desired.parse(configuration);
+    options.installationDirectory=resolve(options.installationDirectory);options.release.directory=resolve(options.release.directory);options.origin=new URL(options.origin).origin;
+    options.plugins.sort(ComposeDeploymentHost.pluginOrder);options.credentialReferences.sort();
+    const installation=options.installationDirectory,bundle=options.release.directory;
+    Check.require(installation!==bundle&&!bundle.startsWith(installation+'/')&&!installation.startsWith(bundle+'/'),'OVERLAPPING_STORAGE');
+    const origin=new URL(options.origin),port=Number(origin.port||(origin.protocol==='https:'?443:80));
+    const report=await this.inspect({context:options.engineContext,installationDirectory:installation,port},new TcpTableProbe());
+    const blockers=[];for(const check of report.checks)if(check.status==='blocked')blockers.push({code:check.code,message:check.message});if(blockers.length)throw new PlanningBlockedError(blockers);
+    const resolved=await new ArtifactResolver().resolve(options);
+    const info=this.parseObject(this.commands.execute(['--context',options.engineContext,'info','--format','{{json .}}']));
+    const daemonId=this.string(info,'ID');Check.require(daemonId&&report.engine.endpoint&&this.string(info,'OSType')==='linux'&&['amd64','x86_64'].includes(this.string(info,'Architecture')??''),'ENGINE_IDENTITY');
+    const expectedEngine:DeploymentPlan['expectedEngine']={context:options.engineContext,endpoint:report.engine.endpoint,daemonId,os:'linux',architecture:'amd64'};
+    const projectName='cordis-'+CanonicalJson.digest({installationId:options.installationId,installationDirectory:installation}).slice(0,16);
+    this.resources(options.engineContext,projectName);const store=new PlanStore(installation);store.inspect(options,expectedEngine);
+    const effects:DeploymentPlan['effects']=[];
+    for(const artifact of resolved.artifacts)effects.push({kind:artifact.kind==='package'?'stage-package':'stage-image',target:artifact.kind==='package'?artifact.name+'@'+artifact.version:artifact.reference});
+    for(const credential of options.credentialReferences)effects.push({kind:'prepare-credential',target:credential});
+    effects.push({kind:'create-network',target:projectName+'_default'});
+    for(const name of Object.keys(resolved.recipe.volumes).sort())effects.push({kind:'create-volume',target:projectName+'_'+name});
+    for(const name of Object.keys(resolved.recipe.services).sort()){effects.push({kind:'configure-service',target:name});if(options.runtimeState==='running')effects.push({kind:'start-service',target:name});}
+    const payload={formatVersion:1 as const,configuration:options,configurationDigest:CanonicalJson.digest(options),releaseDigest:resolved.releaseDigest,recipeDigest:resolved.recipeDigest,lockDigest:resolved.lockDigest,expectedEngine,expectedComposition:null,projectName,artifacts:resolved.artifacts,effects,blockers:[]};
+    const digest=CanonicalJson.digest(payload),plan=PlatformSchemas.plan.parse({...payload,id:'plan-'+digest,digest});return store.publish(plan);
+  }
+  private static pluginOrder(a:DeploymentConfiguration['plugins'][number],b:DeploymentConfiguration['plugins'][number]):number {return a.id.localeCompare(b.id);}
+  private resources(context:string,project:string):void {
+    for(const args of [['ps','--all','--format','{{json .}}'],['volume','ls','--format','{{json .}}'],['network','ls','--format','{{json .}}']]){
+      const output=this.commands.execute(['--context',context,...args]);Check.require(output!==null,'RESOURCE_INSPECTION');
+      if(output==='')continue;for(const line of output.split('\n')){const value=this.parseObject(line);Check.require(value,'RESOURCE_INSPECTION');const name=this.string(value,'Names')??this.string(value,'Name'),labels=this.string(value,'Labels')??'';Check.require(name,'RESOURCE_INSPECTION');const owned=labels.split(',').includes('com.docker.compose.project='+project);Check.require(!owned&&name!==project&&!name.startsWith(project+'_')&&!name.startsWith(project+'-'),'FOREIGN_RUNTIME');}
+    }
   }
   private check(checks:DiagnosticReport['checks'],id:string,passed:boolean,code:string,message:string):void {checks.push({id,status:passed?'pass':'blocked',code:passed?'OK':code,message});}
   private parseObject(value:string|null):Record<string,unknown>|null {try{const result:unknown=JSON.parse(value??'null');return result!==null&&typeof result==='object'&&!Array.isArray(result)?result as Record<string,unknown>:null;}catch{return null;}}
@@ -116,3 +152,11 @@ export class ComposeDeploymentHost implements DeploymentHost {
 }
 
 export { ArtifactResolver } from './artifacts.js';
+
+/** Planning only observes Linux listener tables; it never binds a socket. */
+export class TcpTableProbe implements DiagnosticPorts {
+  async available(port:number):Promise<boolean> {
+    try {for(const path of ['/proc/net/tcp','/proc/net/tcp6'])for(const line of readFileSync(path,'utf8').trim().split('\n').slice(1)){const fields=line.trim().split(/\s+/);if(fields[3]==='0A'&&parseInt(fields[1]!.split(':')[1]!,16)===port)return false;}return true;}catch{return false;}
+  }
+}
+export { PlanStore } from './filesystem.js';
