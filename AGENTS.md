@@ -97,10 +97,26 @@ implementation. TreeDX remains the explicit Elixir/Rust exception and is not rew
   through the existing plugin configuration and typed service binding, without changing
   callers or transferring capability ownership. Required capabilities have one unambiguous
   selected implementation per composition scope; missing/duplicate/incompatible selections
-  fail validation. Keep initial activation/replacement under the plan/apply restart policy.
-- Use Cordis's native injection/effects/lifecycle. Do not add a second plugin framework,
-  service locator, dependency container or speculative provider hierarchy. Begin with one
-  real implementation; add alternatives only for a concrete requirement or contract test.
+  fail validation. Live replacement is required where qualified: use plan/apply admission,
+  drain, fencing, native Cordis disposal and verified generation read-back. Require an explicit
+  restart/migration action where live safety is unproven; never silently restart or claim success.
+- Native Cordis composition is required across CLI, API, Deployment worker and Agent, and
+  application-level pluggable seams introduced elsewhere. Each runtime owns a process-local
+  root; contexts do not cross processes or provide a security sandbox. Portable schemas/data
+  and private pure helpers need no contexts; TreeDX retains its explicit exception.
+- Use Cordis's native injection/effects/lifecycle and a typed ServiceLocator adapter facade
+  over that resolver for registered provider selection. The facade must not become a second
+  plugin framework, service-instance cache, dependency container or start/stop scheduler.
+  At each meaningful seam, document a swappable interface/provider or the invariant requiring
+  one coherent system. Add alternative implementations for a requirement or contract test.
+- Installable NPM/Git plugins/providers are central architecture, with immutable accepted
+  artifacts and explicit scope/selection. The proposed `trsd plugin install <source>` installs
+  and activates when proven safe; prepared/pending/recovery-required is distinct from active.
+  Package acquisition/build never executes ambient scripts in the live installation. Preserve
+  exact account/grant identity, capability authorization and installation ownership across swaps.
+  See the [composition/provider design](https://github.com/treeseed-ai/platform/blob/8974d196318d542eb795f15eaa54150fbd9e08fd/docs/superpowers/specs/2026-10-24-cordis-composition-providers-design.md)
+  and [delivery plan](https://github.com/treeseed-ai/platform/blob/8974d196318d542eb795f15eaa54150fbd9e08fd/docs/superpowers/plans/2026-10-24-cordis-composition-providers.md). These
+  architecture is maintainer-approved; only Task 3A has explicit implementation resumption.
 - Verify substitutability with the same contract suite for each advertised implementation,
   real production construction and an assembled replacement/read-back/cleanup scenario.
   A class name or interface declaration alone does not prove a capability is swappable.

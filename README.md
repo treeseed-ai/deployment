@@ -83,3 +83,22 @@ The public `./testing` development export provides PreparedReleaseFixture for ow
 Plans embed the validated recipe and selected plugin bindings, making exact ports, mounts and injection requirements inspectable after source removal. These are future declarations, not running services.
 
 Owned installation directory components may contain spaces and Unicode. Artifact inventory paths retain their declared relative allowlist; archive member names may contain spaces/Unicode but must remain under package/ without traversal or links. These path checks finish before accepting a plan.
+
+## Task 3A: native local Deployment composition
+
+Implementation is authorized in #906; no apply/worker/installer behavior is included.
+`DeploymentCapability` is the owner-defined executable token for the existing DeploymentHost
+interface. `DeploymentPlugin` declares native provide/inject fields and mounts the real
+ComposeDeploymentHost with selected DockerCommands, HostSystem and diagnostic-port services
+in a native Cordis scope. `DeploymentComposition.registrations()` supplies these class
+registrations; consumers use the SDK runtime locator/leases instead of constructing a Compose
+host in the CLI. Package identity advances to 0.0.0-cordis.3 with the exact SDK archive pinned.
+
+Contract suites exercise default native construction under Node and Bun, unchanged diagnostics
+and exact plan-only persistence, distinct scopes, missing/incompatible selections and disposal.
+The implementation's artifact verifier/private publication protocol remain coherent internal
+invariants; their safe storage semantics cannot be weakened by swapping an arbitrary helper.
+Engine/system/port I/O are typed provider seams. Network runtime, worker ownership, package
+installation, active-state migration and live replacement remain future slices. A fixture
+provider of DeploymentHost can prove substitution without replacing this owner or claiming a
+production engine alternative.
