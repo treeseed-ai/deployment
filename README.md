@@ -90,7 +90,7 @@ Implementation is authorized in #906; no apply/worker/installer behavior is incl
 `DeploymentCapability` is the owner-defined executable token for the existing DeploymentHost
 interface. `DeploymentPlugin` declares native provide/inject fields and mounts the real
 ComposeDeploymentHost with selected DockerCommands, HostSystem and diagnostic-port services
-in a native Cordis scope. `DeploymentComposition.registrations()` supplies these class
+in a native Cordis scope. `DeploymentComposition.registrations(artifact)` supplies these class
 registrations; consumers use the SDK runtime locator/leases instead of constructing a Compose
 host in the CLI. Package identity advances to 0.0.0-cordis.3 with the exact SDK archive pinned.
 

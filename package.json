@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.2",
+  "version": "0.0.0-cordis.3",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -31,7 +31,7 @@
     "verify": "bun run check && bun run build && bun run test:unit && bun run test:integration && bun run test:smoke"
   },
   "peerDependencies": {
-    "@treeseed-cordis/sdk": "0.0.0-cordis.2"
+    "@treeseed-cordis/sdk": "0.0.0-cordis.3"
   },
   "devDependencies": {
     "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
@@ -43,8 +43,8 @@
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "39fac9eaf924a48abe4bc00f6af3a9f2929a36aa",
-      "sha256": "f6b892a0a27fac37d5c1742bbbf7d58b7a8f6d320019d3d244c03173042f73dd"
+      "commit": "adeccc21a99b55c68ddd2d9f6cc84bc5688d6d86",
+      "sha256": "2cd7924c50fc0ecee64065e7ff61710166f83bc9d35eb0604feedb0a82de764c"
     }
   },
   "dependencies": {
