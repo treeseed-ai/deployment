@@ -19,7 +19,7 @@ class ArchiveMetadata {
   private entry(entry:ReadEntry):void {
     const path=entry.path.replace(/\/$/,'');
     if(!path.startsWith('package/')&&path!=='package')this.failure=true;
-    if(!path.split('/').every(SafeDirectory.segment)||this.paths.has(path)||!['File','Directory','OldFile'].includes(entry.type))this.failure=true;
+    if(!path.split('/').every(SafeDirectory.component)||this.paths.has(path)||!['File','Directory','OldFile'].includes(entry.type))this.failure=true;
     this.paths.add(path);this.bytes+=entry.size;
     if(this.paths.size>100000||this.bytes>1024**3)this.failure=true;
     if(path==='package/package.json'&&entry.type==='File'&&entry.size<=1024*1024){entry.on('data',this.data.bind(this));entry.once('end',this.metadataEnd.bind(this));}

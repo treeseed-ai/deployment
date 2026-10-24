@@ -54,11 +54,13 @@ export class SafeDirectory {
     const parts=path.split('/');PlanningFailure.require(parts.length>0&&parts.every(SafeDirectory.segment),'UNSAFE_RELATIVE_PATH');return parts;
   }
   static segment(part:string):boolean {return /^[a-zA-Z0-9_@.-]+$/.test(part)&&part!=='.'&&part!=='..';}
-  childPath(name:string):string {PlanningFailure.require(name.length>0&&name!=='.'&&name!=='..'&&!name.includes('/')&&!name.includes('\0'),'UNSAFE_RELATIVE_PATH');return `/proc/self/fd/${this.fd}/${name}`;}
+  static component(name:string):boolean {return name.length>0&&name!=='.'&&name!=='..'&&!name.includes('/')&&!name.includes('\0');}
+  childPath(name:string):string {PlanningFailure.require(SafeDirectory.component(name),'UNSAFE_RELATIVE_PATH');return `/proc/self/fd/${this.fd}/${name}`;}
   directory(path:string,privateMode=false):SafeDirectory {
     let fd=openSync(`/proc/self/fd/${this.fd}`,constants.O_RDONLY|constants.O_DIRECTORY);let current=this.path;const identities=[...this.identities];
     try {
-      for(const part of SafeDirectory.relative(path)) {
+      const parts=path.split('/');PlanningFailure.require(parts.every(SafeDirectory.component),'UNSAFE_RELATIVE_PATH');
+      for(const part of parts) {
         const next=openSync(`/proc/self/fd/${fd}/${part}`,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);closeSync(fd);fd=next;current=join(current,part);
         const stat=fstatSync(fd);SafeDirectory.owner(stat,privateMode);identities.push({path:current,dev:stat.dev,ino:stat.ino});
       }
