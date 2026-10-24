@@ -131,6 +131,20 @@ class ArtifactTests {
       writeFileSync(join(fixture.installation,'.cordis/plans/.tmp-interrupted'),'partial',{mode:0o600});expect(store.inspect.bind(store)).toThrow(PlanningBlockedError);
     }finally{fixture.close();}
   }
+  async hostPaths():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    const installation=join(fixture.root,'installation with spaces Ω');
+    try {
+      const configuration={...fixture.configuration,installationDirectory:installation};
+      if(!this.qualified()){await expect(new ComposeDeploymentHost().plan(configuration)).rejects.toBeInstanceOf(PlanningBlockedError);expect(existsSync(installation)).toBe(false);return;}
+      const plan=await new ComposeDeploymentHost().plan(configuration);expect(plan.configuration.installationDirectory).toBe(installation);expect(new PlanStore(installation).read(plan.id,plan.digest)).toEqual(plan);expect(readdirSync(installation)).toEqual(['.cordis']);
+    }finally{fixture.close();}
+  }
+  async archiveNames():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {writeFileSync(join(fixture.root,'plugin/package/reference with spaces Ω.md'),'fixture resource');await fixture.repack({...fixture.metadata});expect((await new ArtifactResolver().resolve(fixture.configuration)).artifacts.length).toBe(2);}
+    finally{fixture.close();}
+  }
   async path():Promise<void> {
     const fixture=await new PreparedReleaseFixture().prepare();
     try {symlinkSync('/etc/passwd',join(fixture.bundle,'escape'));fixture.inventory.packageJson.path='escape';fixture.configuration.release.manifestDigest=fixture.write('release.json',fixture.inventory);await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);}
@@ -157,3 +171,6 @@ test('integration: a preexisting project namespace blocks without adoption',suit
 test('integration: concurrent no-overwrite publication and interrupted records fail safely',suite.concurrent.bind(suite));
 
 test('unit: repinned lockfile cannot lie about package archive integrity',suite.lockIntegrity.bind(suite));
+
+test('integration: new owned installation paths allow spaces and Unicode',suite.hostPaths.bind(suite));
+test('unit: contained package resources allow spaces and Unicode',suite.archiveNames.bind(suite));
