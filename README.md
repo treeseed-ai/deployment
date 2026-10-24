@@ -102,3 +102,13 @@ Engine/system/port I/O are typed provider seams. Network runtime, worker ownersh
 installation, active-state migration and live replacement remain future slices. A fixture
 provider of DeploymentHost can prove substitution without replacing this owner or claiming a
 production engine alternative.
+
+## Task 3B: Durable installed host
+
+ComposeDeploymentHost remains the selected public Deployment adapter. New apply(planId,digest,options), status and application read-back invoke a durable installation-private worker through a fixed versioned Unix socket protocol. One exclusive owner writer persists idempotent accepted intent before acknowledgement. Explicit format-2 migration preserves all format-1 bytes. Native PostgreSQL/edge/engine/journal plugins compose with same-owner API and Identity container providers; Dockerized services have typed capabilities and native lifecycle. No arbitrary host command, Docker socket exposure, remote source acquisition or implicit cleanup of durable resources is accepted.
+
+Task 3B is authorized after the maintainer reviewed the isolated setup. Tracking: #908. Detailed integration plan: https://github.com/treeseed-ai/platform/blob/feature/713-task3b-initialization/docs/superpowers/plans/2026-10-24-task3b-installed-composition.md. Implementation evidence is recorded separately; these requirements are not a passing-test claim.
+
+Development: Bun 1.4.4, Node 24.19.0, TypeScript 5.9.3, native Cordis 4.0.0-rc.12. Run bun run verify (semantic class/source check, strict compiler, build and nonempty unit/integration/program smoke). Installed acceptance uses genuine exact package/OCI bytes, real identity/database/API/HTTPS and explicit isolated certificate trust. No global trust mutation or legacy service changes. All handwritten source, tools and tests are strict TypeScript classes.
+
+All capabilities that can be plugins, including container services, are native Cordis class plugins with typed swappable contracts. No parallel DI graph. Keep independent repository/public package boundaries, exact archive pins and original licenses. Migration PRs target cordis with Part of issue references. All issues remain open until authorized release; installer/Agent/generalized recovery are later tasks.

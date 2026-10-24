@@ -1,6 +1,10 @@
 # Changelog
 
 ## [Unreleased]
+
+### Added
+
+- Durable installed host (#908).
 ### Added
 - Expose local Deployment through native Cordis providers (#906).
 - Resolve and persist non-activating deployment plans (#904).
