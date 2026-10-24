@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { create } from 'tar';
-import { PluginDefinition, type DeploymentConfiguration, type ReleaseInventory, type DeploymentRecipe } from '@treeseed-cordis/sdk';
+import { PluginDefinition, type DeploymentConfiguration, type ReleaseInventory, type PluginMetadata, type DeploymentRecipe } from '@treeseed-cordis/sdk';
 
 /** Test-only prepared release producer. Never imported by the deployment entry point. */
 export class PreparedReleaseFixture {
@@ -43,6 +43,14 @@ export class PreparedReleaseFixture {
     const manifestSha=this.write('release.json',this.inventory);
     this.configuration={installationId:'fixture',engineContext:'default',installationDirectory:this.installation,origin:'https://localhost:'+port,runtimeState:'running',plugins:[{id:'fixture',package:'@fixture/plugin',version:'1.0.0',integrity:packageDigest}],credentialReferences:['secret://password'],release:{directory:this.bundle,manifestDigest:manifestSha}};
     return this;
+  }
+  async repack(metadata:PluginMetadata):Promise<void> {
+    const source=join(this.root,'plugin'),manifest=join(source,'package/package.json');
+    const pkg=JSON.parse(readFileSync(manifest,'utf8')) as Record<string,unknown>;pkg.cordis=metadata;writeFileSync(manifest,JSON.stringify(pkg));
+    await create({cwd:source,file:join(this.bundle,'archives/plugin.tgz'),gzip:true,portable:true},['package']);
+    const hash=PreparedReleaseFixture.sha(readFileSync(join(this.bundle,'archives/plugin.tgz')));this.inventory.packages[0]!.sha256=hash;this.configuration.plugins[0]!.integrity=hash;
+    const result=spawnSync('bun',['install','--lockfile-only','--force','--ignore-scripts'],{cwd:this.bundle,encoding:'utf8'});if(result.status!==0)throw new Error('Fixture lock refresh failed');
+    this.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(join(this.bundle,'bun.lock')));this.refresh();
   }
   refresh():void {this.inventory.recipe.sha256=this.write('compose.json',this.recipe);this.configuration.release.manifestDigest=this.write('release.json',this.inventory);}
   close():void {rmSync(this.root,{recursive:true,force:true});}

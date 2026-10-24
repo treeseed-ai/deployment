@@ -26,6 +26,23 @@ class ArtifactTests {
       await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
     }finally{fixture.close();}
   }
+  async graph():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {
+      fixture.configuration.plugins.push({...fixture.configuration.plugins[0]!});await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);fixture.configuration.plugins.pop();
+      await fixture.repack({...fixture.metadata,inject:['missing']});await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
+      await fixture.repack({...fixture.metadata,inject:['fixture']});await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
+      await fixture.repack({...fixture.metadata,inject:[]});fixture.inventory.requiredPluginIds=['missing'];fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
+    }finally{fixture.close();}
+  }
+  async bindings():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {
+      fixture.recipe.services.application!.image='fixture/application:latest';fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
+      fixture.recipe.services.application!.image=fixture.inventory.images[0]!.reference;fixture.configuration.credentialReferences=['secret://missing'];fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);fixture.configuration.credentialReferences=['secret://password'];
+      fixture.inventory.images[0]!.manifestDigest='f'.repeat(64);fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
+    }finally{fixture.close();}
+  }
   async path():Promise<void> {
     const fixture=await new PreparedReleaseFixture().prepare();
     try {symlinkSync('/etc/passwd',join(fixture.bundle,'escape'));fixture.inventory.packageJson.path='escape';fixture.configuration.release.manifestDigest=fixture.write('release.json',fixture.inventory);await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);}
@@ -36,3 +53,6 @@ const suite=new ArtifactTests();
 test('integration: exact real tar/lock/OCI files without scripts or writes',suite.files.bind(suite));
 test('integration: reject unsafe recipe and changed OCI bytes without plaintext output',suite.recipe.bind(suite));
 test('unit: bundle symlinks cannot escape',suite.path.bind(suite));
+
+test('integration: missing, duplicate and cyclic plugin declarations block',suite.graph.bind(suite));
+test('unit: image reference and secret-slot bindings fail closed',suite.bindings.bind(suite));

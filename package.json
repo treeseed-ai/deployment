@@ -9,13 +9,18 @@
     ".": {
       "types": "./dist/src/diagnose.d.ts",
       "default": "./dist/src/diagnose.js"
+    },
+    "./testing": {
+      "types": "./dist/tests/release-fixture.d.ts",
+      "default": "./dist/tests/release-fixture.js"
     }
   },
   "files": [
     "dist/src",
     "README.md",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "dist/tests/release-fixture.*"
   ],
   "scripts": {
     "check": "bun scripts/tooling.ts check",
@@ -26,19 +31,25 @@
     "verify": "bun run check && bun run build && bun run test:unit && bun run test:integration && bun run test:smoke"
   },
   "peerDependencies": {
-    "@treeseed-cordis/sdk": "0.0.0-cordis.1"
+    "@treeseed-cordis/sdk": "0.0.0-cordis.2"
   },
   "devDependencies": {
     "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
     "typescript": "5.9.3",
     "@types/bun": "1.4.4",
-    "@types/node": "24.10.1"
+    "@types/node": "24.10.1",
+    "@types/semver": "7.8.0"
   },
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "d7503cb5ff5d62b331c3ba9386e46706bcaee3ec",
-      "sha256": "18950f68895cf5bf229240760cbc49cda7427384dbdcc4a4b5411f808f926c00"
+      "commit": "0ab9cdd5f115a222335f5b2e1295356475784803",
+      "sha256": "50c71f31d5ac8c82f8343777eeff87c53a616c32e4d622d5e0bafa88f9ad3848"
     }
+  },
+  "dependencies": {
+    "jsonc-parser": "3.3.1",
+    "tar": "7.5.22",
+    "semver": "7.8.5"
   }
 }

@@ -114,3 +114,5 @@ export class ComposeDeploymentHost implements DeploymentHost {
   private string(value:Record<string,unknown>|null,key:string):string|null {const field=value?.[key];return typeof field==='string'&&field.trim()?field:null;}
   private number(value:Record<string,unknown>|null,key:string):number|null {const field=value?.[key];return typeof field==='number'&&Number.isFinite(field)&&field>=0?field:null;}
 }
+
+export { ArtifactResolver } from './artifacts.js';
