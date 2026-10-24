@@ -12,7 +12,7 @@ class JsonKeys {
   readonly stack:Set<string>[]=[];
   duplicate=false;
   object():void {this.stack.push(new Set());}
-  property(name:string):void {const keys=this.stack[this.stack.length-1]!;if(keys.has(name))this.duplicate=true;keys.add(name);}
+  property(name:string):void {const keys=this.stack[this.stack.length-1]!;if(keys.has(name)||name==='__proto__')this.duplicate=true;keys.add(name);}
   end():void {this.stack.pop();}
 }
 export class StrictJson {
@@ -148,7 +148,7 @@ export class PlanStore {
     try {const plans=installation.directory('.cordis/plans',true);try{const plan=this.parse(plans.file(id+'.json',undefined,4*1024*1024,true));this.scope(plan);PlanningFailure.require(plan.id===id&&plan.digest===digest,'PLAN_IDENTITY');return plan;}finally{plans.close();}}finally{installation.close();}
   }
   publish(plan:DeploymentPlan):DeploymentPlan {
-    this.scope(plan);const exists=this.inspect(plan.configuration,plan.expectedEngine),anchor=this.anchor();let installation=anchor.directory;
+    plan=PlatformSchemas.plan.parse(plan);this.scope(plan);PlanningFailure.require(Buffer.byteLength(CanonicalJson.stringify(plan))<4*1024*1024,'PLAN_TOO_LARGE');const exists=this.inspect(plan.configuration,plan.expectedEngine),anchor=this.anchor();let installation=anchor.directory;
     try {
       for(const part of anchor.missing){const next=this.mkdir(installation,part);if(installation!==anchor.directory)installation.close();installation=next;}
       if(!exists) {

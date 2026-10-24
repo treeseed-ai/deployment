@@ -44,6 +44,21 @@ export class PreparedReleaseFixture {
     this.configuration={installationId:'fixture',engineContext:'default',installationDirectory:this.installation,origin:'https://localhost:'+port,runtimeState:'running',plugins:[{id:'fixture',package:'@fixture/plugin',version:'1.0.0',integrity:packageDigest}],credentialReferences:['secret://password'],release:{directory:this.bundle,manifestDigest:manifestSha}};
     return this;
   }
+  imageArchitecture(architecture:string):void {
+    const image=this.inventory.images[0]!,blob=join(this.bundle,'oci/blobs/sha256'),manifest=JSON.parse(readFileSync(join(blob,image.manifestDigest),'utf8')) as {config:{digest:string;size:number}},oldConfig=manifest.config.digest.slice(7);
+    const config=JSON.parse(readFileSync(join(blob,oldConfig),'utf8')) as Record<string,unknown>;config.architecture=architecture;const bytes=JSON.stringify(config),hash=PreparedReleaseFixture.sha(bytes);writeFileSync(join(blob,hash),bytes);manifest.config={...manifest.config,digest:'sha256:'+hash,size:Buffer.byteLength(bytes)};
+    const manifestBytes=JSON.stringify(manifest),digest=PreparedReleaseFixture.sha(manifestBytes);writeFileSync(join(blob,digest),manifestBytes);image.manifestDigest=digest;image.reference='fixture/application@sha256:'+digest;
+    image.indexSha256=this.write('oci/index.json',{schemaVersion:2,manifests:[{mediaType:'application/vnd.oci.image.manifest.v1+json',digest:'sha256:'+digest,size:Buffer.byteLength(manifestBytes),platform:{os:'linux',architecture}}]});this.recipe.services.application!.image=image.reference;this.refresh();
+  }
+  async addPlugin(metadata:PluginMetadata):Promise<void> {
+    const source=join(this.root,'additional');mkdirSync(join(source,'package'),{recursive:true});
+    writeFileSync(join(source,'additional.ts'),`export class AdditionalPlugin {static readonly declaration=${JSON.stringify(metadata)};static readonly provide=this.declaration.provide;static readonly inject=this.declaration.inject;}`);
+    const build=spawnSync('bun',['build',join(source,'additional.ts'),'--target=node','--outfile',join(source,'package/index.js')],{encoding:'utf8'});if(build.status!==0)throw new Error('Additional fixture compilation failed');
+    const name='@fixture/additional',path='archives/additional.tgz';writeFileSync(join(source,'package/package.json'),JSON.stringify({name,version:'1.0.0',type:'module',exports:'./index.js',cordis:metadata}));await create({cwd:source,file:join(this.bundle,path),gzip:true,portable:true},['package']);
+    const hash=PreparedReleaseFixture.sha(readFileSync(join(this.bundle,path)));this.inventory.packages.push({name,version:'1.0.0',path,sha256:hash});this.configuration.plugins.push({id:metadata.id,package:name,version:'1.0.0',integrity:hash});
+    this.inventory.packageJson.sha256=this.write('package.json',{name:'cordis-fixture-composition',version:'1.0.0',private:true,dependencies:{'@fixture/plugin':'file:archives/plugin.tgz',[name]:'file:'+path}});
+    const lock=spawnSync('bun',['install','--lockfile-only','--force','--ignore-scripts'],{cwd:this.bundle,encoding:'utf8'});if(lock.status!==0)throw new Error('Additional fixture lock failed');this.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(join(this.bundle,'bun.lock')));this.refresh();
+  }
   async repack(metadata:PluginMetadata):Promise<void> {
     const source=join(this.root,'plugin'),manifest=join(source,'package/package.json');
     const pkg=JSON.parse(readFileSync(manifest,'utf8')) as Record<string,unknown>;pkg.cordis=metadata;writeFileSync(manifest,JSON.stringify(pkg));

@@ -1,3 +1,5 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import { resolve } from 'node:path';
 import { test, expect } from 'bun:test';
 import { existsSync, readFileSync, writeFileSync, symlinkSync, mkdirSync, readdirSync, chmodSync, statSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,6 +8,23 @@ import { ArtifactResolver } from '../src/artifacts.js';
 import { ComposeDeploymentHost, HostSystem, DockerCommands } from '../src/diagnose.js';
 import { PlanStore, SafeDirectory } from '../src/filesystem.js';
 import { PlanningBlockedError, CanonicalJson, type DeploymentPlan } from '@treeseed-cordis/sdk';
+class ConcurrentWriter {
+  readonly child:ChildProcess;
+  completion:((code:number)=>void)|null=null;
+  constructor(readonly installation:string,readonly planFile:string) {
+    const module=JSON.stringify(resolve('dist/src/filesystem.js'));
+    const source=`import {PlanStore} from ${module};import{readFileSync}from'node:fs';class Writer{static run(){try{const plan=JSON.parse(readFileSync(process.argv[2],'utf8'));new PlanStore(process.argv[1]).publish(plan);}catch{process.exitCode=3;}}}Writer.run();`;
+    this.child=spawn('node',['--input-type=module','-e',source,installation,planFile],{stdio:['ignore','ignore','ignore']});
+  }
+  wait():Promise<number> {return new Promise(this.start.bind(this));}
+  start(completion:(code:number)=>void):void {this.completion=completion;this.child.once('exit',this.exit.bind(this));this.child.once('error',this.error.bind(this));}
+  exit(code:number|null):void {this.completion!(code??1);}
+  error():void {this.completion!(1);}
+}
+class CollisionCommands extends DockerCommands {
+  constructor(readonly project:string) {super();}
+  override execute(args:string[]):string|null {if(args.includes('ps'))return JSON.stringify({Names:this.project+'-application',Labels:''});return super.execute(args);}
+}
 class ArtifactTests {
   async files():Promise<void> {
     const fixture=await new PreparedReleaseFixture().prepare();
@@ -36,6 +55,26 @@ class ArtifactTests {
       await fixture.repack({...fixture.metadata,inject:['fixture']});await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
       await fixture.repack({...fixture.metadata,inject:[]});fixture.inventory.requiredPluginIds=['missing'];fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
     }finally{fixture.close();}
+  }
+  async duplicateService():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {await fixture.addPlugin({id:'additional',contractVersion:'0.2.0-cordis.1',provide:['fixture'],inject:[]});await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);}
+    finally{fixture.close();}
+  }
+  async lockIntegrity():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {const path=join(fixture.bundle,'bun.lock'),text=readFileSync(path,'utf8');writeFileSync(path,text.replace(/sha512-[a-zA-Z0-9+/]+=*/, 'sha512-'+Buffer.alloc(64).toString('base64')));fixture.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(path));fixture.refresh();try{await new ArtifactResolver().resolve(fixture.configuration);throw new Error('bad SRI accepted');}catch(error){expect(error).toBeInstanceOf(PlanningBlockedError);expect(JSON.stringify(error)).toContain('LOCK_INTEGRITY');}}
+    finally{fixture.close();}
+  }
+  async architecture():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {fixture.imageArchitecture('arm64');try{await new ArtifactResolver().resolve(fixture.configuration);throw new Error('wrong architecture accepted');}catch(error){expect(error).toBeInstanceOf(PlanningBlockedError);expect(JSON.stringify(error)).toContain('IMAGE_ARCHITECTURE');}}
+    finally{fixture.close();}
+  }
+  async collision():Promise<void> {
+    if(!this.qualified())return;const fixture=await new PreparedReleaseFixture().prepare();
+    try {const project='cordis-'+CanonicalJson.digest({installationId:fixture.configuration.installationId,installationDirectory:fixture.installation}).slice(0,16);try{await new ComposeDeploymentHost(new CollisionCommands(project)).plan(fixture.configuration);throw new Error('foreign resource accepted');}catch(error){expect(error).toBeInstanceOf(PlanningBlockedError);expect(JSON.stringify(error)).toContain('FOREIGN_RUNTIME');}expect(existsSync(fixture.installation)).toBe(false);}
+    finally{fixture.close();}
   }
   async bindings():Promise<void> {
     const fixture=await new PreparedReleaseFixture().prepare();
@@ -80,6 +119,17 @@ class ArtifactTests {
     const fixture=await new PreparedReleaseFixture().prepare(),directory=SafeDirectory.open(fixture.bundle),moved=join(fixture.root,'old-release');
     try {renameSync(fixture.bundle,moved);symlinkSync('/etc',fixture.bundle);expect(directory.file.bind(directory,'passwd')).toThrow(PlanningBlockedError);expect(directory.verify.bind(directory)).toThrow(PlanningBlockedError);expect(existsSync(fixture.installation)).toBe(false);}finally{directory.close();fixture.close();}
   }
+  async concurrent():Promise<void> {
+    const fixture=await new PreparedReleaseFixture().prepare();
+    try {
+      const resolution=await new ArtifactResolver().resolve(fixture.configuration),projectName='cordis-'+CanonicalJson.digest({installationId:fixture.configuration.installationId,installationDirectory:fixture.installation}).slice(0,16);
+      const payload={formatVersion:1 as const,configuration:fixture.configuration,configurationDigest:CanonicalJson.digest(fixture.configuration),releaseDigest:resolution.releaseDigest,recipeDigest:resolution.recipeDigest,lockDigest:resolution.lockDigest,expectedEngine:{context:'default',endpoint:'unix:///var/run/docker.sock',daemonId:'offline-store-fixture',os:'linux' as const,architecture:'amd64' as const},expectedComposition:null,projectName,artifacts:resolution.artifacts,effects:[],blockers:[]};
+      const digest=CanonicalJson.digest(payload),plan:DeploymentPlan={...payload,id:'plan-'+digest,digest},planFile=join(fixture.root,'request.json');writeFileSync(planFile,JSON.stringify(plan));
+      const writers=[new ConcurrentWriter(fixture.installation,planFile),new ConcurrentWriter(fixture.installation,planFile)],pending:Promise<number>[]=[];for(const writer of writers)pending.push(writer.wait());const codes=await Promise.all(pending);expect(codes).toContain(0);for(const code of codes)expect([0,3]).toContain(code);
+      const store=new PlanStore(fixture.installation);expect(store.read(plan.id,plan.digest)).toEqual(plan);const file=join(fixture.installation,'.cordis/plans',plan.id+'.json'),inode=statSync(file).ino;expect(store.publish(plan)).toEqual(plan);expect(statSync(file).ino).toBe(inode);
+      writeFileSync(join(fixture.installation,'.cordis/plans/.tmp-interrupted'),'partial',{mode:0o600});expect(store.inspect.bind(store)).toThrow(PlanningBlockedError);
+    }finally{fixture.close();}
+  }
   async path():Promise<void> {
     const fixture=await new PreparedReleaseFixture().prepare();
     try {symlinkSync('/etc/passwd',join(fixture.bundle,'escape'));fixture.inventory.packageJson.path='escape';fixture.configuration.release.manifestDigest=fixture.write('release.json',fixture.inventory);await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);}
@@ -98,3 +148,11 @@ test('integration: default real plan persists deterministic bytes and independen
 test('unit: malformed and incomplete journals block without writes',suite.journals.bind(suite));
 test('integration: private modes, tampered plans and active/foreign receipts block',suite.privateState.bind(suite));
 test('unit: descriptor anchor rejects directory replacement without escape',suite.race.bind(suite));
+
+test('unit: two selected providers cannot own one required service',suite.duplicateService.bind(suite));
+test('unit: fully repinned ARM image is rejected by architecture',suite.architecture.bind(suite));
+test('integration: a preexisting project namespace blocks without adoption',suite.collision.bind(suite));
+
+test('integration: concurrent no-overwrite publication and interrupted records fail safely',suite.concurrent.bind(suite));
+
+test('unit: repinned lockfile cannot lie about package archive integrity',suite.lockIntegrity.bind(suite));

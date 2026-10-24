@@ -1,9 +1,8 @@
-# Cordis read-only host diagnostics
+# Cordis diagnostics and non-activating planning
 
 `DeploymentHost.diagnose(configuration?) → Promise<DiagnosticReport>` is the public typed
 contract. `ComposeDeploymentHost` supplies the real default Docker CLI, host/filesystem and
-loopback port probes. The CLI consumes this package unchanged. No plan/apply, Compose up,
-container lifecycle, journal, credential or installation creation exists in Task 1.
+loopback port probes. The CLI consumes this package unchanged. Planning adds `DeploymentHost.plan(configuration) → Promise<DeploymentPlan>` and private plan-only state. No apply, Compose up, container lifecycle or credential creation is implemented.
 
 Configuration accepts `context?`, absolute `installationDirectory?`, and `port?` (default8443).
 The default directory is `$HOME/.local/share/treeseed-cordis`. Diagnostics require Ubuntu26.04
@@ -19,9 +18,9 @@ before engine contact, including a remote DOCKER_HOST; explicit context does not
 change the selected authority. See [context inspection](https://docs.docker.com/reference/cli/docker/context/inspect/)
 and [selection](https://docs.docker.com/reference/cli/docker/context/use/).
 
-Storage inspection rejects symlinks in any component, foreign/nonempty destinations, wrong
+Storage inspection rejects symlinks in any component, foreign destinations, wrong
 ownership and unwritable/unsearchable ancestors. It uses stat/statfs/access only and creates
-nothing. No Task1 installation journal is recognized. The port probe temporarily binds and
+nothing. Valid owner-private Task 2 plan-only state is recognized. Doctor’s port probe temporarily binds and
 closes127.0.0.1; it reserves nothing after return and promises no future availability.
 Probe failures produce stable codes, never guessed readiness. Tests use fixture-owned paths,
 ports and Docker configuration, without touching existing installations or containers.
@@ -78,3 +77,5 @@ CLI exits: 0 verified saved plan; 1 sanitized runtime/I/O failure; 2 invalid arg
 Verification: documentation first; outside-in built-program failure before implementation; exact read-back/modes/determinism; immutable/architecture/graph/recipe/secret/path/journal negative cases; no-runtime snapshots; actual default construction; all owner check/build/unit/integration/smoke gates plus assembled acceptance. Test fixtures are not a production application composition. CI must run a positive plan on ubuntu-26.04 and fail visibly if prerequisites are absent. No container starts, even in tests.
 
 Tracked in #904; parent integration treeseed-ai/platform#697. Issues remain open until authorized release.
+
+The public `./testing` development export provides PreparedReleaseFixture for owner/assembled tests. Its package compilation and lock generation occur before invoking planning, with package scripts disabled; the planner never calls it. Fixtures do not represent a deployable production application. Metadata reads are bounded to 4 MiB, package archives to 64 MiB, inventory to 256 packages/64 images; layers are hashed as streams.
