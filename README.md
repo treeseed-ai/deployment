@@ -79,3 +79,5 @@ Verification: documentation first; outside-in built-program failure before imple
 Tracked in #904; parent integration treeseed-ai/platform#697. Issues remain open until authorized release.
 
 The public `./testing` development export provides PreparedReleaseFixture for owner/assembled tests. Its package compilation and lock generation occur before invoking planning, with package scripts disabled; the planner never calls it. Fixtures do not represent a deployable production application. Metadata reads are bounded to 4 MiB, package archives to 64 MiB, inventory to 256 packages/64 images; layers are hashed as streams.
+
+Plans embed the validated recipe and selected plugin bindings, making exact ports, mounts and injection requirements inspectable after source removal. These are future declarations, not running services.
