@@ -96,12 +96,12 @@ export class ArtifactResolver {
     const edges=new Map<string,string[]>();for(const [id,metadata] of selected){const dependencies:string[]=[];for(const name of metadata.inject){const provider=providers.get(name);Check.require(provider,'MISSING_SERVICE');dependencies.push(provider);}edges.set(id,dependencies);}new DependencyGraph(edges).validate();return [...selected.values()];
   }
   private recipe(configuration:DeploymentConfiguration,inventory:ReleaseInventory,recipe:DeploymentRecipe):void {
-    const references=new Set<string>(),ids=new Set<string>();for(const image of inventory.images){Check.require(!references.has(image.reference)&&!ids.has(image.id),'DUPLICATE_IMAGE');Check.require(image.reference.endsWith('@sha256:'+image.manifestDigest),'IMAGE_REFERENCE_MISMATCH');references.add(image.reference);ids.add(image.id);}
+    const references=new Set<string>(),ids=new Set<string>();for(const image of inventory.images){Check.require(!references.has(image.reference)&&!ids.has(image.id),'DUPLICATE_IMAGE');Check.require(!image.reference.split('@')[0]!.split('/').pop()!.includes(':'),'MUTABLE_IMAGE_REFERENCE');Check.require(image.reference.endsWith('@sha256:'+image.manifestDigest),'IMAGE_REFERENCE_MISMATCH');references.add(image.reference);ids.add(image.id);}
     const usedImages=new Set<string>(),usedVolumes=new Set<string>(),usedSecrets=new Set<string>(),ports:NonNullable<DeploymentRecipe['services'][string]['ports']>=[],edges=new Map<string,string[]>();
     for(const [name,service] of Object.entries(recipe.services)){
       Check.require(references.has(service.image),'MISSING_IMAGE');usedImages.add(service.image);edges.set(name,service.depends_on??[]);
       for(const port of service.ports??[])ports.push(port);
-      for(const mount of service.volumes??[]){Check.require(Object.hasOwn(recipe.volumes,mount.source),'MISSING_VOLUME');usedVolumes.add(mount.source);}
+      for(const mount of service.volumes??[]){Check.require(!mount.target.includes('$'),'RECIPE_INTERPOLATION');Check.require(Object.hasOwn(recipe.volumes,mount.source),'MISSING_VOLUME');usedVolumes.add(mount.source);}
       for(const secret of service.secrets??[]){Check.require(Object.hasOwn(recipe.secrets,secret),'MISSING_SECRET');usedSecrets.add(secret);}
     }
     new DependencyGraph(edges).validate();Check.require(usedImages.size===references.size&&usedVolumes.size===Object.keys(recipe.volumes).length&&usedSecrets.size===Object.keys(recipe.secrets).length,'UNUSED_RECIPE_INPUT');

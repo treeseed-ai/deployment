@@ -80,7 +80,7 @@ class ArtifactTests {
     const fixture=await new PreparedReleaseFixture().prepare();
     try {
       fixture.recipe.services.application!.image='fixture/application:latest';fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
-      fixture.recipe.services.application!.image=fixture.inventory.images[0]!.reference;fixture.configuration.credentialReferences=['secret://missing'];fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);fixture.configuration.credentialReferences=['secret://password'];
+      fixture.recipe.services.application!.image=fixture.inventory.images[0]!.reference;fixture.recipe.services.application!.volumes![0]!.target='/data/${UNSAFE}';fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);fixture.recipe.services.application!.volumes![0]!.target='/data';fixture.configuration.credentialReferences=['secret://missing'];fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);fixture.configuration.credentialReferences=['secret://password'];
       fixture.inventory.images[0]!.manifestDigest='f'.repeat(64);fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);
     }finally{fixture.close();}
   }
