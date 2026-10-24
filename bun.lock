@@ -24,7 +24,7 @@
   "packages": {
     "@isaacs/fs-minipass": ["@isaacs/fs-minipass@4.0.1", "", { "dependencies": { "minipass": "^7.0.4" } }, "sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w=="],
 
-    "@treeseed-cordis/sdk": ["@treeseed-cordis/sdk@vendor/sdk.tgz", { "dependencies": { "zod": "4.6.7" } }, "sha512-YW5GrADn7/vOOJFpeU6D3cn7gvpLy357w+eU3GbzWaAiGli6IPyeqFpDWe7DkMu0Kf00FdkOS2iRbECsb/NwoQ=="],
+    "@treeseed-cordis/sdk": ["@treeseed-cordis/sdk@vendor/sdk.tgz", { "dependencies": { "zod": "4.6.7" } }, "sha512-y3j39LGilbqZnlKeSl0iSjDJ448Z5cGLGkBAa3XsYu4R1GMgZra+f/+zRVTE+ak2i73nR/qsvezRCQbOEQu2Yw=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

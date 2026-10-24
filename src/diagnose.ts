@@ -134,7 +134,7 @@ export class ComposeDeploymentHost implements DeploymentHost {
     effects.push({kind:'create-network',target:projectName+'_default'});
     for(const name of Object.keys(resolved.recipe.volumes).sort())effects.push({kind:'create-volume',target:projectName+'_'+name});
     for(const name of Object.keys(resolved.recipe.services).sort()){effects.push({kind:'configure-service',target:name});if(options.runtimeState==='running')effects.push({kind:'start-service',target:name});}
-    const payload={formatVersion:1 as const,configuration:options,configurationDigest:CanonicalJson.digest(options),releaseDigest:resolved.releaseDigest,recipeDigest:resolved.recipeDigest,lockDigest:resolved.lockDigest,expectedEngine,expectedComposition:null,projectName,artifacts:resolved.artifacts,effects,blockers:[]};
+    const payload={formatVersion:1 as const,configuration:options,recipe:resolved.recipe,pluginBindings:resolved.pluginBindings,configurationDigest:CanonicalJson.digest(options),releaseDigest:resolved.releaseDigest,recipeDigest:resolved.recipeDigest,lockDigest:resolved.lockDigest,expectedEngine,expectedComposition:null,projectName,artifacts:resolved.artifacts,effects,blockers:[]};
     const digest=CanonicalJson.digest(payload),plan=PlatformSchemas.plan.parse({...payload,id:'plan-'+digest,digest});return store.publish(plan);
   }
   private static pluginOrder(a:DeploymentConfiguration['plugins'][number],b:DeploymentConfiguration['plugins'][number]):number {return a.id.localeCompare(b.id);}

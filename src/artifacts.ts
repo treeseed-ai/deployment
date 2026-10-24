@@ -38,7 +38,7 @@ class DependencyGraph {
   private visit(name:string):void {Check.require(this.edges.has(name),'MISSING_SERVICE');Check.require(!this.visiting.has(name),'DEPENDENCY_CYCLE');if(this.visited.has(name))return;this.visiting.add(name);for(const dependency of this.edges.get(name)!)this.visit(dependency);this.visiting.delete(name);this.visited.add(name);}
 }
 interface PackageData {entry:ReleaseInventory['packages'][number];metadata:Record<string,unknown>;bytes:Buffer;}
-export interface ArtifactResolution {inventory:ReleaseInventory;recipe:DeploymentRecipe;artifacts:DeploymentPlan['artifacts'];releaseDigest:string;lockDigest:string;recipeDigest:string;}
+export interface ArtifactResolution {inventory:ReleaseInventory;recipe:DeploymentRecipe;pluginBindings:PluginMetadata[];artifacts:DeploymentPlan['artifacts'];releaseDigest:string;lockDigest:string;recipeDigest:string;}
 export class ArtifactResolver {
   async resolve(configuration:DeploymentConfiguration):Promise<ArtifactResolution> {
     const directory=SafeDirectory.open(configuration.release.directory);
@@ -50,13 +50,13 @@ export class ArtifactResolver {
       Check.require(inventory.packages.length<=256&&inventory.images.length<=64,'INVENTORY_LIMIT');
       const packages=new Map<string,PackageData>(),paths=new Set<string>();
       for(const entry of inventory.packages){Check.require(!packages.has(entry.name)&&!paths.has(entry.path)&&valid(entry.version),'DUPLICATE_PACKAGE');paths.add(entry.path);const bytes=directory.file(entry.path,entry.sha256),metadata=await new ArchiveMetadata(bytes).read();Check.require(metadata.name===entry.name&&metadata.version===entry.version,'PACKAGE_IDENTITY');packages.set(entry.name,{entry,bytes,metadata});}
-      this.lock(root,lock,packages);this.plugins(configuration,inventory,packages);this.recipe(configuration,inventory,recipe);
+      this.lock(root,lock,packages);const pluginBindings=this.plugins(configuration,inventory,packages);this.recipe(configuration,inventory,recipe);
       const artifacts:DeploymentPlan['artifacts']=[];
       for(const name of [...packages.keys()].sort()){const entry=packages.get(name)!.entry;artifacts.push({kind:'package',name:entry.name,version:entry.version,sha256:entry.sha256});}
       const images=[...inventory.images];images.sort(ArtifactResolver.imageOrder);
       for(const image of images)artifacts.push(this.image(directory,image));
       directory.verify();
-      return {inventory,recipe,artifacts,releaseDigest:configuration.release.manifestDigest,lockDigest:inventory.lockfile.sha256,recipeDigest:inventory.recipe.sha256};
+      return {inventory,recipe,pluginBindings,artifacts,releaseDigest:configuration.release.manifestDigest,lockDigest:inventory.lockfile.sha256,recipeDigest:inventory.recipe.sha256};
     }catch(error){if(error instanceof PlanningBlockedError)throw error;return Check.block('INVALID_RELEASE');}finally{directory.close();}
   }
   static imageOrder(a:ReleaseInventory['images'][number],b:ReleaseInventory['images'][number]):number {return a.reference.localeCompare(b.reference);}
@@ -88,12 +88,12 @@ export class ArtifactResolver {
     }
     Check.require(visited.size===packages.size,'UNUSED_PACKAGE');
   }
-  private plugins(configuration:DeploymentConfiguration,inventory:ReleaseInventory,packages:Map<string,PackageData>):void {
+  private plugins(configuration:DeploymentConfiguration,inventory:ReleaseInventory,packages:Map<string,PackageData>):PluginMetadata[] {
     const selected=new Map<string,PluginMetadata>(),providers=new Map<string,string>(),packageNames=new Set<string>();
     for(const plugin of configuration.plugins){Check.require(!selected.has(plugin.id)&&!packageNames.has(plugin.package),'DUPLICATE_PLUGIN');packageNames.add(plugin.package);const data=packages.get(plugin.package);Check.require(data&&data.entry.version===plugin.version&&data.entry.sha256===plugin.integrity,'PLUGIN_ARTIFACT_MISMATCH');const metadata=this.schema(PlatformSchemas.pluginDefinition.safeParse(data.metadata.cordis));Check.require(metadata.id===plugin.id,'PLUGIN_IDENTITY');selected.set(plugin.id,metadata);for(const name of metadata.provide){Check.require(!providers.has(name),'DUPLICATE_SERVICE');providers.set(name,plugin.id);}}
     for(const id of inventory.requiredPluginIds)Check.require(selected.has(id),'MISSING_PLUGIN');
     for(const name of inventory.requiredServices)Check.require(providers.has(name),'MISSING_SERVICE');
-    const edges=new Map<string,string[]>();for(const [id,metadata] of selected){const dependencies:string[]=[];for(const name of metadata.inject){const provider=providers.get(name);Check.require(provider,'MISSING_SERVICE');dependencies.push(provider);}edges.set(id,dependencies);}new DependencyGraph(edges).validate();
+    const edges=new Map<string,string[]>();for(const [id,metadata] of selected){const dependencies:string[]=[];for(const name of metadata.inject){const provider=providers.get(name);Check.require(provider,'MISSING_SERVICE');dependencies.push(provider);}edges.set(id,dependencies);}new DependencyGraph(edges).validate();return [...selected.values()];
   }
   private recipe(configuration:DeploymentConfiguration,inventory:ReleaseInventory,recipe:DeploymentRecipe):void {
     const references=new Set<string>(),ids=new Set<string>();for(const image of inventory.images){Check.require(!references.has(image.reference)&&!ids.has(image.id),'DUPLICATE_IMAGE');Check.require(image.reference.endsWith('@sha256:'+image.manifestDigest),'IMAGE_REFERENCE_MISMATCH');references.add(image.reference);ids.add(image.id);}
