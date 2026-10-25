@@ -157,6 +157,7 @@ export class ComposeDeploymentHost implements DeploymentHost {
 }
 
 export { ArtifactResolver } from './artifacts.js';
+export { ServiceArtifactResolver } from './service-artifacts.js';
 
 /** Planning only observes Linux listener tables; it never binds a socket. */
 export class TcpTableProbe implements DiagnosticPorts {
