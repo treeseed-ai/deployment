@@ -87,13 +87,13 @@ export class SafeDirectory {
     }catch(error){if(error instanceof PlanningBlockedError)throw error;return PlanningFailure.block('UNSAFE_FILE');}
     finally{if(directory!==this)directory.close();}
   }
-  hash(path:string,expected:string,size?:number):void {
+  hash(path:string,expected:string,size?:number,privateMode=false):void {
     const parts=SafeDirectory.relative(path),name=parts.pop()!;let directory:SafeDirectory=this;
     try {
       if(parts.length)directory=this.directory(parts.join('/'));
       const fd=openSync(directory.childPath(name),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
       try {
-        const before=fstatSync(fd);SafeDirectory.owner(before,false);PlanningFailure.require(before.isFile()&&before.nlink===1&&(size===undefined||size===before.size),'OCI_SIZE');
+        const before=fstatSync(fd);SafeDirectory.owner(before,privateMode);PlanningFailure.require(before.isFile()&&before.nlink===1&&(size===undefined||size===before.size),'OCI_SIZE');
         const hash=createHash('sha256'),buffer=Buffer.alloc(1024*1024);let position=0,count=0;
         while((count=readSync(fd,buffer,0,buffer.length,position))>0){position+=count;hash.update(buffer.subarray(0,count));}
         const after=fstatSync(fd),linked=lstatSync(directory.childPath(name));
