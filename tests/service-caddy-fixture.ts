@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { create } from 'tar';
 import { PackageDefinition, CanonicalJson } from '@treeseed-cordis/sdk';
@@ -10,7 +10,7 @@ import { ProbeFixture } from './service-fixture-plugins.js';
 import { ServiceRuntimeFixture } from './service-runtime-fixture.js';
 import { ServiceProjection } from '../src/service-projection.js';
 export class CaddyServiceFixture extends ServiceRuntimeFixture {
-    private static build(entry: string, output: string): void { const result = spawnSync('bun', ['build', entry, '--target=node', '--outfile', output], { encoding: 'utf8' }); if (result.status !== 0) throw new Error('Caddy fixture compilation failed: ' + result.stderr); }
+    private static build(entry: string, output: string): void { const configuration = entry + '.tsconfig.json', parser = fileURLToPath(import.meta.resolve('jsonc-parser')), esm = join(dirname(dirname(parser)), 'esm/main.js'); writeFileSync(configuration, JSON.stringify({ compilerOptions: { paths: { 'jsonc-parser': [esm] } } })); const result = spawnSync('bun', ['build', entry, '--target=node', '--tsconfig-override', configuration, '--outfile', output], { encoding: 'utf8' }); if (result.status !== 0) throw new Error('Caddy fixture compilation failed: ' + result.stderr); }
     private module(path: string): string { return fileURLToPath(new URL(path + (import.meta.url.endsWith('.ts') ? '.ts' : '.js'), import.meta.url)); }
     async prepared(): Promise<this> {
         await this.running(); const nodeImage = this.release.images[0]!, firstMetadata = JSON.parse(readFileSync(join(this.root, 'plugin/package/package.json'), 'utf8')) as { cordisPackage: { images: Parameters<typeof PackageDefinition.define>[5] } }, caddy = this.preparedImage(CaddyServicePlugin.image.reference, 'caddy', 'oci-caddy');

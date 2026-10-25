@@ -29,7 +29,7 @@ class CaddyServiceProgram {
             const path = join(configuration.installationDirectory, '.cordis', receipt.path); if ((statSync(path).mode & 0o777) !== 0o600 || (statSync(dirname(path)).mode & 0o777) !== 0o700) throw new Error('Non-private CA receipt');
             const before = CanonicalJson.stringify({ resources, snapshot: store.current() }); rmSync(configuration.release.directory, { recursive: true }); if (!(await runtime.status()).ready || before !== CanonicalJson.stringify({ resources: store.resources(), snapshot: store.current() }) || !certificate.equals(Buffer.from(await new EdgeInput(edge.serviceId, target.endpoint, plan, context.observation).authority(reference)))) throw new Error('Source-free Caddy read changed state');
             await runtime.close(); await inspection.audit(); if (!(await inspection.service(edge.serviceId)).running) throw new Error('Scope disposal stopped Caddy');
-            process.stdout.write(JSON.stringify({ fixtureOnly: true, caddy: true, renamed: true, tlsVerified: true, oidcRoute: true, privateCa: true, sourceFree: true, retained: true }) + '\n');
+            process.stdout.write(JSON.stringify({ fixtureOnly: true, caddy: true, renamed: true, tlsVerified: true, identityRoute: true, privateCa: true, sourceFree: true, retained: true }) + '\n');
         } finally { await runtime.close(); }
     }
     private static authority(receipt: { kind: string }): boolean { return receipt.kind === 'authority'; }

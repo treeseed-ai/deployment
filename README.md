@@ -715,3 +715,10 @@ HTTP protocol fixtures at renamed dependency IDs, and verify real HTTPS proxy re
 exported CA. Check the private public-CA receipt, source-free status and unchanged CA/resources on
 read-back; no host trust changes. This qualifies Caddy transport/configuration, not genuine API or
 OIDC semantics. Real API/Keycloak direct+routed/browser assembly remains separately required.
+
+
+Caddy fixture-build evidence: Bun 1.4.4, Node 24.19.0, jsonc-parser 3.3.1 and default
+`bun build <entry> --target=node --outfile <output>` selected its UMD main and left an unresolved
+`require('./impl/format')` in the archive. The fixture's explicit `--tsconfig-override` maps
+`jsonc-parser` to the installed pinned `lib/esm/main.js`; the same native programme then passes.
+This is a qualified fixture build configuration, not a general limitation of Bun or the library.
