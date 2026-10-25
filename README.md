@@ -250,3 +250,7 @@ opening the original bundle. A writer already held by the durable worker publish
 records under that same authority. This persistence qualification uses explicit observation
 fixtures; only actual engine/probe inspection in the worker can produce runtime readiness.
 Historical journals and migration remain separate explicit boundaries.
+
+The held installation writer pins its owner record's bytes and file identity. Replacement or
+mutation fences that handle permanently; closing a fenced handle preserves the uncertain lock
+and closes descriptors without deleting another owner's record. Explicit repair is required.
