@@ -42,10 +42,13 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 this.configuration(probe, service.readiness.configuration);
                 this.service(service, container, probe, inventory, configuration);
                 const owner = descriptors.get(service.provider.package.name)!;
+                const ownerData = packages.get(service.provider.package.name)!;
+                for (const image of owner.runtimeImages ?? []) if (image.id === service.definition.imageId) { Check.require(ownerData.hashes.has('package/' + image.entry), 'RUNTIME_ENTRY_INTEGRITY'); }
                 let imageBound = false;
                 for (const image of owner.images)
                     if (image.id === service.definition.imageId)
                         imageBound = true;
+                for (const image of owner.runtimeImages ?? []) if (image.id === service.definition.imageId) imageBound = true;
                 Check.require(imageBound, 'IMAGE_PACKAGE_BINDING');
                 for (const value of [container.declaration, probe.declaration]) {
                     const key = value.target + ':' + value.id;
@@ -68,7 +71,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
             images.sort(ArtifactResolver.imageOrder);
             for (const image of images)
                 artifacts.push(this.image(directory, image, true));
-            this.apiImage(directory, inventory, artifacts, packages);
+            this.runtimeImages(directory, inventory, artifacts, packages, descriptors);
             await this.helpers(directory, inventory);
             directory.verify();
             return { inventory, recipe, pluginBindings: bindings, artifacts, releaseDigest: configuration.release.manifestDigest, lockDigest: inventory.lockfile.sha256, recipeDigest: inventory.recipe.sha256 };
@@ -256,29 +259,32 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         package: string;
         path: string;
     }): number { const left = a.package + ':' + a.path, right = b.package + ':' + b.path; return left < right ? -1 : left > right ? 1 : 0; }
-    private apiImage(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>): void {
-        const id = inventory.composition.profile.workerSocketServiceId;
-        if (!id)
-            return;
-        const service = inventory.composition.services.find(ServiceArtifactVerifier.serviceId.bind(null, id))!, image = inventory.images.find(ServiceArtifactVerifier.matchesImage.bind(null, service.definition.imageId))!, packages: DeploymentPlan['artifacts'] = [];
-        const closure = new Set<string>(), queue = [service.provider.package.name];
-        while (queue.length) { const name = queue.shift()!; if (closure.has(name)) continue; const entry = data.get(name); Check.require(entry, 'MISSING_PACKAGE'); closure.add(name); for (const field of ['dependencies', 'peerDependencies']) { const entries = entry.metadata[field]; if (entries !== undefined) for (const dependency of Object.keys(StrictJson.object(entries))) if (data.has(dependency)) queue.push(dependency); } }
-        let configDigest = '';
-        for (const artifact of artifacts)
-            if (artifact.kind === 'package') {
-                if (closure.has(artifact.name)) packages.push(artifact);
-            }
-            else if (artifact.manifestDigest === image.manifestDigest)
-                configDigest = artifact.configDigest;
-        Check.require(configDigest, 'MISSING_IMAGE');
-        const layout = directory.directory(image.layout);
-        try {
-            const config = StrictJson.object(StrictJson.parse(layout.file('blobs/sha256/' + configDigest, configDigest, 4 * 1024 * 1024))), labels = StrictJson.object(StrictJson.object(config.config).Labels);
-            Check.require(labels['ai.treeseed.cordis.package-set'] === CanonicalJson.digest(packages) && labels['ai.treeseed.cordis.admin-asset'] === inventory.composition.assetDigest, 'IMAGE_PACKAGE_BINDING');
+    private runtimeImages(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>, descriptors: Map<string, PluginPackageDescriptor>): void {
+        const owners = new Map<string, string>();
+        for (const [name, descriptor] of descriptors) for (const image of [...descriptor.images, ...descriptor.runtimeImages ?? []]) { Check.require(!owners.has(image.id), 'IMAGE_PACKAGE_BINDING'); owners.set(image.id, name); }
+        const verified = new Set<string>();
+        for (const service of inventory.composition.services) {
+            const owner = descriptors.get(service.provider.package.name)!;
+            let runtime: NonNullable<PluginPackageDescriptor['runtimeImages']>[number] | undefined;
+            for (const candidate of owner.runtimeImages ?? []) if (candidate.id === service.definition.imageId) runtime = candidate;
+            // A host receiving the private worker capability must be an exact runtime image.
+            Check.require(!service.definition.workerSocket || runtime, 'IMAGE_PACKAGE_BINDING');
+            if (!runtime || verified.has(runtime.id)) continue;
+            verified.add(runtime.id);
+            const image = inventory.images.find(ServiceArtifactVerifier.matchesImage.bind(null, runtime.id))!, packages: DeploymentPlan['artifacts'] = [], closure = new Set<string>(), queue = [service.provider.package.name];
+            while (queue.length) { const name = queue.shift()!; if (closure.has(name)) continue; const entry = data.get(name); Check.require(entry, 'MISSING_PACKAGE'); closure.add(name); for (const field of ['dependencies', 'peerDependencies']) { const entries = entry.metadata[field]; if (entries !== undefined) for (const dependency of Object.keys(StrictJson.object(entries))) if (data.has(dependency)) queue.push(dependency); } }
+            let configDigest = '';
+            for (const artifact of artifacts) if (artifact.kind === 'package') { if (closure.has(artifact.name)) packages.push(artifact); } else if (artifact.manifestDigest === image.manifestDigest) configDigest = artifact.configDigest;
+            Check.require(configDigest, 'MISSING_IMAGE');
+            const entryDigest = data.get(service.provider.package.name)!.hashes.get('package/' + runtime.entry);
+            Check.require(entryDigest, 'RUNTIME_ENTRY_INTEGRITY');
+            const layout = directory.directory(image.layout);
+            try {
+                const config = StrictJson.object(StrictJson.parse(layout.file('blobs/sha256/' + configDigest, configDigest, 4 * 1024 * 1024))), labels = StrictJson.object(StrictJson.object(config.config).Labels);
+                Check.require(labels['ai.treeseed.cordis.package-set'] === CanonicalJson.digest(packages) && labels['ai.treeseed.cordis.admin-asset'] === inventory.composition.assetDigest && labels['ai.treeseed.cordis.runtime-entry'] === entryDigest, 'IMAGE_PACKAGE_BINDING');
+            } finally { layout.close(); }
         }
-        finally {
-            layout.close();
-        }
+        for (const descriptor of descriptors.values()) for (const image of descriptor.runtimeImages ?? []) Check.require(verified.has(image.id), 'UNUSED_IMAGE');
     }
     private async helpers(directory: SafeDirectory, inventory: ServiceRelease): Promise<void> {
         for (const helper of inventory.helpers?.helpers ?? []) {
