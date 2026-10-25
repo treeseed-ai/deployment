@@ -494,3 +494,26 @@ interrupted/wrong/malformed handoff refusal and private writer release without r
 It is explicitly not the compiled production worker/launcher qualification. That producer and fixed
 standalone entrypoint are the next slice. Malformed private launch records produce safe typed
 blockers and remain unchanged.
+
+### Standalone format-3 worker producer
+
+`ServiceWorkerBuild.produce(directory)` is a build-time public interface. It requires an empty,
+owner-private directory and Bun 1.4.4, compiles the fixed owner entry for Linux x64, and returns
+`{path, sha256, size}` for the resulting immutable `worker` executable. It accepts no source entry,
+compiler flags or application scripts. Release assembly copies and pins those exact bytes before
+planning. A failed producer leaves its private evidence for explicit cleanup; it never overwrites
+an existing output or runs during plan/apply. Compilation follows Bun's documented
+[standalone executable interface](https://bun.com/docs/bundler/executables).
+
+The standalone worker accepts exactly `--installation`, `--plan`, `--digest`, `--nonce` and
+`--protocol 3`. It reads the saved plan, waits for the selected-child ownership handoff, and starts
+the production native host root without auto-submitting an application. Invalid arguments exit 2;
+failed startup exits 3 with no raw exception or credential output. SIGTERM/SIGINT drain accepted
+work and native scopes before releasing the writer and private listeners. Failed bounded shutdown
+exits unsuccessfully and retains uncertain state. It never stops installed containers implicitly.
+
+The built executable qualification uses Docker-only PATH and genuine disposable service images.
+It verifies five-instance application/read-back, same-key response-loss recovery after removal of
+the original bundle, selected-child writer identity and shutdown that preserves resource IDs.
+This qualifies the real compiled entry; the separate bootstrap fixture continues to isolate
+malformed/interrupted ownership cases. Public host launcher integration is the following slice.

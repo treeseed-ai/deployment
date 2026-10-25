@@ -8,6 +8,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Build and execute the standalone format-3 native host worker (#910).
 - Bootstrap an exact standalone worker through a bounded private ownership handoff (#910).
 - Separate private host observation from owner-local application control (#910).
 - Share one native installation authority across trusted host providers (#910).
