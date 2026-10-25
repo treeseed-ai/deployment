@@ -799,3 +799,22 @@ one target record. Every acknowledgement must be ready and bind the expected com
 Conflicting runtime generations, observation digests or other fields for the same target/scope
 block acceptance; they are not resolved by arrival order. A conflict during fresh status
 reports not-ready with no acknowledgements. Per-service readiness remains independently required.
+
+### Planning against an accepted live composition
+
+An active format-3 installation plans through its existing owner-control endpoint and held
+single writer. The default public host delegates to that endpoint; it never starts or adopts
+another root. The host freshly verifies current readiness, engine/resource identity and the
+new exact local bundle before publishing. A missing owner or uncertain state blocks planning.
+
+`ServiceTransitions.plan(previous, desired)` is a data-only owner projection: stable service
+identities are retained, private additions are additive, changed existing services carry explicit
+restart/migration actions, and removals remain unsupported. Readiness-only changes retain
+physical resources but still require explicit scope restart authorization. Dependencies affected
+by a changed service are reported. Never infer restart or migration permission from a plan.
+
+Plans bind the accepted previous composition/resource-set digest and retained resource receipts.
+Only new/changed service effects are reported; existing credentials, volumes, containers and TLS
+authority remain unchanged by planning. Saving/read-back of a prepared transition is not
+activation. The next apply slice must separately enforce required actions, stale generations,
+retained identities and fresh target acknowledgements before claiming the new generation active.
