@@ -30,14 +30,16 @@ class HostDispatch {
     verify(): void { this.layout.verify(); }
     async execute(request: ServiceWorkerRequest, observer: boolean): Promise<ServiceWorkerResponse> {
         this.verify();
-        if (observer && request.operation !== 'status' && request.operation !== 'application')
+        if (observer && !['status', 'application', 'observation.context'].includes(request.operation))
             return HostFailure.blocked('OBSERVER_OPERATION_REFUSED');
-        if (!['submit', 'status', 'application'].includes(request.operation))
+        if (!['submit', 'status', 'application', 'observation.context'].includes(request.operation))
             return HostFailure.blocked('OWNER_OPERATION_UNAVAILABLE');
         const lease = await CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host);
         try {
             let result;
-            if (request.operation === 'status')
+            if (request.operation === 'observation.context')
+                result = await lease.value.observationContext(request.serviceId);
+            else if (request.operation === 'status')
                 result = await lease.value.status();
             else if (request.operation === 'application')
                 result = await lease.value.application(request.id);

@@ -1,7 +1,7 @@
 import { Socket } from 'node:net';
 import { lstatSync, fstatSync, type Stats } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
-import { CanonicalJson, PlatformSchemas, PlanningBlockedError, ServiceSchemas, ServiceWorkerSchemas, type ServiceWorkerRequest, type ServiceWorkerResponse, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
+import { CanonicalJson, PlatformSchemas, PlanningBlockedError, ServiceSchemas, ServiceWorkerSchemas, type ServiceWorkerRequest, type ServiceWorkerResponse, type ServiceStatus, type ServiceObservationContext, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 class ObserverExchange {
     private readonly socket = new Socket();
@@ -59,7 +59,8 @@ export class ServiceWorkerClient {
         Check.require(options.installationDirectory.startsWith('/') && resolve(options.installationDirectory) === options.installationDirectory, 'WORKER_SOCKET_PATH'); this.socket = 'socket' in options ? options.socket : join(options.installationDirectory, '.cordis/run/host.sock'); Check.require(this.socket.startsWith('/') && resolve(this.socket) === this.socket && basename(this.socket) === 'host.sock', 'WORKER_SOCKET_PATH'); this.timeoutMs = options.timeoutMs ?? 10000; Check.require(Number.isInteger(this.timeoutMs) && this.timeoutMs >= 50 && this.timeoutMs <= 10000, 'WORKER_TIMEOUT'); }
     private async request(request: ServiceWorkerRequest): Promise<Extract<ServiceWorkerResponse, {
         success: true;
-    }>> { request = ServiceWorkerSchemas.request.parse(request); Check.require(request.operation === 'status' || request.operation === 'application', 'OBSERVER_OPERATION_REFUSED'); return PrivateWorkerRequest.run(this.socket, request, this.timeoutMs); }
+    }>> { request = ServiceWorkerSchemas.request.parse(request); Check.require(['status', 'application', 'observation.context'].includes(request.operation), 'OBSERVER_OPERATION_REFUSED'); return PrivateWorkerRequest.run(this.socket, request, this.timeoutMs); }
+    async observationContext(serviceId: string): Promise<ServiceObservationContext> { Check.require(ServiceSchemas.serviceId.safeParse(serviceId).success, 'SERVICE_SCOPE'); const result = (await this.request({ protocol: 3, operation: 'observation.context', serviceId })).result, parsed = ServiceSchemas.observationContext.safeParse(result); Check.require(parsed.success && parsed.data.identity.serviceId === serviceId, 'INVALID_WORKER_OBSERVATION'); return parsed.data; }
     async status(): Promise<ServiceStatus> { const result = (await this.request({ protocol: 3, operation: 'status' })).result; const status = ServiceSchemas.status.safeParse(result); if (!status.success)
         throw new Error('INVALID_WORKER_STATUS'); return status.data; }
     async application(id: string): Promise<ServiceApplicationRecord> { id = ServiceSchemas.applicationRecord.shape.id.parse(id); const result = (await this.request({ protocol: 3, operation: 'application', id })).result, record = ServiceSchemas.applicationRecord.safeParse(result); if (!record.success || record.data.id !== id)

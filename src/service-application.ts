@@ -1,4 +1,5 @@
-import { CanonicalJson, CapabilityToken, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type ServiceApplicationRecord, type ServiceWorkerRequest, type ServiceStatus, type ServiceSnapshot, type ServiceResourceReceipt, type ServiceReadiness } from '@treeseed-cordis/sdk';
+import { ServiceObservations } from './service-observation.js';
+import { CanonicalJson, CapabilityToken, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type ServiceApplicationRecord, type ServiceWorkerRequest, type ServiceStatus, type ServiceObservationContext, type ServiceSnapshot, type ServiceResourceReceipt, type ServiceReadiness } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle, type ProviderRegistration } from '@treeseed-cordis/sdk/runtime';
 import { ServicePlanStore, ServicePlanIdentity } from './service-plan.js';
 import { ServiceNativeScope, type PreparedServiceScope } from './service-native.js';
@@ -18,12 +19,13 @@ export interface ServiceApplicationHost {
         accepted: true;
     }>;
     status(): Promise<ServiceStatus>;
+    observationContext(serviceId: string): Promise<ServiceObservationContext>;
     application(id: string): Promise<ServiceApplicationRecord>;
 }
 class ApplicationAdapter {
     parse(value: unknown): ServiceApplicationHost {
         Check.require(value && typeof value === 'object', 'INVALID_APPLICATION_HOST');
-        for (const method of ['submit', 'status', 'application'])
+        for (const method of ['submit', 'status', 'application', 'observationContext'])
             Check.require(typeof Reflect.get(value, method) === 'function', 'INVALID_APPLICATION_HOST');
         return value as ServiceApplicationHost;
     }
@@ -195,6 +197,7 @@ class ServiceApplications implements ServiceApplicationHost {
             this.store.append({ ...record, sequence: record.sequence + 1, phase: 'failed', result: 'failed', recovery }, this.writer);
         }
     }
+    async observationContext(serviceId: string): Promise<ServiceObservationContext> { this.writer.assert(this.store.path); const last = this.store.records().at(-1); Check.require(last && last.planId === this.plan.id && last.digest === this.plan.digest && ['stage', 'prepare', 'activate', 'readiness', 'commit', 'completed'].includes(last.phase), 'SERVICE_NOT_ACCEPTED'); return new ServiceObservations(this.plan).context(serviceId); }
     async status(): Promise<ServiceStatus> {
         const records = this.store.records(), last = records.at(-1), current = this.store.current(), services: ServiceStatus['services'] = [], blockers: ServiceStatus['blockers'] = [], freshAcks: ServiceStatus['acknowledgements'] = [];
         let ready = current !== null && !this.faulted;
@@ -320,6 +323,7 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
             await lease.release();
         }
     }
+    async observationContext(serviceId: string): Promise<ServiceObservationContext> { const lease = await this.acquire(); try { return await lease.value.observationContext(serviceId); } finally { await lease.release(); } }
     async status(): Promise<ServiceStatus> {
         const lease = await this.acquire();
         try {
