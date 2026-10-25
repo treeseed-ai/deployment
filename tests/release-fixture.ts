@@ -1,6 +1,6 @@
 import {fileURLToPath} from 'node:url';
 import {ContainerFixture,ProbeFixture} from './service-fixture-plugins.js';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import {readdirSync,chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -70,7 +70,8 @@ export class PreparedReleaseFixture {
     this.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(join(this.bundle,'bun.lock')));this.refresh();
   }
   refresh():void {this.inventory.recipe.sha256=this.write('compose.json',this.recipe);this.configuration.release.manifestDigest=this.write('release.json',this.inventory);}
-  close():void {rmSync(this.root,{recursive:true,force:true});}
+  close():void {PreparedReleaseFixture.writable(this.root);rmSync(this.root,{recursive:true,force:true});}
+  private static writable(path:string):void{chmodSync(path,0o700);for(const entry of readdirSync(path,{withFileTypes:true})){const file=join(path,entry.name);if(entry.isSymbolicLink())continue;if(entry.isDirectory())this.writable(file);else chmodSync(file,0o600);}}
 }
 
 export class ServiceReleaseFixture extends PreparedReleaseFixture {
@@ -92,7 +93,7 @@ export class ServiceReleaseFixture extends PreparedReleaseFixture {
         this.configuration.plugins[0]!.integrity = sha;
         const lock = spawnSync('bun', ['install', '--lockfile-only', '--force', '--ignore-scripts'], { cwd: this.bundle, encoding: 'utf8' });
         if (lock.status !== 0)
-            throw new Error('Fixture lock failed');
+            throw new Error('Fixture lock failed: '+lock.stderr.slice(0,2000));
         this.inventory.lockfile.sha256 = PreparedReleaseFixture.sha(readFileSync(join(this.bundle, 'bun.lock')));
         const services: ServiceInstance[] = [];
         this.recipe = { services: {}, volumes: {}, secrets: {} };
@@ -124,7 +125,7 @@ export class ServiceReleaseFixture extends PreparedReleaseFixture {
         }
         const lock = spawnSync('bun', ['install', '--lockfile-only', '--force', '--ignore-scripts'], { cwd: this.bundle, encoding: 'utf8' });
         if (lock.status !== 0)
-            throw new Error('Fixture lock failed');
+            throw new Error('Fixture lock failed: '+lock.stderr.slice(0,2000));
         this.release.lockfile.sha256 = PreparedReleaseFixture.sha(readFileSync(join(this.bundle, 'bun.lock')));
         this.refreshService();
     }
