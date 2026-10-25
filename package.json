@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.27",
+  "version": "0.0.0-cordis.28",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -60,6 +60,152 @@
     "jsonc-parser": "3.3.1",
     "semver": "7.8.5",
     "tar": "7.5.22",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "postgres": "3.4.9"
+  },
+  "cordisPackage": {
+    "formatVersion": 4,
+    "contractVersion": "0.4.0-cordis.1",
+    "pluginId": "deployment",
+    "package": {
+      "name": "@treeseed-cordis/deployment",
+      "version": "0.0.0-cordis.28"
+    },
+    "providers": [
+      {
+        "declaration": {
+          "id": "deployment.postgres.service",
+          "pluginId": "deployment",
+          "capability": "container.service",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "container.service"
+          ],
+          "inject": [
+            "deployment.services",
+            "service.context"
+          ]
+        },
+        "entry": "dist/src/service-postgres.js",
+        "classExport": "PostgresServicePlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": [],
+        "container": {
+          "definition": {
+            "imageId": "postgres",
+            "user": "image-default",
+            "environment": {
+              "POSTGRES_DB": "cordis",
+              "POSTGRES_USER": "cordis",
+              "POSTGRES_PASSWORD_FILE": "/run/cordis/database-password"
+            },
+            "ports": [
+              {
+                "id": "postgres",
+                "target": 5432
+              }
+            ],
+            "volumes": [
+              {
+                "source": "data",
+                "target": "/var/lib/postgresql/data",
+                "readOnly": false
+              }
+            ],
+            "secrets": [
+              {
+                "slot": "database-password",
+                "target": "/run/cordis/database-password"
+              }
+            ],
+            "workerSocket": false
+          },
+          "resources": {
+            "volumes": [
+              "data"
+            ],
+            "slots": {
+              "database-password": {
+                "kind": "random"
+              }
+            },
+            "grants": [],
+            "authorities": []
+          },
+          "providedContracts": [
+            {
+              "port": "postgres",
+              "contractId": "storage.postgres",
+              "contractVersion": "1.0.0"
+            }
+          ],
+          "dependencies": [],
+          "observationContract": "storage.postgres",
+          "transitionPolicy": {
+            "kind": "restart-required",
+            "stateVersion": 1
+          }
+        }
+      },
+      {
+        "declaration": {
+          "id": "deployment.postgres.readiness",
+          "pluginId": "deployment",
+          "capability": "probe.service",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "probe.service"
+          ],
+          "inject": []
+        },
+        "entry": "dist/src/service-postgres.js",
+        "classExport": "PostgresReadinessPlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": [],
+        "probe": {
+          "observationContracts": [
+            "storage.postgres"
+          ],
+          "schemes": [
+            "tcp"
+          ],
+          "maximumDeadlineMs": 120000
+        }
+      }
+    ],
+    "assets": [],
+    "images": [
+      {
+        "id": "postgres",
+        "reference": "postgres@sha256:e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4",
+        "source": {
+          "kind": "prepared"
+        },
+        "indexSha256": "d538f74d92b3b72ecfd667bc56b81c48695a819ba0b74526a9580657cec26acd",
+        "manifestDigest": "e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4"
+      }
+    ]
   }
 }

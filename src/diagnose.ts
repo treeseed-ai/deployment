@@ -156,3 +156,4 @@ export {ServiceWorkerBuild} from './service-worker-build.js';
 
 export {AuthorityArchive} from './service-export.js';
 export {ServiceAuthorityExports} from './service-authority-export.js';
+export {PostgresServicePlugin,PostgresReadinessPlugin} from './service-postgres.js';

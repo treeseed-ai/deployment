@@ -1,2 +1,13 @@
 import { ProjectTooling } from '@treeseed-cordis/sdk/source-policy';
-ProjectTooling.run();
+import { CanonicalJson, PackageDefinition } from '@treeseed-cordis/sdk';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { PostgresServicePlugin, PostgresReadinessPlugin } from '../src/service-postgres.js';
+class DeploymentTooling {
+    static run(): void {
+        ProjectTooling.run(); const mode = process.argv[2]; if (mode !== 'build' && mode !== 'check') return;
+        const metadata = JSON.parse(readFileSync('package.json', 'utf8')) as { name: string; version: string; cordisPackage?: unknown }, providers = [PackageDefinition.export(PostgresServicePlugin, 'dist/src/service-postgres.js', 'PostgresServicePlugin'), PackageDefinition.export(PostgresReadinessPlugin, 'dist/src/service-postgres.js', 'PostgresReadinessPlugin')], descriptor = PackageDefinition.define(metadata.name, metadata.version, 'deployment', providers, [], [PostgresServicePlugin.image]);
+        if (mode === 'check') { if (CanonicalJson.stringify(metadata.cordisPackage) !== CanonicalJson.stringify(descriptor)) throw new Error('DEPLOYMENT_PACKAGE_METADATA_DRIFT'); return; }
+        metadata.cordisPackage = descriptor; writeFileSync('package.json', JSON.stringify(metadata, null, 2) + '\n');
+    }
+}
+DeploymentTooling.run();
