@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.29",
+  "version": "0.0.0-cordis.30",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -69,7 +69,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.29"
+      "version": "0.0.0-cordis.30"
     },
     "providers": [
       {
@@ -193,6 +193,148 @@
           ],
           "maximumDeadlineMs": 120000
         }
+      },
+      {
+        "declaration": {
+          "id": "deployment.caddy.service",
+          "pluginId": "deployment",
+          "capability": "container.service",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "container.service"
+          ],
+          "inject": [
+            "deployment.services",
+            "service.context"
+          ]
+        },
+        "entry": "dist/src/service-caddy.js",
+        "classExport": "CaddyServicePlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": [],
+        "container": {
+          "definition": {
+            "imageId": "caddy",
+            "user": "image-default",
+            "environment": {},
+            "ports": [
+              {
+                "id": "https",
+                "target": 443
+              }
+            ],
+            "volumes": [
+              {
+                "source": "data",
+                "target": "/data",
+                "readOnly": false
+              },
+              {
+                "source": "config",
+                "target": "/config",
+                "readOnly": false
+              }
+            ],
+            "secrets": [
+              {
+                "slot": "edge-config",
+                "target": "/etc/caddy/Caddyfile"
+              }
+            ],
+            "workerSocket": false
+          },
+          "resources": {
+            "volumes": [
+              "data",
+              "config"
+            ],
+            "slots": {
+              "edge-config": {
+                "kind": "text",
+                "value": {
+                  "$template": [
+                    "{\n admin off\n auto_https disable_redirects\n skip_install_trust\n}\nhttps://",
+                    {
+                      "$context": "hostname"
+                    },
+                    ":443 {\n tls internal\n @identity path /identity/realms/cordis/* /identity/resources/*\n handle @identity {\n reverse_proxy ",
+                    {
+                      "$endpoint": {
+                        "dependencyPort": "identity",
+                        "portId": "http",
+                        "scheme": "http",
+                        "path": "/",
+                        "part": "authority"
+                      }
+                    },
+                    " {\n header_up -Forwarded\n header_up X-Forwarded-Proto https\n header_up X-Forwarded-Host ",
+                    {
+                      "$context": "originAuthority"
+                    },
+                    "\n header_up X-Forwarded-Port ",
+                    {
+                      "$context": "originPort"
+                    },
+                    "\n }\n }\n handle /identity/* {\n respond 404\n }\n handle {\n reverse_proxy ",
+                    {
+                      "$endpoint": {
+                        "dependencyPort": "api",
+                        "portId": "http",
+                        "scheme": "http",
+                        "path": "/",
+                        "part": "authority"
+                      }
+                    },
+                    "\n }\n}\n"
+                  ]
+                }
+              }
+            },
+            "grants": [],
+            "authorities": [
+              {
+                "id": "public-ca",
+                "volume": "data",
+                "path": "caddy/pki/authorities/local/root.crt"
+              }
+            ]
+          },
+          "providedContracts": [
+            {
+              "port": "https",
+              "contractId": "edge.https",
+              "contractVersion": "1.0.0"
+            }
+          ],
+          "dependencies": [
+            {
+              "port": "api",
+              "contractId": "platform.api",
+              "contractVersion": "1.0.0"
+            },
+            {
+              "port": "identity",
+              "contractId": "identity.oidc",
+              "contractVersion": "1.0.0"
+            }
+          ],
+          "observationContract": "edge.https",
+          "transitionPolicy": {
+            "kind": "restart-required",
+            "stateVersion": 1
+          }
+        }
       }
     ],
     "assets": [],
@@ -205,6 +347,15 @@
         },
         "indexSha256": "d538f74d92b3b72ecfd667bc56b81c48695a819ba0b74526a9580657cec26acd",
         "manifestDigest": "e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4"
+      },
+      {
+        "id": "caddy",
+        "reference": "caddy@sha256:d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83",
+        "source": {
+          "kind": "prepared"
+        },
+        "indexSha256": "521bf209930956584e111b7e9cf9b8608f0015a52c3a70fa814cc01aaadaa5e8",
+        "manifestDigest": "d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83"
       }
     ]
   }

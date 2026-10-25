@@ -243,6 +243,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 assets.push({ package: name, version: descriptor.package.version, path: asset.path, sha256: asset.sha256 });
             }
             for (const image of descriptor.images) {
+                if (!ServiceArtifactVerifier.selectedImage(inventory, name, image.id)) continue;
                 let found = false;
                 for (const item of inventory.images)
                     if (item.id === image.id && item.reference === image.reference && item.indexSha256 === image.indexSha256 && item.manifestDigest === image.manifestDigest)
@@ -260,10 +261,11 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         package: string;
         path: string;
     }): number { const left = a.package + ':' + a.path, right = b.package + ':' + b.path; return left < right ? -1 : left > right ? 1 : 0; }
+    private static selectedImage(inventory: ServiceRelease, name: string, id: string): boolean { for (const service of inventory.composition.services) if (service.provider.package.name === name && service.definition.imageId === id) return true; return false; }
     private runtimeImages(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>, descriptors: Map<string, PluginPackageDescriptor>): Record<string, ServiceRuntimeBinding> {
         const result: Record<string, ServiceRuntimeBinding> = {};
         const owners = new Map<string, string>();
-        for (const [name, descriptor] of descriptors) for (const image of [...descriptor.images, ...descriptor.runtimeImages ?? []]) { Check.require(!owners.has(image.id), 'IMAGE_PACKAGE_BINDING'); owners.set(image.id, name); }
+        for (const [name, descriptor] of descriptors) for (const image of [...descriptor.images, ...descriptor.runtimeImages ?? []]) if (ServiceArtifactVerifier.selectedImage(inventory, name, image.id)) { Check.require(!owners.has(image.id), 'IMAGE_PACKAGE_BINDING'); owners.set(image.id, name); }
         const verified = new Map<string, ServiceRuntimeBinding>();
         for (const service of inventory.composition.services) {
             const owner = descriptors.get(service.provider.package.name)!;
@@ -288,7 +290,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 verified.set(runtime.id, binding); result[service.serviceId] = binding;
             } finally { layout.close(); }
         }
-        for (const descriptor of descriptors.values()) for (const image of descriptor.runtimeImages ?? []) Check.require(verified.has(image.id), 'UNUSED_IMAGE');
+        for (const [name, descriptor] of descriptors) for (const image of descriptor.runtimeImages ?? []) if (ServiceArtifactVerifier.selectedImage(inventory, name, image.id)) Check.require(verified.has(image.id), 'UNUSED_IMAGE');
         return result;
     }
     private async helpers(directory: SafeDirectory, inventory: ServiceRelease): Promise<void> {
