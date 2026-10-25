@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Initialize retained-planning modules independently of import order (#910).
 - Coalesce identical direct and routed runtime evidence while rejecting conflicts (#910).
 
 - Validate genuine Bun lock metadata with identical regular and optional peer declarations (#910).

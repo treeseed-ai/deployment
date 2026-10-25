@@ -827,3 +827,9 @@ inputs and may read back the same immutable saved plan.
 Live transition planning preserves the accepted desired runtime state and worker executable.
 A runtime-state change or host-binary replacement is outside the qualified additive boundary
 and blocks without a new saved plan. Those transitions require their own explicit qualification.
+
+Cold module entry is an executable boundary: loading the application/host/IPC/planning modules
+first must work in both Bun and built Node consumers. Internal implementation imports must not
+route through the public composition barrel. The default Docker command class belongs in one
+leaf module and remains publicly re-exported; the host's token initialization cannot depend on
+a previous unrelated import warming the module graph.
