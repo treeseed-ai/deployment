@@ -581,3 +581,26 @@ identity must match its service, expected installation/composition/service gener
 digest. Dependency identities contain only its declared accepted bindings. Existing deadline,
 cancellation, credential grants and native lease drain remain authoritative; metadata adds no
 credential, host command or installation-writer capability.
+
+### Declared public authority exports
+
+`ServiceAuthorityExports` implements bounded access behind `ProbeContext.authority(reference)`.
+Only exact references in the service's readiness grant list are available, with cross-service
+dependency/grant checks. `authorityIds` lists authority references; ordinary slot references remain
+in `credentialReferences`. A probe receives bytes and bounded callbacks, never Docker commands,
+host paths or the installation writer.
+
+The first accepted activation reads a declared public CA certificate from a path beneath an owned
+named-volume mount in its receipted container. The host verifies engine/resource identity and uses
+Docker's bounded [tar-to-stdout copy](https://docs.docker.com/reference/cli/docker/container/cp/),
+without extraction, shell/exec, helper container, link following or arbitrary host mounts. Accept
+exactly one regular file, at most 128 KiB, containing exactly one valid PEM CA certificate and no
+private-key/trailing material. Whole-stream output and deadlines are bounded.
+
+Only a current accepted activation/readiness phase may publish a private immutable certificate
+record and authority resource receipt. Existing exact exports retain their bytes, definition,
+creator generation and fingerprint. Later status/probe reads verify saved bytes without creating
+missing exports or repairing interrupted/foreign state. Expired/cancelled callbacks cannot publish.
+Unknown files, changed definitions/content, scope/ownership/symlink failures and incomplete publication
+require explicit repair. Named-volume and credential ownership remain with the existing service.
+Tests use public fixture CAs and disposable service volumes; no original installation is accessed.

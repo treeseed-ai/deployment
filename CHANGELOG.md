@@ -8,6 +8,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Export declared public service authorities through bounded private probe access (#910).
 - Bind native probes to frozen accepted service observations (#910).
 - Read accepted service observations through the native readonly host protocol (#910).
 - Retain verified runtime identities in non-activating service plans (#910).
