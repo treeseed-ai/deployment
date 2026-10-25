@@ -127,9 +127,14 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         }
         throw new Error('Missing native OCI fixture');
     }
-    private exportImage(): ServiceRelease['images'][number] {
+    preparedImage(reference: string, id: string): ServiceRelease['images'][number] {
+        const inspected = spawnSync('docker', ['image', 'inspect', reference], { encoding: 'utf8' });
+        if (inspected.status !== 0) ServiceRuntimeFixture.run('docker', ['image', 'pull', reference]);
+        return this.exportImage(reference, id, reference.split('@')[0]!);
+    }
+    private exportImage(tag = this.imageTag, id = 'application', repository = 'fixture/runtime'): ServiceRelease['images'][number] {
         const archive = join(this.root, 'runtime-image.tar'), root = join(this.root, 'docker-layout');
-        ServiceRuntimeFixture.run('docker', ['image', 'save', '--output', archive, this.imageTag]);
+        ServiceRuntimeFixture.run('docker', ['image', 'save', '--output', archive, tag]);
         mkdirSync(root);
         ServiceRuntimeFixture.run('tar', ['--extract', '--file', archive, '--directory', root]);
         const index = JSON.parse(readFileSync(join(root, 'index.json'), 'utf8')) as {
@@ -144,7 +149,7 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
             writeFileSync(join(this.bundle, 'oci/blobs/sha256', descriptor.digest.slice(7)), this.blob(root, descriptor));
         this.write('oci/oci-layout', { imageLayoutVersion: '1.0.0' });
         const manifestDigest = selected.digest.slice(7), indexSha256 = this.write('oci/index.json', { schemaVersion: 2, manifests: [{ mediaType: 'application/vnd.oci.image.manifest.v1+json', digest: selected.digest, size: bytes.length, platform: { os: 'linux', architecture: 'amd64' } }] });
-        return { id: 'application', reference: 'fixture/runtime@sha256:' + manifestDigest, layout: 'oci', manifestDigest, indexSha256 };
+        return { id, reference: repository + '@sha256:' + manifestDigest, layout: 'oci', manifestDigest, indexSha256 };
     }
     override close(): void {
         if (!this.project && this.configuration)
