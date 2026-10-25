@@ -145,7 +145,7 @@ export {ServiceWorkerClient,ServiceWorkerOwnerClient} from './service-ipc.js';
 export {ServiceHostRuntime} from './service-host.js';
 export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
 export {ServiceCredentials} from './service-credentials.js';
-export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands} from './service-images.js';
+export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands,type ServiceAuthorityCommands} from './service-images.js';
 
 export {ServiceContainerEngine,ScopedServiceEngine,ServiceExecution,ServiceRuntimeInspection} from "./service-engine.js";
 
@@ -153,3 +153,5 @@ export {ServiceNativeScope,type PreparedServiceScope} from "./service-native.js"
 
 export {ServiceApplicationRuntime,ServiceApplicationPlugin,ServiceApplicationToken,type ServiceApplicationHost} from "./service-application.js";
 export {ServiceWorkerBuild} from './service-worker-build.js';
+
+export {AuthorityArchive} from './service-export.js';

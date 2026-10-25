@@ -24,7 +24,7 @@ class AuthorityExportProgram {
         } finally { await runtime.close(); }
     }
     private static selected(serviceId: string, item: { serviceId: string | null; kind: string }): boolean { return item.serviceId === serviceId && item.kind === 'container'; }
-    private static async resources(commands: LocalDockerCommands, engine: Parameters<LocalDockerCommands['verify']>[0]): Promise<string> { const result: string[] = []; for (const kind of ['container', 'network', 'volume']) result.push(await commands.run(engine, kind === 'container' ? [kind, 'ls', '--all', '--no-trunc', '--format', '{{json .}}'] : [kind, 'ls', '--format', '{{json .}}'])); return result.join('\n'); }
+    private static async resources(commands: LocalDockerCommands, engine: Parameters<LocalDockerCommands['verify']>[0]): Promise<string> { const result: string[] = []; for (const kind of ['container', 'network', 'volume']) result.push(await commands.run(engine, kind === 'container' ? [kind, 'ls', '--all', '--no-trunc', '--format', '{{.ID}} {{.Names}}'] : [kind, 'ls', '--format', kind === 'volume' ? '{{.Name}}' : '{{.ID}} {{.Name}}'])); return result.join('\n'); }
     private static delay(done: (value: void) => void): void { setTimeout(done, 100); }
 }
 await AuthorityExportProgram.run(process.argv[2]!, process.argv[3]!);

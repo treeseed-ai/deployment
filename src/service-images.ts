@@ -15,26 +15,26 @@ class DockerCall {
     private done = false;
     private chunks: Buffer[] = [];
     private size = 0;
-    private accept: ((text: string) => void) | undefined;
+    private accept: ((text: Buffer) => void) | undefined;
     private reject: ((error: Error) => void) | undefined;
-    constructor(private readonly args: string[], private readonly timeout: number) { }
-    run(): Promise<string> { return new Promise(this.start.bind(this)); }
-    private start(accept: (text: string) => void, reject: (error: Error) => void): void { this.accept = accept; this.reject = reject; this.child = spawn('docker', this.args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: process.env.HOME, DOCKER_CONFIG: process.env.DOCKER_CONFIG } }); this.child.stdout?.on('data', this.data.bind(this)); this.child.stderr?.on('data', this.stderr.bind(this)); this.child.once('error', this.failed.bind(this)); this.child.once('close', this.closed.bind(this)); this.timer = setTimeout(this.failed.bind(this), this.timeout); }
-    private data(bytes: Buffer): void { this.size += bytes.length; if (this.size > 16 * 1024 * 1024) {
+    constructor(private readonly args: string[], private readonly timeout: number, private readonly maximum = 16 * 1024 * 1024) { }
+    run(): Promise<Buffer> { return new Promise(this.start.bind(this)); }
+    private start(accept: (text: Buffer) => void, reject: (error: Error) => void): void { this.accept = accept; this.reject = reject; this.child = spawn('docker', this.args, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: process.env.HOME, DOCKER_CONFIG: process.env.DOCKER_CONFIG } }); this.child.stdout?.on('data', this.data.bind(this)); this.child.stderr?.on('data', this.stderr.bind(this)); this.child.once('error', this.failed.bind(this)); this.child.once('close', this.closed.bind(this)); this.timer = setTimeout(this.failed.bind(this), this.timeout); }
+    private data(bytes: Buffer): void { this.size += bytes.length; if (this.size > this.maximum) {
         this.failed();
         return;
     } this.chunks.push(bytes); }
-    private stderr(bytes: Buffer): void { this.size += bytes.length; if (this.size > 16 * 1024 * 1024)
+    private stderr(bytes: Buffer): void { this.size += bytes.length; if (this.size > this.maximum)
         this.failed(); }
     private closed(code: number | null): void { if (this.done)
         return; if (code !== 0) {
         this.failed();
         return;
     } try {
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(this.chunks));
+        const text = Buffer.concat(this.chunks);
         this.done = true;
         clearTimeout(this.timer);
-        this.accept!(text.trim());
+        this.accept!(text);
     }
     catch {
         this.failed();
@@ -46,8 +46,12 @@ export interface ServiceImageCommands {
     run(engine: ServicePlan['expectedEngine'], args: string[], timeout?: number): Promise<string>;
     verify(engine: ServicePlan['expectedEngine']): Promise<void>;
 }
-export class LocalDockerCommands implements ServiceImageCommands {
-    run(engine: ServicePlan['expectedEngine'], args: string[], timeout = 15000): Promise<string> { engine = PlatformSchemas.expectedEngine.parse(engine); return new DockerCall(['--host', engine.endpoint, ...args], timeout).run(); }
+export interface ServiceAuthorityCommands extends ServiceImageCommands {
+    archive(engine: ServicePlan['expectedEngine'], containerId: string, path: string, timeout?: number): Promise<Uint8Array>;
+}
+export class LocalDockerCommands implements ServiceAuthorityCommands {
+    async run(engine: ServicePlan['expectedEngine'], args: string[], timeout = 15000): Promise<string> { engine = PlatformSchemas.expectedEngine.parse(engine); const bytes = await new DockerCall(['--host', engine.endpoint, ...args], timeout).run(); try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes).trim(); } catch { throw new Error('ENGINE_OPERATION_FAILED'); } }
+    archive(engine: ServicePlan['expectedEngine'], containerId: string, path: string, timeout = 5000): Promise<Uint8Array> { engine = PlatformSchemas.expectedEngine.parse(engine); Check.require(/^[a-f0-9]{64}$/.test(containerId) && ServiceSchemas.containerPath.safeParse(path).success && Number.isInteger(timeout) && timeout > 0 && timeout <= 10000, 'INVALID_AUTHORITY_ARCHIVE'); return new DockerCall(['--host', engine.endpoint, 'container', 'cp', containerId + ':' + path, '-'], timeout, 1024 * 1024).run(); }
     async verify(engine: ServicePlan['expectedEngine']): Promise<void> { engine = PlatformSchemas.expectedEngine.parse(engine); Check.require(!process.env.DOCKER_HOST || process.env.DOCKER_HOST === engine.endpoint, 'REMOTE_ENGINE'); const context = StrictJson.parse(Buffer.from(await new DockerCall(['context', 'inspect', engine.context, '--format', '{{json .Endpoints.docker.Host}}'], 15000).run())); Check.require(context === engine.endpoint, 'ENGINE_IDENTITY_CHANGED'); const info = StrictJson.object(StrictJson.parse(Buffer.from(await this.run(engine, ['info', '--format', '{{json .}}'])))); Check.require(info.ID === engine.daemonId && info.OSType === 'linux' && ['amd64', 'x86_64'].includes(String(info.Architecture)), 'ENGINE_IDENTITY_CHANGED'); }
 }
 export interface ServiceImageBinding {
