@@ -152,3 +152,11 @@ against archive member hashes; `composition.assetDigest` binds the canonical sor
 `{package,version,path,sha256}` assets. The API image (the explicitly selected worker-socket
 service) must also bind this digest and the complete package set in its OCI configuration labels.
 See [Ajv draft-2020-12 support](https://ajv.js.org/json-schema.html#draft-2020-12-breaking).
+
+Container exports inject `service.context` and `deployment.services`; Deployment supplies an
+instance-scoped engine binding that rejects calls for another service. Probe exports need no
+injected service to implement `observe(ProbeContext)`; its endpoint, deadline and granted
+credential reader arrive in that typed call. Neither scope exposes the raw Docker socket.
+Artifact fixtures compile the exact native classes used for metadata, including their named
+exports. A separate calibration imports that archive outside planning, proving the import
+canary is effective and the declared exports actually exist.
