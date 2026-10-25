@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ServiceReleaseFixture, PreparedReleaseFixture } from './release-fixture.js';
-import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture } from './service-fixture-plugins.js';
+import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture, AuthorityContainerFixture, AuthorityConsumerFixture, AuthorityProbeFixture } from './service-fixture-plugins.js';
 import { ServiceProjection } from '../src/service-projection.js';
 import { CanonicalJson, ServiceSchemas, PackageDefinition, type ServiceRelease } from '@treeseed-cordis/sdk';
 interface Descriptor {
@@ -48,15 +48,21 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         const image = this.exportImage();
         this.release.images = [image];
         const source = join(this.root, 'plugin/package'), metadata = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as Record<string, unknown>;
-        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(RuntimeContainerFixture, 'index.js', 'RuntimeContainerFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture'), PackageDefinition.export(QualificationProbeFixture, 'index.js', 'QualificationProbeFixture')], [], [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'prepared' } }]);
+        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(RuntimeContainerFixture, 'index.js', 'RuntimeContainerFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture'), PackageDefinition.export(QualificationProbeFixture, 'index.js', 'QualificationProbeFixture'), PackageDefinition.export(AuthorityContainerFixture, 'index.js', 'AuthorityContainerFixture'), PackageDefinition.export(AuthorityConsumerFixture, 'index.js', 'AuthorityConsumerFixture'), PackageDefinition.export(AuthorityProbeFixture, 'index.js', 'AuthorityProbeFixture')], [], [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'prepared' } }]);
         this.recipe = { services: {}, volumes: {}, secrets: {} };
         this.configuration.credentialReferences = [];
         for (const service of this.release.composition.services) {
-            service.provider = { ...service.provider, providerId: RuntimeContainerFixture.declaration.id, classExport: 'RuntimeContainerFixture' };
+            const provider = authority ? (service === this.release.composition.services[1] ? AuthorityConsumerFixture : AuthorityContainerFixture) : RuntimeContainerFixture;
+            service.provider = { ...service.provider, providerId: provider.declaration.id, classExport: provider.name };
             service.configuration = {};
             service.readiness.deadlineMs = 5000;
-            service.dependencies = [];
-            const projection = ServiceProjection.resolve(service, RuntimeContainerFixture.container, this.release.composition, this.configuration);
+            service.dependencies = authority && provider === AuthorityConsumerFixture ? [{ port: 'primary', bindingId: this.release.composition.services[0]!.bindings[0]!.bindingId, contractId: 'fixture.echo', contractVersion: '1.0.0' }] : [];
+            if (authority) {
+                service.readiness.provider = { ...service.readiness.provider, providerId: AuthorityProbeFixture.declaration.id, classExport: AuthorityProbeFixture.name };
+                service.readiness.credentialReferences = ['secret://' + service.serviceId + '/public-ca'];
+                if (provider === AuthorityConsumerFixture) service.readiness.credentialReferences.push('secret://' + this.release.composition.services[0]!.serviceId + '/public-ca');
+            }
+            const projection = ServiceProjection.resolve(service, provider.container, this.release.composition, this.configuration);
             service.definition = projection.definition;
             service.resources = projection.resources;
             service.transitionPolicy = RuntimeContainerFixture.container.transitionPolicy;
@@ -73,6 +79,7 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
             }
             for (const secret of service.definition.secrets)
                 spec.secrets!.push('r-' + CanonicalJson.digest({ serviceId: service.serviceId, slot: secret.slot }).slice(0, 48));
+            if (service.dependencies.length) spec.depends_on = [this.release.composition.services[0]!.serviceId];
             this.recipe.services[service.serviceId] = spec;
         }
         if (qualification) {

@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto';
 import { Service, type Context } from 'cordis';
 import { PlatformSchemas, ProviderV4Schemas, PluginManagementSchemas, type PluginExportDescriptor, ServiceTokens, type ServiceEngine, type ServiceExecutionContext, type ServiceIdentity, type ServiceReadiness, type ProbeContext } from '@treeseed-cordis/sdk';
 export class ContainerFixture {
@@ -82,4 +83,26 @@ export class QualificationProbeFixture {
         return { serviceId: context.serviceId, ready, observations: ready ? ['fixture.capabilities-qualified', 'fixture.observation-qualified'] : ['fixture.capabilities-invalid'] };
     }
     private static delay(done: (value: void) => void): void { setTimeout(done, 400); }
+}
+
+export class AuthorityContainerFixture extends RuntimeContainerFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...RuntimeContainerFixture.declaration, id: 'fixture.authority-container' });
+    static override readonly container = PluginManagementSchemas.container.parse({ ...RuntimeContainerFixture.container, resources: { ...RuntimeContainerFixture.container.resources, authorities: [{ id: 'public-ca', volume: 'data', path: 'root.crt' }] } });
+}
+export class AuthorityConsumerFixture extends AuthorityContainerFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...AuthorityContainerFixture.declaration, id: 'fixture.authority-consumer' });
+    static override readonly container = PluginManagementSchemas.container.parse({ ...AuthorityContainerFixture.container, dependencies: [{ port: 'primary', contractId: 'fixture.echo', contractVersion: '1.0.0' }], resources: { ...AuthorityContainerFixture.container.resources, grants: [{ dependencyPort: 'primary', slot: 'public-ca' }] } });
+}
+export class AuthorityProbeFixture extends ProbeFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...ProbeFixture.declaration, id: 'fixture.authority-probe' });
+    override async observe(context: ProbeContext): Promise<ServiceReadiness> {
+        const own = 'secret://' + context.serviceId + '/public-ca';
+        if (!context.authorityIds.includes(own) || context.credentialReferences.includes(own) || !Object.isFrozen(context.authorityIds)) throw new Error('Authority boundary missing');
+        for (const reference of context.authorityIds) if (!new X509Certificate(await context.authority(reference)).ca) throw new Error('Not a public CA');
+        let credentialDenied = false, foreignDenied = false;
+        try { await context.credential(own); } catch { credentialDenied = true; }
+        try { await context.authority('secret://' + (context.serviceId === 'instance-4' ? 'instance-3' : 'instance-4') + '/public-ca'); } catch { foreignDenied = true; }
+        if (!credentialDenied || !foreignDenied) throw new Error('Authority grant escaped');
+        return super.observe(context);
+    }
 }
