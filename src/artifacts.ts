@@ -4,10 +4,12 @@ import { satisfies, valid } from 'semver';
 import { PlatformSchemas, CanonicalJson, PlanningBlockedError, InstalledSchemas,ProviderSchemas,type ProviderDeclaration,type InstalledRelease,type ContainerDefinition,type DeploymentConfiguration, type DeploymentPlan, type ReleaseInventory, type DeploymentRecipe, type PluginMetadata } from '@treeseed-cordis/sdk';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 
-class ArchiveMetadata {
+export class ArchiveMetadata {
   readonly parser:Parser;
   readonly paths=new Set<string>();
   readonly hashes=new Map<string,string>();
+  readonly sizes=new Map<string,number>();
+  readonly modes=new Map<string,number>();
   metadata:unknown=null;
   failure=false;
   bytes=0;
@@ -15,14 +17,14 @@ class ArchiveMetadata {
   chunks:Buffer[]=[];
   resolveResult:((value:Record<string,unknown>)=>void)|null=null;
   rejectResult:((error:Error)=>void)|null=null;
-  constructor(readonly archive:Buffer) {this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
+  constructor(readonly archive:Buffer,private readonly helper=false) {this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
   read():Promise<Record<string,unknown>> {return new Promise(this.start.bind(this));}
   private start(resolve:(value:Record<string,unknown>)=>void,reject:(error:Error)=>void):void {this.resolveResult=resolve;this.rejectResult=reject;this.parser.once('error',this.error.bind(this));this.parser.once('end',this.end.bind(this));this.parser.end(this.archive);}
   private entry(entry:ReadEntry):void {
     const path=entry.path.replace(/\/$/,'');
-    if(!path.startsWith('package/')&&path!=='package')this.failure=true;
+    if(!this.helper&&!path.startsWith('package/')&&path!=='package')this.failure=true;
     if(!path.split('/').every(SafeDirectory.component)||this.paths.has(path)||!['File','Directory','OldFile'].includes(entry.type))this.failure=true;
-    this.paths.add(path);this.bytes+=entry.size;this.maximumFile=Math.max(this.maximumFile,entry.size);if(entry.type==='File'||entry.type==='OldFile'){const hash=new ArchiveFileHash(path,this.hashes);entry.on('data',hash.data.bind(hash));entry.once('end',hash.end.bind(hash));}
+    this.paths.add(path);this.bytes+=entry.size;this.maximumFile=Math.max(this.maximumFile,entry.size);if(entry.type==='File'||entry.type==='OldFile'){this.sizes.set(path,entry.size);this.modes.set(path,(entry.mode??0)&0o7777);const hash=new ArchiveFileHash(path,this.hashes);entry.on('data',hash.data.bind(hash));entry.once('end',hash.end.bind(hash));}
     if(this.paths.size>100000||this.bytes>1024**3)this.failure=true;
     if(path==='package/package.json'&&entry.type==='File'&&entry.size<=1024*1024){entry.on('data',this.data.bind(this));entry.once('end',this.metadataEnd.bind(this));}
     else entry.resume();
@@ -30,7 +32,7 @@ class ArchiveMetadata {
   private data(value:Buffer):void {this.chunks.push(value);}
   private metadataEnd():void {try{this.metadata=StrictJson.parse(Buffer.concat(this.chunks));}catch{this.failure=true;}}
   private error():void {this.rejectResult!(new PlanningBlockedError([{code:'INVALID_ARCHIVE',message:'Package archive inspection failed.'}]));}
-  private end():void {try{Check.require(!this.failure&&this.metadata,'INVALID_ARCHIVE');this.resolveResult!(StrictJson.object(this.metadata));}catch(error){this.rejectResult!(error as Error);}}
+  private end():void {try{Check.require(!this.failure&&(this.metadata||this.helper),'INVALID_ARCHIVE');this.resolveResult!(StrictJson.object(this.metadata??{}));}catch(error){this.rejectResult!(error as Error);}}
 }
 class ArchiveFileHash {
  private readonly hash=createHash('sha256');constructor(private readonly path:string,private readonly hashes:Map<string,string>){}
@@ -43,7 +45,7 @@ class DependencyGraph {
   validate():void {for(const name of this.edges.keys())this.visit(name);}
   private visit(name:string):void {Check.require(this.edges.has(name),'MISSING_SERVICE');Check.require(!this.visiting.has(name),'DEPENDENCY_CYCLE');if(this.visited.has(name))return;this.visiting.add(name);for(const dependency of this.edges.get(name)!)this.visit(dependency);this.visiting.delete(name);this.visited.add(name);}
 }
-interface PackageData {hashes:Map<string,string>;files:Set<string>;entry:ReleaseInventory['packages'][number];metadata:Record<string,unknown>;bytes:Buffer;}
+export interface PackageData {sizes:Map<string,number>;hashes:Map<string,string>;files:Set<string>;entry:ReleaseInventory['packages'][number];metadata:Record<string,unknown>;bytes:Buffer;}
 export interface ArtifactResolution {inventory:ReleaseInventory|InstalledRelease;recipe:DeploymentRecipe;pluginBindings:Array<PluginMetadata|ProviderDeclaration>;artifacts:DeploymentPlan['artifacts'];releaseDigest:string;lockDigest:string;recipeDigest:string;}
 export class ArtifactResolver {
   resolve(configuration:DeploymentConfiguration):Promise<ArtifactResolution & {inventory:ReleaseInventory;pluginBindings:PluginMetadata[]}>;
@@ -57,7 +59,7 @@ export class ArtifactResolver {
       const recipe=this.schema(PlatformSchemas.recipe.safeParse(StrictJson.parse(directory.file(inventory.recipe.path,inventory.recipe.sha256))));
       Check.require(inventory.packages.length<=256&&inventory.images.length<=64,'INVENTORY_LIMIT');
       const packages=new Map<string,PackageData>(),paths=new Set<string>();let runtimeBytes=0,runtimeFiles=0;
-      for(const entry of inventory.packages){Check.require(!packages.has(entry.name)&&!paths.has(entry.path)&&valid(entry.version),'DUPLICATE_PACKAGE');paths.add(entry.path);const bytes=directory.file(entry.path,entry.sha256),reader=new ArchiveMetadata(bytes),metadata=await reader.read();if(installed){runtimeBytes+=reader.bytes;runtimeFiles+=reader.hashes.size;Check.require(runtimeBytes<=64*1024*1024&&runtimeFiles<=4096&&reader.maximumFile<=8*1024*1024,'PROVIDER_CLOSURE');for(const path of reader.paths)Check.require(PlatformSchemas.relative.safeParse(path).success,'PROVIDER_PATH');}Check.require(metadata.name===entry.name&&metadata.version===entry.version,'PACKAGE_IDENTITY');packages.set(entry.name,{entry,bytes,metadata,files:reader.paths,hashes:reader.hashes});}
+      for(const entry of inventory.packages){Check.require(!packages.has(entry.name)&&!paths.has(entry.path)&&valid(entry.version),'DUPLICATE_PACKAGE');paths.add(entry.path);const bytes=directory.file(entry.path,entry.sha256),reader=new ArchiveMetadata(bytes),metadata=await reader.read();if(installed){runtimeBytes+=reader.bytes;runtimeFiles+=reader.hashes.size;Check.require(runtimeBytes<=64*1024*1024&&runtimeFiles<=4096&&reader.maximumFile<=8*1024*1024,'PROVIDER_CLOSURE');for(const path of reader.paths)Check.require(PlatformSchemas.relative.safeParse(path).success,'PROVIDER_PATH');}Check.require(metadata.name===entry.name&&metadata.version===entry.version,'PACKAGE_IDENTITY');packages.set(entry.name,{entry,bytes,metadata,files:reader.paths,hashes:reader.hashes,sizes:reader.sizes});}
       this.lock(root,lock,packages,installed);const pluginBindings=inventory.formatVersion===2?this.installedPlugins(configuration,inventory,packages,bundled,recipe):this.plugins(configuration,inventory,packages);this.recipe(configuration,inventory,recipe);if(inventory.formatVersion===2)ContainerTemplates.validate(inventory.composition,configuration,recipe);
       const artifacts:DeploymentPlan['artifacts']=[];
       for(const name of [...packages.keys()].sort()){const entry=packages.get(name)!.entry;artifacts.push({kind:'package',name:entry.name,version:entry.version,sha256:entry.sha256});}
@@ -68,12 +70,12 @@ export class ArtifactResolver {
     }catch(error){if(error instanceof PlanningBlockedError)throw error;return Check.block('INVALID_RELEASE');}finally{directory.close();}
   }
   static imageOrder(a:ReleaseInventory['images'][number],b:ReleaseInventory['images'][number]):number {return a.reference.localeCompare(b.reference);}
-  private schema<T>(result:{success:true;data:T}|{success:false}):T {Check.require(result.success,'INVALID_RELEASE_SCHEMA');return result.data;}
+  protected schema<T>(result:{success:true;data:T}|{success:false}):T {Check.require(result.success,'INVALID_RELEASE_SCHEMA');return result.data;}
   private fields(value:unknown):Record<string,unknown> {return value===undefined?{}:StrictJson.object(value);}
   private unsupported(metadata:Record<string,unknown>,installed=false):void {
     for(const key of ['optionalDependencies','overrides','resolutions','workspaces','bundledDependencies','bundleDependencies','peerDependenciesMeta'])if(metadata[key]!==undefined&&!(installed&&key==='peerDependenciesMeta'))Check.require(Object.keys(this.fields(metadata[key])).length===0,'UNSUPPORTED_DEPENDENCIES');
   }
-  private lock(root:Record<string,unknown>,lock:Record<string,unknown>,packages:Map<string,PackageData>,installed=false):void {
+  protected lock(root:Record<string,unknown>,lock:Record<string,unknown>,packages:Map<string,PackageData>,installed=false):void {
     this.unsupported(root,installed);Check.require(lock.lockfileVersion===2&&lock.configVersion===1,'UNSUPPORTED_LOCK');
     const workspaces=StrictJson.object(lock.workspaces);Check.require(Object.keys(workspaces).length===1&&workspaces[''],'UNSUPPORTED_WORKSPACE');
     const workspace=StrictJson.object(workspaces['']),dependencies=this.fields(root.dependencies);
@@ -146,7 +148,7 @@ export class ArtifactResolver {
     const descriptor=StrictJson.object(value);Check.require(descriptor.mediaType===mediaType&&typeof descriptor.digest==='string'&&/^sha256:[a-f0-9]{64}$/.test(descriptor.digest)&&typeof descriptor.size==='number'&&Number.isSafeInteger(descriptor.size)&&descriptor.size>=0,'OCI_DESCRIPTOR');
     const digest=descriptor.digest.slice(7),bytes=directory.file('blobs/sha256/'+digest,digest,4*1024*1024);Check.require(bytes.length===descriptor.size,'OCI_SIZE');return {digest,size:bytes.length,object:StrictJson.object(StrictJson.parse(bytes))};
   }
-  private image(bundle:SafeDirectory,image:ReleaseInventory['images'][number],installed=false):DeploymentPlan['artifacts'][number] {
+  protected image(bundle:SafeDirectory,image:ReleaseInventory['images'][number],installed=false):DeploymentPlan['artifacts'][number] {
     const directory=bundle.directory(image.layout);
     try {
       const layout=StrictJson.object(StrictJson.parse(directory.file('oci-layout')));Check.require(layout.imageLayoutVersion==='1.0.0','OCI_LAYOUT');
@@ -187,3 +189,4 @@ export class ContainerTemplates {
   if(value===null||typeof value==='string'||typeof value==='number'||typeof value==='boolean')return value;if(Array.isArray(value)){const result:unknown[]=[];for(const item of value)result.push(this.resolve(item,configuration,assetDigest,secrets,privateValues));return result;}const object=StrictJson.object(value),keys=Object.keys(object);if(keys.length===1){if(Object.hasOwn(object,'$secret')){Check.require(privateValues&&typeof object.$secret==='string'&&secrets.has(object.$secret),'MISSING_SECRET');return secrets.get(object.$secret);}if(Object.hasOwn(object,'$origin'))return configuration.origin+String(object.$origin);if(object.$uid===true)return process.getuid!();if(object.$hostname===true)return new URL(configuration.origin).hostname;if(object.$originAuthority===true)return new URL(configuration.origin).host;if(object.$originPort===true)return new URL(configuration.origin).port||'443';if(object.$installationId===true)return configuration.installationId;if(object.$assetDigest===true)return assetDigest;if(Array.isArray(object.$template)){let result='';for(const part of object.$template){const item=this.resolve(part,configuration,assetDigest,secrets,privateValues);Check.require(typeof item==='string'||typeof item==='number','INVALID_TEMPLATE');result+=String(item);}return result;}}const result:Record<string,unknown>={};for(const [key,item] of Object.entries(object))Object.defineProperty(result,key,{value:this.resolve(item,configuration,assetDigest,secrets,privateValues),enumerable:true});return result;
  }
 }
+
