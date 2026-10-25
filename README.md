@@ -551,3 +551,23 @@ worker. It exits the first caller, repeats the exact request, observes all five 
 removes the source bundle and reads/replays again, then verifies graceful worker stop preserves
 resources and a new apply does not silently restart it. A script-worker canary is refused before
 launch publication or script execution. Active composition transitions remain the next contract.
+
+### Accepted observation context
+
+The resolver derives `plan.runtimeBindings` from native runtime declarations only after verifying
+their exact package closure/entry and selected OCI labels. These accepted bindings are part of the
+saved plan bytes. Fresh application validation compares them with newly verified artifacts before
+effects; earlier plans without native runtime images keep the field absent.
+
+`ServiceWorkerClient.observationContext(serviceId)` uses readonly private protocol operation
+`observation.context`. The native application host requires a durably accepted application and
+returns safe accepted identity/dependency metadata from its saved plan. It performs no readiness
+probe, mutation or source-bundle access. Dependency endpoints are declared TCP transport addresses;
+their typed owner contract determines application protocol. Unknown/unaccepted services fail safely.
+The response makes no active/healthy claim and contains no private paths or credential bytes.
+
+Actual probe contexts receive a deeply frozen copy of this metadata. This enables direct/routed
+owner probes to compare API-measured package/entry content and accepted service generations while
+the engine independently verifies actual resource/image identity. It avoids a health endpoint
+recursing through overall worker readiness. Every public SDK operation and historical transport
+remains unchanged; private observation data does not confer write authority.
