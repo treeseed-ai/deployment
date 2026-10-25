@@ -33,6 +33,18 @@ class ApplicationAdapter {
 export class ServiceApplicationToken {
     static readonly host = new CapabilityToken<ServiceApplicationHost>('deployment.applications', ProviderV4Schemas.version, new ApplicationAdapter());
 }
+/** One immutable observation per target/scope, including independently routed attestations. */
+export class ServiceAcknowledgements {
+    private readonly entries = new Map<string, ServiceSnapshot['acknowledgements'][number]>();
+    constructor(private readonly generation: string) {}
+    add(input: ServiceSnapshot['acknowledgements'][number]): void {
+        const value = ServiceSchemas.acknowledgement.parse(input), key = value.target + ':' + value.scopeId, prior = this.entries.get(key);
+        Check.require(value.ready && value.generation === this.generation && (!prior || CanonicalJson.stringify(prior) === CanonicalJson.stringify(value)), 'INVALID_TARGET_ACKNOWLEDGEMENT');
+        this.entries.set(key, value);
+    }
+    values(): ServiceSnapshot['acknowledgements'] { return [...this.entries.values()].sort(ServiceAcknowledgements.order); }
+    private static order(a: {target: string;scopeId: string}, b: {target: string;scopeId: string}): number { const left=a.target+':'+a.scopeId,right=b.target+':'+b.scopeId; return left<right?-1:left>right?1:0; }
+}
 /** Transaction state and native framework handles only; the existing journal remains authoritative. */
 class ServiceApplications implements ServiceApplicationHost {
     private readonly store: ServicePlanStore;
@@ -129,26 +141,14 @@ class ServiceApplications implements ServiceApplicationHost {
     }, b: {
         resourceId: string;
     }): number { return a.resourceId < b.resourceId ? -1 : a.resourceId > b.resourceId ? 1 : 0; }
-    private static ackOrder(a: {
-        target: string;
-        scopeId: string;
-    }, b: {
-        target: string;
-        scopeId: string;
-    }): number { const left = a.target + ':' + a.scopeId, right = b.target + ':' + b.scopeId; return left < right ? -1 : left > right ? 1 : 0; }
     private async snapshot(): Promise<ServiceSnapshot> {
-        const acknowledgements: ServiceSnapshot['acknowledgements'] = [], ids = new Set<string>();
+        const evidence = new ServiceAcknowledgements(this.plan.compositionGeneration);
         for (const service of this.plan.composition.services) {
             const result = await this.observe(service.serviceId);
             Check.require(result.serviceId === service.serviceId && result.acknowledgements?.length, 'MISSING_TARGET_ACKNOWLEDGEMENT');
-            for (const ack of result.acknowledgements) {
-                const key = ack.target + ':' + ack.scopeId;
-                Check.require(!ids.has(key) && ack.ready && ack.generation === this.plan.compositionGeneration, 'INVALID_TARGET_ACKNOWLEDGEMENT');
-                ids.add(key);
-                acknowledgements.push(ack);
-            }
+            for (const ack of result.acknowledgements) evidence.add(ack);
         }
-        acknowledgements.sort(ServiceApplications.ackOrder);
+        const acknowledgements = evidence.values();
         await new ServiceRuntimeInspection(this.plan).audit();
         const resources: ServiceSnapshot['resources'] = [];
         for (const receipt of this.resources())
@@ -199,7 +199,7 @@ class ServiceApplications implements ServiceApplicationHost {
     }
     async observationContext(serviceId: string): Promise<ServiceObservationContext> { this.writer.assert(this.store.path); const last = this.store.records().at(-1); Check.require(last && last.planId === this.plan.id && last.digest === this.plan.digest && ['stage', 'prepare', 'activate', 'readiness', 'commit', 'completed'].includes(last.phase), 'SERVICE_NOT_ACCEPTED'); return new ServiceObservations(this.plan).context(serviceId); }
     async status(): Promise<ServiceStatus> {
-        const records = this.store.records(), last = records.at(-1), current = this.store.current(), services: ServiceStatus['services'] = [], blockers: ServiceStatus['blockers'] = [], freshAcks: ServiceStatus['acknowledgements'] = [];
+        const records = this.store.records(), last = records.at(-1), current = this.store.current(), services: ServiceStatus['services'] = [], blockers: ServiceStatus['blockers'] = [], freshAcks = new ServiceAcknowledgements(this.plan.compositionGeneration);
         let ready = current !== null && !this.faulted;
         if (current) {
             try {
@@ -220,9 +220,9 @@ class ServiceApplications implements ServiceApplicationHost {
                     observations = result.observations;
                     if (qualified)
                         for (const ack of result.acknowledgements ?? [])
-                            freshAcks.push(ack);
+                            freshAcks.add(ack);
                 }
-                catch { }
+                catch { qualified = false; }
                 let container: ServiceResourceReceipt | undefined;
                 for (const receipt of resources)
                     if (receipt.kind === 'container' && receipt.serviceId === service.serviceId)
@@ -240,7 +240,7 @@ class ServiceApplications implements ServiceApplicationHost {
             blockers.push({ code: 'HOST_RECOVERY_REQUIRED', message: 'Host requires explicit repair.' });
         else if (current && !ready)
             blockers.push({ code: 'SERVICE_NOT_READY', message: 'A selected service is not ready.' });
-        return ServiceSchemas.status.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, engine: this.plan.expectedEngine.context, desiredComposition: last?.desiredComposition ?? null, activeComposition: current?.compositionGeneration ?? null, ready, plugins: [], blockers, applicationId: last?.id ?? null, services, resourceSetDigest: current ? CanonicalJson.digest(current.resources) : null, acknowledgements: ready ? freshAcks.sort(ServiceApplications.ackOrder) : [] });
+        return ServiceSchemas.status.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, engine: this.plan.expectedEngine.context, desiredComposition: last?.desiredComposition ?? null, activeComposition: current?.compositionGeneration ?? null, ready, plugins: [], blockers, applicationId: last?.id ?? null, services, resourceSetDigest: current ? CanonicalJson.digest(current.resources) : null, acknowledgements: ready ? freshAcks.values() : [] });
     }
     async close(): Promise<void> {
         if (this.closed)
