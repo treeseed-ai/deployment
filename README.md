@@ -459,3 +459,22 @@ path. The built program verifies refusal/preservation after a replacement and ex
 restoration, malformed/multiple-frame refusal, secret-canary redaction, and recovery of a discarded
 accepted response through the original idempotency key. This is private host RPC qualification;
 source resolution/acquisition and the standalone executable launcher remain subsequent work.
+
+### Pinned standalone worker bootstrap
+
+The forthcoming `ServiceWorkerLauncher.apply` verifies the saved plan's exact standalone worker
+bytes and starts that worker with a bounded owner-only bootstrap handoff. An initial installation
+writer creates an immutable private launch intent, publishes the exact executable and records its
+child PID. Only after releasing that writer does the parent publish the handoff-ready record. The
+selected child verifies its PID, nonce, executable identity and exact plan before acquiring the
+single installation writer. Other callers cannot adopt that launch state. Concurrent launch,
+interrupted handoff, unavailable/tampered worker bytes and stale runtime state require explicit
+repair; there is no automatic lock deletion, process adoption or alternate runtime fallback.
+
+The child mounts the real native host root and separate private observer/control endpoints. An
+accepted application is still recorded before image/resource/credential effects. Parent response
+loss is recovered through the same idempotency key and owner channel. Standalone execution needs
+only the qualified Docker CLI on PATH; it never invokes an ambient Node/Bun/package manager.
+The executable is built before planning through the owner's public build-time producer. Planning
+and apply do not compile it. Graceful host shutdown preserves installed containers and durable
+records; general restart/recovery remains Task 6. No original installation is launched by tests.
