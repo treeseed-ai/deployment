@@ -1,3 +1,5 @@
+import {DockerCommands} from './docker-commands.js';
+export {DockerCommands} from './docker-commands.js';
 import {ServiceWorkerOwnerClient} from './service-ipc.js';
 import { ServiceInstalledHost } from './service-installed.js';
 import { HostSystem, TcpTableProbe } from './host-system.js';
@@ -5,7 +7,6 @@ export { HostSystem, TcpTableProbe } from './host-system.js';
 import {ServicePlanStore} from './service-plan.js';
 import {ServicePlanningHost} from './service-plan.js';
 import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
-import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, dirname, parse } from 'node:path';
@@ -19,21 +20,6 @@ export interface DiagnosticCommands { execute(args:string[]):string|null; }
 export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
 export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
 export interface StorageResult { exists:boolean;freeBytes:number|null;code:string;message:string; }
-export class DockerCommands implements DiagnosticCommands {
-  execute(args:string[]):string|null {
-    const executable=this.executable();if(!executable)return null;
-    const result=spawnSync(executable,args,{env:{...process.env},encoding:'utf8',timeout:5000,maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']});
-    if(result.error||result.status!==0)return null;
-    return result.stdout.trim();
-  }
-  private executable():string|null {
-    for(const directory of (process.env.PATH??'').split(':')) {
-      if(!directory)continue;const file=resolve(directory,'docker');
-      try{if(statSync(file).isFile()){accessSync(file,constants.X_OK);return file;}}catch{}
-    }
-    return null;
-  }
-}
 class PortAttempt {
   readonly server:Server=createServer();
   completion:((result:boolean)=>void)|null=null;

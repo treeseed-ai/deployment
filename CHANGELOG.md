@@ -3,7 +3,6 @@
 ## [Unreleased]
 
 ### Fixed
-- Initialize retained-planning modules independently of import order (#910).
 - Coalesce identical direct and routed runtime evidence while rejecting conflicts (#910).
 
 - Validate genuine Bun lock metadata with identical regular and optional peer declarations (#910).
@@ -12,7 +11,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
-- Plan retained service transitions through the existing private host writer (#910).
+- Plan retained service transitions through the existing private host writer with independent cold module initialization (#910).
 - Expose validated data-only service projection through the public package interface (#910).
 - Mount only a granted private observer directory into verified owner-runtime services (#910).
 - Expose bounded package archive inspection for owner runtime auditing (#910).
