@@ -219,8 +219,11 @@ class HostSockets implements HostTransport, HostLayout {
     private stopped = false;
     private readonly dispatch: HostDispatch;
     constructor(private readonly authority: InstallationAuthority, context: Context) { this.dispatch = new HostDispatch(context, this); }
-    verify(): void { Check.require(!this.stopped && this.endpoints.length === 2, 'HOST_LAYOUT_INVALID'); for (const endpoint of this.endpoints)
-        endpoint.verify(); }
+    verify(): void {
+        Check.require(!this.stopped && this.endpoints.length === 2, 'HOST_LAYOUT_INVALID');
+        for (const endpoint of this.endpoints)
+            endpoint.verify();
+    }
     async start(): Promise<void> {
         this.authority.writer.assert(this.authority.store.path);
         const state = SafeDirectory.open(this.authority.store.path + '/.cordis');
@@ -267,7 +270,9 @@ class HostSocketPlugin {
 }
 export class ServiceHostRuntime extends ServiceApplicationRuntime {
     private transportStopped = false;
-    static override async start(input: ServicePlan): Promise<ServiceHostRuntime> { const plan = ServiceSchemas.plan.parse(input), registration: ProviderRegistration = { token: HostTransportToken.instance, plugin: HostSocketPlugin, declaration: HostSocketPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-private-unix-protocol.1:' + plan.composition.worker.sha256 } }, scope = await this.mount(plan, [registration]); return new ServiceHostRuntime(scope.handle, scope.context); }
+    static override async start(input: ServicePlan, bootstrap?: {
+        nonce: string;
+    }): Promise<ServiceHostRuntime> { const plan = ServiceSchemas.plan.parse(input), registration: ProviderRegistration = { token: HostTransportToken.instance, plugin: HostSocketPlugin, declaration: HostSocketPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-private-unix-protocol.1:' + plan.composition.worker.sha256 } }, scope = await this.mount(plan, [registration], bootstrap); return new ServiceHostRuntime(scope.handle, scope.context); }
     override async close(timeoutMs = 10000): Promise<void> {
         if (!this.transportStopped) {
             const lease = await CordisServiceLocator.from(this.context).acquire(HostTransportToken.instance);

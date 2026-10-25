@@ -487,3 +487,10 @@ inode, ownership, mode, symlink or unexpected entries refuse dispatch. This prot
 boundary from a linked alias of the control socket, independently of convenience client methods.
 The built regression creates/restores only fixture-owned aliases and proves no application is
 accepted. It does not treat arbitrary same-user host code as sandboxed.
+
+The bootstrap-primitive fixture copies a genuine Node executable and runs an owner-built TypeScript
+process fixture to isolate PID/nonce/executable ownership transfer. It proves selected-child claim,
+interrupted/wrong/malformed handoff refusal and private writer release without runtime activation.
+It is explicitly not the compiled production worker/launcher qualification. That producer and fixed
+standalone entrypoint are the next slice. Malformed private launch records produce safe typed
+blockers and remain unchanged.

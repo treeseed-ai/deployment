@@ -3,11 +3,12 @@ import { Context } from '@treeseed-cordis/sdk/runtime';
 import { ServicePlanStore } from './service-plan.js';
 import { InstallationWriter } from './installed.js';
 import { PlanningFailure as Check } from './filesystem.js';
+import { BootstrapSchemas, BootstrapPermit } from './service-bootstrap.js';
 /** Host-private coherent custody. Never registered in an installed service/provider scope. */
 export class InstallationAuthority {
     readonly store: ServicePlanStore;
     readonly writer: InstallationWriter;
-    constructor(readonly plan: ServicePlan) { this.store = new ServicePlanStore(plan.configuration.installationDirectory); Check.require(CanonicalJson.stringify(this.store.read(plan.id, plan.digest)) === CanonicalJson.stringify(plan), 'PLAN_BINDING'); Check.require(this.store.records().length === 0 && this.store.resources().length === 0 && this.store.current() === null, 'WORKER_REPAIR_REQUIRED'); this.writer = this.store.writer(); }
+    constructor(readonly plan: ServicePlan, permit?: BootstrapPermit) { this.store = new ServicePlanStore(plan.configuration.installationDirectory); Check.require(CanonicalJson.stringify(this.store.read(plan.id, plan.digest)) === CanonicalJson.stringify(plan), 'PLAN_BINDING'); Check.require(this.store.records().length === 0 && this.store.resources().length === 0 && this.store.current() === null, 'WORKER_REPAIR_REQUIRED'); this.writer = this.store.writer(permit); }
     close(): void { this.writer.close(); }
 }
 class AuthorityAdapter {
@@ -19,9 +20,9 @@ export class InstallationAuthorityToken {
 export class InstallationAuthorityPlugin {
     static readonly provide = [InstallationAuthorityToken.instance.id];
     static readonly inject: string[] = [];
-    static readonly Config = ServiceSchemas.plan;
+    static readonly Config = BootstrapSchemas.authority;
     static readonly declaration = ProviderV4Schemas.declaration.parse({ id: 'deployment.installation-authority', pluginId: 'deployment', capability: InstallationAuthorityToken.instance.id, contractVersion: ProviderV4Schemas.version, target: 'deployment', provide: this.provide, inject: this.inject });
     private readonly authority: InstallationAuthority;
-    constructor(context: Context, plan: ServicePlan) { this.authority = new InstallationAuthority(ServiceSchemas.plan.parse(plan)); context.provide(InstallationAuthorityToken.instance.id, this.authority); context.effect(this.effect.bind(this)); }
+    constructor(context: Context, input: ReturnType<typeof BootstrapSchemas.authority.parse>) { const accepted = BootstrapSchemas.authority.parse(input); this.authority = new InstallationAuthority(accepted.plan, accepted.bootstrap ? BootstrapPermit.claim(accepted.plan, accepted.bootstrap.nonce) : undefined); context.provide(InstallationAuthorityToken.instance.id, this.authority); context.effect(this.effect.bind(this)); }
     private effect(): () => void { return this.authority.close.bind(this.authority); }
 }

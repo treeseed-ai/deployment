@@ -1,4 +1,5 @@
 import { ServiceJournal } from './service-journal.js';
+import { BootstrapRecords, BootstrapPermit } from './service-bootstrap.js';
 import { type ServiceApplicationRecord, type ServiceResourceReceipt, type ServiceSnapshot, type ServiceWorkerRequest } from '@treeseed-cordis/sdk';
 import { lstatSync, fstatSync, mkdirSync, fsyncSync } from 'node:fs';
 import { dirname, basename } from 'node:path';
@@ -243,7 +244,7 @@ export class ServicePlanStore {
                 if (engine)
                     Check.require(CanonicalJson.stringify(engine) === CanonicalJson.stringify(receipt.expectedEngine), 'ENGINE_IDENTITY_CHANGED');
                 for (const name of entries)
-                    Check.require(['installation.json', 'plans', 'writer.lock', 'applications', 'resources', 'snapshots', 'artifacts', 'credentials', 'run', 'control'].includes(name), 'INCOMPLETE_JOURNAL');
+                    Check.require(['installation.json', 'plans', 'writer.lock', 'applications', 'resources', 'snapshots', 'artifacts', 'credentials', 'run', 'control', 'launch', 'worker'].includes(name), 'INCOMPLETE_JOURNAL');
                 for (const name of ['artifacts', 'credentials', 'run', 'control'])
                     if (entries.includes(name)) {
                         const directory = state.directory(name, true);
@@ -283,6 +284,7 @@ export class ServicePlanStore {
                         Check.require(name === plan.id + '.json' && plan.configuration.installationId === receipt.installationId && CanonicalJson.stringify(plan.expectedEngine) === CanonicalJson.stringify(receipt.expectedEngine), 'FOREIGN_INSTALLATION');
                         allPlans.set(plan.id, plan);
                     }
+                    BootstrapRecords.read(state, allPlans);
                     new ServiceJournal(state, allPlans).read();
                     plans.verify();
                     state.verify();
@@ -418,10 +420,16 @@ export class ServicePlanStore {
         root: SafeDirectory;
         state: SafeDirectory;
     }): void { scope.state.close(); scope.root.close(); }
-    writer(): InstallationWriter {
+    writer(permit?: BootstrapPermit): InstallationWriter {
         const scope = this.openJournal();
         try {
             Check.require(!scope.state.entries().includes('run') && !scope.state.entries().includes('control'), 'WORKER_REPAIR_REQUIRED');
+            if (scope.state.entries().includes('launch')) {
+                Check.require(permit instanceof BootstrapPermit, 'BOOTSTRAP_HANDOFF_REQUIRED');
+                permit.authorize(this.path);
+            }
+            else
+                Check.require(!permit, 'BOOTSTRAP_BINDING');
             return new InstallationWriter(scope.state);
         }
         catch (error) {

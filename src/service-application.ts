@@ -263,12 +263,14 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
     private closing = false;
     protected constructor(protected readonly handle: CompositionHandle, protected readonly context: Context) { }
     static async start(input: ServicePlan): Promise<ServiceApplicationRuntime> { const scope = await this.mount(input); return new ServiceApplicationRuntime(scope.handle, scope.context); }
-    protected static async mount(input: ServicePlan, extras: readonly ProviderRegistration[] = []): Promise<{
+    protected static async mount(input: ServicePlan, extras: readonly ProviderRegistration[] = [], bootstrap?: {
+        nonce: string;
+    }): Promise<{
         handle: CompositionHandle;
         context: Context;
     }> {
         const plan = ServiceSchemas.plan.parse(input), scopeId = 'installation:' + plan.configuration.installationId + ':host', artifact = { kind: 'bundled' as const, identity: 'deployment-native-host.1:' + plan.composition.worker.sha256 };
-        const registrations: ProviderRegistration[] = [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: plan, artifact }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact }, ...extras], selections = [], inject = ['cordis.composition', ServiceApplicationToken.host.id];
+        const registrations: ProviderRegistration[] = [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: { plan, ...(bootstrap ? { bootstrap } : {}) }, artifact }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact }, ...extras], selections = [], inject = ['cordis.composition', ServiceApplicationToken.host.id];
         for (const registration of registrations)
             selections.push({ scopeId, capability: registration.token.id, providerId: ProviderV4Schemas.declaration.parse(registration.declaration).id });
         for (const registration of extras)
