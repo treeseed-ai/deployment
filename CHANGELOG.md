@@ -7,6 +7,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Share one native installation authority across trusted host providers (#910).
 - Commit format-3 applications only after native protocol readiness and verified resource snapshots (#910).
 - Compose exact container and protocol probe classes in isolated native Cordis service scopes (#910).
 - Execute accepted service definitions through scoped engines with verified owned resource receipts (#910).

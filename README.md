@@ -401,3 +401,18 @@ bound expires it reports pending and fences admission; it does not report succes
 After the known calls settle, a later close can finish disposal and release the writer. A fresh
 unused installation may then reopen; installations with historical applications still require the
 future explicit recovery path.
+
+### One native installation authority
+
+The host's existing store and writer are supplied by the native `deployment.installation` core
+provider. Application coordination and the forthcoming private socket provider inject that same
+authority; neither acquires a second writer or creates a parallel journal. It validates saved plan,
+installation identity and unused state before dependent plugins start. Native dependency disposal
+closes listeners/application scopes before releasing the writer. Constructor failure and deferred
+close retain the existing conservative repair behavior.
+
+This core authority is one coherent storage/ownership invariant, not a replaceable permission
+policy. Installed third-party container/probe classes receive their separate service scope and
+bounded engine/context only; this host-private capability is absent from those scopes. The public
+application submit/status/application interface remains unchanged. Default built-program tests
+must still prove durable application behavior and verified writer cleanup through this construction.
