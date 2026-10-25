@@ -446,3 +446,16 @@ root. Socket identity changes cause refusal, preserving unfamiliar entries. Veri
 removes only its own socket files and leaves private runtime directories/bookkeeping; a future start
 refuses that prior runtime state until explicit recovery is qualified. A new host never adopts an
 existing socket or directory. The standalone pinned worker installer remains a subsequent slice.
+
+A failed second endpoint initialization must close the first listener it actually created while
+preserving the unfamiliar entry that caused the failure. The failure test injects that filesystem
+conflict inside a disposable fixture; its bounded fault injection is separate from the unmodified
+default-host program. Initialization failure never authorizes adoption or deletion of foreign state.
+
+Qualification uses Node 24.19.0's documented Unix-socket unlink behavior:
+[Node IPC paths](https://nodejs.org/download/release/v24.19.0/docs/api/net.html#identifying-paths-for-ipc-connections).
+The implementation checks its socket identity before normal close, which otherwise unlinks the
+path. The built program verifies refusal/preservation after a replacement and explicit fixture
+restoration, malformed/multiple-frame refusal, secret-canary redaction, and recovery of a discarded
+accepted response through the original idempotency key. This is private host RPC qualification;
+source resolution/acquisition and the standalone executable launcher remain subsequent work.

@@ -1,5 +1,5 @@
 import { CanonicalJson, CapabilityToken, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type ServiceApplicationRecord, type ServiceWorkerRequest, type ServiceStatus, type ServiceSnapshot, type ServiceResourceReceipt, type ServiceReadiness } from '@treeseed-cordis/sdk';
-import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle } from '@treeseed-cordis/sdk/runtime';
+import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle, type ProviderRegistration } from '@treeseed-cordis/sdk/runtime';
 import { ServicePlanStore, ServicePlanIdentity } from './service-plan.js';
 import { ServiceNativeScope, type PreparedServiceScope } from './service-native.js';
 import { ServiceImages, LocalDockerCommands } from './service-images.js';
@@ -153,12 +153,15 @@ class ServiceApplications implements ServiceApplicationHost {
             resources.push({ resourceId: receipt.resourceId, kind: receipt.kind, serviceId: receipt.serviceId, creatingGeneration: receipt.creatingGeneration, receiptDigest: CanonicalJson.digest(receipt) });
         return ServiceSchemas.snapshot.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, installationDirectory: this.store.path, compositionGeneration: this.plan.compositionGeneration, resources, acknowledgements });
     }
-    private async execute(initial: ServiceApplicationRecord): Promise<void> { const lease = await this.locator.acquire(InstallationAuthorityToken.instance); try {
-        await this.apply(initial);
+    private async execute(initial: ServiceApplicationRecord): Promise<void> {
+        const lease = await this.locator.acquire(InstallationAuthorityToken.instance);
+        try {
+            await this.apply(initial);
+        }
+        finally {
+            await lease.release();
+        }
     }
-    finally {
-        await lease.release();
-    } }
     private async apply(initial: ServiceApplicationRecord): Promise<void> {
         let record = initial;
         try {
@@ -258,20 +261,29 @@ export class ServiceApplicationPlugin {
 export class ServiceApplicationRuntime implements ServiceApplicationHost {
     private closed = false;
     private closing = false;
-    private constructor(private readonly handle: CompositionHandle, private readonly context: Context) { }
-    static async start(input: ServicePlan): Promise<ServiceApplicationRuntime> {
-        const plan = ServiceSchemas.plan.parse(input), scopeId = 'installation:' + plan.configuration.installationId + ':host', handle = await CordisComposition.start({ registrations: [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-installation-authority.1:' + plan.composition.worker.sha256 } }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-application-host.1:' + plan.composition.worker.sha256 } }], selections: [{ scopeId, capability: InstallationAuthorityToken.instance.id, providerId: InstallationAuthorityPlugin.declaration.id }, { scopeId, capability: ServiceApplicationToken.host.id, providerId: ServiceApplicationPlugin.declaration.id }] }, { scopeId, target: 'deployment', principalId: 'uid:' + process.getuid!(), resourceScope: plan.configuration.installationDirectory });
-        const receiver: {
+    protected constructor(protected readonly handle: CompositionHandle, protected readonly context: Context) { }
+    static async start(input: ServicePlan): Promise<ServiceApplicationRuntime> { const scope = await this.mount(input); return new ServiceApplicationRuntime(scope.handle, scope.context); }
+    protected static async mount(input: ServicePlan, extras: readonly ProviderRegistration[] = []): Promise<{
+        handle: CompositionHandle;
+        context: Context;
+    }> {
+        const plan = ServiceSchemas.plan.parse(input), scopeId = 'installation:' + plan.configuration.installationId + ':host', artifact = { kind: 'bundled' as const, identity: 'deployment-native-host.1:' + plan.composition.worker.sha256 };
+        const registrations: ProviderRegistration[] = [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: plan, artifact }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact }, ...extras], selections = [], inject = ['cordis.composition', ServiceApplicationToken.host.id];
+        for (const registration of registrations)
+            selections.push({ scopeId, capability: registration.token.id, providerId: ProviderV4Schemas.declaration.parse(registration.declaration).id });
+        for (const registration of extras)
+            inject.push(registration.token.id);
+        const handle = await CordisComposition.start({ registrations, selections }, { scopeId, target: 'deployment', principalId: 'uid:' + process.getuid!(), resourceScope: plan.configuration.installationDirectory }), receiver: {
             context?: Context;
         } = {};
         class Consumer {
-            static readonly inject = ['cordis.composition', ServiceApplicationToken.host.id];
+            static readonly inject = inject;
             constructor(context: Context) { receiver.context = context; }
         }
         try {
             await handle.mount(Consumer, undefined);
             Check.require(receiver.context, 'NATIVE_HOST_SCOPE');
-            return new ServiceApplicationRuntime(handle, receiver.context);
+            return { handle, context: receiver.context };
         }
         catch (error) {
             await handle.dispose();
@@ -283,9 +295,14 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
         id: string;
         selected: boolean;
         ready: boolean;
-    }[] { Check.require(!this.closed && !this.closing, 'HOST_CLOSED'); const result = []; for (const token of [InstallationAuthorityToken.instance, ServiceApplicationToken.host])
-        for (const item of this.handle.describe(token))
-            result.push({ capability: token.id, id: item.id, selected: item.selected, ready: item.ready }); return result; }
+    }[] {
+        Check.require(!this.closed && !this.closing, 'HOST_CLOSED');
+        const result = [];
+        for (const token of [InstallationAuthorityToken.instance, ServiceApplicationToken.host])
+            for (const item of this.handle.describe(token))
+                result.push({ capability: token.id, id: item.id, selected: item.selected, ready: item.ready });
+        return result;
+    }
     private acquire() { Check.require(!this.closed && !this.closing, 'HOST_CLOSED'); return CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host); }
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';

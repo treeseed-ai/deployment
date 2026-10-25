@@ -175,7 +175,8 @@ export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,Depl
 
 export {ServicePlanStore} from './service-plan.js';
 export {ServicePlanIdentity} from './service-plan.js';
-export {ServiceWorkerClient} from './service-ipc.js';
+export {ServiceWorkerClient,ServiceWorkerOwnerClient} from './service-ipc.js';
+export {ServiceHostRuntime} from './service-host.js';
 export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
 export {ServiceCredentials} from './service-credentials.js';
 export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands} from './service-images.js';
