@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fence installation writers when their owner record changes (#918).
+
 ### Added
 
 - Stage exact instance-scoped native providers from verified runtime closures (#910).
