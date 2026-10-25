@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { ServiceReleaseFixture } from './release-fixture.js';
 import { ComposeDeploymentHost, ServicePlanStore, ServiceImages } from '../src/diagnose.js';
@@ -46,7 +46,7 @@ class ServiceImageTests {
             mkdirSync(join(cache, 'building-uncertain'), { mode: 0o700 });
             await expect(images.stage(writer)).rejects.toThrow();
             expect(readFileSync(binding).equals(saved)).toBe(true);
-            rmSync(join(cache, 'building-uncertain'), { recursive: true });
+            rmSync(join(cache, 'building-uncertain'), { recursive: true });const tar=join(cache,fixture.release.images[0]!.manifestDigest,'image.tar');chmodSync(tar,0o644);await expect(images.stage(writer)).rejects.toThrow();chmodSync(tar,0o600);
             mkdirSync(join(cache, 'f'.repeat(64)), { mode: 0o700 });
             await expect(images.stage(writer)).rejects.toThrow();
             expect(readFileSync(binding).equals(saved)).toBe(true);

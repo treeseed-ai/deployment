@@ -200,18 +200,18 @@ export class ServiceImages {
     } source.verify(); target.verify(); }
     private binding(target: SafeDirectory, image: Pick<ServiceRelease['images'][number], 'manifestDigest'>, artifact: Pick<Extract<ServicePlan['artifacts'][number], {
         kind: 'image';
-    }>, 'configDigest' | 'manifestDigest'>): z.infer<typeof ImageSchemas.binding> { Check.require(target.entries().join(',') === 'binding.json,image.tar,layout', 'IMAGE_CACHE_REPAIR_REQUIRED'); const parsed = ImageSchemas.binding.safeParse(StrictJson.parse(target.file('binding.json', undefined, 1024 * 1024, true))); Check.require(parsed.success, 'IMAGE_CACHE_REPAIR_REQUIRED'); const value = parsed.data; Check.require(value.installationId === this.plan.configuration.installationId && value.installationDirectory === this.store.path && CanonicalJson.stringify(value.expectedEngine) === CanonicalJson.stringify(this.plan.expectedEngine) && value.manifestDigest === image.manifestDigest && value.configDigest === artifact.configDigest && [artifact.configDigest, artifact.manifestDigest].includes(value.dockerId.slice(7)), 'IMAGE_CACHE_SCOPE'); target.hash('image.tar', value.archiveDigest, value.archiveSize); const layout = target.directory('layout', true); try {
+    }>, 'configDigest' | 'manifestDigest'>): z.infer<typeof ImageSchemas.binding> { Check.require(target.entries().join(',') === 'binding.json,image.tar,layout', 'IMAGE_CACHE_REPAIR_REQUIRED'); const parsed = ImageSchemas.binding.safeParse(StrictJson.parse(target.file('binding.json', undefined, 1024 * 1024, true))); Check.require(parsed.success, 'IMAGE_CACHE_REPAIR_REQUIRED'); const value = parsed.data; Check.require(value.installationId === this.plan.configuration.installationId && value.installationDirectory === this.store.path && CanonicalJson.stringify(value.expectedEngine) === CanonicalJson.stringify(this.plan.expectedEngine) && value.manifestDigest === image.manifestDigest && value.configDigest === artifact.configDigest && [artifact.configDigest, artifact.manifestDigest].includes(value.dockerId.slice(7)), 'IMAGE_CACHE_SCOPE'); target.hash('image.tar', value.archiveDigest, value.archiveSize, true); const layout = target.directory('layout', true); try {
         Check.require(layout.entries().join(',') === 'blobs,index.json,oci-layout', 'IMAGE_CACHE_REPAIR_REQUIRED');
         const bytes = layout.file('blobs/sha256/' + image.manifestDigest, image.manifestDigest, 4 * 1024 * 1024, true), manifest = StrictJson.object(StrictJson.parse(bytes)), index = StrictJson.parse(layout.file('index.json', undefined, 4 * 1024 * 1024, true));
         Check.require(CanonicalJson.stringify(index) === CanonicalJson.stringify(this.index(image, bytes.length)), 'OCI_SELECTION');
         Check.require(StrictJson.object(StrictJson.parse(layout.file('oci-layout', undefined, 1024, true))).imageLayoutVersion === '1.0.0', 'OCI_LAYOUT');
-        const sha = layout.directory('blobs/sha256', true);
+        const blobs = layout.directory('blobs', true);try { Check.require(blobs.entries().join(',') === 'sha256', 'IMAGE_CACHE_REPAIR_REQUIRED'); }finally {blobs.close();}const sha = layout.directory('blobs/sha256', true);
         try {
             const names = new Set([image.manifestDigest]);
             for (const descriptor of this.descriptors(manifest)) {
                 const digest = descriptor.digest.slice(7);
                 names.add(digest);
-                sha.hash(digest, digest, descriptor.size);
+                sha.hash(digest, digest, descriptor.size, true);
             }
             Check.require(sha.entries().join(',') === [...names].sort().join(','), 'IMAGE_CACHE_REPAIR_REQUIRED');
         }
