@@ -339,3 +339,20 @@ exports native OCI bytes, and constructs genuine provider archives and private s
 It pulls that exact fixture prerequisite only when absent, before invoking the engine; deployment
 never pulls it. Cleanup selects only this fixture's unique project labels and image tag. This
 producer is neither an application release nor evidence that API/Keycloak readiness is complete.
+
+### Native per-instance container and probe scopes
+
+`ServiceNativeScope.prepare` stages exact container/probe manifests during the current accepted
+`stage` event. `ServiceNativeScope.open` imports them only during the matching `activate` event
+and mounts both classes, the typed execution context and scoped engine adapter in native Cordis.
+There is one actual Cordis scope per instance, with no provider instance cache or role dispatch.
+Container initialization starts only its accepted definition. The selected probe implements the
+owner protocol; running Docker resources alone never establish readiness.
+
+Readiness uses a fresh verified direct endpoint, fixed accepted generations, an absolute deadline,
+and only explicitly granted credential callbacks. The initial scope slice refuses authority export
+until the generic authority custodian is implemented. Probe failures and malformed results return
+safe unready observations. A timed-out call retains its native lease until its promise settles;
+repeated calls cannot bypass that pending call. Scope disposal drains accepted leases and fences
+an uncooperative scope instead of claiming completed cleanup. Closing provider scopes does not
+stop installed containers or discard durable resources. A later worker owns application commit.
