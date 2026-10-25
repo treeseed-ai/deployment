@@ -63,12 +63,13 @@ export class InstallationStore {
  }
 }
 export class InstallationWriter {
- private readonly lock:SafeDirectory;
- private closed=false;
- constructor(private readonly state:SafeDirectory){try{this.lock=InstallationStore.mkdir(state,'writer.lock');InstallationStore.publish(this.lock,'owner.json',{pid:process.pid,ownerUid:process.getuid!(),nonce:randomUUID()});}catch{state.close();Check.block('WRITER_CONFLICT');}}
- assert(path:string):void{Check.require(!this.closed&&this.state.path===resolve(path)+'/.cordis','WRITER_AUTHORITY');this.lock.verify();this.lock.file('owner.json',undefined,1024,true);}
- close():void{if(this.closed)return;this.closed=true;this.lock.verify();unlinkSync(this.lock.childPath('owner.json'));this.lock.close();rmdirSync(this.state.childPath('writer.lock'));fsyncSync(this.state.fd);this.state.close();}
+ private readonly lock:SafeDirectory;private readonly ownerDigest:string;private readonly identity:{dev:number;ino:number};
+ private closed=false;private fenced=false;
+ constructor(private readonly state:SafeDirectory){let lock:SafeDirectory|undefined;try{lock=InstallationStore.mkdir(state,'writer.lock');this.lock=lock;const owner={pid:process.pid,ownerUid:process.getuid!(),nonce:randomUUID()};InstallationStore.publish(lock,'owner.json',owner);this.ownerDigest=createHash('sha256').update(CanonicalJson.stringify(owner)+'\n').digest('hex');const stat=lstatSync(lock.childPath('owner.json'));this.identity={dev:stat.dev,ino:stat.ino};this.assert(dirname(state.path));}catch{lock?.close();state.close();Check.block('WRITER_CONFLICT');}}
+ assert(path:string):void{Check.require(!this.closed&&!this.fenced&&this.state.path===resolve(path)+'/.cordis','WRITER_AUTHORITY');try{this.state.verify();this.lock.verify();SafeDirectory.owner(fstatSync(this.state.fd),true);SafeDirectory.owner(fstatSync(this.lock.fd),true);const stat=lstatSync(this.lock.childPath('owner.json'));Check.require(stat.dev===this.identity.dev&&stat.ino===this.identity.ino,'WRITER_OWNER_CHANGED');this.lock.file('owner.json',this.ownerDigest,1024,true);}catch(error){this.fenced=true;throw error;}}
+ close():void{if(this.closed)return;try{this.assert(dirname(this.state.path));}catch(error){this.closed=true;this.lock.close();this.state.close();throw error;}this.closed=true;try{unlinkSync(this.lock.childPath('owner.json'));rmdirSync(this.state.childPath('writer.lock'));fsyncSync(this.state.fd);}finally{this.lock.close();this.state.close();}}
 }
+
 
 import {spawn,spawnSync} from 'node:child_process';
 import {createServer,createConnection,type Server,Socket} from 'node:net';

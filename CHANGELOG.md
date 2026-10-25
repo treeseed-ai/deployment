@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fence installation writers when their owner record changes (#918).
+
 ### Added
 
 - Extend the format-3 journal with ordered application and immutable resource receipts (#910).
