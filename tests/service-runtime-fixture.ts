@@ -127,13 +127,13 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         }
         throw new Error('Missing native OCI fixture');
     }
-    preparedImage(reference: string, id: string): ServiceRelease['images'][number] {
+    preparedImage(reference: string, id: string, layout = 'oci'): ServiceRelease['images'][number] {
         const inspected = spawnSync('docker', ['image', 'inspect', reference], { encoding: 'utf8' });
         if (inspected.status !== 0) ServiceRuntimeFixture.run('docker', ['image', 'pull', reference]);
-        return this.exportImage(reference, id, reference.split('@')[0]!);
+        return this.exportImage(reference, id, reference.split('@')[0]!, layout);
     }
-    private exportImage(tag = this.imageTag, id = 'application', repository = 'fixture/runtime'): ServiceRelease['images'][number] {
-        const archive = join(this.root, 'runtime-image.tar'), root = join(this.root, 'docker-layout');
+    private exportImage(tag = this.imageTag, id = 'application', repository = 'fixture/runtime', layout = 'oci'): ServiceRelease['images'][number] {
+        const archive = join(this.root, 'runtime-image-' + id + '.tar'), root = join(this.root, 'docker-layout-' + id);
         ServiceRuntimeFixture.run('docker', ['image', 'save', '--output', archive, tag]);
         mkdirSync(root);
         ServiceRuntimeFixture.run('tar', ['--extract', '--file', archive, '--directory', root]);
@@ -143,13 +143,13 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
             config: Descriptor;
             layers: Descriptor[];
         };
-        rmSync(join(this.bundle, 'oci'), { recursive: true });
-        mkdirSync(join(this.bundle, 'oci/blobs/sha256'), { recursive: true });
+        rmSync(join(this.bundle, layout), { recursive: true, force: true });
+        mkdirSync(join(this.bundle, layout, 'blobs/sha256'), { recursive: true });
         for (const descriptor of [selected, manifest.config, ...manifest.layers])
-            writeFileSync(join(this.bundle, 'oci/blobs/sha256', descriptor.digest.slice(7)), this.blob(root, descriptor));
-        this.write('oci/oci-layout', { imageLayoutVersion: '1.0.0' });
-        const manifestDigest = selected.digest.slice(7), indexSha256 = this.write('oci/index.json', { schemaVersion: 2, manifests: [{ mediaType: 'application/vnd.oci.image.manifest.v1+json', digest: selected.digest, size: bytes.length, platform: { os: 'linux', architecture: 'amd64' } }] });
-        return { id, reference: repository + '@sha256:' + manifestDigest, layout: 'oci', manifestDigest, indexSha256 };
+            writeFileSync(join(this.bundle, layout, 'blobs/sha256', descriptor.digest.slice(7)), this.blob(root, descriptor));
+        this.write(layout + '/oci-layout', { imageLayoutVersion: '1.0.0' });
+        const manifestDigest = selected.digest.slice(7), indexSha256 = this.write(layout + '/index.json', { schemaVersion: 2, manifests: [{ mediaType: 'application/vnd.oci.image.manifest.v1+json', digest: selected.digest, size: bytes.length, platform: { os: 'linux', architecture: 'amd64' } }] });
+        return { id, reference: repository + '@sha256:' + manifestDigest, layout, manifestDigest, indexSha256 };
     }
     override close(): void {
         if (!this.project && this.configuration)
