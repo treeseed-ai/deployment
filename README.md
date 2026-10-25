@@ -310,3 +310,25 @@ binding record. Reuse freshly checks bundle/prerequisite bytes and the daemon's 
 image identity; missing, foreign, incomplete or changed cache state blocks instead of overwriting
 or adopting it. The result maps logical image IDs to actual immutable engine identities for the
 bounded actuator. It makes no protocol-ready or active composition claim.
+
+### Generic accepted service engine
+
+`ServiceContainerEngine` executes only the saved format-3 plan's selected service definitions
+under the existing installation writer and a current `activate` event. Each service receives a
+`ServiceExecution` context and `ScopedServiceEngine` facade; a provider cannot start a different
+instance or substitute a definition. These are adapters over the native Cordis services, not an
+additional resolver or plugin lifecycle. Package classes remain mounted by Cordis.
+
+The engine creates one owned network, instance-owned named volumes and digest-selected containers
+through the pinned Unix Docker endpoint. It records actual resource identities, creator generation,
+physical definition digest and referencing compositions. Existing exact resources require matching
+receipts and labels; uncertain or foreign names block. It never pulls/builds images, reads arbitrary
+host paths, enables privileges or changes an existing container implicitly. Credential mounts come
+only from `ServiceCredentials`; API observer mounts require the explicit profile grant. Private
+control sockets are never mounted. A subsequent worker slice supplies that observer directory.
+
+`ready` in this engine reports only the absence of protocol qualification, even for running
+containers. `ServiceRuntimeInspection` verifies resource identity, running state and direct probe
+endpoints; only selected owner probe classes may establish readiness. No container-running result
+can complete an application. Tests use a genuine pinned Node image with a compiled TypeScript
+fixture service, explicitly disposable and independent of application/Keycloak readiness.

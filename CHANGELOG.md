@@ -7,6 +7,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Execute accepted service definitions through scoped engines with verified owned resource receipts (#910).
 
 - Prepare exact native OCI images through the accepted installation writer (#910).
 
