@@ -422,3 +422,27 @@ actual promise settles. An immediate host close therefore reports pending even a
 response lease has been released. The built program verifies that admitted work finishes, then
 native disposal releases the single writer. `ServiceApplicationRuntime.describe()` reports the
 actual selected host-provider identities/readiness for default-root qualification.
+
+### Separate private observation and owner control endpoints
+
+`ServiceHostRuntime.start(plan)` mounts application, installation authority and Unix-socket protocol
+providers in one native host root. The observer endpoint is `.cordis/run/host.sock`; it accepts only
+format-3 status/application queries. The owner endpoint is `.cordis/control/worker.sock`; its initial
+slice adds submit/status/application. Other owner requests remain explicitly unavailable until their
+implementation. No remote installer endpoint or additional public operation ID is introduced.
+
+Directories are owner-private 0700 and sockets 0600. Endpoints bind through held directory descriptors;
+clients check socket/parent identities before and after exchange. Frames are strict bounded JSON,
+with absolute deadlines, bounded connections and safe failure codes. Each accepted dispatch retains
+a native application lease, while accepted applications retain installation authority independently
+of the response connection. Losing a response cannot cancel or duplicate accepted intent.
+
+The API receives only the observer mount in the forthcoming qualified worker profile. Control is
+never mounted there. The server enforces observer refusal independently of client convenience APIs.
+`ServiceWorkerOwnerClient` is owner-local; existing `ServiceWorkerClient` stays read-only.
+
+Closing the host first stops socket admission and drains accepted requests, then disposes the native
+root. Socket identity changes cause refusal, preserving unfamiliar entries. Verified ordinary close
+removes only its own socket files and leaves private runtime directories/bookkeeping; a future start
+refuses that prior runtime state until explicit recovery is qualified. A new host never adopts an
+existing socket or directory. The standalone pinned worker installer remains a subsequent slice.
