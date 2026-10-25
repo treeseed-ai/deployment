@@ -722,3 +722,20 @@ Caddy fixture-build evidence: Bun 1.4.4, Node 24.19.0, jsonc-parser 3.3.1 and de
 `require('./impl/format')` in the archive. The fixture's explicit `--tsconfig-override` maps
 `jsonc-parser` to the installed pinned `lib/esm/main.js`; the same native programme then passes.
 This is a qualified fixture build configuration, not a general limitation of Bun or the library.
+
+### Public package archive inspection
+
+`PackageArchiveInspector.inspect(absoluteArchivePath, sha256)` returns the parsed package metadata
+and a deterministic file index (`path`, SHA-256, size, original archive mode). File paths are
+relative to the package root. This is the public Deployment artifact boundary for API image/runtime
+auditing; consumers compare installed files and measured runtime entries without duplicating tar
+parsing or importing archive code. It does not claim dependency-closure or application readiness.
+
+Read the exact hash-pinned regular file through no-symlink descriptor-anchored access. Inspect the
+archive without extraction, package-manager execution, imports or lifecycle scripts. Require valid
+package identity and package-root paths; reject links, duplicate/traversal entries, invalid metadata,
+truncation, ownership/path races and excessive input. Bound compressed input to 64 MiB, unpacked
+contents to 64 MiB, file count to 4096 and individual files to 8 MiB; abort parsing as soon as a
+budget is exceeded. Errors expose safe structured codes, not filenames, metadata or parser details.
+No installation/store state is created. Built Node consumer tests use genuine prepared archives and
+script/import canaries, plus wrong hashes, symlinks and an oversized entry.
