@@ -625,3 +625,35 @@ before publication; interrupted certificate-without-receipt state requires repai
 request undeclared references, use authority references as ordinary credentials or obtain host
 paths/writers. Disposable fixture CAs qualify this boundary; default Caddy and assembled Keycloak
 remain subsequent acceptance.
+
+### Native Postgres service and protocol probe
+
+`PostgresServicePlugin` and `PostgresReadinessPlugin` are Deployment-owned native Cordis classes.
+Their public descriptors bind `container.service`/`probe.service`, typed `storage.postgres@1.0.0`
+and the `postgres` port. The engine remains independent of service IDs and database role names;
+multiple renamed instances use the same provider with separate volumes, private password slots and
+native scopes. The default declaration uses database/user `cordis`, a private `database-password`
+slot and a writable `data` volume at `/var/lib/postgresql/data`. It has no public port by default.
+Identity consumes the typed binding and its explicit credential grant through Identity's own plugin.
+
+The prepared linux/amd64 Postgres 17.11 manifest is
+`e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4`, selected from the existing
+Task 3B pinned upstream index. Its normalized prepared index SHA-256 is
+`d538f74d92b3b72ecfd667bc56b81c48695a819ba0b74526a9580657cec26acd`.
+Planning verifies these exact local bytes; activation neither pulls nor builds an image.
+The image reads its password through the documented
+[`POSTGRES_PASSWORD_FILE` interface](https://hub.docker.com/_/postgres/).
+
+Readiness uses pinned `postgres@3.4.9` over the accepted direct TCP endpoint and reads only the
+probe's declared private password reference. It executes the fixed read-only `SELECT 1 AS cordis_ready`
+query, with bounded connection/statement deadlines, no notices/debug output and awaited connection
+teardown. Cancellation destroys the probe's own connection; raw driver errors and credentials never
+enter observations. [Postgres.js teardown](https://github.com/porsager/postgres#teardown--cleanup)
+defines the bounded close contract. No Docker exec, custom SQL, shell or new database authority is
+exposed to probes.
+
+Owner acceptance must run the genuine archived production classes through the default application
+root with two renamed disposable Postgres instances. Verify both native bindings/readiness, separate
+credential/volume identities, wrong-password refusal, cancellation and cleanup of connection effects.
+The fixture producer may acquire the exact image before planning; the implementation path cannot.
+Default Caddy, API/Keycloak assembly and retained active transitions remain subsequent slices.
