@@ -559,7 +559,7 @@ their exact package closure/entry and selected OCI labels. These accepted bindin
 saved plan bytes. Fresh application validation compares them with newly verified artifacts before
 effects; earlier plans without native runtime images keep the field absent.
 
-`ServiceWorkerClient.observationContext(serviceId)` uses readonly private protocol operation
+The following transport slice adds `ServiceWorkerClient.observationContext(serviceId)` using readonly private protocol operation
 `observation.context`. The native application host requires a durably accepted application and
 returns safe accepted identity/dependency metadata from its saved plan. It performs no readiness
 probe, mutation or source-bundle access. Dependency endpoints are declared TCP transport addresses;
