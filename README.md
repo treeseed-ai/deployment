@@ -846,3 +846,8 @@ SDK `.13` adds optional restart-intent contracts. This slice records/verifies th
 correctly for read-back, while the host rejects restart-bearing submissions before accepting intent.
 That contract adoption does not qualify a restart. Existing format-1/2 schemas and artifacts remain
 immutable, and no second host or writer is started for a retained transition.
+
+Exact SDK adoption for this slice: `.13` source
+`752b6fd5909eae15a30f1d7519d16e1f4a40a75b`, archive SHA-256
+`dca6c416b8cdf977f021efb632e82e8b1b2f2d1b4a61108fe27a5b59e5848e2c`.
+Force a fresh local archive install and read back the installed contract identity.
