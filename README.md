@@ -779,3 +779,14 @@ granted secret references into a service definition/resource declaration. It doe
 provider code, open credentials, write installation state or activate resources. Planning still
 independently verifies the exact package projection, complete bundle and resulting recipe.
 Consumers use this package export rather than private source files or their own resolver copy.
+
+### Redundant peer metadata in Bun lock v2
+
+Genuine `ajv-formats@3.0.1` declares AJV both as a regular dependency and as an optional peer
+with the identical `^8.0.0` range. Bun 1.4.4 records the regular dependency once and omits the
+redundant peer/optional-peer fields. The installed bundle reader recognizes that exact
+normalization: a peer duplicated by the same regular dependency/range need not appear again in
+lock metadata. Every archive-declared constraint is still checked against the one locked version;
+missing regular dependencies, conflicting peer ranges, undeclared lock peers and integrity
+mismatches remain blockers. Unselected optional peers remain optional only under their explicit
+archive declaration and matching non-redundant lock metadata. This changes no activation policy.

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Validate genuine Bun lock metadata with identical regular and optional peer declarations (#910).
 - Reject observer and control socket aliases before host request dispatch (#928).
 
 - Fence installation writers when their owner record changes (#918).
