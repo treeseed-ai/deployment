@@ -116,3 +116,253 @@ All capabilities that can be plugins, including container services, are native C
 Container declarations belong to their owner classes/packages (`cordisService` metadata), including bounded container argv, non-secret environment, private configuration slots and readiness expectations. The generic engine validates and renders those accepted declarations; it does not own a Keycloak/API configuration catalog. Format 1 remains unchanged; format 2 explicitly permits these owner projections and the sole API worker-socket bind. No arbitrary host path, shell hook, credential environment or privileged mode is allowed. Private JSON/property/text templates resolve declared secret references only after durable acceptance. Explicit `InstallationStore.migrate()` preserves and hashes the original plan-only receipt; plan/apply report MIGRATION_REQUIRED instead of invoking migration implicitly.
 
 Docker image-store qualification: Docker 29.9.1/containerd registers a selected OCI manifest by manifest digest, while the classic store uses configuration identity. A real Node image save/load qualification preserved manifest/config/layer bytes and started no containers. Apply records a private per-role binding only after loading and inspecting an accepted manifest/config identity; Compose uses that immutable local identity with pull disabled. Resource read-back verifies the binding, configured image and selected manifest descriptor when available. See [Docker image-store documentation](https://docs.docker.com/engine/storage/containerd) and [Moby's inspect implementation](https://github.com/moby/moby/blob/master/daemon/containerd/image_inspect.go). No mutable upstream tag is changed.
+
+## Task 3C contract
+
+Owner issue: https://github.com/treeseed-ai/deployment/issues/910. Follow the approved Platform Task 3C service/provider/UI plan through exact public archives. Preserve independent repository ownership, strict TypeScript classes, native Cordis lifecycle, historical formats and all seven SDK operations. Expected-generation/idempotency, resource/credential/TLS retention and explicit unsafe restart/migration gates are mandatory. All issues remain open until release.
+
+Every visual component must be mobile-first from 320 CSS pixels to widescreen monitors; test 320/375/768/1024/1440/1920/2560 widths, long content, keyboard/touch and 200% text resizing. Keep authored controls at least 44×44 CSS pixels, required actions visible, logical/fluid dimensions and no page overflow (labeled local semantic-table overflow is permitted). UI owns components/styles/renderers; consumers retain domain behavior and Identity retains Keycloak authority.
+
+### Service graph 3 artifact resolution
+
+`ServiceArtifactResolver.resolve(configuration)` accepts `ServiceSchemas.configuration` and
+an exact format-3 local release. It validates archives, the complete flat Bun lock and OCI
+bytes using the existing bounded artifact verifier. It does not import providers, invoke a
+package manager, read credentials or create installation state. Provider references bind the
+selected package name/version/hash and native class export (entry, classExport, deployment
+contract 0.4). Container and probe exports must appear in the package's SDK-generated
+`cordisPackage` format-4 projection. A service instance's configuration validates against that
+export's projected JSON schema before planning; its definition equals the owner projection.
+
+Named service instances replace fixed roles. Multiple instances may use one provider export;
+bindings and dependency edges identify their distinct service identities. The declarative
+recipe must exactly project each instance's selected digest-pinned image, named volumes,
+scoped secrets, dependency names and sole loopback publication. Provider-owned environment
+and argv remain in the typed service definition, never arbitrary Compose extensions. Resource
+recipe keys are deterministic hashes of service identity plus local slot, avoiding ambiguity
+and the Compose key length limit. Configuration secret references are exactly
+`secret://<service-id>/<slot>`; recipe paths point to that future scoped private credential.
+Unused packages, images, service definitions, mounts or secret slots fail validation. Planning
+only validates these paths; activation is a separate durable worker operation.
+
+Projected configuration schemas use the pinned `ajv@8.17.1` draft-2020-12 validator in strict
+mode, without coercion, remote schema loading or provider imports. Unsupported schemas block.
+Defaults are applied to a private configuration copy. Package asset descriptors are verified
+against archive member hashes; `composition.assetDigest` binds the canonical sorted list of
+`{package,version,path,sha256}` assets. The API image (the explicitly selected worker-socket
+service) must also bind this digest and the complete package set in its OCI configuration labels.
+See [Ajv draft-2020-12 support](https://ajv.js.org/json-schema.html#draft-2020-12-breaking).
+
+Container exports inject `service.context` and `deployment.services`; Deployment supplies an
+instance-scoped engine binding that rejects calls for another service. Probe exports need no
+injected service to implement `observe(ProbeContext)`; its endpoint, deadline and granted
+credential reader arrive in that typed call. Neither scope exposes the raw Docker socket.
+Artifact fixtures compile the exact native classes used for metadata, including their named
+exports. A separate calibration imports that archive outside planning, proving the import
+canary is effective and the declared exports actually exist.
+
+### Service-generation plans and journal
+
+The default `ComposeDeploymentHost.plan` dispatches exact format-3 bundles to the generic
+service planner. Initial plans describe each named instance and its stable resource identities;
+they do not activate services. Configuration and semantic sets normalize before hashing.
+Desired composition generation excludes expected current state; plan digest includes it.
+Per-service generation excludes unrelated services, global package additions and timestamps.
+
+`ServicePlanStore` recognizes a single format-3 installation journal under the existing
+`.cordis` boundary and uses the same no-overwrite publisher and exclusive installation writer
+as earlier formats. Fresh publication writes complete private plan bytes, then the installation
+receipt; repetition freshly validates state before reusing exact bytes. Read-back validates
+schema, digest, scope, engine and bindings without reopening source artifacts. Invalid,
+foreign, symlinked, incorrectly permissioned or interrupted state fails closed. Formats 1/2
+remain readable by their historical stores and require explicit migration before format 3;
+planning does not implicitly adopt an active installation. Doctor recognizes valid format-3
+plan-only state without calling it active. No credentials or runtime resources are created.
+
+The mandatory Ubuntu 26.04 program test invokes the built default host, verifies exact saved
+plan/read-back and deterministic repetition, removes the source bundle before read-back and
+compares Docker resources, listeners and credential absence. Missing host/engine prerequisites
+fail visibly. This initial-plan slice does not claim format-3 apply, source installation or
+active resource retention; those remain subsequent Task 3C worker acceptance gates.
+
+### Instance-neutral declaration materialization
+
+`ServiceProjection.resolve(service, declaration, graph, configuration)` derives the exact
+resolved definition/resources from dependency-port, context and validated configuration
+markers. It reads no credential bytes and invokes no class or helper. Secret references resolve
+to own slots or explicit dependency-port grants; template cycles and foreign references fail.
+Environment and private configuration must match that complete owner projection. This lets
+API/Identity consume renamed selected instances without literal database/identity DNS names.
+
+Prepared helper archives are inspected against release-pinned complete file hashes/modes and
+archive size before a plan can report `stage-helper`; planning never fetches or executes a helper.
+Prepared helper archives use a tar/gzip file tree with inventory-relative paths and exact
+owner-read-only (0400) or executable (0500) file modes. Qualification packages standard
+tool bytes into this bounded tree; upstream installers and archives are never executed.
+Public asset descriptors validate both size and SHA-256. Projected configuration uses standard
+JSON Schema formats, rejects asynchronous schemas before invocation and exposes no raw error
+or input value. The API/worker-socket image binds only its own locked runtime package closure
+and selected UI asset set, so an unrelated private plugin cannot force an API image rebuild.
+The complete installation package set remains bound by the release and plan.
+
+Release-built `runtimeImages` associations select a packaged runtime entry without embedding
+a future image digest in its own archive. The prepared release binds the final image; its
+OCI configuration labels must bind the owning package's complete locked runtime archive
+closure, packaged entry digest, and selected asset generation. External images retain exact
+package descriptors. Every association belongs to one package and is used by its service.
+Adding an unrelated private package preserves an existing runtime image's package-set label.
+
+The public test-fixture export resolves its native provider module relative to its own compiled
+package, independently of a consumer's working directory. A built Node program changes to a
+fresh directory before preparing the fixture; owner source paths are not a public dependency.
+
+### Format-3 observer/control boundary
+
+`ServiceWorkerClient` is the public read-only protocol-3 client consumed by API and CLI. It
+accepts an absolute `host.sock` observer path (or an installation directory), checks private
+owner/socket identities around each descriptor-anchored exchange, bounds complete strict JSON
+responses and validates the exact operation's result. It exposes only status and application
+read-back. The future worker exposes the observer under `.cordis/run/host.sock`; its separately
+mounted `.cordis/control/worker.sock` remains owner-local for plan/submit/plugin management.
+A read-only API mount must never contain the control socket. The client is not the permission
+boundary: the worker must independently restrict observer dispatch to its read-only operations.
+Expected structured blockers retain their safe codes; malformed, timed-out, oversized or runtime
+failures never become successful status or application observations. Historical protocol 2 stays
+unchanged. SDK `.10` supplies the accepted evidence/plan/private protocol schemas; actual generic
+worker activation and installed read-back remain the following delivery slice.
+
+### Format-3 durable application and resource receipts
+
+`ServicePlanStore` extends the same format-selected `.cordis` journal for application events,
+resource receipts and committed composition snapshots. It reuses `InstallationWriter` and the
+existing private atomic no-overwrite publisher; there is no second lock or mutable active pointer.
+Application events have a contiguous global order and per-application sequence. Canonical intent,
+installation, engine, exact saved plan and idempotency key bind acceptance before any effects.
+Only one application may be pending. Uncertain failed effects require explicit repair; a new
+request cannot silently adopt them. Identical keys recover the existing exact application while
+conflicting intents block. Accepted requests bind the current composition/resource-set digest.
+
+Immutable resource receipts bind scope, creator generation, definition/actual/content/image
+identity and referencing compositions. Snapshots bind exact receipt bytes and target observations.
+A completed ready event requires a previously published matching snapshot with ready target
+acknowledgements. Read-back validates the entire ordered journal and installation scope without
+opening the original bundle. A writer already held by the durable worker publishes plans and
+records under that same authority. This persistence qualification uses explicit observation
+fixtures; only actual engine/probe inspection in the worker can produce runtime readiness.
+Historical journals and migration remain separate explicit boundaries.
+
+### Immutable native service-provider staging
+
+`ServiceProviderStager` prepares a selected container or probe only after its exact plan has a
+persisted accepted application under the installation writer. It freshly validates the local
+bundle against the saved plan, derives the selected package's complete runtime dependency/peer
+closure, and copies only those verified archive files into an installation-private immutable
+manifest directory. Unrelated bundle packages cannot change that provider identity. No imports,
+package-manager commands or lifecycle scripts occur during staging. A later accepted activation
+loads the exact named export through SDK's verified native provider loader, using the service's
+installation/instance scope and validated configuration. Cordis owns construction and disposal.
+
+Staged manifests and closure files use 0400, containing directories 0500, inside private 0700
+store directories. Existing complete identities may be reused after full read-back verification;
+unknown or interrupted staging state requires explicit repair. Descriptor-anchored extraction,
+canonical manifests, no-overwrite publication and the same installation writer preserve scope
+and byte identity. This stage does not start containers or claim target readiness. Engine/probe
+qualification and actual retained-resource activation remain the following worker delivery.
+
+The held installation writer pins its owner record's bytes and file identity. Replacement or
+mutation fences that handle permanently; closing a fenced handle preserves the uncertain lock
+and closes descriptors without deleting another owner's record. Explicit repair is required.
+
+### Service-scoped private slot custody
+
+`ServiceCredentials` prepares accepted service slots only under the current installation writer
+and a durable application's prepare phase. It is part of the coherent journal/security boundary,
+not a replaceable authorization policy. Owner containers/probes receive only typed scoped readers.
+Random/UUID slots retain their original bytes; compatible derived slots retain their exact bytes
+and receipts. A changed definition uses a new private version rather than overwriting an old
+record. Logical `secret://<service>/<slot>` references are independent of private physical paths.
+All directories remain 0700 and values/receipts 0600. Plaintext never enters plan/status/output.
+
+Preparation validates the full reference graph and explicit dependency grants before creating
+anything. It resolves only bounded secret/template data from the accepted owner projection;
+no executable interpolation, ambient files, imports or lifecycle scripts are allowed. Cross-service
+reads require the selected service's explicit grant and probe readers also require their declared
+reference allowlist. Foreign/incomplete/unreceipted or changed files block instead of generating
+replacement values. Receipt identity includes installation/service/slot/definition/content and
+creator generation, so an unrelated added service cannot rotate existing credentials or authority.
+Only the worker's actual observations can commit a ready composition; preparing files claims none.
+
+Prepared values are limited to 4 MiB per materialization and 64 MiB in aggregate. Template
+expansion is bounded during resolution, before private publication. `mount(service, slot)`
+returns only the verified private path/resource/digest for an explicitly declared own-service
+mount; it grants no arbitrary path choice. Probe access remains a separate reference allowlist.
+
+### Exact installed image preparation
+
+`ServiceImages` stages only the selected verified native OCI manifests/configurations/layers
+from an accepted local bundle, under the application's stage phase and existing writer. It uses
+a fixed verified local Unix endpoint for effects, while checking the selected context and daemon
+identity before and after preparation. No registry pull, container startup, package script or
+credential generation occurs. Exact already-present images may remain shared.
+
+Private image cache entries contain the selected OCI closure, complete load archive and verified
+binding record. Reuse freshly checks bundle/prerequisite bytes and the daemon's exact immutable
+image identity; missing, foreign, incomplete or changed cache state blocks instead of overwriting
+or adopting it. The result maps logical image IDs to actual immutable engine identities for the
+bounded actuator. It makes no protocol-ready or active composition claim.
+
+### Generic accepted service engine
+
+`ServiceContainerEngine` executes only the saved format-3 plan's selected service definitions
+under the existing installation writer and a current `activate` event. Each service receives a
+`ServiceExecution` context and `ScopedServiceEngine` facade; a provider cannot start a different
+instance or substitute a definition. These are adapters over the native Cordis services, not an
+additional resolver or plugin lifecycle. Package classes remain mounted by Cordis.
+
+The engine creates one owned network, instance-owned named volumes and digest-selected containers
+through the pinned Unix Docker endpoint. It records actual resource identities, creator generation,
+physical definition digest and referencing compositions. Existing exact resources require matching
+receipts and labels; uncertain or foreign names block. It never pulls/builds images, reads arbitrary
+host paths, enables privileges or changes an existing container implicitly. Credential mounts come
+only from `ServiceCredentials`; API observer mounts require the explicit profile grant. Private
+control sockets are never mounted. A subsequent worker slice supplies that observer directory.
+
+`ready` in this engine reports only the absence of protocol qualification, even for running
+containers. `ServiceRuntimeInspection` verifies resource identity, running state and direct probe
+endpoints; only selected owner probe classes may establish readiness. No container-running result
+can complete an application. Tests use a genuine pinned Node image with a compiled TypeScript
+fixture service, explicitly disposable and independent of application/Keycloak readiness.
+
+The development-only `./testing/runtime` export provides `ServiceRuntimeFixture`. It produces
+its own compiled class service/image from the previously qualified exact Node base digest,
+exports native OCI bytes, and constructs genuine provider archives and private slot declarations.
+It pulls that exact fixture prerequisite only when absent, before invoking the engine; deployment
+never pulls it. Cleanup selects only this fixture's unique project labels and image tag. This
+producer is neither an application release nor evidence that API/Keycloak readiness is complete.
+
+### Native per-instance container and probe scopes
+
+`ServiceNativeScope.prepare` stages exact container/probe manifests during the current accepted
+`stage` event. `ServiceNativeScope.open` imports them only during the matching `activate` event
+and mounts both classes, the typed execution context and scoped engine adapter in native Cordis.
+There is one actual Cordis scope per instance, with no provider instance cache or role dispatch.
+Container initialization starts only its accepted definition. The selected probe implements the
+owner protocol; running Docker resources alone never establish readiness.
+
+Readiness uses a fresh verified direct endpoint, fixed accepted generations, an absolute deadline,
+and only explicitly granted credential callbacks. The initial scope slice refuses authority export
+until the generic authority custodian is implemented. Probe failures and malformed results return
+safe unready observations. A timed-out call retains its native lease until its promise settles;
+repeated calls cannot bypass that pending call. Scope disposal drains accepted leases and fences
+an uncooperative scope instead of claiming completed cleanup. Closing provider scopes does not
+stop installed containers or discard durable resources. A later worker owns application commit.
+
+The native-scope program exercises two actual HTTP probe instances and a separately identified
+probe-boundary fixture. That fixture returns wrong-instance and secret-like results, a false result,
+and a late promise before qualifying immutable context and own/granted callback restrictions.
+Neither malformed output nor late credential access is accepted. The late promise retains its
+native lease; subsequent calls report pending until it settles. This qualifies the probe boundary,
+not a replacement for the genuine HTTP or eventual API/Keycloak protocol tests.
+
+Absolute deadlines are checked again when a probe promise settles. A blocked event loop must not
+allow a late success through merely because its timeout callback has not run yet.
