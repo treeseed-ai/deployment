@@ -25,3 +25,11 @@ export class ProbeFixture {
     static readonly replacement = { kind: 'restart', qualificationDigest: null, stateVersion: 1 };
     static readonly probe = { observationContracts: ['fixture.echo'], schemes: ['http'], maximumDeadlineMs: 5000 };
 }
+export class CredentialContainerFixture extends ContainerFixture {
+ static override readonly declaration=ProviderV4Schemas.declaration.parse({...ContainerFixture.declaration,id:'fixture.credentials'});
+ static override readonly container={...ContainerFixture.container,definition:{...ContainerFixture.container.definition,secrets:[{slot:'password',target:'/run/cordis/password'},{slot:'configuration',target:'/run/cordis/configuration.json'}]},resources:{...ContainerFixture.container.resources,slots:{password:{kind:'random'},identity:{kind:'uuid'},configuration:{kind:'json',value:{service:{$context:'serviceId'},password:{$secret:{slot:'password'}},origin:{$context:'origin'}}}}}};
+}
+export class CredentialConsumerFixture extends ContainerFixture {
+ static override readonly declaration=ProviderV4Schemas.declaration.parse({...ContainerFixture.declaration,id:'fixture.credential-consumer'});
+ static override readonly container={...ContainerFixture.container,definition:{...ContainerFixture.container.definition,secrets:[{slot:'configuration',target:'/run/cordis/configuration.json'}]},resources:{...ContainerFixture.container.resources,slots:{password:{kind:'random'},configuration:{kind:'json',value:{primary:{$secret:{dependencyPort:'primary',slot:'password'}},own:{$secret:{slot:'password'}}}}},grants:[{dependencyPort:'primary',slot:'password'}]},dependencies:[{port:'primary',contractId:'fixture.echo',contractVersion:'1.0.0'}]};
+}

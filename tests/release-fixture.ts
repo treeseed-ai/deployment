@@ -1,11 +1,12 @@
 import {fileURLToPath} from 'node:url';
-import {ContainerFixture,ProbeFixture} from './service-fixture-plugins.js';
+import {ContainerFixture,ProbeFixture,CredentialContainerFixture,CredentialConsumerFixture} from './service-fixture-plugins.js';
 import {readdirSync,chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { create } from 'tar';
+import {ServiceProjection} from '../src/service-projection.js';
 import { PackageDefinition,ProviderV4Schemas,ServiceSchemas,CanonicalJson,type ServiceInstance,type ServiceRelease,PluginDefinition, type DeploymentConfiguration, type ReleaseInventory, type PluginMetadata, type DeploymentRecipe } from '@treeseed-cordis/sdk';
 
 /** Test-only prepared release producer. Never imported by the deployment entry point. */
@@ -80,7 +81,7 @@ export class ServiceReleaseFixture extends PreparedReleaseFixture {
         await this.prepare();
         const source = join(this.root, 'plugin/package'), image = this.inventory.images[0]!, images = [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'oci-archive' as const, url: 'https://fixture.invalid/image.tar', sha256: 'a'.repeat(64), size: 1 } }];
         const entry = join(this.root, 'provider-entry.ts');
-        writeFileSync(entry, `import {writeFileSync} from 'node:fs';export {ContainerFixture,ProbeFixture} from ${JSON.stringify(fileURLToPath(new URL(import.meta.url.endsWith('.ts')?'./service-fixture-plugins.ts':'./service-fixture-plugins.js',import.meta.url)))};class Canary{static run():void{writeFileSync(${JSON.stringify(join(this.root, 'SCRIPT_CANARY'))},'imported');}}Canary.run();`);
+        writeFileSync(entry, `import {writeFileSync} from 'node:fs';export {ContainerFixture,ProbeFixture,CredentialContainerFixture,CredentialConsumerFixture} from ${JSON.stringify(fileURLToPath(new URL(import.meta.url.endsWith('.ts')?'./service-fixture-plugins.ts':'./service-fixture-plugins.js',import.meta.url)))};class Canary{static run():void{writeFileSync(${JSON.stringify(join(this.root, 'SCRIPT_CANARY'))},'imported');}}Canary.run();`);
         const build = spawnSync('bun', ['build', entry, '--target=node', '--outfile', join(source, 'index.js')], { encoding: 'utf8' });
         if (build.status !== 0)
             throw new Error('Provider fixture compilation failed');
@@ -112,6 +113,10 @@ export class ServiceReleaseFixture extends PreparedReleaseFixture {
         this.refreshService();
         return this;
     }
+    async withCredentials():Promise<this>{await this.services();const graph=this.release.composition;for(let i=0;i<3;i++){const service=graph.services[i]!,plugin=i===2?CredentialConsumerFixture:CredentialContainerFixture;service.provider={...service.provider,providerId:plugin.declaration.id,classExport:plugin.name};service.definition=ServiceSchemas.definition.parse(plugin.container.definition);service.resources=ServiceSchemas.service.shape.resources.parse({...plugin.container.resources,grants:i===2?[{serviceId:'instance-0',slot:'password'}]:[]});if(i===2){service.dependencies=[{port:'primary',bindingId:'instance-0',contractId:'fixture.echo',contractVersion:'1.0.0'}];service.readiness.credentialReferences=['secret://instance-0/password'];}}
+      for(let i=0;i<3;i++){const service=graph.services[i]!,plugin=i===2?CredentialConsumerFixture:CredentialContainerFixture,projected=ServiceProjection.resolve(plugin.container,service,graph,this.configuration);service.definition=projected.definition;service.resources=projected.resources;}
+      this.configuration.credentialReferences=[];for(const service of graph.services){const recipe=this.recipe.services[service.serviceId]!;if(service.dependencies.length)recipe.depends_on=['instance-0'];if(service.definition.secrets.length)recipe.secrets=[];for(const slot of Object.keys(service.resources.slots)){const key='r-'+CanonicalJson.digest({serviceId:service.serviceId,slot}).slice(0,48);this.recipe.secrets[key]={file:'.cordis/credentials/'+service.serviceId+'/'+slot};this.configuration.credentialReferences.push('secret://'+service.serviceId+'/'+slot);}for(const secret of service.definition.secrets)recipe.secrets!.push('r-'+CanonicalJson.digest({serviceId:service.serviceId,slot:secret.slot}).slice(0,48));}
+      const metadata=JSON.parse(readFileSync(join(this.root,'plugin/package/package.json'),'utf8')) as Record<string,unknown>,old=metadata.cordisPackage as {images:NonNullable<Parameters<typeof PackageDefinition.define>[5]>};metadata.cordisPackage=PackageDefinition.define('@fixture/plugin','1.0.0','fixture',[PackageDefinition.export(ContainerFixture,'index.js','ContainerFixture'),PackageDefinition.export(CredentialContainerFixture,'index.js','CredentialContainerFixture'),PackageDefinition.export(CredentialConsumerFixture,'index.js','CredentialConsumerFixture'),PackageDefinition.export(ProbeFixture,'index.js','ProbeFixture')],[],old.images);await this.saveMetadata(metadata);return this;}
     async saveMetadata(value: Record<string, unknown>): Promise<void> {
         const source = join(this.root, 'plugin/package');
         writeFileSync(join(source, 'package.json'), JSON.stringify(value));
