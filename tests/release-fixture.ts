@@ -1,10 +1,12 @@
+import {fileURLToPath} from 'node:url';
+import {ContainerFixture,ProbeFixture} from './service-fixture-plugins.js';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { create } from 'tar';
-import { PluginDefinition, type DeploymentConfiguration, type ReleaseInventory, type PluginMetadata, type DeploymentRecipe } from '@treeseed-cordis/sdk';
+import { PackageDefinition,ProviderV4Schemas,ServiceSchemas,CanonicalJson,type ServiceInstance,type ServiceRelease,PluginDefinition, type DeploymentConfiguration, type ReleaseInventory, type PluginMetadata, type DeploymentRecipe } from '@treeseed-cordis/sdk';
 
 /** Test-only prepared release producer. Never imported by the deployment entry point. */
 export class PreparedReleaseFixture {
@@ -69,4 +71,63 @@ export class PreparedReleaseFixture {
   }
   refresh():void {this.inventory.recipe.sha256=this.write('compose.json',this.recipe);this.configuration.release.manifestDigest=this.write('release.json',this.inventory);}
   close():void {rmSync(this.root,{recursive:true,force:true});}
+}
+
+export class ServiceReleaseFixture extends PreparedReleaseFixture {
+    release!: ServiceRelease;
+    async services(): Promise<this> {
+        await this.prepare();
+        const source = join(this.root, 'plugin/package'), image = this.inventory.images[0]!, images = [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'oci-archive' as const, url: 'https://fixture.invalid/image.tar', sha256: 'a'.repeat(64), size: 1 } }];
+        const entry = join(this.root, 'provider-entry.ts');
+        writeFileSync(entry, `import {writeFileSync} from 'node:fs';export {ContainerFixture,ProbeFixture} from ${JSON.stringify(join(process.cwd(), 'tests/service-fixture-plugins.ts'))};class Canary{static run():void{writeFileSync(${JSON.stringify(join(this.root, 'SCRIPT_CANARY'))},'imported');}}Canary.run();`);
+        const build = spawnSync('bun', ['build', entry, '--target=node', '--outfile', join(source, 'index.js')], { encoding: 'utf8' });
+        if (build.status !== 0)
+            throw new Error('Provider fixture compilation failed');
+        const metadata = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as Record<string, unknown>;
+        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(ContainerFixture, 'index.js', 'ContainerFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture')], [], images);
+        writeFileSync(join(source, 'package.json'), JSON.stringify(metadata));
+        await create({ cwd: join(this.root, 'plugin'), file: join(this.bundle, 'archives/plugin.tgz'), gzip: true, portable: true }, ['package']);
+        const sha = PreparedReleaseFixture.sha(readFileSync(join(this.bundle, 'archives/plugin.tgz')));
+        this.inventory.packages[0]!.sha256 = sha;
+        this.configuration.plugins[0]!.integrity = sha;
+        const lock = spawnSync('bun', ['install', '--lockfile-only', '--force', '--ignore-scripts'], { cwd: this.bundle, encoding: 'utf8' });
+        if (lock.status !== 0)
+            throw new Error('Fixture lock failed');
+        this.inventory.lockfile.sha256 = PreparedReleaseFixture.sha(readFileSync(join(this.bundle, 'bun.lock')));
+        const services: ServiceInstance[] = [];
+        this.recipe = { services: {}, volumes: {}, secrets: {} };
+        for (let i = 0; i < 5; i++) {
+            const serviceId = 'instance-' + i, provider = { pluginId: 'fixture', providerId: 'fixture.container', target: 'deployment', package: { name: '@fixture/plugin', version: '1.0.0', sha256: sha }, entry: 'index.js', classExport: 'ContainerFixture', contractVersion: ProviderV4Schemas.version };
+            services.push(ServiceSchemas.service.parse({ serviceId, provider, configuration: {}, definition: ContainerFixture.container.definition, resources: ContainerFixture.container.resources, transitionPolicy: ContainerFixture.container.transitionPolicy, bindings: [{ port:'http',bindingId: serviceId, contractId: 'fixture.echo', contractVersion: '1.0.0' }], dependencies: [], readiness: { provider: { ...provider, providerId: 'fixture.probe', classExport: 'ProbeFixture' }, configuration: {}, endpoint: { serviceId, portId: 'http' }, deadlineMs: 1000, observationContract: 'fixture.echo' } }));
+            this.recipe.services[serviceId] = { image: image.reference };
+        }
+        services[0]!.definition.ports[0]!.publication = { host: '127.0.0.1', port: 58443 };
+        // Publication is selection data; immutable provider metadata bounds its container target.
+        this.recipe.services['instance-0']!.ports = [{ target: 8080, published: 58443, host_ip: '127.0.0.1', protocol: 'tcp' }];
+        this.configuration.credentialReferences = [];
+        this.inventory.recipe.sha256 = this.write('compose.json', this.recipe);
+        this.release = ServiceSchemas.release.parse({ ...this.inventory, requiredServices: ['container.service', 'probe.service'], formatVersion: 3, composition: { profile: { id: 'fixture', version: '1.0.0', requiredBindings: services.map(ServiceReleaseFixture.binding) }, assetDigest: CanonicalJson.digest([]), worker: { path: 'worker.js', sha256: PreparedReleaseFixture.sha('fixture-worker'), size: 14 }, services } });
+        writeFileSync(join(this.bundle, 'worker.js'), 'fixture-worker');
+        this.refreshService();
+        return this;
+    }
+    async saveMetadata(value: Record<string, unknown>): Promise<void> {
+        const source = join(this.root, 'plugin/package');
+        writeFileSync(join(source, 'package.json'), JSON.stringify(value));
+        await create({ cwd: join(this.root, 'plugin'), file: join(this.bundle, 'archives/plugin.tgz'), gzip: true, portable: true }, ['package']);
+        const hash = PreparedReleaseFixture.sha(readFileSync(join(this.bundle, 'archives/plugin.tgz')));
+        this.release.packages[0]!.sha256 = hash;
+        this.configuration.plugins[0]!.integrity = hash;
+        for (const service of this.release.composition.services) {
+            service.provider.package.sha256 = hash;
+            service.readiness.provider.package.sha256 = hash;
+        }
+        const lock = spawnSync('bun', ['install', '--lockfile-only', '--force', '--ignore-scripts'], { cwd: this.bundle, encoding: 'utf8' });
+        if (lock.status !== 0)
+            throw new Error('Fixture lock failed');
+        this.release.lockfile.sha256 = PreparedReleaseFixture.sha(readFileSync(join(this.bundle, 'bun.lock')));
+        this.refreshService();
+    }
+    private static binding(service: ServiceInstance): string { return service.serviceId; }
+    refreshService(): void { this.release.recipe.sha256 = this.write('compose.json', this.recipe); this.configuration.release.manifestDigest = this.write('release.json', this.release); }
 }
