@@ -827,3 +827,22 @@ inputs and may read back the same immutable saved plan.
 Live transition planning preserves the accepted desired runtime state and worker executable.
 A runtime-state change or host-binary replacement is outside the qualified additive boundary
 and blocks without a new saved plan. Those transitions require their own explicit qualification.
+
+### Applying a qualified private addition
+
+The existing host may accept a saved plan whose expected composition/resource set matches its
+current accepted snapshot. For the additive slice, only `add`/`retain` changes with no required
+actions are executable. Any restart scope or replacement/migration/removal remains action-required
+until its separately qualified apply slice; the installer must not infer permission.
+
+Under the same writer and native host root, freshly validate the new bundle and previous physical
+identities before staging. Reopen bounded service-control scopes through native lifecycle while
+retaining existing containers, volumes, credentials and CA exports. Extend receipt references
+without overwriting historical bytes. Commit only after every selected service and actual target
+acknowledges the desired generation. Repeated accepted requests read back their durable identity.
+Partial effects retain evidence and require repair; nothing rolls back uncertain state implicitly.
+
+SDK `.13` adds optional restart-intent contracts. This slice records/verifies those optional fields
+correctly for read-back, while the host rejects restart-bearing submissions before accepting intent.
+That contract adoption does not qualify a restart. Existing format-1/2 schemas and artifacts remain
+immutable, and no second host or writer is started for a retained transition.
