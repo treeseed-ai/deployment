@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { ServiceObservations } from './service-observation.js';
 import { CanonicalJson, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, ServiceTokens, type ServicePlan, type ServiceInstance, type ServiceEngine, type ServiceIdentity, type ServiceReadiness, type ProbeContext, type ServiceProbe } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, InstalledProviderLoader, type CompositionHandle, type ProviderRegistration, type ProviderLease } from '@treeseed-cordis/sdk/runtime';
 import { ServicePlanStore } from './service-plan.js';
@@ -14,9 +15,10 @@ export interface PreparedServiceScope {
 class ProbeAccess implements ProbeContext {
     #credentials: ServiceCredentials;
     readonly expected: ProbeContext['expected'];
+    readonly observation: NonNullable<ProbeContext['observation']>;
     readonly credentialReferences: readonly string[];
     readonly authorityIds: readonly string[] = [];
-    constructor(readonly serviceId: string, readonly endpoint: string, readonly deadline: number, readonly signal: AbortSignal, plan: ServicePlan, credentials: ServiceCredentials) { this.#credentials = credentials; const service = NativeServices.service(plan, serviceId), change = plan.changes.find(NativeServices.named.bind(null, serviceId)); Check.require(change, 'SERVICE_SCOPE'); this.expected = Object.freeze({ installationId: plan.configuration.installationId, compositionGeneration: plan.compositionGeneration, serviceGeneration: change.serviceGeneration, assetDigest: plan.composition.assetDigest }); this.credentialReferences = Object.freeze([...service.readiness.credentialReferences]); Object.freeze(this.authorityIds); Object.freeze(this); }
+    constructor(readonly serviceId: string, readonly endpoint: string, readonly deadline: number, readonly signal: AbortSignal, plan: ServicePlan, credentials: ServiceCredentials) { this.#credentials = credentials; this.observation = new ServiceObservations(plan).context(serviceId); const service = NativeServices.service(plan, serviceId), change = plan.changes.find(NativeServices.named.bind(null, serviceId)); Check.require(change, 'SERVICE_SCOPE'); this.expected = Object.freeze({ installationId: plan.configuration.installationId, compositionGeneration: plan.compositionGeneration, serviceGeneration: change.serviceGeneration, assetDigest: plan.composition.assetDigest }); this.credentialReferences = Object.freeze([...service.readiness.credentialReferences]); Object.freeze(this.authorityIds); Object.freeze(this); }
     private accepted(): void { Check.require(!this.signal.aborted && Date.now() < this.deadline, 'PROBE_DEADLINE'); }
     async credential(reference: string): Promise<Uint8Array> { this.accepted(); Check.require(this.credentialReferences.includes(reference), 'UNGRANTED_PROBE_REFERENCE'); const bytes = this.#credentials.probe(this.serviceId, reference); this.accepted(); return bytes; }
     async authority(_id: string): Promise<Uint8Array> { this.accepted(); return Check.block('PROBE_AUTHORITY_NOT_PREPARED'); }
