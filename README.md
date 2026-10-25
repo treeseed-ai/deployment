@@ -769,3 +769,13 @@ or extra directory is exposed on failure; an uncertain effect requires explicit 
 The real container race fixture replaces and restores the observer socket after Docker create.
 Without the pinned change-time checks, the regression starts the container and fails. With the
 checks, it records explicit repair state before any start. No owner request is admitted.
+
+### Public owner recipe materialization
+
+`ServiceProjection.resolve(service, declaration, graph, configuration)` is the public data-only
+preparation interface for owner image/integration producers. It validates the SDK container
+projection and resolves typed dependency ports, configuration/context markers and explicitly
+granted secret references into a service definition/resource declaration. It does not import
+provider code, open credentials, write installation state or activate resources. Planning still
+independently verifies the exact package projection, complete bundle and resulting recipe.
+Consumers use this package export rather than private source files or their own resolver copy.

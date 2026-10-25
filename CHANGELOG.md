@@ -8,6 +8,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Expose validated data-only service projection through the public package interface (#910).
 - Mount only a granted private observer directory into verified owner-runtime services (#910).
 - Expose bounded package archive inspection for owner runtime auditing (#910).
 - Provide a native typed Caddy edge with scoped public authority exports (#910).
