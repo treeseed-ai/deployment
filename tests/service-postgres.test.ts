@@ -7,7 +7,7 @@ class PostgresServiceTests {
     async installed(): Promise<void> { const fixture = new PostgresServiceFixture(); try {
         await fixture.prepared(); const input = join(fixture.root, 'postgres.json'); writeFileSync(input, JSON.stringify(fixture.configuration));
         const result = spawnSync('node', ['dist/tests/service-postgres-program.js', input], { encoding: 'utf8', timeout: 180000 }); if (result.status !== 0) throw new Error(result.stderr);
-        expect(JSON.parse(result.stdout)).toEqual({ fixtureOnly: true, ready: true, instances: 2, distinctState: true, wrongPasswordDenied: true, cancelled: true, sourceFree: true });
+        expect(JSON.parse(result.stdout)).toEqual({ fixtureOnly: true, ready: true, instances: 2, distinctState: true, wrongPasswordDenied: true, cancelled: true, inflightCancelled: true, sourceFree: true });
     } finally { fixture.close(); } }
     publicProgram(): void {
         const code = "import {PostgresServicePlugin,PostgresReadinessPlugin} from '@treeseed-cordis/deployment';class Program{static run(){if(PostgresServicePlugin.container.providedContracts[0].contractId!=='storage.postgres'||PostgresReadinessPlugin.probe.schemes[0]!=='tcp')throw new Error('Invalid native descriptors');process.stdout.write('postgres-providers-ok\\n');}}Program.run();";
