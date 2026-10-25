@@ -7,7 +7,7 @@ import { PreparedReleaseFixture } from './release-fixture.js';
 import { ArtifactResolver } from '../src/artifacts.js';
 import { ComposeDeploymentHost, HostSystem, DockerCommands } from '../src/diagnose.js';
 import { PlanStore, SafeDirectory } from '../src/filesystem.js';
-import { PlanningBlockedError, CanonicalJson, type DeploymentPlan } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, PlanningBlockedError, CanonicalJson, type DeploymentPlan } from '@treeseed-cordis/sdk';
 class ConcurrentWriter {
   readonly child:ChildProcess;
   completion:((code:number)=>void)|null=null;
@@ -90,7 +90,7 @@ class ArtifactTests {
     const fixture=await new PreparedReleaseFixture().prepare();
     try {
       if(!this.qualified()){await expect(new ComposeDeploymentHost().plan(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);expect(existsSync(fixture.installation)).toBe(false);return;}
-      const host=new ComposeDeploymentHost(),plan=await host.plan(fixture.configuration);expect(plan.expectedComposition).toBeNull();expect(plan.expectedEngine.daemonId.length).toBeGreaterThan(0);expect(plan.artifacts.length).toBe(2);expect(plan.blockers).toEqual([]);expect(plan.recipe).toEqual(fixture.recipe);expect(plan.pluginBindings).toEqual([fixture.metadata]);
+      const host=new ComposeDeploymentHost(),plan=PlatformSchemas.plan.parse(await host.plan(fixture.configuration));expect(plan.expectedComposition).toBeNull();expect(plan.expectedEngine.daemonId.length).toBeGreaterThan(0);expect(plan.artifacts.length).toBe(2);expect(plan.blockers).toEqual([]);expect(plan.recipe).toEqual(fixture.recipe);expect(plan.pluginBindings).toEqual([fixture.metadata]);
       const repeated=await host.plan({...fixture.configuration,origin:fixture.configuration.origin+'/'});expect(repeated).toEqual(plan);
       const stopped=await host.plan({...fixture.configuration,runtimeState:'stopped'});expect(stopped.digest).not.toBe(plan.digest);for(const effect of stopped.effects)expect(effect.kind).not.toBe('start-service');
       const store=new PlanStore(fixture.installation);expect(store.read(plan.id,plan.digest)).toEqual(plan);expect(statSync(join(fixture.installation,'.cordis/plans',plan.id+'.json')).mode&0o777).toBe(0o600);
@@ -137,7 +137,7 @@ class ArtifactTests {
     try {
       const configuration={...fixture.configuration,installationDirectory:installation};
       if(!this.qualified()){await expect(new ComposeDeploymentHost().plan(configuration)).rejects.toBeInstanceOf(PlanningBlockedError);expect(existsSync(installation)).toBe(false);return;}
-      const plan=await new ComposeDeploymentHost().plan(configuration);expect(plan.configuration.installationDirectory).toBe(installation);expect(new PlanStore(installation).read(plan.id,plan.digest)).toEqual(plan);expect(readdirSync(installation)).toEqual(['.cordis']);
+      const plan=PlatformSchemas.plan.parse(await new ComposeDeploymentHost().plan(configuration));expect(plan.configuration.installationDirectory).toBe(installation);expect(new PlanStore(installation).read(plan.id,plan.digest)).toEqual(plan);expect(readdirSync(installation)).toEqual(['.cordis']);
     }finally{fixture.close();}
   }
   async archiveNames():Promise<void> {

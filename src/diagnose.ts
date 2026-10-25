@@ -1,13 +1,14 @@
-import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
 import { platform, arch, homedir } from 'node:os';
 import { join, resolve, dirname, parse } from 'node:path';
 import { createServer, type Server } from 'node:net';
+import {InstalledHost,InstallationStore} from './installed.js';
 import { ArtifactResolver } from './artifacts.js';
 import { PlanStore, PlanningFailure as Check } from './filesystem.js';
 
-export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan>; }
+export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>>; }
 export interface DiagnosticCommands { execute(args:string[]):string|null; }
 export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
 export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
@@ -47,7 +48,7 @@ export class HostSystem implements DiagnosticSystem {
         catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT'){missing=true;break;}throw error;}
       }
       exists=!missing;
-      if(exists&&readdirSync(path).length){try{new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
+      if(exists&&readdirSync(path).length){try{if(new InstallationStore(path).inspect()==='installed')new InstallationStore(path).records();else new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
       let ancestor=path;
       while(true) {try{lstatSync(ancestor);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;const parent=dirname(ancestor);if(parent===ancestor)throw error;ancestor=parent;}}
       const stat=lstatSync(ancestor);
@@ -113,7 +114,8 @@ export class ComposeDeploymentHost implements DeploymentHost {
     let ready=true;for(const check of checks)if(check.status==='blocked')ready=false;
     return PlatformSchemas.diagnostic.parse({ready,host,engine,installation:{path,exists:storage.exists,freeBytes:storage.freeBytes},port,checks});
   }
-  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan> {
+  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan> {
+    configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
     const options=PlatformSchemas.desired.parse(configuration);
     options.installationDirectory=resolve(options.installationDirectory);options.release.directory=resolve(options.release.directory);options.origin=new URL(options.origin).origin;
     options.plugins.sort(ComposeDeploymentHost.pluginOrder);options.credentialReferences.sort();
@@ -137,6 +139,9 @@ export class ComposeDeploymentHost implements DeploymentHost {
     const payload={formatVersion:1 as const,configuration:options,recipe:resolved.recipe,pluginBindings:resolved.pluginBindings,configurationDigest:CanonicalJson.digest(options),releaseDigest:resolved.releaseDigest,recipeDigest:resolved.recipeDigest,lockDigest:resolved.lockDigest,expectedEngine,expectedComposition:null,projectName,artifacts:resolved.artifacts,effects,blockers:[]};
     const digest=CanonicalJson.digest(payload),plan=PlatformSchemas.plan.parse({...payload,id:'plan-'+digest,digest});return store.publish(plan);
   }
+  apply(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>> {return new InstalledHost(this.commands,this.system).apply(planId,digest,options);}
+  status(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>> {return new InstalledHost(this.commands,this.system).status(installationDirectory);}
+  application(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>> {return new InstalledHost(this.commands,this.system).application(installationDirectory,id);}
   private static pluginOrder(a:DeploymentConfiguration['plugins'][number],b:DeploymentConfiguration['plugins'][number]):number {return a.id.localeCompare(b.id);}
   private resources(context:string,project:string):void {
     for(const args of [['ps','--all','--format','{{json .}}'],['volume','ls','--format','{{json .}}'],['network','ls','--format','{{json .}}']]){
@@ -162,3 +167,5 @@ export class TcpTableProbe implements DiagnosticPorts {
 export { PlanStore } from './filesystem.js';
 
 export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from './composition.js';
+
+export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,DeploymentWorker,WorkerComposition,PostgresContainerPlugin,CaddyContainerPlugin} from './installed.js';
