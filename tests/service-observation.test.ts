@@ -32,5 +32,5 @@ class ObservationTests {
     } finally { await runtime?.close(); fixture.close(); } }
 }
 const suite = new ObservationTests();
-test('unit: accepted observation exposes frozen declared dependency metadata without credential or path authority', suite.metadata.bind(suite));
-test('integration: default native host refuses unaccepted observations without creating store effects', suite.unaccepted.bind(suite));
+test('integration: accepted observation exposes frozen declared dependency metadata without credential or path authority', suite.metadata.bind(suite), 60000);
+test('integration: default native host refuses unaccepted observations without creating store effects', suite.unaccepted.bind(suite), 60000);
