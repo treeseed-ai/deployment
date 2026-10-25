@@ -144,3 +144,11 @@ and the Compose key length limit. Configuration secret references are exactly
 `secret://<service-id>/<slot>`; recipe paths point to that future scoped private credential.
 Unused packages, images, service definitions, mounts or secret slots fail validation. Planning
 only validates these paths; activation is a separate durable worker operation.
+
+Projected configuration schemas use the pinned `ajv@8.17.1` draft-2020-12 validator in strict
+mode, without coercion, remote schema loading or provider imports. Unsupported schemas block.
+Defaults are applied to a private configuration copy. Package asset descriptors are verified
+against archive member hashes; `composition.assetDigest` binds the canonical sorted list of
+`{package,version,path,sha256}` assets. The API image (the explicitly selected worker-socket
+service) must also bind this digest and the complete package set in its OCI configuration labels.
+See [Ajv draft-2020-12 support](https://ajv.js.org/json-schema.html#draft-2020-12-breaking).
