@@ -148,9 +148,10 @@ const publicFixture=new PublicFixtureTests();test('smoke: public compiled fixtur
 
 class ImageCatalogTests {
     async selectedOnly(): Promise<void> { const fixture = await new ServiceFixture().services(); try {
-        const metadata = JSON.parse(readFileSync(join(fixture.root, 'plugin/package/package.json'), 'utf8')) as { cordisPackage: { images: Array<{ id: string; reference: string }> } }, image = metadata.cordisPackage.images[0]!;
+        const metadata = JSON.parse(readFileSync(join(fixture.root, 'plugin/package/package.json'), 'utf8')) as { cordisPackage: { images: Array<{ id: string; reference: string }>; runtimeImages?: Array<{ id: string; entry: string }> } }, image = metadata.cordisPackage.images[0]!;
         metadata.cordisPackage.images.push({ ...image, id: 'unselected-image', reference: image.reference.replace('fixture/application', 'fixture/unselected') }); await fixture.saveMetadata(metadata);
         const { ServiceArtifactResolver } = await import('../src/service-artifacts.js'); expect((await new ServiceArtifactResolver().resolve(fixture.configuration)).inventory.images.length).toBe(1); expect(existsSync(join(fixture.root, 'SCRIPT_CANARY'))).toBe(false);
+        metadata.cordisPackage.runtimeImages = [{ id: 'unselected-runtime', entry: 'index.js' }]; await fixture.saveMetadata(metadata); expect((await new ServiceArtifactResolver().resolve(fixture.configuration)).inventory.images.length).toBe(1);
         fixture.release.images.push({ ...fixture.release.images[0]!, id: 'unselected-image', reference: fixture.release.images[0]!.reference.replace('fixture/application', 'fixture/unselected') }); fixture.refreshService(); await expect(new ServiceArtifactResolver().resolve(fixture.configuration)).rejects.toThrow();
     } finally { fixture.close(); } }
 }
