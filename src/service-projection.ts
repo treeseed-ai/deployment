@@ -96,6 +96,7 @@ export class ServiceProjection {
         for (const next of this.references.get(slot) ?? []) this.visit(next, visiting, visited);
         visiting.delete(slot); visited.add(slot);
     }
+    private static authority(id: string, value: { id: string }): boolean { return id === value.id; }
     private materialize(): Pick<ServiceInstance, 'definition' | 'resources'> {
         const environment: Record<string, string> = {};
         for (const [key, input] of Object.entries(this.projection.definition.environment)) { const value = this.value(input); Check.require(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean', 'INVALID_PROJECTION'); environment[key] = String(value); }
@@ -104,7 +105,7 @@ export class ServiceProjection {
         for (const [key, input] of Object.entries(this.projection.resources.slots)) { this.slot = key; slots[key] = this.value(input); }
         this.slot = null;
         const visited = new Set<string>(); for (const key of this.references.keys()) this.visit(key, new Set(), visited);
-        for (const grant of this.projection.resources.grants) { const target = this.dependency(grant.dependencyPort); Check.require(Object.hasOwn(target.resources.slots, grant.slot), 'INVALID_SECRET_REFERENCE'); grants.push({ serviceId: target.serviceId, slot: grant.slot }); }
+        for (const grant of this.projection.resources.grants) { const target = this.dependency(grant.dependencyPort); Check.require(Object.hasOwn(target.resources.slots, grant.slot) || target.resources.authorities.some(ServiceProjection.authority.bind(null, grant.slot)), 'INVALID_SECRET_REFERENCE'); grants.push({ serviceId: target.serviceId, slot: grant.slot }); }
         return { definition: ServiceSchemas.definition.parse({ ...this.projection.definition, environment }), resources: ServiceSchemas.service.shape.resources.parse({ ...this.projection.resources, slots, grants }) };
     }
 }

@@ -48,14 +48,15 @@ export class AuthorityArchive {
     }
     private data(bytes: Buffer): void { this.bytes += bytes.length; if (this.bytes > 128 * 1024) this.invalid = true; else this.chunks.push(bytes); }
     private error(): void { this.invalid = true; this.reject?.(new PlanningBlockedError([{ code: 'INVALID_AUTHORITY_ARCHIVE', message: 'Public authority archive validation failed.' }])); }
-    private end(): void {
+    static certificate(input: Uint8Array): Buffer {
         try {
-            Check.require(!this.invalid && this.count === 1 && this.bytes === this.size, 'INVALID_AUTHORITY_ARCHIVE');
-            const bytes = Buffer.concat(this.chunks), text = new TextDecoder('utf-8', { fatal: true }).decode(bytes), match = /^-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=\r\n]+)-----END CERTIFICATE-----\r?\n?$/.exec(text);
+            Check.require(input.byteLength > 0 && input.byteLength <= 128 * 1024, 'INVALID_AUTHORITY_ARCHIVE');
+            const bytes = Buffer.from(input), text = new TextDecoder('utf-8', { fatal: true }).decode(bytes), match = /^-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=\r\n]+)-----END CERTIFICATE-----\r?\n?$/.exec(text);
             Check.require(match, 'INVALID_AUTHORITY_ARCHIVE');
             const encoded = match[1]!.replace(/[\r\n]/g, ''), der = Buffer.from(encoded, 'base64'), certificate = new X509Certificate(bytes);
             Check.require(der.toString('base64') === encoded && certificate.raw.equals(der) && certificate.ca && Date.parse(certificate.validFrom) <= Date.now() && Date.parse(certificate.validTo) > Date.now(), 'INVALID_AUTHORITY_ARCHIVE');
-            this.resolve!(bytes);
-        } catch { this.error(); }
+            return bytes;
+        } catch { return Check.block('INVALID_AUTHORITY_ARCHIVE'); }
     }
+    private end(): void { try { Check.require(!this.invalid && this.count === 1 && this.bytes === this.size, 'INVALID_AUTHORITY_ARCHIVE'); this.resolve!(AuthorityArchive.certificate(Buffer.concat(this.chunks))); } catch { this.error(); } }
 }

@@ -1,3 +1,4 @@
+import { ServiceAuthorityExports } from './service-authority-export.js';
 import { join } from 'node:path';
 import { ServiceObservations } from './service-observation.js';
 import { CanonicalJson, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, ServiceTokens, type ServicePlan, type ServiceInstance, type ServiceEngine, type ServiceIdentity, type ServiceReadiness, type ProbeContext, type ServiceProbe } from '@treeseed-cordis/sdk';
@@ -14,14 +15,15 @@ export interface PreparedServiceScope {
 }
 class ProbeAccess implements ProbeContext {
     #credentials: ServiceCredentials;
+    #authorities: ServiceAuthorityExports;
     readonly expected: ProbeContext['expected'];
     readonly observation: NonNullable<ProbeContext['observation']>;
     readonly credentialReferences: readonly string[];
-    readonly authorityIds: readonly string[] = [];
-    constructor(readonly serviceId: string, readonly endpoint: string, readonly deadline: number, readonly signal: AbortSignal, plan: ServicePlan, credentials: ServiceCredentials) { this.#credentials = credentials; this.observation = new ServiceObservations(plan).context(serviceId); const service = NativeServices.service(plan, serviceId), change = plan.changes.find(NativeServices.named.bind(null, serviceId)); Check.require(change, 'SERVICE_SCOPE'); this.expected = Object.freeze({ installationId: plan.configuration.installationId, compositionGeneration: plan.compositionGeneration, serviceGeneration: change.serviceGeneration, assetDigest: plan.composition.assetDigest }); this.credentialReferences = Object.freeze([...service.readiness.credentialReferences]); Object.freeze(this.authorityIds); Object.freeze(this); }
+    readonly authorityIds: readonly string[];
+    constructor(readonly serviceId: string, readonly endpoint: string, readonly deadline: number, readonly signal: AbortSignal, plan: ServicePlan, credentials: ServiceCredentials, authorities: ServiceAuthorityExports) { this.#credentials = credentials; this.#authorities = authorities; this.observation = new ServiceObservations(plan).context(serviceId); const service = NativeServices.service(plan, serviceId), change = plan.changes.find(NativeServices.named.bind(null, serviceId)); Check.require(change, 'SERVICE_SCOPE'); this.expected = Object.freeze({ installationId: plan.configuration.installationId, compositionGeneration: plan.compositionGeneration, serviceGeneration: change.serviceGeneration, assetDigest: plan.composition.assetDigest }); const references = authorities.references(serviceId); this.credentialReferences = references.credentialReferences; this.authorityIds = references.authorityIds; Object.freeze(this); }
     private accepted(): void { Check.require(!this.signal.aborted && Date.now() < this.deadline, 'PROBE_DEADLINE'); }
     async credential(reference: string): Promise<Uint8Array> { this.accepted(); Check.require(this.credentialReferences.includes(reference), 'UNGRANTED_PROBE_REFERENCE'); const bytes = this.#credentials.probe(this.serviceId, reference); this.accepted(); return bytes; }
-    async authority(_id: string): Promise<Uint8Array> { this.accepted(); return Check.block('PROBE_AUTHORITY_NOT_PREPARED'); }
+    async authority(id: string): Promise<Uint8Array> { this.accepted(); Check.require(this.authorityIds.includes(id), 'UNGRANTED_PROBE_REFERENCE'); const bytes = await this.#authorities.read(this.serviceId, id, { deadline: this.deadline, signal: this.signal }); this.accepted(); return bytes; }
 }
 class NativeServices {
     static named(id: string, value: {
@@ -102,7 +104,8 @@ class NativeObservation {
     private current: ProbeInvocation | null = null;
     private readonly controllers = new WeakMap<ProbeContext, AbortController>();
     private readonly credentials: ServiceCredentials;
-    constructor(private readonly plan: ServicePlan, private readonly id: string, private readonly context: Context) { this.credentials = new ServiceCredentials(plan); }
+    private readonly authorities: ServiceAuthorityExports;
+    constructor(private readonly plan: ServicePlan, private readonly id: string, private readonly context: Context, writer: InstallationWriter) { this.credentials = new ServiceCredentials(plan); this.authorities = new ServiceAuthorityExports(plan, writer); }
     abort(context: ProbeContext): void { this.controllers.get(context)?.abort(); }
     settled(invocation: ProbeInvocation): void {
         if (this.current === invocation)
@@ -114,7 +117,7 @@ class NativeObservation {
         const service = NativeServices.service(this.plan, this.id), target = await new ServiceRuntimeInspection(this.plan).service(service.readiness.endpoint.serviceId, service.readiness.endpoint.portId, service.readiness.scheme);
         if (!target.running)
             return NativeServices.unready(this.id, 'service.stopped');
-        const controller = new AbortController(), access = new ProbeAccess(this.id, target.endpoint, Date.now() + service.readiness.deadlineMs, controller.signal, this.plan, this.credentials);
+        const controller = new AbortController(), access = new ProbeAccess(this.id, target.endpoint, Date.now() + service.readiness.deadlineMs, controller.signal, this.plan, this.credentials, this.authorities);
         this.controllers.set(access, controller);
         const lease = await CordisServiceLocator.from(this.context).acquire(ServiceTokens.probe()), invocation = new ProbeInvocation(this, lease, access);
         if (this.current) {
@@ -175,7 +178,7 @@ export class ServiceNativeScope {
             static readonly provide = [ServiceTokens.engine.id];
             static readonly inject = ['cordis.composition', ServiceTokens.probe().id];
             static readonly Config = PlatformSchemas.empty;
-            constructor(context: Context) { context.provide(ServiceTokens.engine.id, new NativeEngine(scoped, new NativeObservation(plan, id, context))); }
+            constructor(context: Context) { context.provide(ServiceTokens.engine.id, new NativeEngine(scoped, new NativeObservation(plan, id, context, writer))); }
         }
         const registrations: ProviderRegistration[] = [await InstalledProviderLoader.load(prepared.container.file, prepared.container.digest, ServiceTokens.container(), 'deployment', scopeId), await InstalledProviderLoader.load(prepared.probe.file, prepared.probe.digest, ServiceTokens.probe(), 'deployment', scopeId)];
         for (const [token, plugin] of [[ServiceTokens.context, ContextPlugin], [ServiceTokens.engine, EnginePlugin]] as const)

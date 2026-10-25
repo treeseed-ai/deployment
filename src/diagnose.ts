@@ -155,3 +155,4 @@ export {ServiceApplicationRuntime,ServiceApplicationPlugin,ServiceApplicationTok
 export {ServiceWorkerBuild} from './service-worker-build.js';
 
 export {AuthorityArchive} from './service-export.js';
+export {ServiceAuthorityExports} from './service-authority-export.js';
