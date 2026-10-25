@@ -8,6 +8,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Bound HTTP and verified TLS transport beneath native service probes (#910).
 - Provide native typed Postgres services and bounded protocol readiness (#910).
 - Keep declared public authority exports in grant-scoped private custody (#910).
 - Inspect bounded public authority archives without extraction or execution (#910).

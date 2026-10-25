@@ -657,3 +657,31 @@ root with two renamed disposable Postgres instances. Verify both native bindings
 credential/volume identities, wrong-password refusal, cancellation and cleanup of connection effects.
 The fixture producer may acquire the exact image before planning; the implementation path cannot.
 Default Caddy, API/Keycloak assembly and retained active transitions remain subsequent slices.
+
+### Bounded HTTP/TLS probe transport
+
+`ServiceHttpRequests.read(context, { path, maximumBytes?, authorityReference? })` is the typed
+Node transport contract used beneath owner-native protocol probes; `ServiceHttpClient` is its real
+implementation. It returns exact response bytes, not an application-ready assertion. The selected
+native probe still owns protocol validation, target acknowledgements and lifecycle. API health and
+asset semantics remain API-owned.
+
+The transport only sends GET to the accepted numeric service endpoint, with a bounded absolute path,
+no supplied credentials/headers, no redirects, no content decoding and no ambient proxy transport.
+The default response budget is 256 KiB; an explicit budget may be at most 8 MiB. Reject non-2xx,
+truncation, excessive headers/body, unsafe endpoint/path, expired/cancelled work and incomplete close.
+Every request has its own connection, bounded deadline and awaited close; no shared connection cache.
+Errors contain a fixed safe code, never raw response bytes or network/TLS details.
+
+HTTPS requires an exact reference in `context.authorityIds`; read its public CA through the bounded
+callback and retain certificate-chain verification. Verify the certificate against the canonical
+installation origin from accepted observation metadata while dialing the private service IP, using
+[Node's `checkServerIdentity`](https://nodejs.org/download/release/v24.19.0/docs/api/tls.html#tlscheckserveridentityhostname-cert).
+No TLS bypass, global trust store mutation, arbitrary URL or owner-local host path is accepted.
+HTTP requires no authority reference. Method/path/byte admission and certificate handling cannot be
+replaced with probe-supplied permission policy.
+
+Built Node consumer qualification uses real HTTP and fresh private-CA TLS listeners, including a
+certificate for `localhost` reached through an IP endpoint. Verify wrong hostname/CA, redirects,
+oversize/truncation, stalled response cancellation, safe output and socket drain. These are explicit
+protocol fixtures, not assembled Caddy/API/Keycloak evidence.
