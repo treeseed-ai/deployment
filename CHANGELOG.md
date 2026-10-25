@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Reject observer and control socket aliases before host request dispatch (#928).
 
 - Fence installation writers when their owner record changes (#918).
 

@@ -459,3 +459,12 @@ path. The built program verifies refusal/preservation after a replacement and ex
 restoration, malformed/multiple-frame refusal, secret-canary redaction, and recovery of a discarded
 accepted response through the original idempotency key. This is private host RPC qualification;
 source resolution/acquisition and the standalone executable launcher remain subsequent work.
+
+### Endpoint layout and alias refusal
+
+Every accepted connection and parsed request verifies the entire known observer/control endpoint
+layout, not just the pathname used to bind that listener. Socket link counts must be one; changed
+inode, ownership, mode, symlink or unexpected entries refuse dispatch. This protects the observer
+boundary from a linked alias of the control socket, independently of convenience client methods.
+The built regression creates/restores only fixture-owned aliases and proves no application is
+accepted. It does not treat arbitrary same-user host code as sandboxed.
