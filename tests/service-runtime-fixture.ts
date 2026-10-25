@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ServiceReleaseFixture, PreparedReleaseFixture } from './release-fixture.js';
 import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture } from './service-fixture-plugins.js';
@@ -18,6 +18,7 @@ interface Descriptor {
 export class ServiceRuntimeFixture extends ServiceReleaseFixture {
     private readonly imageTag = 'cordis-task3c-fixture:' + PreparedReleaseFixture.sha(this.root).slice(0, 16);
     private project = '';
+    authorityCertificate: string | null = null;
     static readonly base = 'node@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553';
     private static run(name: string, args: string[], cwd?: string): string {
         const result = spawnSync(name, args, { cwd, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024 });
@@ -25,7 +26,13 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
             throw new Error('Fixture prerequisite failed: ' + name + ' ' + args.slice(0, 3).join(' ') + ' ' + result.stderr.slice(-2000));
         return result.stdout.trim();
     }
-    async running(qualification = false): Promise<this> {
+    publicAuthority(): string {
+        const directory = join(this.root, 'public-authority'); mkdirSync(directory, { mode: 0o700 });
+        this.authorityCertificate = join(directory, 'root.crt');
+        ServiceRuntimeFixture.run('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-days', '1', '-subj', '/CN=Cordis public authority fixture', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-keyout', join(directory, 'fixture-key.pem'), '-out', this.authorityCertificate]);
+        return this.authorityCertificate;
+    }
+    async running(qualification = false, authority = false): Promise<this> {
         await this.services();
         this.project = 'cordis-' + CanonicalJson.digest({ installationId: this.configuration.installationId, installationDirectory: this.installation }).slice(0, 16);
         const inspect = spawnSync('docker', ['image', 'inspect', ServiceRuntimeFixture.base], { encoding: 'utf8' });
@@ -33,9 +40,10 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
             ServiceRuntimeFixture.run('docker', ['image', 'pull', ServiceRuntimeFixture.base]);
         const build = join(this.root, 'runtime-image');
         mkdirSync(build);
-        writeFileSync(join(build, 'http.ts'), `import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';import {readFileSync,writeFileSync,existsSync} from 'node:fs';export class FixtureServer {static start():void {if(!existsSync('/data/identity'))writeFileSync('/data/identity',process.env.FIXTURE_SERVICE_ID!);createServer(this.serve.bind(this)).listen(8080,'0.0.0.0');}static serve(_request:IncomingMessage,response:ServerResponse):void {const configuration=JSON.parse(readFileSync('/run/cordis/configuration.json','utf8')) as {service:string;password:string};const password=readFileSync('/run/cordis/password','utf8');response.setHeader('content-type','application/json');response.end(JSON.stringify({serviceId:configuration.service,passwordPresent:password.length===64&&password===configuration.password,volumeMarker:readFileSync('/data/identity','utf8')}));}}FixtureServer.start();`);
+        if (authority) copyFileSync(this.publicAuthority(), join(build, 'authority.pem'));
+        writeFileSync(join(build, 'http.ts'), `import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';import {readFileSync,writeFileSync,existsSync} from 'node:fs';export class FixtureServer {static start():void {if(existsSync('/fixture/authority.pem')&&!existsSync('/data/root.crt'))writeFileSync('/data/root.crt',readFileSync('/fixture/authority.pem'));if(!existsSync('/data/identity'))writeFileSync('/data/identity',process.env.FIXTURE_SERVICE_ID!);createServer(this.serve.bind(this)).listen(8080,'0.0.0.0');}static serve(_request:IncomingMessage,response:ServerResponse):void {const configuration=JSON.parse(readFileSync('/run/cordis/configuration.json','utf8')) as {service:string;password:string};const password=readFileSync('/run/cordis/password','utf8');response.setHeader('content-type','application/json');response.end(JSON.stringify({serviceId:configuration.service,passwordPresent:password.length===64&&password===configuration.password,volumeMarker:readFileSync('/data/identity','utf8')}));}}FixtureServer.start();`);
         ServiceRuntimeFixture.run('bun', ['build', join(build, 'http.ts'), '--target=node', '--outfile', join(build, 'http.js')]);
-        writeFileSync(join(build, 'Dockerfile'), 'FROM ' + ServiceRuntimeFixture.base + '\nCOPY http.js /fixture/http.js\nCMD ["node","/fixture/http.js"]\n');
+        writeFileSync(join(build, 'Dockerfile'), 'FROM ' + ServiceRuntimeFixture.base + '\nCOPY http.js /fixture/http.js\n' + (authority ? 'COPY authority.pem /fixture/authority.pem\n' : '') + 'CMD ["node","/fixture/http.js"]\n');
         ServiceRuntimeFixture.run('docker', ['build', '--network=none', '--pull=false', '--tag', this.imageTag, build]);
         const image = this.exportImage();
         this.release.images = [image];
