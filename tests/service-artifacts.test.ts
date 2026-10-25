@@ -145,3 +145,14 @@ class PublicFixtureTests {
  program():void{const code="import {ServiceReleaseFixture} from '@treeseed-cordis/deployment/testing';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';class Program{static async run(){const cwd=mkdtempSync(join(tmpdir(),'cordis-consumer-cwd-'));process.chdir(cwd);let fixture;try{fixture=await new ServiceReleaseFixture().services();if(fixture.release.composition.services.length!==5)throw new Error('fixture composition');process.stdout.write('public-fixture-ok\\n');}finally{fixture?.close();rmSync(cwd,{recursive:true,force:true});}}}await Program.run();";const result=spawnSync('node',['--input-type=module','-e',code],{encoding:'utf8'});expect(result.status).toBe(0);expect(result.stderr).toBe('');expect(result.stdout).toBe('public-fixture-ok\n');}
 }
 const publicFixture=new PublicFixtureTests();test('smoke: public compiled fixture constructs in an unrelated consumer working directory',publicFixture.program.bind(publicFixture));
+
+class ImageCatalogTests {
+    async selectedOnly(): Promise<void> { const fixture = await new ServiceFixture().services(); try {
+        const metadata = JSON.parse(readFileSync(join(fixture.root, 'plugin/package/package.json'), 'utf8')) as { cordisPackage: { images: Array<{ id: string; reference: string }> } }, image = metadata.cordisPackage.images[0]!;
+        metadata.cordisPackage.images.push({ ...image, id: 'unselected-image', reference: image.reference.replace('fixture/application', 'fixture/unselected') }); await fixture.saveMetadata(metadata);
+        const { ServiceArtifactResolver } = await import('../src/service-artifacts.js'); expect((await new ServiceArtifactResolver().resolve(fixture.configuration)).inventory.images.length).toBe(1); expect(existsSync(join(fixture.root, 'SCRIPT_CANARY'))).toBe(false);
+        fixture.release.images.push({ ...fixture.release.images[0]!, id: 'unselected-image', reference: fixture.release.images[0]!.reference.replace('fixture/application', 'fixture/unselected') }); fixture.refreshService(); await expect(new ServiceArtifactResolver().resolve(fixture.configuration)).rejects.toThrow();
+    } finally { fixture.close(); } }
+}
+const imageCatalog = new ImageCatalogTests();
+test('integration: unselected package image declarations need no artifacts while unused inventory remains blocked', imageCatalog.selectedOnly.bind(imageCatalog));
