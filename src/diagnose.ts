@@ -1,14 +1,19 @@
-import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
+import { ServiceInstalledHost } from './service-installed.js';
+import { HostSystem, TcpTableProbe } from './host-system.js';
+export { HostSystem, TcpTableProbe } from './host-system.js';
+import {ServicePlanStore} from './service-plan.js';
+import {ServicePlanningHost} from './service-plan.js';
+import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
-import { platform, arch, homedir } from 'node:os';
+import { homedir } from 'node:os';
 import { join, resolve, dirname, parse } from 'node:path';
 import { createServer, type Server } from 'node:net';
 import {InstalledHost,InstallationStore} from './installed.js';
 import { ArtifactResolver } from './artifacts.js';
 import { PlanStore, PlanningFailure as Check } from './filesystem.js';
 
-export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>>; }
+export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>|ServiceStatus>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>|ServiceApplicationRecord>; }
 export interface DiagnosticCommands { execute(args:string[]):string|null; }
 export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
 export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
@@ -26,37 +31,6 @@ export class DockerCommands implements DiagnosticCommands {
       try{if(statSync(file).isFile()){accessSync(file,constants.X_OK);return file;}}catch{}
     }
     return null;
-  }
-}
-export class HostSystem implements DiagnosticSystem {
-  host():DiagnosticReport['host'] {
-    let release='unknown',distribution='unknown';
-    try {
-      const text=readFileSync('/etc/os-release','utf8');
-      distribution=/^ID=["']?([^\n"']+)/m.exec(text)?.[1]??'unknown';
-      release=/^VERSION_ID=["']?([^\n"']+)/m.exec(text)?.[1]??'unknown';
-    } catch {}
-    return {os:platform(),architecture:arch(),distribution,release};
-  }
-  storage(path:string):StorageResult {
-    let exists=false;
-    try {
-      let current=parse(path).root, missing=false;
-      for(const component of path.slice(current.length).split('/')) {
-        if(!component)continue;current=join(current,component);
-        try {const stat=lstatSync(current);if(stat.isSymbolicLink())return {exists,freeBytes:null,code:'STORAGE_SYMLINK',message:'Installation path must not traverse symlinks.'};if(!stat.isDirectory())return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Installation path must contain only directories.'};}
-        catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT'){missing=true;break;}throw error;}
-      }
-      exists=!missing;
-      if(exists&&readdirSync(path).length){try{if(new InstallationStore(path).inspect()==='installed')new InstallationStore(path).records();else new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
-      let ancestor=path;
-      while(true) {try{lstatSync(ancestor);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;const parent=dirname(ancestor);if(parent===ancestor)throw error;ancestor=parent;}}
-      const stat=lstatSync(ancestor);
-      if(stat.uid!==process.getuid?.()||(stat.mode&0o300)!==0o300)return {exists,freeBytes:null,code:'STORAGE_PERMISSION',message:'Nearest existing directory must be owned, writable and searchable by this user.'};
-      accessSync(ancestor,constants.W_OK|constants.X_OK);
-      const space=statfsSync(ancestor),freeBytes=space.bavail*space.bsize;
-      return {exists,freeBytes,code:freeBytes>=1024**3?'OK':'STORAGE_CAPACITY',message:freeBytes>=1024**3?'Owned storage has at least 1 GiB free.':'At least 1 GiB free storage is required.'};
-    }catch {return {exists,freeBytes:null,code:'STORAGE_PERMISSION',message:'Storage permissions or filesystem information are unavailable.'};}
   }
 }
 class PortAttempt {
@@ -114,8 +88,8 @@ export class ComposeDeploymentHost implements DeploymentHost {
     let ready=true;for(const check of checks)if(check.status==='blocked')ready=false;
     return PlatformSchemas.diagnostic.parse({ready,host,engine,installation:{path,exists:storage.exists,freeBytes:storage.freeBytes},port,checks});
   }
-  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan> {
-    configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
+  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan> {
+    configuration=PlatformSchemas.desired.or(ServiceSchemas.configuration).parse(configuration);if(ServicePlanningHost.isRelease(configuration))return new ServicePlanningHost(this.commands,this.system).plan(configuration);configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
     const options=PlatformSchemas.desired.parse(configuration);
     options.installationDirectory=resolve(options.installationDirectory);options.release.directory=resolve(options.release.directory);options.origin=new URL(options.origin).origin;
     options.plugins.sort(ComposeDeploymentHost.pluginOrder);options.credentialReferences.sort();
@@ -139,9 +113,9 @@ export class ComposeDeploymentHost implements DeploymentHost {
     const payload={formatVersion:1 as const,configuration:options,recipe:resolved.recipe,pluginBindings:resolved.pluginBindings,configurationDigest:CanonicalJson.digest(options),releaseDigest:resolved.releaseDigest,recipeDigest:resolved.recipeDigest,lockDigest:resolved.lockDigest,expectedEngine,expectedComposition:null,projectName,artifacts:resolved.artifacts,effects,blockers:[]};
     const digest=CanonicalJson.digest(payload),plan=PlatformSchemas.plan.parse({...payload,id:'plan-'+digest,digest});return store.publish(plan);
   }
-  apply(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>> {return new InstalledHost(this.commands,this.system).apply(planId,digest,options);}
-  status(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>> {return new InstalledHost(this.commands,this.system).status(installationDirectory);}
-  application(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>> {return new InstalledHost(this.commands,this.system).application(installationDirectory,id);}
+  apply(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>> {return ServicePlanStore.isFormat(options.installationDirectory)?new ServiceInstalledHost().apply(planId,digest,options):new InstalledHost(this.commands,this.system).apply(planId,digest,options);}
+  status(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>|ServiceStatus> {return ServicePlanStore.isFormat(installationDirectory)?new ServiceInstalledHost().status(installationDirectory):new InstalledHost(this.commands,this.system).status(installationDirectory);}
+  application(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>|ServiceApplicationRecord> {return ServicePlanStore.isFormat(installationDirectory)?new ServiceInstalledHost().application(installationDirectory,id):new InstalledHost(this.commands,this.system).application(installationDirectory,id);}
   private static pluginOrder(a:DeploymentConfiguration['plugins'][number],b:DeploymentConfiguration['plugins'][number]):number {return a.id.localeCompare(b.id);}
   private resources(context:string,project:string):void {
     for(const args of [['ps','--all','--format','{{json .}}'],['volume','ls','--format','{{json .}}'],['network','ls','--format','{{json .}}']]){
@@ -157,15 +131,25 @@ export class ComposeDeploymentHost implements DeploymentHost {
 }
 
 export { ArtifactResolver } from './artifacts.js';
+export { ServiceArtifactResolver } from './service-artifacts.js';
 
-/** Planning only observes Linux listener tables; it never binds a socket. */
-export class TcpTableProbe implements DiagnosticPorts {
-  async available(port:number):Promise<boolean> {
-    try {for(const path of ['/proc/net/tcp','/proc/net/tcp6'])for(const line of readFileSync(path,'utf8').trim().split('\n').slice(1)){const fields=line.trim().split(/\s+/);if(fields[3]==='0A'&&parseInt(fields[1]!.split(':')[1]!,16)===port)return false;}return true;}catch{return false;}
-  }
-}
 export { PlanStore } from './filesystem.js';
 
 export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from './composition.js';
 
 export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,DeploymentWorker,WorkerComposition,PostgresContainerPlugin,CaddyContainerPlugin} from './installed.js';
+
+export {ServicePlanStore} from './service-plan.js';
+export {ServicePlanIdentity} from './service-plan.js';
+export {ServiceWorkerClient,ServiceWorkerOwnerClient} from './service-ipc.js';
+export {ServiceHostRuntime} from './service-host.js';
+export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
+export {ServiceCredentials} from './service-credentials.js';
+export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands} from './service-images.js';
+
+export {ServiceContainerEngine,ScopedServiceEngine,ServiceExecution,ServiceRuntimeInspection} from "./service-engine.js";
+
+export {ServiceNativeScope,type PreparedServiceScope} from "./service-native.js";
+
+export {ServiceApplicationRuntime,ServiceApplicationPlugin,ServiceApplicationToken,type ServiceApplicationHost} from "./service-application.js";
+export {ServiceWorkerBuild} from './service-worker-build.js';
