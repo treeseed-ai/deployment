@@ -19,6 +19,7 @@ class InstalledHostTests {
                 expect(report.sameApplication).toBe(true);
                 expect(report.noRestart).toBe(true);
                 expect(report.services).toBe(5);
+                expect(report.observationVerified).toBe(true);
             } else expect(report.scriptRefused).toBe(true);
         } finally { fixture.close(); }
     } }

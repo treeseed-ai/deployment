@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanonicalJson, ServiceSchemas, PlanningBlockedError } from '@treeseed-cordis/sdk';
-import { ComposeDeploymentHost, ServiceWorkerBuild, ServicePlanStore } from '@treeseed-cordis/deployment';
+import { ComposeDeploymentHost, ServiceWorkerBuild, ServicePlanStore, ServiceWorkerClient } from '@treeseed-cordis/deployment';
 import { createHash } from 'node:crypto';
 class InstalledHostProgram {
     private static worker: { pid: number; dev: number; ino: number } | null = null;
@@ -55,8 +55,17 @@ class InstalledHostProgram {
             while (!['completed', 'failed', 'cancelled'].includes(application.phase) && Date.now() < deadline) { await new Promise(this.delay); application = ServiceSchemas.applicationRecord.parse(await host.application(configuration.installationDirectory, accepted.id)); }
             const status = ServiceSchemas.status.parse(await host.status(configuration.installationDirectory)), store = new ServicePlanStore(configuration.installationDirectory), snapshot = store.current();
             if (application.phase !== 'completed' || !status.ready || status.services.length !== 5 || !snapshot) throw new Error('Default host application not ready');
+            const observer = new ServiceWorkerClient({ installationDirectory: configuration.installationDirectory }), beforeObservations = CanonicalJson.stringify({ applications: store.records(), resources: store.resources(), snapshot: store.current() });
+            for (const service of plan.composition.services) {
+                const context = await observer.observationContext(service.serviceId), change = plan.changes.find(InstalledHostProgram.named.bind(null, service.serviceId));
+                if (context.identity.serviceId !== service.serviceId || context.identity.compositionGeneration !== plan.compositionGeneration || context.identity.serviceGeneration !== change?.serviceGeneration || context.identity.runtime !== null || context.dependencies.length || Object.hasOwn(context, 'ready')) throw new Error('Invalid accepted observation context');
+            }
+            let missingRefused = false;
+            try { await observer.observationContext('missing'); } catch (error) { missingRefused = error instanceof PlanningBlockedError; }
+            if (!missingRefused || beforeObservations !== CanonicalJson.stringify({ applications: store.records(), resources: store.resources(), snapshot: store.current() })) throw new Error('Observation changed records or accepted an unknown service');
             rmSync(configuration.release.directory, { recursive: true });
             if ((await host.apply(plan.id, plan.digest, options)).id !== accepted.id || !ServiceSchemas.status.parse(await host.status(configuration.installationDirectory)).ready) throw new Error('Default host reopened source');
+            if ((await observer.observationContext(plan.composition.services[0]!.serviceId)).identity.compositionGeneration !== plan.compositionGeneration) throw new Error('Observation reopened source');
             this.signal('SIGTERM');
             const closeDeadline = Date.now() + 15000;
             while (existsSync(configuration.installationDirectory + '/.cordis/writer.lock') && Date.now() < closeDeadline) await new Promise(this.delay);
@@ -64,7 +73,7 @@ class InstalledHostProgram {
             let restart = false;
             try { await host.apply(plan.id, plan.digest, options); restart = true; } catch (error) { if (!(error instanceof PlanningBlockedError)) throw error; }
             if (restart || existsSync(configuration.installationDirectory + '/.cordis/writer.lock')) throw new Error('Stopped worker was implicitly restarted');
-            process.stdout.write(JSON.stringify({ fixtureOnly: true, ready: true, services: status.services.length, sameApplication: true, noRestart: true }) + '\n');
+            process.stdout.write(JSON.stringify({ fixtureOnly: true, ready: true, services: status.services.length, sameApplication: true, noRestart: true, observationVerified: true }) + '\n');
         } finally {
             if (!this.worker) {
                 try {
@@ -77,6 +86,7 @@ class InstalledHostProgram {
     }
     private static signal(signal: NodeJS.Signals): void { if (!this.worker) return; try { const stat = statSync('/proc/' + this.worker.pid + '/exe'); if (stat.dev === this.worker.dev && stat.ino === this.worker.ino) process.kill(this.worker.pid, signal); } catch { } }
     private static executable(blocker: { code: string }): boolean { return blocker.code === 'WORKER_EXECUTABLE'; }
+    private static named(id: string, value: { serviceId: string }): boolean { return value.serviceId === id; }
     private static delay(done: (value: void) => void): void { setTimeout(done, 100); }
 }
 await InstalledHostProgram.run(process.argv[2]!, process.argv[3]!);
