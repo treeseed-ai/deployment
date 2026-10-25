@@ -685,3 +685,33 @@ Built Node consumer qualification uses real HTTP and fresh private-CA TLS listen
 certificate for `localhost` reached through an IP endpoint. Verify wrong hostname/CA, redirects,
 oversize/truncation, stalled response cancellation, safe output and socket drain. These are explicit
 protocol fixtures, not assembled Caddy/API/Keycloak evidence.
+
+### Native Caddy edge service
+
+`CaddyServicePlugin` is the Deployment-owned native `container.service` class for the default HTTPS
+edge. It provides typed `edge.https@1.0.0`, depends on explicitly selected `platform.api@1.0.0` and
+`identity.oidc@1.0.0` bindings and exports `public-ca` from its owned data volume. Dependency port
+names express contracts; no container/service ID catalog or four-role limit enters the engine.
+The provider owns its declarative Caddyfile, private configuration slot, data/config volumes and
+restart-required policy. API owns the protocol-specific direct/routed health and asset probe.
+
+The prepared linux/amd64 Caddy 2.10.2 manifest is
+`d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83`; normalized index SHA-256
+`521bf209930956584e111b7e9cf9b8608f0015a52c3a70fa814cc01aaadaa5e8`.
+Use internal TLS without automatic trust installation, admin API, redirects or implicit route
+updates. See [Caddy TLS](https://caddyserver.com/docs/caddyfile/directives/tls) and
+[global options](https://caddyserver.com/docs/caddyfile/options#skip-install-trust). Forward the
+existing bounded public OIDC paths to the selected Identity dependency and other paths to API;
+exclude other Identity paths and pin forwarded origin headers. Resolve upstream addresses from
+accepted typed endpoints. No arbitrary Caddyfile, command, host mount or external route is accepted.
+
+Owner image metadata is a provider catalog. A bundle supplies exact artifacts only for selected
+container definitions: an unselected Postgres/Caddy/runtime-image declaration must not require an
+unused inventory entry. Continue rejecting unused inventory images, selected image mismatches and
+ambiguous selected owners. Registering alternatives never implicitly selects their images/services.
+
+A built default-root fixture must load the actual archived Caddy class, use two explicitly labelled
+HTTP protocol fixtures at renamed dependency IDs, and verify real HTTPS proxy responses with the
+exported CA. Check the private public-CA receipt, source-free status and unchanged CA/resources on
+read-back; no host trust changes. This qualifies Caddy transport/configuration, not genuine API or
+OIDC semantics. Real API/Keycloak direct+routed/browser assembly remains separately required.
