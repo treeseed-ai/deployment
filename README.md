@@ -588,7 +588,9 @@ credential, host command or installation-writer capability.
 `LocalDockerCommands.archive(engine, containerId, path, timeout)` supplies the fixed no-extraction
 container-copy transport. These privileged host helpers do not receive plugin authority from metadata.
 
-The following custodian slice supplies `ServiceAuthorityExports` behind `ProbeContext.authority(reference)`.
+`ServiceAuthorityExports(plan, writer?)` supplies custody behind `ProbeContext.authority(reference)`.
+Its `read(serviceId, reference, { deadline, signal })` returns public certificate bytes; the optional
+existing installation writer enables first publication only during accepted activation/readiness.
 Only exact references in the service's readiness grant list are available, with cross-service
 dependency/grant checks. `authorityIds` lists authority references; ordinary slot references remain
 in `credentialReferences`. A probe receives bytes and bounded callbacks, never Docker commands,
@@ -608,3 +610,18 @@ missing exports or repairing interrupted/foreign state. Expired/cancelled callba
 Unknown files, changed definitions/content, scope/ownership/symlink failures and incomplete publication
 require explicit repair. Named-volume and credential ownership remain with the existing service.
 Tests use public fixture CAs and disposable service volumes; no original installation is accessed.
+
+`AuthorityArchive.certificate(bytes)` applies the same strict PEM/DER/CA/validity policy to saved
+certificate bytes. Authority receipts use `artifacts/authorities/<resourceId>.pem`, private 0700
+parents and 0600 immutable records. Their definition binds service, authority declaration and
+actual owned volume identity; content digest pins the public CA. Cached reads require matching
+receipts and verify the complete authority directory without Docker copy or bundle access. Unknown
+or missing files/receipts, symlinks and changed permissions fail instead of being adopted.
+
+First publication verifies the actual source container and named-volume receipts before and after
+the bounded copy. Deadline/cancellation and current accepted phase are checked after asynchronous
+work and immediately before private publication. Concurrent requests re-read existing custody
+before publication; interrupted certificate-without-receipt state requires repair. Probes cannot
+request undeclared references, use authority references as ordinary credentials or obtain host
+paths/writers. Disposable fixture CAs qualify this boundary; default Caddy and assembled Keycloak
+remain subsequent acceptance.
