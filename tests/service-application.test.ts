@@ -18,6 +18,16 @@ interface ApplicationReport {
     downReady?: boolean;
 }
 class ApplicationTests {
+    async duringApply(): Promise<void> { const fixture = new ServiceRuntimeFixture(); try {
+        await fixture.running();
+        const report = this.program(fixture, 'close-during-apply');
+        expect(report.application.phase).toBe('completed');
+        expect(report.application.result).toBe('ready');
+        expect(report.resourceCount).toBe(26);
+    }
+    finally {
+        fixture.close();
+    } }
     private program(fixture: ServiceReleaseFixture, expected = 'completed'): ApplicationReport {
         const file = join(fixture.root, 'application-input.json');
         writeFileSync(file, JSON.stringify(fixture.configuration));
@@ -70,16 +80,19 @@ class ApplicationTests {
             fixture.close();
         }
     }
-    async drain(): Promise<void> { const fixture = new ServiceRuntimeFixture(); try {
-        await fixture.services();
-        const report = this.program(fixture, 'drain-only');
-        expect(report.application.phase).toBe('none');
-        expect(report.fixtureOnly).toBe(true);
-        expect(report.resourceCount).toBe(0);
+    async drain(): Promise<void> {
+        const fixture = new ServiceRuntimeFixture();
+        try {
+            await fixture.services();
+            const report = this.program(fixture, 'drain-only');
+            expect(report.application.phase).toBe('none');
+            expect(report.fixtureOnly).toBe(true);
+            expect(report.resourceCount).toBe(0);
+        }
+        finally {
+            fixture.close();
+        }
     }
-    finally {
-        fixture.close();
-    } }
     async stopped(): Promise<void> {
         const fixture = new ServiceReleaseFixture();
         try {
@@ -97,6 +110,7 @@ class ApplicationTests {
     }
 }
 const suite = new ApplicationTests();
+test('smoke: host disposal drains its accepted application before releasing the single native writer', suite.duringApply.bind(suite), 240000);
 test('smoke: built default application root durably commits five native protocol-qualified services and reports subsequent failure', suite.running.bind(suite), 240000);
 test('smoke: built default application root preserves a stopped non-serving composition', suite.stopped.bind(suite), 120000);
 test('smoke: unready partial application retains evidence and refuses implicit repair', suite.failed.bind(suite), 240000);

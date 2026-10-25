@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:net';
 import { readFileSync, rmSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { CanonicalJson, ServiceSchemas } from '@treeseed-cordis/sdk';
+import { CanonicalJson, ServiceSchemas, PlanningBlockedError } from '@treeseed-cordis/sdk';
 import { ComposeDeploymentHost, ServiceApplicationRuntime, ServicePlanStore } from '@treeseed-cordis/deployment';
 class ApplicationProgram {
     private static listener: Server | null = null;
@@ -10,8 +10,9 @@ class ApplicationProgram {
         if (plan.formatVersion !== 3)
             throw new Error('Wrong format');
         const runtime = await ServiceApplicationRuntime.start(plan);
-        const providers=runtime.describe();
-        if(!providers.some(ApplicationProgram.authority)||!providers.some(ApplicationProgram.applicationHost))throw new Error('Missing selected native host providers');
+        const providers = runtime.describe();
+        if (!providers.some(ApplicationProgram.authority) || !providers.some(ApplicationProgram.applicationHost))
+            throw new Error('Missing selected native host providers');
         if (expected === 'drain-only') {
             const pending = runtime.status();
             let refused = false;
@@ -45,6 +46,26 @@ class ApplicationProgram {
             const store = new ServicePlanStore(configuration.installationDirectory), initial = store.records()[0]!;
             if (initial.id !== first.id || initial.idempotencyKey !== request.idempotencyKey)
                 throw new Error('Missing durable intent');
+            if (expected === 'close-during-apply') {
+                let pending = false;
+                try {
+                    await runtime.close(0);
+                }
+                catch (error) {
+                    pending = error instanceof PlanningBlockedError && error.blockers.some(ApplicationProgram.pendingDrain);
+                }
+                if (!pending)
+                    throw new Error('Accepted background job was not counted by native drain');
+                const deadline = Date.now() + 120000;
+                while (store.records().find(ApplicationProgram.record.bind(null, first.id))?.phase !== 'completed' && Date.now() < deadline)
+                    await new Promise(ApplicationProgram.delay);
+                await runtime.close(120000);
+                const completed = store.records().find(ApplicationProgram.record.bind(null, first.id)), snapshot = store.current();
+                if (completed?.phase !== 'completed' || completed.result !== 'ready' || !snapshot || existsSync(configuration.installationDirectory + '/.cordis/writer.lock'))
+                    throw new Error('Writer released before accepted application drained');
+                process.stdout.write(JSON.stringify({ fixtureOnly: true, ready: true, application: completed, resourceCount: snapshot.resources.length, status: { services: [] } }) + '\n');
+                return;
+            }
             if (expected !== 'port-conflict') {
                 let denied = false;
                 try {
@@ -133,8 +154,24 @@ class ApplicationProgram {
     private static listen(port: number, done: (value: void) => void): void { this.listener!.listen(port, '127.0.0.1', done); }
     private static closePort(done: (value: void) => void): void { this.listener!.close(this.portClosed.bind(this, done)); }
     private static portClosed(done: (value: void) => void): void { this.listener = null; done(); }
-    private static authority(value:{capability:string;id:string;ready:boolean;selected:boolean}):boolean{return value.capability==='deployment.installation'&&value.id==='deployment.installation-authority'&&value.ready&&value.selected;}
-    private static applicationHost(value:{capability:string;id:string;ready:boolean;selected:boolean}):boolean{return value.capability==='deployment.applications'&&value.ready&&value.selected;}
+    private static authority(value: {
+        capability: string;
+        id: string;
+        ready: boolean;
+        selected: boolean;
+    }): boolean { return value.capability === 'deployment.installation' && value.id === 'deployment.installation-authority' && value.ready && value.selected; }
+    private static record(id: string, value: {
+        id: string;
+    }): boolean { return id === value.id; }
+    private static pendingDrain(value: {
+        code: string;
+    }): boolean { return value.code === 'HOST_DRAIN_PENDING'; }
+    private static applicationHost(value: {
+        capability: string;
+        id: string;
+        ready: boolean;
+        selected: boolean;
+    }): boolean { return value.capability === 'deployment.applications' && value.ready && value.selected; }
     private static repair(value: {
         code: string;
     }): boolean { return value.code === 'APPLICATION_RECOVERY_REQUIRED'; }

@@ -8,6 +8,7 @@ import { ServiceCredentials } from './service-credentials.js';
 import { ServiceRuntimeInspection } from './service-engine.js';
 import { ServiceArtifactResolver } from './service-artifacts.js';
 import { InstallationWriter } from './installed.js';
+import { InstallationAuthority, InstallationAuthorityPlugin, InstallationAuthorityToken } from './service-authority.js';
 import { StrictJson, PlanningFailure as Check } from './filesystem.js';
 export interface ServiceApplicationHost {
     submit(request: Extract<ServiceWorkerRequest, {
@@ -38,7 +39,7 @@ class ServiceApplications implements ServiceApplicationHost {
     private job: Promise<void> | null = null;
     private closed = false;
     private faulted = false;
-    constructor(private readonly plan: ServicePlan) { this.store = new ServicePlanStore(plan.configuration.installationDirectory); Check.require(CanonicalJson.stringify(this.store.read(plan.id, plan.digest)) === CanonicalJson.stringify(plan), 'PLAN_BINDING'); Check.require(this.store.records().length === 0 && this.store.resources().length === 0 && this.store.current() === null, 'WORKER_REPAIR_REQUIRED'); this.writer = this.store.writer(); }
+    constructor(private readonly plan: ServicePlan, authority: InstallationAuthority, private readonly locator: CordisServiceLocator) { Check.require(CanonicalJson.stringify(authority.plan) === CanonicalJson.stringify(plan), 'PLAN_BINDING'); this.store = authority.store; this.writer = authority.writer; }
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>): Promise<{
@@ -152,7 +153,13 @@ class ServiceApplications implements ServiceApplicationHost {
             resources.push({ resourceId: receipt.resourceId, kind: receipt.kind, serviceId: receipt.serviceId, creatingGeneration: receipt.creatingGeneration, receiptDigest: CanonicalJson.digest(receipt) });
         return ServiceSchemas.snapshot.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, installationDirectory: this.store.path, compositionGeneration: this.plan.compositionGeneration, resources, acknowledgements });
     }
-    private async execute(initial: ServiceApplicationRecord): Promise<void> {
+    private async execute(initial: ServiceApplicationRecord): Promise<void> { const lease = await this.locator.acquire(InstallationAuthorityToken.instance); try {
+        await this.apply(initial);
+    }
+    finally {
+        await lease.release();
+    } }
+    private async apply(initial: ServiceApplicationRecord): Promise<void> {
         let record = initial;
         try {
             await this.validate();
@@ -233,24 +240,19 @@ class ServiceApplications implements ServiceApplicationHost {
         if (this.closed)
             return;
         this.closed = true;
-        try {
-            await this.job;
-            for (const scope of this.scopes.values())
-                await scope.close();
-            this.scopes.clear();
-        }
-        finally {
-            this.writer.close();
-        }
+        await this.job;
+        for (const scope of this.scopes.values())
+            await scope.close();
+        this.scopes.clear();
     }
 }
 export class ServiceApplicationPlugin {
     static readonly provide = [ServiceApplicationToken.host.id];
-    static readonly inject: string[] = [];
+    static readonly inject = ['cordis.composition', InstallationAuthorityToken.instance.id];
     static readonly Config = ServiceSchemas.plan;
     static readonly declaration = ProviderV4Schemas.declaration.parse({ id: 'deployment.application-host', pluginId: 'deployment', capability: ServiceApplicationToken.host.id, contractVersion: ProviderV4Schemas.version, target: 'deployment', provide: this.provide, inject: this.inject });
     private readonly host: ServiceApplications;
-    constructor(context: Context, plan: ServicePlan) { this.host = new ServiceApplications(ServiceSchemas.plan.parse(plan)); context.provide(ServiceApplicationToken.host.id, this.host); context.effect(this.effect.bind(this)); }
+    constructor(context: Context, plan: ServicePlan) { this.host = new ServiceApplications(ServiceSchemas.plan.parse(plan), InstallationAuthorityToken.instance.parse(Reflect.get(context, InstallationAuthorityToken.instance.id)), CordisServiceLocator.from(context)); context.provide(ServiceApplicationToken.host.id, this.host); context.effect(this.effect.bind(this)); }
     private effect(): () => Promise<void> { return this.host.close.bind(this.host); }
 }
 export class ServiceApplicationRuntime implements ServiceApplicationHost {
@@ -258,7 +260,7 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
     private closing = false;
     private constructor(private readonly handle: CompositionHandle, private readonly context: Context) { }
     static async start(input: ServicePlan): Promise<ServiceApplicationRuntime> {
-        const plan = ServiceSchemas.plan.parse(input), scopeId = 'installation:' + plan.configuration.installationId + ':host', handle = await CordisComposition.start({ registrations: [{ token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-application-host.1:' + plan.composition.worker.sha256 } }], selections: [{ scopeId, capability: ServiceApplicationToken.host.id, providerId: ServiceApplicationPlugin.declaration.id }] }, { scopeId, target: 'deployment', principalId: 'uid:' + process.getuid!(), resourceScope: plan.configuration.installationDirectory });
+        const plan = ServiceSchemas.plan.parse(input), scopeId = 'installation:' + plan.configuration.installationId + ':host', handle = await CordisComposition.start({ registrations: [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-installation-authority.1:' + plan.composition.worker.sha256 } }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-application-host.1:' + plan.composition.worker.sha256 } }], selections: [{ scopeId, capability: InstallationAuthorityToken.instance.id, providerId: InstallationAuthorityPlugin.declaration.id }, { scopeId, capability: ServiceApplicationToken.host.id, providerId: ServiceApplicationPlugin.declaration.id }] }, { scopeId, target: 'deployment', principalId: 'uid:' + process.getuid!(), resourceScope: plan.configuration.installationDirectory });
         const receiver: {
             context?: Context;
         } = {};
@@ -276,6 +278,14 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
             throw error;
         }
     }
+    describe(): readonly {
+        capability: string;
+        id: string;
+        selected: boolean;
+        ready: boolean;
+    }[] { Check.require(!this.closed && !this.closing, 'HOST_CLOSED'); const result = []; for (const token of [InstallationAuthorityToken.instance, ServiceApplicationToken.host])
+        for (const item of this.handle.describe(token))
+            result.push({ capability: token.id, id: item.id, selected: item.selected, ready: item.ready }); return result; }
     private acquire() { Check.require(!this.closed && !this.closing, 'HOST_CLOSED'); return CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host); }
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';

@@ -416,3 +416,9 @@ policy. Installed third-party container/probe classes receive their separate ser
 bounded engine/context only; this host-private capability is absent from those scopes. The public
 application submit/status/application interface remains unchanged. Default built-program tests
 must still prove durable application behavior and verified writer cleanup through this construction.
+
+Accepted background applications retain a native lease on installation authority until their
+actual promise settles. An immediate host close therefore reports pending even after submit's
+response lease has been released. The built program verifies that admitted work finishes, then
+native disposal releases the single writer. `ServiceApplicationRuntime.describe()` reports the
+actual selected host-provider identities/readiness for default-root qualification.
