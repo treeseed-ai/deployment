@@ -1,7 +1,8 @@
 import { Socket } from 'node:net';
 import { lstatSync, fstatSync, type Stats } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
-import { CanonicalJson, PlatformSchemas, PlanningBlockedError, ServiceSchemas, ServiceWorkerSchemas, type ServiceWorkerRequest, type ServiceWorkerResponse, type ServiceStatus, type ServiceObservationContext, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
+import { CanonicalJson, PlatformSchemas, PlanningBlockedError, ServiceSchemas, ServiceWorkerSchemas, type ServiceWorkerRequest, type ServiceWorkerResponse, type ServicePlan, type ServiceStatus, type ServiceObservationContext, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
+import { ServicePlanStore } from './service-plan.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 class ObserverExchange {
     private readonly socket = new Socket();
@@ -90,6 +91,7 @@ class PrivateWorkerRequest {
         directory.close();
     } }
 }
+export class ServiceWorkerLimits {static readonly planningTimeoutMs=180000;}
 export class ServiceWorkerOwnerClient {
     private readonly socket: string;
     private readonly timeoutMs: number;
@@ -100,6 +102,7 @@ export class ServiceWorkerOwnerClient {
     private request(request: ServiceWorkerRequest): Promise<Extract<ServiceWorkerResponse, {
         success: true;
     }>> { return PrivateWorkerRequest.run(this.socket, ServiceWorkerSchemas.request.parse(request), this.timeoutMs); }
+    async plan(configuration:ServicePlan['configuration']):Promise<ServicePlan>{configuration=ServiceSchemas.configuration.parse(configuration);const result=(await PrivateWorkerRequest.run(this.socket,{protocol:3,operation:'plan',configuration},ServiceWorkerLimits.planningTimeoutMs)).result,plan=ServiceSchemas.plan.parse(result);Check.require(plan.configuration.installationId===configuration.installationId&&plan.configuration.installationDirectory===resolve(configuration.installationDirectory)&&plan.expectedEngine.context===configuration.engineContext,'WORKER_BINDING');const stored=new ServicePlanStore(configuration.installationDirectory).read(plan.id,plan.digest);Check.require(CanonicalJson.stringify(stored)===CanonicalJson.stringify(plan),'WORKER_BINDING');return stored;}
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>): Promise<{

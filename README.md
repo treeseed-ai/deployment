@@ -818,3 +818,12 @@ Only new/changed service effects are reported; existing credentials, volumes, co
 authority remain unchanged by planning. Saving/read-back of a prepared transition is not
 activation. The next apply slice must separately enforce required actions, stale generations,
 retained identities and fresh target acknowledgements before claiming the new generation active.
+
+The private planning exchange has a bounded 180-second response window after a validated
+owner request. Other frames and observer reads retain their existing ten-second bounds.
+A lost planning reply never reports activation; repeat requests freshly validate the same
+inputs and may read back the same immutable saved plan.
+
+Live transition planning preserves the accepted desired runtime state and worker executable.
+A runtime-state change or host-binary replacement is outside the qualified additive boundary
+and blocks without a new saved plan. Those transitions require their own explicit qualification.

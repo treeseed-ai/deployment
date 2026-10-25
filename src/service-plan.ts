@@ -10,6 +10,7 @@ import { ServiceSchemas, PlatformSchemas, CanonicalJson, type ServicePlan, type 
 import type { DiagnosticCommands, DiagnosticSystem } from './diagnose.js';
 import { TcpTableProbe } from './host-system.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
+import { ServiceRuntimeInspection } from './service-engine.js';
 import { ServiceArtifactResolver } from './service-artifacts.js';
 export class ServicePlanIdentity {
     static service(service: ServiceInstance, image: unknown, configuration: ServicePlan['configuration'], engine: ServicePlan['expectedEngine']): string { return CanonicalJson.digest({ installationId: configuration.installationId, installationDirectory: configuration.installationDirectory, origin: configuration.origin, engine, service, image }); }
@@ -60,9 +61,31 @@ export class ServicePlanIdentity {
         slot: string;
     }): number { return ServicePlanIdentity.compare(a.serviceId + ':' + a.slot, b.serviceId + ':' + b.slot); }
 }
+/** Data-only classification; artifact validity and actual resources remain independently verified. */
+export class ServiceTransitions {
+    static plan(previous: ServicePlan, desired: ServicePlan): ServicePlan['changes'] {
+        Check.require(previous.configuration.installationId===desired.configuration.installationId&&previous.configuration.installationDirectory===desired.configuration.installationDirectory&&previous.configuration.origin===desired.configuration.origin&&CanonicalJson.stringify(previous.expectedEngine)===CanonicalJson.stringify(desired.expectedEngine),'TRANSITION_SCOPE');
+        Check.require(previous.composition.profile.id===desired.composition.profile.id&&previous.composition.profile.version===desired.composition.profile.version&&previous.composition.profile.workerSocketServiceId===desired.composition.profile.workerSocketServiceId,'PROFILE_MIGRATION_REQUIRED');
+        Check.require(previous.configuration.runtimeState===desired.configuration.runtimeState,'RUNTIME_STATE_TRANSITION_UNSUPPORTED');Check.require(this.worker(previous)===this.worker(desired),'HOST_RESTART_REQUIRED');
+        const result:ServicePlan['changes']=[],seen=new Set<string>();
+        for(const service of desired.composition.services){seen.add(service.serviceId);const prior=previous.composition.services.find(this.named.bind(null,service.serviceId)),generation=this.generation(desired,service),old=prior?this.generation(previous,prior):null;let kind:ServicePlan['changes'][number]['kind']='add',requiredActions:ServicePlan['changes'][number]['requiredActions']=[];
+            if(prior){if(old===generation)kind='retain';else{kind=this.physical(previous,prior)===this.physical(desired,service)?'reconfigure':'replace';requiredActions=prior.transitionPolicy.stateVersion!==service.transitionPolicy.stateVersion?['migration']:['restart'];}}
+            result.push({serviceId:service.serviceId,kind,serviceGeneration:generation,previousGeneration:old,requiredActions,affectedDependencies:kind==='retain'?[]:this.affected(desired,service.serviceId)});
+        }
+        for(const service of previous.composition.services)if(!seen.has(service.serviceId)){const generation=this.generation(previous,service);result.push({serviceId:service.serviceId,kind:'retire',serviceGeneration:generation,previousGeneration:generation,requiredActions:['removal-unsupported'],affectedDependencies:this.affected(previous,service.serviceId)});}
+        return result.sort(this.order);
+    }
+    private static worker(plan:ServicePlan):string{const {path,...identity}=plan.composition.worker;return CanonicalJson.stringify(identity);}
+    private static named(id:string,value:{serviceId:string}):boolean{return value.serviceId===id;}
+    private static order(a:{serviceId:string},b:{serviceId:string}):number{return a.serviceId<b.serviceId?-1:a.serviceId>b.serviceId?1:0;}
+    private static image(plan:ServicePlan,service:ServiceInstance):Extract<ServicePlan['artifacts'][number],{kind:'image'}>{const reference=plan.recipe.services[service.serviceId]?.image;for(const artifact of plan.artifacts)if(artifact.kind==='image'&&artifact.reference===reference)return artifact;return Check.block('MISSING_IMAGE');}
+    private static generation(plan:ServicePlan,service:ServiceInstance):string{return ServicePlanIdentity.service(service,this.image(plan,service),plan.configuration,plan.expectedEngine);}
+    private static physical(plan:ServicePlan,service:ServiceInstance):string{const {readiness,...physical}=service;return CanonicalJson.digest({service:physical,image:this.image(plan,service)});}
+    private static affected(plan:ServicePlan,id:string):string[]{const selected=new Set([id]);let progress=true;while(progress){progress=false;for(const consumer of plan.composition.services){if(selected.has(consumer.serviceId))continue;let affected=selected.has(consumer.readiness.endpoint.serviceId);for(const dependency of consumer.dependencies)for(const source of plan.composition.services)if(selected.has(source.serviceId))for(const binding of source.bindings)if(binding.bindingId===dependency.bindingId)affected=true;if(affected){selected.add(consumer.serviceId);progress=true;}}}selected.delete(id);return [...selected].sort();}
+}
 /** First format-3 plan-only slice; all activation remains behind the durable worker. */
 export class ServicePlanningHost {
-    constructor(private readonly commands: DiagnosticCommands, private readonly system: DiagnosticSystem) { }
+    constructor(private readonly commands: DiagnosticCommands, private readonly system: DiagnosticSystem, private readonly custody?: {previous:ServicePlan;writer:InstallationWriter}) { }
     static isRelease(configuration: {
         release: {
             directory: string;
@@ -98,11 +121,14 @@ export class ServicePlanningHost {
         const expectedEngine = PlatformSchemas.expectedEngine.parse({ context, endpoint, daemonId: info.ID, os: 'linux', architecture: 'amd64' });
         Check.require(StrictJson.object(StrictJson.parse(Buffer.from(this.execute(['--context', context, 'compose', 'version', '--format', 'json'])))).version, 'COMPOSE_UNAVAILABLE');
         const store = new ServicePlanStore(path);
-        store.inspect(configuration, expectedEngine);
+        const exists=store.inspect(configuration, expectedEngine);
+        if(exists)for(const record of store.records()){Check.require(!record.recovery,'APPLICATION_RECOVERY_REQUIRED');Check.require(['completed','failed','cancelled'].includes(record.phase),'APPLICATION_BUSY');}
         const resolved = await new ServiceArtifactResolver().resolve(configuration), composition = ServicePlanIdentity.graph(resolved.inventory.composition), origin = new URL(configuration.origin), port = Number(origin.port || (origin.protocol === 'https:' ? 443 : 80));
-        Check.require(await new TcpTableProbe().available(port), 'PORT_UNAVAILABLE');
+        const current=exists?store.current():null;
+        if(current){Check.require(this.custody&&this.custody.previous.compositionGeneration===current.compositionGeneration,'OWNER_HOST_REQUIRED');this.custody.writer.assert(path);await new ServiceRuntimeInspection(this.custody.previous).audit();}else Check.require(!this.custody,'STALE_GENERATION');
+        if(!current)Check.require(await new TcpTableProbe().available(port), 'PORT_UNAVAILABLE');
         const projectName = 'cordis-' + CanonicalJson.digest({ installationId: configuration.installationId, installationDirectory: path }).slice(0, 16);
-        this.empty(context, projectName);
+        if(!current)this.empty(context, projectName);
         resolved.pluginBindings.sort(ServicePlanningHost.byProvider);
         const recipe = resolved.recipe;
         for (const service of Object.values(recipe.services)) {
@@ -133,7 +159,14 @@ export class ServicePlanningHost {
         }
         for (const helper of resolved.inventory.helpers?.helpers ?? [])
             effects.push({ kind: 'stage-helper', target: helper.id + '@' + helper.version });
-        const payload = { ...(Object.keys(resolved.runtimeBindings).length ? {runtimeBindings: resolved.runtimeBindings} : {}), ...(resolved.inventory.helpers ? { helpers: resolved.inventory.helpers } : {}), formatVersion: 3 as const, configuration, composition, compositionGeneration, configurationDigest: CanonicalJson.digest(configuration), releaseDigest: resolved.releaseDigest, recipeDigest: resolved.recipeDigest, lockDigest: resolved.lockDigest, recipe, pluginBindings: resolved.pluginBindings, expectedEngine, expectedComposition: null, expectedResourceSet: null, retainedResources: [], changes, projectName, artifacts: resolved.artifacts, effects, blockers: [] }, digest = CanonicalJson.digest(payload), plan = ServiceSchemas.plan.parse({ ...payload, id: 'plan-' + digest, digest });
+        const payload = { ...(Object.keys(resolved.runtimeBindings).length ? {runtimeBindings: resolved.runtimeBindings} : {}), ...(resolved.inventory.helpers ? { helpers: resolved.inventory.helpers } : {}), formatVersion: 3 as const, configuration, composition, compositionGeneration, configurationDigest: CanonicalJson.digest(configuration), releaseDigest: resolved.releaseDigest, recipeDigest: resolved.recipeDigest, lockDigest: resolved.lockDigest, recipe, pluginBindings: resolved.pluginBindings, expectedEngine, expectedComposition: current?.compositionGeneration??null, expectedResourceSet: current?CanonicalJson.digest(current.resources):null, retainedResources: current?.resources??[], changes, projectName, artifacts: resolved.artifacts, effects, blockers: [] }, digest = CanonicalJson.digest(payload), plan = ServiceSchemas.plan.parse({ ...payload, id: 'plan-' + digest, digest });
+        if(current&&this.custody){
+            const transitions=ServiceTransitions.plan(this.custody.previous,plan),changed=new Set<string>(),physical=new Set<string>(),retired=new Set<string>();for(const change of transitions){if(change.kind!=='retain')changed.add(change.serviceId);if(change.kind==='add'||change.kind==='replace')physical.add(change.serviceId);if(change.kind==='replace'||change.kind==='retire')retired.add(change.serviceId);}
+            const wantedVolumes=new Set<string>();for(const service of plan.composition.services)if(physical.has(service.serviceId))for(const slot of service.resources.volumes)wantedVolumes.add(plan.projectName+'_r-'+CanonicalJson.digest({serviceId:service.serviceId,slot}).slice(0,48));const existingVolumes=new Set<string>();for(const receipt of store.resources())if(receipt.kind==='volume')existingVolumes.add(receipt.name);
+            const retainedResources=[];for(const resource of current.resources)if(resource.serviceId===null||!retired.has(resource.serviceId))retainedResources.push(resource);
+            const nextEffects:ServicePlan['effects']=[];for(const effect of effects){if(effect.kind==='create-network')continue;if(effect.kind==='create-volume'&&(!wantedVolumes.has(effect.target)||existingVolumes.has(effect.target)))continue;if(effect.kind==='prepare-credential'&&!physical.has(effect.target.slice('secret://'.length).split('/')[0]!))continue;if(effect.kind==='start-service'&&!physical.has(effect.target))continue;if(effect.kind==='configure-service'&&!changed.has(effect.target))continue;nextEffects.push(effect);}
+            const nextPayload={...payload,changes:transitions,retainedResources,effects:nextEffects},nextDigest=CanonicalJson.digest(nextPayload);return store.publish(ServiceSchemas.plan.parse({...nextPayload,id:'plan-'+nextDigest,digest:nextDigest}),this.custody.writer);
+        }
         return store.publish(plan);
     }
     private empty(context: string, project: string): void {

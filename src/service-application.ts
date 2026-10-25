@@ -1,7 +1,8 @@
 import { ServiceObservations } from './service-observation.js';
 import { CanonicalJson, CapabilityToken, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type ServiceApplicationRecord, type ServiceWorkerRequest, type ServiceStatus, type ServiceObservationContext, type ServiceSnapshot, type ServiceResourceReceipt, type ServiceReadiness } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle, type ProviderRegistration } from '@treeseed-cordis/sdk/runtime';
-import { ServicePlanStore, ServicePlanIdentity } from './service-plan.js';
+import { DockerCommands } from './diagnose.js';
+import { ServicePlanStore, ServicePlanIdentity, ServicePlanningHost } from './service-plan.js';
 import { ServiceNativeScope, type PreparedServiceScope } from './service-native.js';
 import { ServiceImages, LocalDockerCommands } from './service-images.js';
 import { HostSystem, TcpTableProbe } from './host-system.js';
@@ -12,6 +13,7 @@ import { InstallationWriter } from './installed.js';
 import { InstallationAuthority, InstallationAuthorityPlugin, InstallationAuthorityToken } from './service-authority.js';
 import { StrictJson, PlanningFailure as Check } from './filesystem.js';
 export interface ServiceApplicationHost {
+    plan(configuration:ServicePlan['configuration']):Promise<ServicePlan>;
     submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>): Promise<{
@@ -25,7 +27,7 @@ export interface ServiceApplicationHost {
 class ApplicationAdapter {
     parse(value: unknown): ServiceApplicationHost {
         Check.require(value && typeof value === 'object', 'INVALID_APPLICATION_HOST');
-        for (const method of ['submit', 'status', 'application', 'observationContext'])
+        for (const method of ['submit', 'status', 'application', 'observationContext','plan'])
             Check.require(typeof Reflect.get(value, method) === 'function', 'INVALID_APPLICATION_HOST');
         return value as ServiceApplicationHost;
     }
@@ -53,7 +55,8 @@ class ServiceApplications implements ServiceApplicationHost {
     private job: Promise<void> | null = null;
     private closed = false;
     private faulted = false;
-    constructor(private readonly plan: ServicePlan, authority: InstallationAuthority, private readonly locator: CordisServiceLocator) { Check.require(CanonicalJson.stringify(authority.plan) === CanonicalJson.stringify(plan), 'PLAN_BINDING'); this.store = authority.store; this.writer = authority.writer; }
+    private planning = false;
+    constructor(private readonly acceptedPlan: ServicePlan, authority: InstallationAuthority, private readonly locator: CordisServiceLocator) { Check.require(CanonicalJson.stringify(authority.plan) === CanonicalJson.stringify(acceptedPlan), 'PLAN_BINDING'); this.store = authority.store; this.writer = authority.writer; }
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>): Promise<{
@@ -61,14 +64,20 @@ class ServiceApplications implements ServiceApplicationHost {
         accepted: true;
     }> {
         Check.require(!this.closed && !this.faulted, 'HOST_RECOVERY_REQUIRED');
+        Check.require(!this.planning,'APPLICATION_BUSY');
         this.writer.assert(this.store.path);
-        Check.require(request.planId === this.plan.id && request.digest === this.plan.digest, 'PLAN_BINDING');
+        Check.require(request.planId === this.acceptedPlan.id && request.digest === this.acceptedPlan.digest, 'PLAN_BINDING');
         const accepted = this.store.accept(request, this.writer);
         if (accepted.fresh) {
             Check.require(this.job === null, 'APPLICATION_BUSY');
             this.job = this.execute(accepted.record).catch(this.backgroundFailed.bind(this)).finally(this.finished.bind(this));
         }
         return { id: accepted.record.id, accepted: true };
+    }
+    async plan(input:ServicePlan['configuration']):Promise<ServicePlan>{
+        Check.require(!this.closed&&!this.faulted,'HOST_RECOVERY_REQUIRED');Check.require(!this.planning&&this.job===null,'APPLICATION_BUSY');this.writer.assert(this.store.path);input=ServiceSchemas.configuration.parse(input);Check.require(input.installationId===this.acceptedPlan.configuration.installationId&&input.installationDirectory===this.store.path&&input.engineContext===this.acceptedPlan.expectedEngine.context&&new URL(input.origin).origin===this.acceptedPlan.configuration.origin,'TRANSITION_SCOPE');
+        Check.require(input.runtimeState===this.acceptedPlan.configuration.runtimeState,'RUNTIME_STATE_TRANSITION_UNSUPPORTED');
+        this.planning=true;try{const current=this.store.current();Check.require(current&&current.compositionGeneration===this.acceptedPlan.compositionGeneration,'ACTIVE_COMPOSITION_REQUIRED');Check.require((await this.status()).ready,'SERVICE_NOT_READY');return await new ServicePlanningHost(new DockerCommands(),new HostSystem(),{previous:this.acceptedPlan,writer:this.writer}).plan(input);}finally{this.planning=false;}
     }
     private finished(): void { this.job = null; }
     private backgroundFailed(_error: unknown): void { this.faulted = true; }
@@ -80,18 +89,18 @@ class ServiceApplications implements ServiceApplicationHost {
         return Check.block('APPLICATION_NOT_FOUND');
     }
     private event(previous: ServiceApplicationRecord, phase: ServiceApplicationRecord['phase']): ServiceApplicationRecord { const record = { ...previous, sequence: previous.sequence + 1, phase, result: null }; this.store.append(record, this.writer); return record; }
-    private async validate(): Promise<void> { const system = new HostSystem(), host = system.host(); Check.require(host.os === 'linux' && host.architecture === 'x64' && host.distribution === 'ubuntu' && host.release === '26.04', 'UNSUPPORTED_HOST'); Check.require(system.storage(this.store.path).code === 'OK', 'STORAGE_PERMISSION'); const commands = new LocalDockerCommands(); await commands.verify(this.plan.expectedEngine); const info = StrictJson.object(StrictJson.parse(Buffer.from(await commands.run(this.plan.expectedEngine, ['info', '--format', '{{json .}}'])))); Check.require(Number(info.NCPU) >= 2 && Number(info.MemTotal) >= 2 * 1024 ** 3, 'ENGINE_CAPACITY'); const origin = new URL(this.plan.configuration.origin); Check.require(await new TcpTableProbe().available(Number(origin.port || (origin.protocol === 'https:' ? 443 : 80))), 'PORT_UNAVAILABLE'); const resolved = await new ServiceArtifactResolver().resolve(this.plan.configuration); Check.require(resolved.releaseDigest === this.plan.releaseDigest && resolved.lockDigest === this.plan.lockDigest && resolved.recipeDigest === this.plan.recipeDigest && CanonicalJson.stringify(resolved.artifacts) === CanonicalJson.stringify(this.plan.artifacts) && CanonicalJson.stringify(ServicePlanIdentity.graph(resolved.inventory.composition)) === CanonicalJson.stringify(this.plan.composition), 'PLAN_BINDING'); Check.require(CanonicalJson.stringify(resolved.runtimeBindings) === CanonicalJson.stringify(this.plan.runtimeBindings ?? {}), 'RUNTIME_BINDING_CHANGED'); await new ServiceRuntimeInspection(this.plan).audit(); }
+    private async validate(): Promise<void> { const system = new HostSystem(), host = system.host(); Check.require(host.os === 'linux' && host.architecture === 'x64' && host.distribution === 'ubuntu' && host.release === '26.04', 'UNSUPPORTED_HOST'); Check.require(system.storage(this.store.path).code === 'OK', 'STORAGE_PERMISSION'); const commands = new LocalDockerCommands(); await commands.verify(this.acceptedPlan.expectedEngine); const info = StrictJson.object(StrictJson.parse(Buffer.from(await commands.run(this.acceptedPlan.expectedEngine, ['info', '--format', '{{json .}}'])))); Check.require(Number(info.NCPU) >= 2 && Number(info.MemTotal) >= 2 * 1024 ** 3, 'ENGINE_CAPACITY'); const origin = new URL(this.acceptedPlan.configuration.origin); Check.require(await new TcpTableProbe().available(Number(origin.port || (origin.protocol === 'https:' ? 443 : 80))), 'PORT_UNAVAILABLE'); const resolved = await new ServiceArtifactResolver().resolve(this.acceptedPlan.configuration); Check.require(resolved.releaseDigest === this.acceptedPlan.releaseDigest && resolved.lockDigest === this.acceptedPlan.lockDigest && resolved.recipeDigest === this.acceptedPlan.recipeDigest && CanonicalJson.stringify(resolved.artifacts) === CanonicalJson.stringify(this.acceptedPlan.artifacts) && CanonicalJson.stringify(ServicePlanIdentity.graph(resolved.inventory.composition)) === CanonicalJson.stringify(this.acceptedPlan.composition), 'PLAN_BINDING'); Check.require(CanonicalJson.stringify(resolved.runtimeBindings) === CanonicalJson.stringify(this.acceptedPlan.runtimeBindings ?? {}), 'RUNTIME_BINDING_CHANGED'); await new ServiceRuntimeInspection(this.acceptedPlan).audit(); }
     private order(): string[] {
         const result: string[] = [], waiting = new Set<string>();
-        for (const service of this.plan.composition.services)
+        for (const service of this.acceptedPlan.composition.services)
             waiting.add(service.serviceId);
         while (waiting.size) {
             let progress = false;
             for (const id of [...waiting]) {
-                const service = this.plan.composition.services.find(ServiceApplications.named.bind(null, id))!;
+                const service = this.acceptedPlan.composition.services.find(ServiceApplications.named.bind(null, id))!;
                 let ready = true;
                 for (const dependency of service.dependencies)
-                    for (const source of this.plan.composition.services)
+                    for (const source of this.acceptedPlan.composition.services)
                         for (const binding of source.bindings)
                             if (binding.bindingId === dependency.bindingId && !result.includes(source.serviceId))
                                 ready = false;
@@ -112,7 +121,7 @@ class ServiceApplications implements ServiceApplicationHost {
         serviceId: string;
     }): boolean { return id === value.serviceId; }
     private async observe(id: string): Promise<ServiceReadiness> {
-        const service = this.plan.composition.services.find(ServiceApplications.named.bind(null, id))!, scope = this.scopes.get(id);
+        const service = this.acceptedPlan.composition.services.find(ServiceApplications.named.bind(null, id))!, scope = this.scopes.get(id);
         Check.require(scope, 'MISSING_NATIVE_SCOPE');
         const deadline = Date.now() + service.readiness.deadlineMs;
         let result = await scope.ready();
@@ -127,7 +136,7 @@ class ServiceApplications implements ServiceApplicationHost {
     private resources(): ServiceResourceReceipt[] {
         const selected = new Map<string, ServiceResourceReceipt>();
         for (const resource of this.store.resources())
-            if (resource.references.includes(this.plan.compositionGeneration)) {
+            if (resource.references.includes(this.acceptedPlan.compositionGeneration)) {
                 const prior = selected.get(resource.resourceId);
                 if (!prior || prior.references.length < resource.references.length)
                     selected.set(resource.resourceId, resource);
@@ -142,18 +151,18 @@ class ServiceApplications implements ServiceApplicationHost {
         resourceId: string;
     }): number { return a.resourceId < b.resourceId ? -1 : a.resourceId > b.resourceId ? 1 : 0; }
     private async snapshot(): Promise<ServiceSnapshot> {
-        const evidence = new ServiceAcknowledgements(this.plan.compositionGeneration);
-        for (const service of this.plan.composition.services) {
+        const evidence = new ServiceAcknowledgements(this.acceptedPlan.compositionGeneration);
+        for (const service of this.acceptedPlan.composition.services) {
             const result = await this.observe(service.serviceId);
             Check.require(result.serviceId === service.serviceId && result.acknowledgements?.length, 'MISSING_TARGET_ACKNOWLEDGEMENT');
             for (const ack of result.acknowledgements) evidence.add(ack);
         }
         const acknowledgements = evidence.values();
-        await new ServiceRuntimeInspection(this.plan).audit();
+        await new ServiceRuntimeInspection(this.acceptedPlan).audit();
         const resources: ServiceSnapshot['resources'] = [];
         for (const receipt of this.resources())
             resources.push({ resourceId: receipt.resourceId, kind: receipt.kind, serviceId: receipt.serviceId, creatingGeneration: receipt.creatingGeneration, receiptDigest: CanonicalJson.digest(receipt) });
-        return ServiceSchemas.snapshot.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, installationDirectory: this.store.path, compositionGeneration: this.plan.compositionGeneration, resources, acknowledgements });
+        return ServiceSchemas.snapshot.parse({ formatVersion: 3, installationId: this.acceptedPlan.configuration.installationId, installationDirectory: this.store.path, compositionGeneration: this.acceptedPlan.compositionGeneration, resources, acknowledgements });
     }
     private async execute(initial: ServiceApplicationRecord): Promise<void> {
         const lease = await this.locator.acquire(InstallationAuthorityToken.instance);
@@ -170,19 +179,19 @@ class ServiceApplications implements ServiceApplicationHost {
             await this.validate();
             record = this.event(record, 'stage');
             const prepared = new Map<string, PreparedServiceScope>();
-            for (const service of this.plan.composition.services)
-                prepared.set(service.serviceId, await ServiceNativeScope.prepare(this.plan, service.serviceId, this.writer));
-            await new ServiceImages(this.plan).stage(this.writer);
+            for (const service of this.acceptedPlan.composition.services)
+                prepared.set(service.serviceId, await ServiceNativeScope.prepare(this.acceptedPlan, service.serviceId, this.writer));
+            await new ServiceImages(this.acceptedPlan).stage(this.writer);
             record = this.event(record, 'prepare');
-            await new ServiceCredentials(this.plan).prepare(this.writer);
-            if (this.plan.configuration.runtimeState === 'stopped') {
+            await new ServiceCredentials(this.acceptedPlan).prepare(this.writer);
+            if (this.acceptedPlan.configuration.runtimeState === 'stopped') {
                 record = this.event(record, 'commit');
                 this.store.append({ ...record, sequence: record.sequence + 1, phase: 'completed', result: 'stopped' }, this.writer);
                 return;
             }
             record = this.event(record, 'activate');
             for (const id of this.order()) {
-                const scope = await ServiceNativeScope.open(this.plan, id, prepared.get(id)!, this.writer);
+                const scope = await ServiceNativeScope.open(this.acceptedPlan, id, prepared.get(id)!, this.writer);
                 this.scopes.set(id, scope);
                 await this.observe(id);
             }
@@ -190,27 +199,27 @@ class ServiceApplications implements ServiceApplicationHost {
             const snapshot = await this.snapshot();
             this.store.saveSnapshot(snapshot, this.writer);
             record = this.event(record, 'commit');
-            this.store.append({ ...record, sequence: record.sequence + 1, phase: 'completed', result: 'ready', activeComposition: this.plan.compositionGeneration, resourceSetDigest: CanonicalJson.digest(snapshot.resources), acknowledgements: snapshot.acknowledgements }, this.writer);
+            this.store.append({ ...record, sequence: record.sequence + 1, phase: 'completed', result: 'ready', activeComposition: this.acceptedPlan.compositionGeneration, resourceSetDigest: CanonicalJson.digest(snapshot.resources), acknowledgements: snapshot.acknowledgements }, this.writer);
         }
         catch {
             const recovery = record.phase === 'validate' ? null : 'repair-required';
             this.store.append({ ...record, sequence: record.sequence + 1, phase: 'failed', result: 'failed', recovery }, this.writer);
         }
     }
-    async observationContext(serviceId: string): Promise<ServiceObservationContext> { this.writer.assert(this.store.path); const last = this.store.records().at(-1); Check.require(last && last.planId === this.plan.id && last.digest === this.plan.digest && ['stage', 'prepare', 'activate', 'readiness', 'commit', 'completed'].includes(last.phase), 'SERVICE_NOT_ACCEPTED'); return new ServiceObservations(this.plan).context(serviceId); }
+    async observationContext(serviceId: string): Promise<ServiceObservationContext> { this.writer.assert(this.store.path); const last = this.store.records().at(-1); Check.require(last && last.planId === this.acceptedPlan.id && last.digest === this.acceptedPlan.digest && ['stage', 'prepare', 'activate', 'readiness', 'commit', 'completed'].includes(last.phase), 'SERVICE_NOT_ACCEPTED'); return new ServiceObservations(this.acceptedPlan).context(serviceId); }
     async status(): Promise<ServiceStatus> {
-        const records = this.store.records(), last = records.at(-1), current = this.store.current(), services: ServiceStatus['services'] = [], blockers: ServiceStatus['blockers'] = [], freshAcks = new ServiceAcknowledgements(this.plan.compositionGeneration);
+        const records = this.store.records(), last = records.at(-1), current = this.store.current(), services: ServiceStatus['services'] = [], blockers: ServiceStatus['blockers'] = [], freshAcks = new ServiceAcknowledgements(this.acceptedPlan.compositionGeneration);
         let ready = current !== null && !this.faulted;
         if (current) {
             try {
-                await new ServiceRuntimeInspection(this.plan).audit();
+                await new ServiceRuntimeInspection(this.acceptedPlan).audit();
             }
             catch {
                 ready = false;
                 blockers.push({ code: 'RESOURCE_IDENTITY_CHANGED', message: 'An installed resource requires verification.' });
             }
             const resources = this.resources();
-            for (const service of this.plan.composition.services) {
+            for (const service of this.acceptedPlan.composition.services) {
                 let qualified = false, observations: readonly string[] = ['service.unavailable'];
                 try {
                     const scope = this.scopes.get(service.serviceId);
@@ -227,7 +236,7 @@ class ServiceApplications implements ServiceApplicationHost {
                 for (const receipt of resources)
                     if (receipt.kind === 'container' && receipt.serviceId === service.serviceId)
                         container = receipt;
-                const change = this.plan.changes.find(ServiceApplications.named.bind(null, service.serviceId));
+                const change = this.acceptedPlan.changes.find(ServiceApplications.named.bind(null, service.serviceId));
                 Check.require(container && change, 'MISSING_RESOURCE');
                 services.push({ serviceId: service.serviceId, providerId: service.provider.providerId, serviceGeneration: change.serviceGeneration, resourceId: container.resourceId, ready: qualified, observations: [...observations] });
                 if (!qualified)
@@ -240,7 +249,7 @@ class ServiceApplications implements ServiceApplicationHost {
             blockers.push({ code: 'HOST_RECOVERY_REQUIRED', message: 'Host requires explicit repair.' });
         else if (current && !ready)
             blockers.push({ code: 'SERVICE_NOT_READY', message: 'A selected service is not ready.' });
-        return ServiceSchemas.status.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, engine: this.plan.expectedEngine.context, desiredComposition: last?.desiredComposition ?? null, activeComposition: current?.compositionGeneration ?? null, ready, plugins: [], blockers, applicationId: last?.id ?? null, services, resourceSetDigest: current ? CanonicalJson.digest(current.resources) : null, acknowledgements: ready ? freshAcks.values() : [] });
+        return ServiceSchemas.status.parse({ formatVersion: 3, installationId: this.acceptedPlan.configuration.installationId, engine: this.acceptedPlan.expectedEngine.context, desiredComposition: last?.desiredComposition ?? null, activeComposition: current?.compositionGeneration ?? null, ready, plugins: [], blockers, applicationId: last?.id ?? null, services, resourceSetDigest: current ? CanonicalJson.digest(current.resources) : null, acknowledgements: ready ? freshAcks.values() : [] });
     }
     async close(): Promise<void> {
         if (this.closed)
@@ -323,6 +332,7 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
             await lease.release();
         }
     }
+    async plan(configuration:ServicePlan['configuration']):Promise<ServicePlan>{const lease=await this.acquire();try{return await lease.value.plan(configuration);}finally{await lease.release();}}
     async observationContext(serviceId: string): Promise<ServiceObservationContext> { const lease = await this.acquire(); try { return await lease.value.observationContext(serviceId); } finally { await lease.release(); } }
     async status(): Promise<ServiceStatus> {
         const lease = await this.acquire();

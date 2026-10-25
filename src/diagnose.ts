@@ -1,3 +1,4 @@
+import {ServiceWorkerOwnerClient} from './service-ipc.js';
 import { ServiceInstalledHost } from './service-installed.js';
 import { HostSystem, TcpTableProbe } from './host-system.js';
 export { HostSystem, TcpTableProbe } from './host-system.js';
@@ -89,7 +90,7 @@ export class ComposeDeploymentHost implements DeploymentHost {
     return PlatformSchemas.diagnostic.parse({ready,host,engine,installation:{path,exists:storage.exists,freeBytes:storage.freeBytes},port,checks});
   }
   async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan> {
-    configuration=PlatformSchemas.desired.or(ServiceSchemas.configuration).parse(configuration);if(ServicePlanningHost.isRelease(configuration))return new ServicePlanningHost(this.commands,this.system).plan(configuration);configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
+    configuration=PlatformSchemas.desired.or(ServiceSchemas.configuration).parse(configuration);if(ServicePlanningHost.isRelease(configuration)){configuration=ServiceSchemas.configuration.parse(configuration);configuration.installationDirectory=resolve(configuration.installationDirectory);if(ServicePlanStore.isFormat(configuration.installationDirectory)&&new ServicePlanStore(configuration.installationDirectory).current()){const control=new ServicePlanStore(configuration.installationDirectory).directory('control');try{Check.require(control.entries().join(',')==='worker.sock','OWNER_HOST_REQUIRED');}finally{control.close();}return new ServiceWorkerOwnerClient({installationDirectory:configuration.installationDirectory}).plan(configuration);}return new ServicePlanningHost(this.commands,this.system).plan(configuration);}configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
     const options=PlatformSchemas.desired.parse(configuration);
     options.installationDirectory=resolve(options.installationDirectory);options.release.directory=resolve(options.release.directory);options.origin=new URL(options.origin).origin;
     options.plugins.sort(ComposeDeploymentHost.pluginOrder);options.credentialReferences.sort();
@@ -140,7 +141,7 @@ export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from '.
 export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,DeploymentWorker,WorkerComposition,PostgresContainerPlugin,CaddyContainerPlugin} from './installed.js';
 
 export {ServicePlanStore} from './service-plan.js';
-export {ServicePlanIdentity} from './service-plan.js';
+export {ServicePlanIdentity,ServiceTransitions} from './service-plan.js';
 export {ServiceWorkerClient,ServiceWorkerOwnerClient} from './service-ipc.js';
 export {ServiceHostRuntime} from './service-host.js';
 export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Service } from 'cordis';
 import { CapabilityToken, CanonicalJson, ProviderV4Schemas, ServiceSchemas, ServiceWorkerSchemas, PlanningBlockedError, type ServicePlan, type ServiceWorkerRequest, type ServiceWorkerResponse } from '@treeseed-cordis/sdk';
 import { Context, CordisServiceLocator, type ProviderRegistration } from '@treeseed-cordis/sdk/runtime';
+import { ServiceWorkerLimits } from './service-ipc.js';
 import { ServiceApplicationToken, ServiceApplicationRuntime } from './service-application.js';
 import { InstallationAuthorityToken, type InstallationAuthority } from './service-authority.js';
 import { InstallationStore } from './installed.js';
@@ -32,12 +33,13 @@ class HostDispatch {
         this.verify();
         if (observer && !['status', 'application', 'observation.context'].includes(request.operation))
             return HostFailure.blocked('OBSERVER_OPERATION_REFUSED');
-        if (!['submit', 'status', 'application', 'observation.context'].includes(request.operation))
+        if (!['plan','submit', 'status', 'application', 'observation.context'].includes(request.operation))
             return HostFailure.blocked('OWNER_OPERATION_UNAVAILABLE');
         const lease = await CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host);
         try {
             let result;
-            if (request.operation === 'observation.context')
+            if(request.operation==='plan')result=await lease.value.plan(request.configuration);
+            else if (request.operation === 'observation.context')
                 result = await lease.value.observationContext(request.serviceId);
             else if (request.operation === 'status')
                 result = await lease.value.status();
@@ -89,6 +91,7 @@ class HostConnection {
             this.respond(HostFailure.blocked('INVALID_HOST_REQUEST'));
             return;
         }
+        if(!this.observer&&request.operation==='plan'){clearTimeout(this.timer);this.timer=setTimeout(this.expired.bind(this),ServiceWorkerLimits.planningTimeoutMs);}
         this.pending = this.execute(request);
     }
     private async execute(request: ServiceWorkerRequest): Promise<void> {
