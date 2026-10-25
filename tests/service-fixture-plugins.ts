@@ -1,9 +1,9 @@
-import type {Context} from 'cordis';
+import {Service,type Context} from 'cordis';
 import {PlatformSchemas,ProviderV4Schemas,ServiceTokens,type ServiceEngine,type ServiceExecutionContext,type ServiceIdentity,type ServiceReadiness,type ProbeContext} from '@treeseed-cordis/sdk';
 export class ContainerFixture {
     private readonly engine:ServiceEngine;private readonly execution:ServiceExecutionContext;
-    constructor(context:Context){this.engine=ServiceTokens.engine.parse(Reflect.get(context,ServiceTokens.engine.id));this.execution=ServiceTokens.context.parse(Reflect.get(context,ServiceTokens.context.id));context.on('ready',this.start.bind(this));context.provide(ServiceTokens.container().id,this);}
-    private async start():Promise<void>{await this.engine.start(this.execution.service.serviceId,this.execution.service.definition);}
+    constructor(private readonly context:Context){this.engine=ServiceTokens.engine.parse(Reflect.get(context,ServiceTokens.engine.id));this.execution=ServiceTokens.context.parse(Reflect.get(context,ServiceTokens.context.id));}
+    async [Service.init]():Promise<void>{await this.engine.start(this.execution.service.serviceId,this.execution.service.definition);this.context.provide(ServiceTokens.container().id,this);}
     identity():ServiceIdentity{return this.engine.identity(this.execution.service.serviceId);}
     ready():Promise<ServiceReadiness>{return this.engine.ready(this.execution.service.serviceId);}
 
