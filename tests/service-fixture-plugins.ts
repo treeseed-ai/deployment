@@ -89,6 +89,11 @@ export class AuthorityContainerFixture extends RuntimeContainerFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...RuntimeContainerFixture.declaration, id: 'fixture.authority-container' });
     static override readonly container = PluginManagementSchemas.container.parse({ ...RuntimeContainerFixture.container, resources: { ...RuntimeContainerFixture.container.resources, authorities: [{ id: 'public-ca', volume: 'data', path: 'root.crt' }] } });
 }
+/** Exact selectable replacement fixture: same owned state, observable new process configuration. */
+export class RestartAuthorityFixture extends AuthorityContainerFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({...AuthorityContainerFixture.declaration,id:'fixture.restart-authority'});
+    static override readonly container = PluginManagementSchemas.container.parse({...AuthorityContainerFixture.container,definition:{...AuthorityContainerFixture.container.definition,environment:{...AuthorityContainerFixture.container.definition.environment,FIXTURE_REVISION:'replacement'}}});
+}
 export class AuthorityConsumerFixture extends AuthorityContainerFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...AuthorityContainerFixture.declaration, id: 'fixture.authority-consumer' });
     static override readonly container = PluginManagementSchemas.container.parse({ ...AuthorityContainerFixture.container, dependencies: [{ port: 'primary', contractId: 'fixture.echo', contractVersion: '1.0.0' }], resources: { ...AuthorityContainerFixture.container.resources, grants: [{ dependencyPort: 'primary', slot: 'public-ca' }] } });
