@@ -559,7 +559,7 @@ their exact package closure/entry and selected OCI labels. These accepted bindin
 saved plan bytes. Fresh application validation compares them with newly verified artifacts before
 effects; earlier plans without native runtime images keep the field absent.
 
-The following transport slice adds `ServiceWorkerClient.observationContext(serviceId)` using readonly private protocol operation
+`ServiceWorkerClient.observationContext(serviceId)` uses readonly private protocol operation
 `observation.context`. The native application host requires a durably accepted application and
 returns safe accepted identity/dependency metadata from its saved plan. It performs no readiness
 probe, mutation or source-bundle access. Dependency endpoints are declared TCP transport addresses;
@@ -571,3 +571,10 @@ owner probes to compare API-measured package/entry content and accepted service 
 the engine independently verifies actual resource/image identity. It avoids a health endpoint
 recursing through overall worker readiness. Every public SDK operation and historical transport
 remains unchanged; private observation data does not confer write authority.
+
+The host refuses observations before the application passes artifact validation, for unknown service
+IDs, or after uncertain/failed application state. Observation reads do not inspect readiness or
+mutate records. Runtime bindings come only from the accepted plan; external service images have
+`runtime:null`. Data and dependency arrays returned inside the host are deeply frozen. The public
+observer client validates response scope against the requested service ID. Native probe injection
+of the same context follows as a separate bounded slice.

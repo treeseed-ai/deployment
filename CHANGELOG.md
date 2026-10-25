@@ -8,6 +8,7 @@
 - Fence installation writers when their owner record changes (#918).
 
 ### Added
+- Read accepted service observations through the native readonly host protocol (#910).
 - Retain verified runtime identities in non-activating service plans (#910).
 - Launch exact format-3 workers through the default public Deployment host (#910).
 - Build and execute the standalone format-3 native host worker (#910).
