@@ -211,3 +211,7 @@ OCI configuration labels must bind the owning package's complete locked runtime 
 closure, packaged entry digest, and selected asset generation. External images retain exact
 package descriptors. Every association belongs to one package and is used by its service.
 Adding an unrelated private package preserves an existing runtime image's package-set label.
+
+The public test-fixture export resolves its native provider module relative to its own compiled
+package, independently of a consumer's working directory. A built Node program changes to a
+fresh directory before preparing the fixture; owner source paths are not a public dependency.
