@@ -739,3 +739,20 @@ contents to 64 MiB, file count to 4096, total entries to 8192 and individual fil
 budget is exceeded. Errors expose safe structured codes, not filenames, metadata or parser details.
 No installation/store state is created. Built Node consumer tests use genuine prepared archives and
 script/import canaries, plus wrong hashes, symlinks and an oversized entry.
+
+### Privileged observer-directory mount
+
+A format-3 service may request `workerSocket` only when selected by the profile's
+`workerSocketServiceId`, running as the installation owner, with a verified owner runtime-image
+binding. Deployment binds only the private `run` directory read-only at `/run/cordis-host`.
+It contains exactly `host.sock`; owner control, writer authority, credentials and Docker.sock
+are never included. A named volume or secret may not cover, replace or sit beneath this target.
+
+Before Docker effects, open the directory without symlinks, verify its owner-private mode and
+socket identity, and retain that descriptor through container creation. Bind the accepted
+container receipt to directory/socket identities; check them and the actual read-only mount
+before start and on later inspection. Missing, linked, replaced or incorrectly permissioned
+endpoints fail closed. An uncertain create remains explicit repair state. A genuine fixture
+must read accepted observations with the public client from inside a real container, prove
+writes fail and owner submission is denied, and preserve source-free read-back. This does not
+authorize implicit host-root restart or mounting the owner control endpoint.
