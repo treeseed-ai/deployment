@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Prepare exact optional restart-intent contracts for bounded additive activation (#910).
+
 ### Fixed
 - Coalesce identical direct and routed runtime evidence while rejecting conflicts (#910).
 
