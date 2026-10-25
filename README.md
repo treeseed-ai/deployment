@@ -527,3 +527,27 @@ External readers and changed identities hash afresh or refuse the record. A buil
 kernel write refusal and rejects replacing the pathname even with identical executable bytes.
 This removes redundant synchronous hashing from journal operations without accepting mutable
 worker contents or extending the private RPC deadline.
+
+### Default installed host, format 3
+
+`new ComposeDeploymentHost().apply(planId, digest, {installationDirectory, idempotencyKey})`
+selects the saved installation format. For format 3 it reads the exact stored plan, verifies a
+native Linux x64 ELF worker before any launch state is written, and exclusively prepares its
+private bootstrap. It spawns that pinned executable with fixed private flags, hands off ownership,
+waits for the verified selected child, then submits the request through the owner endpoint.
+It never compiles, downloads or invokes a shell/package manager during apply. The returned
+`{id, accepted:true}` acknowledges durable acceptance; callers use application/status for readiness.
+
+An existing verified worker handles repeated requests without another launch or bundle access.
+The same idempotency key recovers the same application after the caller exits or loses its reply.
+Private process/executable/writer identities are checked before owner submission. Foreign,
+incomplete, stopped or uncertain host state requires explicit repair; no adoption, alternate
+executable, automatic restart or lock deletion is allowed. Failed startup retains private evidence.
+Public `status` and `application` read format-3 observations through the readonly endpoint.
+Historical format-2 behavior remains separately selected by its stored format.
+
+The default built-caller qualification runs with Docker-only PATH and starts the genuine compiled
+worker. It exits the first caller, repeats the exact request, observes all five fixture services,
+removes the source bundle and reads/replays again, then verifies graceful worker stop preserves
+resources and a new apply does not silently restart it. A script-worker canary is refused before
+launch publication or script execution. Active composition transitions remain the next contract.
