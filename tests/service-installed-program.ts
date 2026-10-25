@@ -65,7 +65,15 @@ class InstalledHostProgram {
             try { await host.apply(plan.id, plan.digest, options); restart = true; } catch (error) { if (!(error instanceof PlanningBlockedError)) throw error; }
             if (restart || existsSync(configuration.installationDirectory + '/.cordis/writer.lock')) throw new Error('Stopped worker was implicitly restarted');
             process.stdout.write(JSON.stringify({ fixtureOnly: true, ready: true, services: status.services.length, sameApplication: true, noRestart: true }) + '\n');
-        } finally { this.signal('SIGKILL'); process.env.PATH = prior; }
+        } finally {
+            if (!this.worker) {
+                try {
+                    const child = JSON.parse(readFileSync(configuration.installationDirectory + '/.cordis/launch/child.json', 'utf8')), file = statSync(configuration.installationDirectory + '/.cordis/worker'), executable = statSync('/proc/' + child.pid + '/exe');
+                    if (file.dev === executable.dev && file.ino === executable.ino && file.uid === process.getuid?.()) this.worker = { pid: child.pid, dev: executable.dev, ino: executable.ino };
+                } catch { }
+            }
+            this.signal('SIGKILL'); process.env.PATH = prior;
+        }
     }
     private static signal(signal: NodeJS.Signals): void { if (!this.worker) return; try { const stat = statSync('/proc/' + this.worker.pid + '/exe'); if (stat.dev === this.worker.dev && stat.ino === this.worker.ino) process.kill(this.worker.pid, signal); } catch { } }
     private static executable(blocker: { code: string }): boolean { return blocker.code === 'WORKER_EXECUTABLE'; }

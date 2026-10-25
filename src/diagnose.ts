@@ -1,8 +1,9 @@
+import { ServiceInstalledHost } from './service-installed.js';
 import { HostSystem, TcpTableProbe } from './host-system.js';
 export { HostSystem, TcpTableProbe } from './host-system.js';
 import {ServicePlanStore} from './service-plan.js';
 import {ServicePlanningHost} from './service-plan.js';
-import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -12,7 +13,7 @@ import {InstalledHost,InstallationStore} from './installed.js';
 import { ArtifactResolver } from './artifacts.js';
 import { PlanStore, PlanningFailure as Check } from './filesystem.js';
 
-export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>>; }
+export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>|ServiceStatus>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>|ServiceApplicationRecord>; }
 export interface DiagnosticCommands { execute(args:string[]):string|null; }
 export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
 export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
@@ -112,9 +113,9 @@ export class ComposeDeploymentHost implements DeploymentHost {
     const payload={formatVersion:1 as const,configuration:options,recipe:resolved.recipe,pluginBindings:resolved.pluginBindings,configurationDigest:CanonicalJson.digest(options),releaseDigest:resolved.releaseDigest,recipeDigest:resolved.recipeDigest,lockDigest:resolved.lockDigest,expectedEngine,expectedComposition:null,projectName,artifacts:resolved.artifacts,effects,blockers:[]};
     const digest=CanonicalJson.digest(payload),plan=PlatformSchemas.plan.parse({...payload,id:'plan-'+digest,digest});return store.publish(plan);
   }
-  apply(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>> {return new InstalledHost(this.commands,this.system).apply(planId,digest,options);}
-  status(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>> {return new InstalledHost(this.commands,this.system).status(installationDirectory);}
-  application(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>> {return new InstalledHost(this.commands,this.system).application(installationDirectory,id);}
+  apply(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>> {return ServicePlanStore.isFormat(options.installationDirectory)?new ServiceInstalledHost().apply(planId,digest,options):new InstalledHost(this.commands,this.system).apply(planId,digest,options);}
+  status(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>|ServiceStatus> {return ServicePlanStore.isFormat(installationDirectory)?new ServiceInstalledHost().status(installationDirectory):new InstalledHost(this.commands,this.system).status(installationDirectory);}
+  application(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>|ServiceApplicationRecord> {return ServicePlanStore.isFormat(installationDirectory)?new ServiceInstalledHost().application(installationDirectory,id):new InstalledHost(this.commands,this.system).application(installationDirectory,id);}
   private static pluginOrder(a:DeploymentConfiguration['plugins'][number],b:DeploymentConfiguration['plugins'][number]):number {return a.id.localeCompare(b.id);}
   private resources(context:string,project:string):void {
     for(const args of [['ps','--all','--format','{{json .}}'],['volume','ls','--format','{{json .}}'],['network','ls','--format','{{json .}}']]){

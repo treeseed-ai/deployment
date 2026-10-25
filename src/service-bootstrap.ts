@@ -129,6 +129,7 @@ export class WorkerBootstrap {
     static prepare(input: ServicePlan): WorkerBootstrap { const plan = ServiceSchemas.plan.parse(input), store = new ServicePlanStore(plan.configuration.installationDirectory); Check.require(CanonicalJson.stringify(store.read(plan.id, plan.digest)) === CanonicalJson.stringify(plan) && store.records().length === 0 && store.resources().length === 0 && store.current() === null, 'WORKER_REPAIR_REQUIRED'); const bundle = SafeDirectory.open(plan.configuration.release.directory); let bytes: Buffer; try {
         bytes = bundle.file(plan.composition.worker.path, plan.composition.worker.sha256, 512 * 1024 * 1024);
         Check.require(bytes.length === plan.composition.worker.size, 'WORKER_INTEGRITY');
+        Check.require(bytes.length >= 64 && bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) && bytes[4] === 2 && bytes[5] === 1 && bytes[6] === 1 && [2, 3].includes(bytes.readUInt16LE(16)) && bytes.readUInt16LE(18) === 62 && bytes.readUInt32LE(20) === 1, 'WORKER_EXECUTABLE');
     }
     finally {
         bundle.close();
