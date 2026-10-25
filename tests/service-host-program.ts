@@ -1,4 +1,4 @@
-import { readFileSync, lstatSync, existsSync, renameSync, symlinkSync, unlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, lstatSync, existsSync, renameSync, symlinkSync, unlinkSync, writeFileSync, mkdirSync, linkSync } from 'node:fs';
 import { Socket } from 'node:net';
 import { ServiceSchemas, ServiceWorkerSchemas, CanonicalJson, type ServicePlan } from '@treeseed-cordis/sdk';
 import { ComposeDeploymentHost, ServiceHostRuntime, ServiceWorkerClient, ServiceWorkerOwnerClient, ServicePlanStore, InstallationStore } from '@treeseed-cordis/deployment';
@@ -58,11 +58,12 @@ class PartialStart {
     } return this.original.call(InstallationStore, parent, name); }
 }
 class HostProgram {
-    static async run(file: string, mode = 'normal'): Promise<void> { const configuration = ServiceSchemas.configuration.parse(JSON.parse(readFileSync(file, 'utf8'))), plan = await new ComposeDeploymentHost().plan(configuration); if (plan.formatVersion !== 3)
+    static async run(file: string, mode = 'normal'): Promise<void> { const configuration = ServiceSchemas.configuration.parse(JSON.parse(readFileSync(file, 'utf8')));if(mode==='alias-check')configuration.runtimeState='stopped';const plan=await new ComposeDeploymentHost().plan(configuration); if (plan.formatVersion !== 3)
         throw new Error('Wrong format'); if (mode === 'partial-start') {
         await PartialStart.run(plan);
         return;
     } const host = await ServiceHostRuntime.start(plan), observerPath = configuration.installationDirectory + '/.cordis/run/host.sock', controlPath = configuration.installationDirectory + '/.cordis/control/worker.sock', observer = new ServiceWorkerClient({ installationDirectory: configuration.installationDirectory }), owner = new ServiceWorkerOwnerClient({ installationDirectory: configuration.installationDirectory }); try {
+        if(mode==='alias-check'){const backup=configuration.release.directory+'/observer-socket-backup';renameSync(observerPath,backup);linkSync(controlPath,observerPath);let refused=false;try{try{const result=ServiceWorkerSchemas.response.parse(await new RawRequest(observerPath,{protocol:3,operation:'submit',planId:plan.id,digest:plan.digest,idempotencyKey:'observer-alias-canary'}).run());refused=!result.success;}catch{refused=true;}}finally{unlinkSync(observerPath);renameSync(backup,observerPath);}const count=new ServicePlanStore(configuration.installationDirectory).records().length;if(!refused||count!==0)throw new Error('Aliased observer endpoint admitted owner mutation');process.stdout.write(JSON.stringify({fixtureOnly:true,refused:true,acceptedApplications:0})+'\n');return;}
         for (const path of [observerPath, controlPath])
             if ((lstatSync(path).mode & 0o777) !== 0o600)
                 throw new Error('Unsafe socket mode');

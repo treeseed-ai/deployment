@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { ServiceReleaseFixture } from './release-fixture.js';
 import { ServiceRuntimeFixture } from './service-runtime-fixture.js';
 class HostTests {
+ async alias():Promise<void>{const fixture=new ServiceRuntimeFixture();try{await fixture.services();const input=join(fixture.root,'alias-input.json');writeFileSync(input,JSON.stringify(fixture.configuration));const result=spawnSync('node',['dist/tests/service-host-program.js',input,'alias-check'],{encoding:'utf8',timeout:30000});if(result.status!==0)throw new Error(result.stderr);const report=JSON.parse(result.stdout);expect(report.refused).toBe(true);expect(report.acceptedApplications).toBe(0);}finally{fixture.close();}}
+
     async partial(): Promise<void> { const fixture = new ServiceRuntimeFixture(); try {
         await fixture.services();
         const file = join(fixture.root, 'partial-input.json');
@@ -41,3 +43,5 @@ class HostTests {
 const suite = new HostTests();
 test('smoke: native private host separates observer and owner RPC with durable readback and identity-safe close', suite.program.bind(suite), 240000);
 test('smoke: failed host endpoint initialization closes its known listener and preserves foreign state', suite.partial.bind(suite), 60000);
+
+test('smoke: linked owner endpoint cannot mutate through the observer pathname',suite.alias.bind(suite),60000);
