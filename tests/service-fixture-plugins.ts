@@ -77,8 +77,9 @@ export class QualificationProbeFixture {
         catch {
             denied = true;
         }
-        const own = await context.credential('secret://' + context.serviceId + '/password'), ready = this.expired && denied && own.length === 64 && Object.isFrozen(context) && Object.isFrozen(context.expected) && Object.isFrozen(context.credentialReferences) && Reflect.get(context, 'credentials') === undefined;
-        return { serviceId: context.serviceId, ready, observations: [ready ? 'fixture.capabilities-qualified' : 'fixture.capabilities-invalid'] };
+        const observation = context.observation, metadata = !!observation && observation.identity.serviceId === context.serviceId && observation.identity.installationId === context.expected.installationId && observation.identity.compositionGeneration === context.expected.compositionGeneration && observation.identity.serviceGeneration === context.expected.serviceGeneration && observation.identity.assetDigest === context.expected.assetDigest && Object.isFrozen(observation) && Object.isFrozen(observation.identity) && Object.isFrozen(observation.dependencies);
+        const own = await context.credential('secret://' + context.serviceId + '/password'), ready = metadata && this.expired && denied && own.length === 64 && Object.isFrozen(context) && Object.isFrozen(context.expected) && Object.isFrozen(context.credentialReferences) && Reflect.get(context, 'credentials') === undefined;
+        return { serviceId: context.serviceId, ready, observations: ready ? ['fixture.capabilities-qualified', 'fixture.observation-qualified'] : ['fixture.capabilities-invalid'] };
     }
     private static delay(done: (value: void) => void): void { setTimeout(done, 400); }
 }
