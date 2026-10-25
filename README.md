@@ -857,3 +857,26 @@ first must work in both Bun and built Node consumers. Internal implementation im
 route through the public composition barrel. The default Docker command class belongs in one
 leaf module and remains publicly re-exported; the host's token initialization cannot depend on
 a previous unrelated import warming the module graph.
+
+### Explicit scoped container replacement
+
+An active format-3 host may execute a saved replacement/reconfiguration plan only when its
+caller supplies `restartServices` equal to the exact set of restart-bearing service changes.
+Missing, extra, stale or initial-install scope is refused before intent. Migration, retirement,
+state-version changes, resource/secret ownership changes and worker replacement stay blocked.
+The owner independently derives the transition from its accepted plan and freshly validates all
+artifacts and previous physical identities before admitting effects. The accepted application
+record binds the scope before any old container is stopped or removed.
+
+Only explicitly authorized changed containers may be replaced. Every retained container, named
+volume, credential slot and CA remains physically identical; historical receipts are immutable.
+A running replacement uses its actual new container identity and protocol observations before
+committing the new snapshot. Historical container receipts remain evidence rather than being
+reinterpreted as current resources. A failed/interrupted replacement preserves its accepted
+intent and partial receipts and fences further writes for explicit repair. There is no automatic
+restart, rollback, resource deletion beyond exact authorized old containers, or second host.
+
+The outside-in programme must run through the real compiled durable worker, change one selected
+fixture container provider, verify an observable new response and physical ID, preserve all
+unaffected IDs/private bytes, reject missing/extra scope and migration, and read back/replay after
+original source removal. Final API-image/UI-only restart qualification remains an assembled gate.

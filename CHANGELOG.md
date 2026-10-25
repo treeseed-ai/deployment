@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Require exact explicit service scope for verified container replacement (#910).
+
 ### Fixed
 - Coalesce identical direct and routed runtime evidence while rejecting conflicts (#910).
 
