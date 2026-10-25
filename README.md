@@ -366,3 +366,25 @@ not a replacement for the genuine HTTP or eventual API/Keycloak protocol tests.
 
 Absolute deadlines are checked again when a probe promise settles. A blocked event loop must not
 allow a late success through merely because its timeout callback has not run yet.
+
+### Durable application coordination root
+
+`ServiceApplicationRuntime.start(plan)` constructs the actual native Cordis host root and exposes
+`submit`, `status` and `application` through the typed `ServiceApplicationHost` contract. Its
+application plugin owns one installation writer and drives the existing format-3 journal through
+validation, staging, private preparation, native service activation, protocol readiness and commit.
+This is one coherent transaction authority over the existing store, not a second journal/resolver.
+Native Cordis scopes own all selected container/probe instances and their cleanup.
+
+The initial host accepts an unused format-3 installation only. It refuses historical applications
+or uncertain prior effects; restart/adoption and explicit historical-format migration are subsequent
+qualification. A submission first durably records its idempotency-bound intent, then returns an
+application ID. Only a snapshot of actual receipted resources and ready selected-probe acknowledgements
+can complete as ready. Status freshly probes the live scopes. Failures expose safe codes, preserve
+evidence/resources and fence uncertain effects for explicit repair. Lost-response retries within the
+running host return the same application; conflicting intent and concurrent new work are refused.
+
+Closing the host drains its native scopes and releases its verified writer without stopping installed
+containers or deleting credentials. Tests spawn the built host program and genuine fixture containers;
+this qualifies the application coordinator, not yet the standalone durable worker/socket installer,
+API/Keycloak application composition, retained active transitions or source acquisition.
