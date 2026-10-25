@@ -250,3 +250,21 @@ opening the original bundle. A writer already held by the durable worker publish
 records under that same authority. This persistence qualification uses explicit observation
 fixtures; only actual engine/probe inspection in the worker can produce runtime readiness.
 Historical journals and migration remain separate explicit boundaries.
+
+### Immutable native service-provider staging
+
+`ServiceProviderStager` prepares a selected container or probe only after its exact plan has a
+persisted accepted application under the installation writer. It freshly validates the local
+bundle against the saved plan, derives the selected package's complete runtime dependency/peer
+closure, and copies only those verified archive files into an installation-private immutable
+manifest directory. Unrelated bundle packages cannot change that provider identity. No imports,
+package-manager commands or lifecycle scripts occur during staging. A later accepted activation
+loads the exact named export through SDK's verified native provider loader, using the service's
+installation/instance scope and validated configuration. Cordis owns construction and disposal.
+
+Staged manifests and closure files use 0400, containing directories 0500, inside private 0700
+store directories. Existing complete identities may be reused after full read-back verification;
+unknown or interrupted staging state requires explicit repair. Descriptor-anchored extraction,
+canonical manifests, no-overwrite publication and the same installation writer preserve scope
+and byte identity. This stage does not start containers or claim target readiness. Engine/probe
+qualification and actual retained-resource activation remain the following worker delivery.
