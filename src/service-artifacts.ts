@@ -1,10 +1,11 @@
 import addFormats from 'ajv-formats';
 import { ServiceProjection } from './service-projection.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { PlatformSchemas, ServiceSchemas, PluginManagementSchemas, CanonicalJson, PlanningBlockedError, type ServiceRelease, type ServiceInstance, type PluginPackageDescriptor, type PluginExportDescriptor, type DeploymentRecipe, type DeploymentPlan } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, ServiceSchemas, PluginManagementSchemas, CanonicalJson, PlanningBlockedError, type ServiceRelease, type ServiceInstance, type PluginPackageDescriptor, type ServiceRuntimeBinding, type PluginExportDescriptor, type DeploymentRecipe, type DeploymentPlan } from '@treeseed-cordis/sdk';
 import { ArtifactResolver, ArchiveMetadata, type PackageData } from './artifacts.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 export interface ServiceArtifactResolution {
+    runtimeBindings: Record<string, ServiceRuntimeBinding>;
     inventory: ServiceRelease;
     recipe: DeploymentRecipe;
     pluginBindings: PluginExportDescriptor['declaration'][];
@@ -71,10 +72,10 @@ class ServiceArtifactVerifier extends ArtifactResolver {
             images.sort(ArtifactResolver.imageOrder);
             for (const image of images)
                 artifacts.push(this.image(directory, image, true));
-            this.runtimeImages(directory, inventory, artifacts, packages, descriptors);
+            const runtimeBindings = this.runtimeImages(directory, inventory, artifacts, packages, descriptors);
             await this.helpers(directory, inventory);
             directory.verify();
-            return { inventory, recipe, pluginBindings: bindings, artifacts, releaseDigest: configuration.release.manifestDigest, lockDigest: inventory.lockfile.sha256, recipeDigest: inventory.recipe.sha256 };
+            return { inventory, recipe, runtimeBindings, pluginBindings: bindings, artifacts, releaseDigest: configuration.release.manifestDigest, lockDigest: inventory.lockfile.sha256, recipeDigest: inventory.recipe.sha256 };
         }
         catch (error) {
             if (error instanceof PlanningBlockedError)
@@ -259,18 +260,19 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         package: string;
         path: string;
     }): number { const left = a.package + ':' + a.path, right = b.package + ':' + b.path; return left < right ? -1 : left > right ? 1 : 0; }
-    private runtimeImages(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>, descriptors: Map<string, PluginPackageDescriptor>): void {
+    private runtimeImages(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>, descriptors: Map<string, PluginPackageDescriptor>): Record<string, ServiceRuntimeBinding> {
+        const result: Record<string, ServiceRuntimeBinding> = {};
         const owners = new Map<string, string>();
         for (const [name, descriptor] of descriptors) for (const image of [...descriptor.images, ...descriptor.runtimeImages ?? []]) { Check.require(!owners.has(image.id), 'IMAGE_PACKAGE_BINDING'); owners.set(image.id, name); }
-        const verified = new Set<string>();
+        const verified = new Map<string, ServiceRuntimeBinding>();
         for (const service of inventory.composition.services) {
             const owner = descriptors.get(service.provider.package.name)!;
             let runtime: NonNullable<PluginPackageDescriptor['runtimeImages']>[number] | undefined;
             for (const candidate of owner.runtimeImages ?? []) if (candidate.id === service.definition.imageId) runtime = candidate;
             // A host receiving the private worker capability must be an exact runtime image.
             Check.require(!service.definition.workerSocket || runtime, 'IMAGE_PACKAGE_BINDING');
-            if (!runtime || verified.has(runtime.id)) continue;
-            verified.add(runtime.id);
+            if (!runtime) continue;
+            if (verified.has(runtime.id)) { result[service.serviceId] = verified.get(runtime.id)!; continue; }
             const image = inventory.images.find(ServiceArtifactVerifier.matchesImage.bind(null, runtime.id))!, packages: DeploymentPlan['artifacts'] = [], closure = new Set<string>(), queue = [service.provider.package.name];
             while (queue.length) { const name = queue.shift()!; if (closure.has(name)) continue; const entry = data.get(name); Check.require(entry, 'MISSING_PACKAGE'); closure.add(name); for (const field of ['dependencies', 'peerDependencies']) { const entries = entry.metadata[field]; if (entries !== undefined) for (const dependency of Object.keys(StrictJson.object(entries))) if (data.has(dependency)) queue.push(dependency); } }
             let configDigest = '';
@@ -282,9 +284,12 @@ class ServiceArtifactVerifier extends ArtifactResolver {
             try {
                 const config = StrictJson.object(StrictJson.parse(layout.file('blobs/sha256/' + configDigest, configDigest, 4 * 1024 * 1024))), labels = StrictJson.object(StrictJson.object(config.config).Labels);
                 Check.require(labels['ai.treeseed.cordis.package-set'] === CanonicalJson.digest(packages) && labels['ai.treeseed.cordis.admin-asset'] === inventory.composition.assetDigest && labels['ai.treeseed.cordis.runtime-entry'] === entryDigest, 'IMAGE_PACKAGE_BINDING');
+                const binding = { imageManifestDigest: image.manifestDigest, packageSetDigest: CanonicalJson.digest(packages), entryDigest };
+                verified.set(runtime.id, binding); result[service.serviceId] = binding;
             } finally { layout.close(); }
         }
         for (const descriptor of descriptors.values()) for (const image of descriptor.runtimeImages ?? []) Check.require(verified.has(image.id), 'UNUSED_IMAGE');
+        return result;
     }
     private async helpers(directory: SafeDirectory, inventory: ServiceRelease): Promise<void> {
         for (const helper of inventory.helpers?.helpers ?? []) {
