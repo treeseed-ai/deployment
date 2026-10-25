@@ -584,13 +584,17 @@ credential, host command or installation-writer capability.
 
 ### Declared public authority exports
 
-`ServiceAuthorityExports` implements bounded access behind `ProbeContext.authority(reference)`.
+`AuthorityArchive.read(bytes, filename)` inspects a bounded single-file public CA tar stream.
+`LocalDockerCommands.archive(engine, containerId, path, timeout)` supplies the fixed no-extraction
+container-copy transport. These privileged host helpers do not receive plugin authority from metadata.
+
+The following custodian slice supplies `ServiceAuthorityExports` behind `ProbeContext.authority(reference)`.
 Only exact references in the service's readiness grant list are available, with cross-service
 dependency/grant checks. `authorityIds` lists authority references; ordinary slot references remain
 in `credentialReferences`. A probe receives bytes and bounded callbacks, never Docker commands,
 host paths or the installation writer.
 
-The first accepted activation reads a declared public CA certificate from a path beneath an owned
+That custodian's first accepted activation reads a declared public CA certificate from a path beneath an owned
 named-volume mount in its receipted container. The host verifies engine/resource identity and uses
 Docker's bounded [tar-to-stdout copy](https://docs.docker.com/reference/cli/docker/container/cp/),
 without extraction, shell/exec, helper container, link following or arbitrary host mounts. Accept
