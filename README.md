@@ -851,3 +851,9 @@ Exact SDK adoption for this slice: `.13` source
 `752b6fd5909eae15a30f1d7519d16e1f4a40a75b`, archive SHA-256
 `dca6c416b8cdf977f021efb632e82e8b1b2f2d1b4a61108fe27a5b59e5848e2c`.
 Force a fresh local archive install and read back the installed contract identity.
+
+Cold module entry is an executable boundary: loading the application/host/IPC/planning modules
+first must work in both Bun and built Node consumers. Internal implementation imports must not
+route through the public composition barrel. The default Docker command class belongs in one
+leaf module and remains publicly re-exported; the host's token initialization cannot depend on
+a previous unrelated import warming the module graph.

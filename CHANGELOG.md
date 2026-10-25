@@ -12,7 +12,7 @@
 
 ### Added
 - Apply qualified private additions while retaining accepted service resources (#910).
-- Plan retained service transitions through the existing private host writer (#910).
+- Plan retained service transitions through the existing private host writer with independent cold module initialization (#910).
 - Expose validated data-only service projection through the public package interface (#910).
 - Mount only a granted private observer directory into verified owner-runtime services (#910).
 - Expose bounded package archive inspection for owner runtime auditing (#910).

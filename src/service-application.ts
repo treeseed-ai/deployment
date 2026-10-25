@@ -1,7 +1,7 @@
 import { ServiceObservations } from './service-observation.js';
 import { CanonicalJson, CapabilityToken, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type ServiceApplicationRecord, type ServiceWorkerRequest, type ServiceStatus, type ServiceObservationContext, type ServiceSnapshot, type ServiceResourceReceipt, type ServiceReadiness } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle, type ProviderRegistration } from '@treeseed-cordis/sdk/runtime';
-import { DockerCommands } from './diagnose.js';
+import { DockerCommands } from './docker-commands.js';
 import { ServicePlanStore, ServicePlanIdentity, ServicePlanningHost, ServiceTransitions } from './service-plan.js';
 import { ServiceNativeScope, type PreparedServiceScope } from './service-native.js';
 import { ServiceImages, LocalDockerCommands } from './service-images.js';
