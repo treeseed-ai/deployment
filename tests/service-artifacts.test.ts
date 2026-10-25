@@ -140,3 +140,8 @@ class ServiceExportCalibrationTests {
 }
 const calibration = new ServiceExportCalibrationTests();
 test('smoke: archive fixture exports the same native classes used for metadata and calibrates the import canary', calibration.exports.bind(calibration));
+
+class PublicFixtureTests {
+ program():void{const code="import {ServiceReleaseFixture} from '@treeseed-cordis/deployment/testing';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';class Program{static async run(){const cwd=mkdtempSync(join(tmpdir(),'cordis-consumer-cwd-'));process.chdir(cwd);let fixture;try{fixture=await new ServiceReleaseFixture().services();if(fixture.release.composition.services.length!==5)throw new Error('fixture composition');process.stdout.write('public-fixture-ok\\n');}finally{fixture?.close();rmSync(cwd,{recursive:true,force:true});}}}await Program.run();";const result=spawnSync('node',['--input-type=module','-e',code],{encoding:'utf8'});expect(result.status).toBe(0);expect(result.stderr).toBe('');expect(result.stdout).toBe('public-fixture-ok\n');}
+}
+const publicFixture=new PublicFixtureTests();test('smoke: public compiled fixture constructs in an unrelated consumer working directory',publicFixture.program.bind(publicFixture));
