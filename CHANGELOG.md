@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- Coalesce identical direct and routed runtime evidence while rejecting conflicts (#910).
+
 - Validate genuine Bun lock metadata with identical regular and optional peer declarations (#910).
 - Reject observer and control socket aliases before host request dispatch (#928).
 

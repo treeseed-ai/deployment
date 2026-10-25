@@ -790,3 +790,12 @@ lock metadata. Every archive-declared constraint is still checked against the on
 missing regular dependencies, conflicting peer ranges, undeclared lock peers and integrity
 mismatches remain blockers. Unselected optional peers remain optional only under their explicit
 archive declaration and matching non-redundant lock metadata. This changes no activation policy.
+
+### Multiple probes of one runtime target
+
+A service's direct probe and a routed HTTPS probe may attest to the same target/scope.
+Commit and fresh status must coalesce byte-equivalent validated acknowledgements, preserving
+one target record. Every acknowledgement must be ready and bind the expected composition.
+Conflicting runtime generations, observation digests or other fields for the same target/scope
+block acceptance; they are not resolved by arrival order. A conflict during fresh status
+reports not-ready with no acknowledgements. Per-service readiness remains independently required.
