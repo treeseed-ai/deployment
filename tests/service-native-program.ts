@@ -1,8 +1,65 @@
-import {readFileSync,existsSync} from 'node:fs';
-import {ServiceSchemas} from '@treeseed-cordis/sdk';
-import {ComposeDeploymentHost,ServicePlanStore,ServiceImages,ServiceCredentials,ServiceNativeScope,ServiceRuntimeInspection} from '@treeseed-cordis/deployment';
+import { readFileSync, existsSync } from 'node:fs';
+import { ServiceSchemas } from '@treeseed-cordis/sdk';
+import { ComposeDeploymentHost, ServicePlanStore, ServiceImages, ServiceCredentials, ServiceNativeScope, ServiceRuntimeInspection } from '@treeseed-cordis/deployment';
 class NativeProgram {
- static async run(file:string):Promise<void>{const configuration=ServiceSchemas.configuration.parse(JSON.parse(readFileSync(file,'utf8'))),plan=await new ComposeDeploymentHost().plan(configuration);if(plan.formatVersion!==3)throw new Error('Wrong format');const store=new ServicePlanStore(configuration.installationDirectory),writer=store.writer(),scopes:ServiceNativeScope[]=[];try{let event=store.accept({protocol:3,operation:'submit',planId:plan.id,digest:plan.digest,idempotencyKey:'native-program'},writer).record;event={...event,sequence:1,phase:'stage',result:null};store.append(event,writer);await new ServiceImages(plan).stage(writer);const selected=plan.composition.services.slice(0,2),prepared=[];for(const service of selected)prepared.push(await ServiceNativeScope.prepare(plan,service.serviceId,writer));if(existsSync(configuration.release.directory+'/../SCRIPT_CANARY'))throw new Error('Staging imported provider');event={...event,sequence:2,phase:'prepare'};store.append(event,writer);await new ServiceCredentials(plan).prepare(writer);event={...event,sequence:3,phase:'activate'};store.append(event,writer);const reports=[];for(let i=0;i<selected.length;i++){const service=selected[i]!,scope=await ServiceNativeScope.open(plan,service.serviceId,prepared[i]!,writer);scopes.push(scope);let report=await scope.ready();const deadline=Date.now()+10000;while(!report.ready&&Date.now()<deadline){await new Promise(NativeProgram.delay);report=await scope.ready();}if(!report.ready||report.serviceId!==service.serviceId||report.acknowledgements?.length!==1||report.acknowledgements[0]!.runtimeGeneration!==scope.generation)throw new Error('Missing actual native qualification');reports.push(report);}if(!existsSync(configuration.release.directory+'/../SCRIPT_CANARY'))throw new Error('Accepted native class was not loaded');const held=await scopes[0]!.acquire();let refused=false;try{await scopes[0]!.close(1);}catch{refused=true;}if(!refused)throw new Error('Undrained scope disposed');await held.release();for(const scope of scopes)await scope.close();scopes.length=0;for(const service of selected)if(!(await new ServiceRuntimeInspection(plan).service(service.serviceId)).running)throw new Error('Scope disposal stopped installed service');process.stdout.write(JSON.stringify({fixtureOnly:true,reports,providerScopes:2,ready:true})+'\n');}finally{for(const scope of scopes)await scope.close();writer.close();}}
- private static delay(done:(value:void)=>void):void{setTimeout(done,100);}
+    static async run(file: string): Promise<void> { const configuration = ServiceSchemas.configuration.parse(JSON.parse(readFileSync(file, 'utf8'))), plan = await new ComposeDeploymentHost().plan(configuration); if (plan.formatVersion !== 3)
+        throw new Error('Wrong format'); const store = new ServicePlanStore(configuration.installationDirectory), writer = store.writer(), scopes: ServiceNativeScope[] = []; try {
+        let event = store.accept({ protocol: 3, operation: 'submit', planId: plan.id, digest: plan.digest, idempotencyKey: 'native-program' }, writer).record;
+        event = { ...event, sequence: 1, phase: 'stage', result: null };
+        store.append(event, writer);
+        await new ServiceImages(plan).stage(writer);
+        const selected = plan.composition.services.slice(0, 3), prepared = [];
+        for (const service of selected)
+            prepared.push(await ServiceNativeScope.prepare(plan, service.serviceId, writer));
+        if (existsSync(configuration.release.directory + '/../SCRIPT_CANARY'))
+            throw new Error('Staging imported provider');
+        event = { ...event, sequence: 2, phase: 'prepare' };
+        store.append(event, writer);
+        await new ServiceCredentials(plan).prepare(writer);
+        event = { ...event, sequence: 3, phase: 'activate' };
+        store.append(event, writer);
+        const reports = [], history: string[] = [];
+        for (let i = 0; i < selected.length; i++) {
+            const service = selected[i]!, scope = await ServiceNativeScope.open(plan, service.serviceId, prepared[i]!, writer);
+            scopes.push(scope);
+            let report = await scope.ready();
+            history.push(...report.observations);
+            const deadline = Date.now() + 10000;
+            while (!report.ready && Date.now() < deadline) {
+                await new Promise(NativeProgram.delay);
+                report = await scope.ready();
+                history.push(...report.observations);
+            }
+            if (!report.ready || report.serviceId !== service.serviceId || report.acknowledgements?.length !== 1 || report.acknowledgements[0]!.runtimeGeneration !== scope.generation)
+                throw new Error('Missing actual native qualification');
+            reports.push(report);
+        }
+        if (!existsSync(configuration.release.directory + '/../SCRIPT_CANARY'))
+            throw new Error('Accepted native class was not loaded');
+        const held = await scopes[0]!.acquire();
+        let refused = false;
+        try {
+            await scopes[0]!.close(1);
+        }
+        catch {
+            refused = true;
+        }
+        if (!refused)
+            throw new Error('Undrained scope disposed');
+        await held.release();
+        for (const scope of scopes)
+            await scope.close();
+        scopes.length = 0;
+        for (const service of selected)
+            if (!(await new ServiceRuntimeInspection(plan).service(service.serviceId)).running)
+                throw new Error('Scope disposal stopped installed service');
+        process.stdout.write(JSON.stringify({ fixtureOnly: true, reports, providerScopes: 3, history, ready: true }) + '\n');
+    }
+    finally {
+        for (const scope of scopes)
+            await scope.close();
+        writer.close();
+    } }
+    private static delay(done: (value: void) => void): void { setTimeout(done, 5); }
 }
 await NativeProgram.run(process.argv[2]!);

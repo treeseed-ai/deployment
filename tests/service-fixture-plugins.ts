@@ -36,3 +36,49 @@ export class RuntimeContainerFixture extends CredentialContainerFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...ContainerFixture.declaration, id: 'fixture.runtime' });
     static override readonly container: NonNullable<PluginExportDescriptor['container']> = PluginManagementSchemas.container.parse({ ...CredentialContainerFixture.container, definition: { ...CredentialContainerFixture.container.definition, environment: { FIXTURE_SERVICE_ID: { $context: 'serviceId' } }, volumes: [{ source: 'data', target: '/data', readOnly: false }] }, resources: { ...CredentialContainerFixture.container.resources, volumes: ['data'] } });
 }
+/** Explicit probe-boundary fixture, separate from the real HTTP readiness provider. */
+export class QualificationProbeFixture {
+    static readonly provide = ['probe.service'];
+    static readonly inject: string[] = [];
+    static readonly Config = PlatformSchemas.empty;
+    static readonly replacement = ProbeFixture.replacement;
+    static readonly declaration = ProviderV4Schemas.declaration.parse({ ...ProbeFixture.declaration, id: 'fixture.qualification-probe' });
+    static readonly probe = ProbeFixture.probe;
+    private count = 0;
+    private expired = false;
+    constructor(context: Context) { context.provide(ServiceTokens.probe().id, this); }
+    async observe(context: ProbeContext): Promise<ServiceReadiness> {
+        this.count++;
+        if (this.count === 1)
+            return { serviceId: 'foreign', ready: true, observations: ['fixture.wrong-instance'] };
+        if (this.count === 2)
+            return { serviceId: context.serviceId, ready: true, observations: ['secret_canary private output'] };
+        if (this.count === 3)
+            return { serviceId: context.serviceId, ready: false, observations: ['fixture.false-ready'] };
+        if (this.count === 4) {
+            await new Promise(QualificationProbeFixture.delay);
+            try {
+                await context.credential('secret://' + context.serviceId + '/password');
+            }
+            catch {
+                this.expired = true;
+            }
+            return { serviceId: context.serviceId, ready: false, observations: ['fixture.late'] };
+        }
+        if (this.count === 5) {
+            const end = Date.now() + 500;
+            while (Date.now() < end) { }
+            return { serviceId: context.serviceId, ready: true, observations: ['fixture.late-blocking'] };
+        }
+        let denied = false;
+        try {
+            await context.credential('secret://foreign/password');
+        }
+        catch {
+            denied = true;
+        }
+        const own = await context.credential('secret://' + context.serviceId + '/password'), ready = this.expired && denied && own.length === 64 && Object.isFrozen(context) && Object.isFrozen(context.expected) && Object.isFrozen(context.credentialReferences) && Reflect.get(context, 'credentials') === undefined;
+        return { serviceId: context.serviceId, ready, observations: [ready ? 'fixture.capabilities-qualified' : 'fixture.capabilities-invalid'] };
+    }
+    private static delay(done: (value: void) => void): void { setTimeout(done, 400); }
+}

@@ -181,3 +181,5 @@ export {ServiceCredentials} from './service-credentials.js';
 export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands} from './service-images.js';
 
 export {ServiceContainerEngine,ScopedServiceEngine,ServiceExecution,ServiceRuntimeInspection} from "./service-engine.js";
+
+export {ServiceNativeScope,type PreparedServiceScope} from "./service-native.js";
