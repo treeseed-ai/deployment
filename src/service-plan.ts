@@ -8,7 +8,7 @@ import { PlanStore } from './filesystem.js';
 import { resolve } from 'node:path';
 import { ServiceSchemas, PlatformSchemas, CanonicalJson, type ServicePlan, type ServiceInstance, type ServiceGraph } from '@treeseed-cordis/sdk';
 import type { DiagnosticCommands, DiagnosticSystem } from './diagnose.js';
-import { TcpTableProbe } from './diagnose.js';
+import { TcpTableProbe } from './host-system.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 import { ServiceArtifactResolver } from './service-artifacts.js';
 export class ServicePlanIdentity {

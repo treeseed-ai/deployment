@@ -1,9 +1,11 @@
+import { HostSystem, TcpTableProbe } from './host-system.js';
+export { HostSystem, TcpTableProbe } from './host-system.js';
 import {ServicePlanStore} from './service-plan.js';
 import {ServicePlanningHost} from './service-plan.js';
 import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
-import { platform, arch, homedir } from 'node:os';
+import { homedir } from 'node:os';
 import { join, resolve, dirname, parse } from 'node:path';
 import { createServer, type Server } from 'node:net';
 import {InstalledHost,InstallationStore} from './installed.js';
@@ -28,37 +30,6 @@ export class DockerCommands implements DiagnosticCommands {
       try{if(statSync(file).isFile()){accessSync(file,constants.X_OK);return file;}}catch{}
     }
     return null;
-  }
-}
-export class HostSystem implements DiagnosticSystem {
-  host():DiagnosticReport['host'] {
-    let release='unknown',distribution='unknown';
-    try {
-      const text=readFileSync('/etc/os-release','utf8');
-      distribution=/^ID=["']?([^\n"']+)/m.exec(text)?.[1]??'unknown';
-      release=/^VERSION_ID=["']?([^\n"']+)/m.exec(text)?.[1]??'unknown';
-    } catch {}
-    return {os:platform(),architecture:arch(),distribution,release};
-  }
-  storage(path:string):StorageResult {
-    let exists=false;
-    try {
-      let current=parse(path).root, missing=false;
-      for(const component of path.slice(current.length).split('/')) {
-        if(!component)continue;current=join(current,component);
-        try {const stat=lstatSync(current);if(stat.isSymbolicLink())return {exists,freeBytes:null,code:'STORAGE_SYMLINK',message:'Installation path must not traverse symlinks.'};if(!stat.isDirectory())return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Installation path must contain only directories.'};}
-        catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT'){missing=true;break;}throw error;}
-      }
-      exists=!missing;
-      if(exists&&readdirSync(path).length){try{if(ServicePlanStore.isFormat(path))new ServicePlanStore(path).inspect();else if(new InstallationStore(path).inspect()==='installed')new InstallationStore(path).records();else new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
-      let ancestor=path;
-      while(true) {try{lstatSync(ancestor);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;const parent=dirname(ancestor);if(parent===ancestor)throw error;ancestor=parent;}}
-      const stat=lstatSync(ancestor);
-      if(stat.uid!==process.getuid?.()||(stat.mode&0o300)!==0o300)return {exists,freeBytes:null,code:'STORAGE_PERMISSION',message:'Nearest existing directory must be owned, writable and searchable by this user.'};
-      accessSync(ancestor,constants.W_OK|constants.X_OK);
-      const space=statfsSync(ancestor),freeBytes=space.bavail*space.bsize;
-      return {exists,freeBytes,code:freeBytes>=1024**3?'OK':'STORAGE_CAPACITY',message:freeBytes>=1024**3?'Owned storage has at least 1 GiB free.':'At least 1 GiB free storage is required.'};
-    }catch {return {exists,freeBytes:null,code:'STORAGE_PERMISSION',message:'Storage permissions or filesystem information are unavailable.'};}
   }
 }
 class PortAttempt {
@@ -161,12 +132,6 @@ export class ComposeDeploymentHost implements DeploymentHost {
 export { ArtifactResolver } from './artifacts.js';
 export { ServiceArtifactResolver } from './service-artifacts.js';
 
-/** Planning only observes Linux listener tables; it never binds a socket. */
-export class TcpTableProbe implements DiagnosticPorts {
-  async available(port:number):Promise<boolean> {
-    try {for(const path of ['/proc/net/tcp','/proc/net/tcp6'])for(const line of readFileSync(path,'utf8').trim().split('\n').slice(1)){const fields=line.trim().split(/\s+/);if(fields[3]==='0A'&&parseInt(fields[1]!.split(':')[1]!,16)===port)return false;}return true;}catch{return false;}
-  }
-}
 export { PlanStore } from './filesystem.js';
 
 export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from './composition.js';
@@ -186,3 +151,4 @@ export {ServiceContainerEngine,ScopedServiceEngine,ServiceExecution,ServiceRunti
 export {ServiceNativeScope,type PreparedServiceScope} from "./service-native.js";
 
 export {ServiceApplicationRuntime,ServiceApplicationPlugin,ServiceApplicationToken,type ServiceApplicationHost} from "./service-application.js";
+export {ServiceWorkerBuild} from './service-worker-build.js';

@@ -3,7 +3,7 @@ import { Context, CordisComposition, CordisServiceLocator, type CompositionHandl
 import { ServicePlanStore, ServicePlanIdentity } from './service-plan.js';
 import { ServiceNativeScope, type PreparedServiceScope } from './service-native.js';
 import { ServiceImages, LocalDockerCommands } from './service-images.js';
-import { HostSystem, TcpTableProbe } from './diagnose.js';
+import { HostSystem, TcpTableProbe } from './host-system.js';
 import { ServiceCredentials } from './service-credentials.js';
 import { ServiceRuntimeInspection } from './service-engine.js';
 import { ServiceArtifactResolver } from './service-artifacts.js';

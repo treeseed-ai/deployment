@@ -54,7 +54,7 @@ class StandaloneWorkerProgram {
             const request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: 'standalone-application' }, accepted = await owner.submit(request);
             this.phase = 'application';
             let application = await owner.application(accepted.id);
-            while (!['completed', 'failed', 'cancelled'].includes(application.phase) && Date.now() < deadline) { await new Promise(this.delay); try { application = await owner.application(accepted.id); } catch (error) { if (!(error instanceof Error) || error.message !== 'SERVICE_WORKER_EXCHANGE_FAILED') throw error; } }
+            while (!['completed', 'failed', 'cancelled'].includes(application.phase) && Date.now() < deadline) { await new Promise(this.delay); application = await owner.application(accepted.id); }
             this.phase = 'ready-status';
             const status = await owner.status(), store = new ServicePlanStore(configuration.installationDirectory), snapshot = store.current();
             if (application.phase !== 'completed' || application.result !== 'ready' || !status.ready || status.services.length !== 5 || !snapshot) throw new Error('Standalone application was not verified: ' + application.phase);
@@ -63,7 +63,7 @@ class StandaloneWorkerProgram {
             try { const fd = openSync(bootstrap.executable, 'r+'); closeSync(fd); } catch (error) { textBusy = (error as NodeJS.ErrnoException).code === 'ETXTBSY'; }
             finally { chmodSync(bootstrap.executable, 0o500); }
             if (!textBusy) throw new Error('Running executable inode was writable');
-            const savedExecutable = bootstrap.executable + '-fixture-retained';
+            const savedExecutable = join(root, 'retained-running-worker');
             renameSync(bootstrap.executable, savedExecutable);
             writeFileSync(bootstrap.executable, readFileSync(buildPath), { mode: 0o500 });
             let replacementRefused = false;

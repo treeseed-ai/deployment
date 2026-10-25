@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { lstatSync, statSync, fstatSync } from 'node:fs';
+import { lstatSync, statSync, fstatSync, type Stats } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { CanonicalJson, PlatformSchemas, ServiceSchemas, type ServicePlan } from '@treeseed-cordis/sdk';
@@ -22,6 +22,16 @@ interface BootstrapData {
 }
 /** Immutable launch records; the existing store/writer still owns installation mutation. */
 export class BootstrapRecords {
+    static #verifiedExecutable: string | null = null;
+    private static worker(state: SafeDirectory, before: Stats, intent: BootstrapData['intent'], child: BootstrapData['child'], ready: BootstrapData['ready']): void {
+        const key = CanonicalJson.stringify({ dev: before.dev, ino: before.ino, size: before.size, digest: intent.workerDigest });
+        const executable = ready && child?.pid === process.pid ? statSync('/proc/self/exe') : null;
+        const running = executable?.dev === before.dev && executable?.ino === before.ino;
+        if (!running || this.#verifiedExecutable !== key) state.hash('worker', intent.workerDigest, intent.workerSize);
+        const linked = lstatSync(state.childPath('worker'));
+        Check.require(linked.dev === before.dev && linked.ino === before.ino && linked.size === before.size && linked.uid === before.uid && linked.mode === before.mode && linked.nlink === 1 && linked.mtimeMs === before.mtimeMs && linked.ctimeMs === before.ctimeMs, 'WORKER_IDENTITY_CHANGED');
+        if (running) this.#verifiedExecutable = key;
+    }
     private static record<T>(schema: {
         safeParse(value: unknown): {
             success: boolean;
@@ -38,13 +48,11 @@ export class BootstrapRecords {
             Check.require(['intent.json', 'executable.json', 'child.json', 'ready.json'].includes(name), 'BOOTSTRAP_REPAIR_REQUIRED');
         const intent = this.record(BootstrapSchemas.intent, launch, 'intent.json'), plan = plans.get(intent.planId);
         Check.require(plan && plan.digest === intent.digest && intent.installationDirectory === dirname(state.path) && intent.installationId === plan.configuration.installationId && intent.ownerUid === process.getuid?.() && intent.workerDigest === plan.composition.worker.sha256 && intent.workerSize === plan.composition.worker.size, 'BOOTSTRAP_BINDING');
-        let executable: BootstrapData['executable'] = null, child: BootstrapData['child'] = null, ready: BootstrapData['ready'] = null;
+        let executable: BootstrapData['executable'] = null, child: BootstrapData['child'] = null, ready: BootstrapData['ready'] = null, worker: Stats | null = null;
         if (names.includes('worker')) {
             const stat = lstatSync(state.childPath('worker'));
             Check.require(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o500 && stat.nlink === 1 && stat.size === intent.workerSize, 'WORKER_INTEGRITY');
-            state.hash('worker', intent.workerDigest, intent.workerSize);
-            const linked = lstatSync(state.childPath('worker'));
-            Check.require(linked.dev === stat.dev && linked.ino === stat.ino, 'WORKER_IDENTITY_CHANGED');
+            worker = stat;
             if (entries.includes('executable.json')) {
                 executable = this.record(BootstrapSchemas.executable, launch, 'executable.json');
                 Check.require(executable.nonce === intent.nonce && executable.dev === stat.dev && executable.ino === stat.ino && executable.size === stat.size, 'WORKER_IDENTITY_CHANGED');
@@ -62,6 +70,7 @@ export class BootstrapRecords {
             ready = this.record(BootstrapSchemas.ready, launch, 'ready.json');
             Check.require(ready.nonce === intent.nonce && ready.parentPid === intent.parentPid && ready.pid === child.pid, 'BOOTSTRAP_BINDING');
         }
+        if (worker) this.worker(state, worker, intent, child, ready);
         launch.verify();
         state.verify();
         return { intent, executable, child, ready };
