@@ -30,7 +30,8 @@ class HttpProtocolFixture {
         this.requests++;
         if (request.method !== 'GET' || request.headers.authorization || request.headers.cookie) { response.writeHead(400); response.end(); return; }
         if (request.url === '/redirect') { response.writeHead(302, { location: 'https://SECRET_CANARY.invalid/' }); response.end(); return; }
-        if (request.url === '/oversize') { response.end('x'.repeat(33)); return; }
+        if (request.url === '/oversize') { response.write('x'.repeat(17)); response.end('x'.repeat(17)); return; }
+        if (request.url === '/headers') { response.setHeader('x-fixture', 'x'.repeat(20000)); response.end('HEADER_SECRET_CANARY'); return; }
         if (request.url === '/truncated') { response.writeHead(200, { 'content-length': 1000 }); response.end('short'); return; }
         if (request.url === '/stall') { response.writeHead(200); response.write('wait'); return; }
         if (request.url === '/encoded') { response.writeHead(200, { 'content-encoding': 'gzip' }); response.end('encoded'); return; }
@@ -52,10 +53,10 @@ class HttpProbeProgram {
             for (const [scheme, port, fixture] of [['http', plainPort, http], ['https', securePort, https]] as const) {
                 const endpoint = scheme + '://127.0.0.1:' + port + '/', input = new HttpProbeInput(endpoint, ca), reference = scheme === 'https' ? 'secret://selected-service/public-ca' : undefined;
                 if ((await client.read(input, { path: '/ok', authorityReference: reference })).toString() !== 'fixture-probe-ok' || input.privateReads || input.authorityReads !== (reference ? 1 : 0)) throw new Error('Default transport failed');
-                for (const path of ['/redirect', '/oversize', '/truncated', '/encoded', '/error']) { await this.denied(client, new HttpProbeInput(endpoint, ca), { path, maximumBytes: 32, authorityReference: reference }); await this.drained(fixture); }
+                for (const path of ['/redirect', '/oversize', '/truncated', '/encoded', '/error', '/headers']) { await this.denied(client, new HttpProbeInput(endpoint, ca), { path, maximumBytes: path === '/truncated' ? 1024 : 32, authorityReference: reference }); await this.drained(fixture); }
                 const cancelled = new HttpProbeInput(endpoint, ca), timer = setTimeout(cancelled.controller.abort.bind(cancelled.controller), 100), started = Date.now();
                 try { await this.denied(client, cancelled, { path: '/stall', authorityReference: reference }); if (Date.now() - started > 2000) throw new Error('Cancellation exceeded bound'); } finally { clearTimeout(timer); } await this.drained(fixture);
-                const invalid = new HttpProbeInput(endpoint, ca), before = fixture.requests; await this.denied(client, invalid, { path: '//SECRET_CANARY', authorityReference: reference }); if (invalid.authorityReads || before !== fixture.requests) throw new Error('Invalid path performed effects');
+                for (const path of ['//SECRET_CANARY', '/ok\n', '/./ok', '/../ok']) { const invalid = new HttpProbeInput(endpoint, ca), before = fixture.requests; await this.denied(client, invalid, { path, authorityReference: reference }); if (invalid.authorityReads || before !== fixture.requests) throw new Error('Invalid path performed effects'); }
             }
             const endpoint = 'https://127.0.0.1:' + securePort + '/', reference = 'secret://selected-service/public-ca';
             await this.denied(client, new HttpProbeInput(endpoint, wrongCa), { path: '/ok', authorityReference: reference });
