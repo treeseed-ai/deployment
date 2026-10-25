@@ -183,3 +183,5 @@ export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceI
 export {ServiceContainerEngine,ScopedServiceEngine,ServiceExecution,ServiceRuntimeInspection} from "./service-engine.js";
 
 export {ServiceNativeScope,type PreparedServiceScope} from "./service-native.js";
+
+export {ServiceApplicationRuntime,ServiceApplicationPlugin,ServiceApplicationToken,type ServiceApplicationHost} from "./service-application.js";

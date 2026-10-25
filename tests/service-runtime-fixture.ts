@@ -46,6 +46,7 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         for (const service of this.release.composition.services) {
             service.provider = { ...service.provider, providerId: RuntimeContainerFixture.declaration.id, classExport: 'RuntimeContainerFixture' };
             service.configuration = {};
+            service.readiness.deadlineMs = 5000;
             service.dependencies = [];
             const projection = ServiceProjection.resolve(service, RuntimeContainerFixture.container, this.release.composition, this.configuration);
             service.definition = projection.definition;
@@ -131,6 +132,8 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         return { id: 'application', reference: 'fixture/runtime@sha256:' + manifestDigest, layout: 'oci', manifestDigest, indexSha256 };
     }
     override close(): void {
+        if (!this.project && this.configuration)
+            this.project = 'cordis-' + CanonicalJson.digest({ installationId: this.configuration.installationId, installationDirectory: this.installation }).slice(0, 16);
         if (this.project) {
             for (const kind of ['container', 'volume', 'network']) {
                 const args = kind === 'container' ? ['container', 'ls', '--all', '--quiet', '--filter', 'label=com.docker.compose.project=' + this.project] : [kind, 'ls', '--quiet', '--filter', 'label=com.docker.compose.project=' + this.project];

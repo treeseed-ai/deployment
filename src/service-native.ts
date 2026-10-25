@@ -208,6 +208,7 @@ export class ServiceNativeScope {
             Check.require(identity.serviceId === this.serviceId, 'SERVICE_SCOPE');
             const engine = await CordisServiceLocator.from(this.consumer).acquire(ServiceTokens.engine);
             try {
+                Check.require(CanonicalJson.stringify(identity) === CanonicalJson.stringify(engine.value.identity(this.serviceId)), 'SERVICE_IDENTITY_MISMATCH');
                 return await engine.value.ready(this.serviceId);
             }
             finally {

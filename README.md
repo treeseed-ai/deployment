@@ -388,3 +388,16 @@ Closing the host drains its native scopes and releases its verified writer witho
 containers or deleting credentials. Tests spawn the built host program and genuine fixture containers;
 this qualifies the application coordinator, not yet the standalone durable worker/socket installer,
 API/Keycloak application composition, retained active transitions or source acquisition.
+
+Application validation rechecks the qualified host, storage, pinned daemon/capacity and listening
+port before staging. A newly occupied publication produces a failed validation record with no
+artifact store, credentials or runtime effects. Unready partial activation keeps its receipts,
+returns no active composition/acknowledgements and reports an explicit repair blocker. Tests
+establish both failure paths at the built-program boundary, in addition to successful/stopped
+applications and a stopped-after-commit status check.
+
+`ServiceApplicationRuntime.close(timeoutMs)` stops admission and drains accepted leases. If the
+bound expires it reports pending and fences admission; it does not report successful cleanup.
+After the known calls settle, a later close can finish disposal and release the writer. A fresh
+unused installation may then reopen; installations with historical applications still require the
+future explicit recovery path.
