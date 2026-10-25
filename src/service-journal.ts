@@ -42,7 +42,7 @@ export class ServiceJournal {
     private static eventName(record: ServiceApplicationRecord, order: number): string { return String(order).padStart(12, '0') + '.' + record.id + '.' + String(record.sequence).padStart(8, '0') + '.' + CanonicalJson.digest(record) + '.json'; }
     static requestDigest(plan: ServicePlan, request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
-    }>): string { return CanonicalJson.digest({ request, installationId: plan.configuration.installationId, installationDirectory: plan.configuration.installationDirectory, expectedEngine: plan.expectedEngine }); }
+    }>): string { return CanonicalJson.digest({ request:request.restartServices?{...request,restartServices:[...request.restartServices].sort()}:request, installationId: plan.configuration.installationId, installationDirectory: plan.configuration.installationDirectory, expectedEngine: plan.expectedEngine }); }
     read(extra?: {
         resource?: ResourceReceipt;
         snapshot?: CompositionSnapshot;
@@ -121,7 +121,7 @@ export class ServiceJournal {
         for (const record of events) {
             const plan = this.plans.get(record.planId);
             Check.require(plan && record.digest === plan.digest && record.desiredComposition === plan.compositionGeneration && record.expectedComposition === plan.expectedComposition, 'APPLICATION_SCOPE');
-            const request = ServiceWorkerSchemas.submit.parse({ protocol: 3, operation: 'submit', planId: record.planId, digest: record.digest, idempotencyKey: record.idempotencyKey }), intent = ServiceJournal.requestDigest(plan, request);
+            const request = ServiceWorkerSchemas.submit.parse({ protocol: 3, operation: 'submit', planId: record.planId, digest: record.digest, idempotencyKey: record.idempotencyKey,...(record.restartServices?{restartServices:record.restartServices}:{}) }), intent = ServiceJournal.requestDigest(plan, request);
             Check.require(record.id === 'app-' + intent && record.requestDigest === intent && record.historyReference === '.cordis/applications/' + record.id, 'APPLICATION_INTENT');
             const previous = latest.get(record.id);
             Check.require(record.sequence === (previous ? previous.sequence + 1 : 0) && record.sequence < 100000000, 'APPLICATION_SEQUENCE');
@@ -193,7 +193,7 @@ export class ServiceJournal {
         if (record.idempotencyKey === request.idempotencyKey) {
             Check.require(record.requestDigest === requestDigest, 'IDEMPOTENCY_CONFLICT');
             return { record, fresh: false };
-        } const record = ServiceJournal.schema(ServiceSchemas.applicationRecord, { formatVersion: 3, id: 'app-' + requestDigest, planId: plan.id, digest: plan.digest, idempotencyKey: request.idempotencyKey, requestDigest, sequence: 0, phase: 'validate', desiredComposition: plan.compositionGeneration, activeComposition: data.current?.compositionGeneration ?? null, result: 'accepted', recovery: null, historyReference: '.cordis/applications/app-' + requestDigest, expectedComposition: plan.expectedComposition, resourceSetDigest: data.current ? CanonicalJson.digest(data.current.resources) : null, acknowledgements: [] }); this.append(record, writer); return { record, fresh: true }; }
+        } const record = ServiceJournal.schema(ServiceSchemas.applicationRecord, {...(request.restartServices?{restartServices:[...request.restartServices].sort()}:{}), formatVersion: 3, id: 'app-' + requestDigest, planId: plan.id, digest: plan.digest, idempotencyKey: request.idempotencyKey, requestDigest, sequence: 0, phase: 'validate', desiredComposition: plan.compositionGeneration, activeComposition: data.current?.compositionGeneration ?? null, result: 'accepted', recovery: null, historyReference: '.cordis/applications/app-' + requestDigest, expectedComposition: plan.expectedComposition, resourceSetDigest: data.current ? CanonicalJson.digest(data.current.resources) : null, acknowledgements: [] }); this.append(record, writer); return { record, fresh: true }; }
     append(record: ServiceApplicationRecord, writer: InstallationWriter): void { writer.assert(this.reference().configuration.installationDirectory); const existing = this.read(); for (const previous of existing.events)
         if (previous.id === record.id && previous.sequence === record.sequence) {
             Check.require(CanonicalJson.stringify(previous) === CanonicalJson.stringify(record), 'APPLICATION_CONFLICT');

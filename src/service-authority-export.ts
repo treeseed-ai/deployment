@@ -95,18 +95,18 @@ export class ServiceAuthorityExports {
         for (const name of directory.entries()) { const receipt = paths.get(name); Check.require(receipt, 'AUTHORITY_REPAIR_REQUIRED'); AuthorityArchive.certificate(directory.file(name, receipt.contentDigest!, 128 * 1024, true)); }
         SafeDirectory.owner(fstatSync(directory.fd), true); directory.verify(); return receipts;
     }
-    private cached(source: AuthoritySource): Buffer | null {
+    private cached(source: AuthoritySource,retained=false): Buffer | null {
         const directory = this.directory(); try {
             let found: ServiceResourceReceipt | undefined;
             for (const receipt of this.audit(directory)) if (receipt.resourceId === source.resourceId) { Check.require(!found && receipt.definitionDigest === source.definitionDigest && receipt.actualId === source.volume.actualId && receipt.serviceId === source.selection.service.serviceId && receipt.name === source.selection.declaration.id, 'AUTHORITY_SCOPE'); found = receipt; }
             if (!found) return null;
-            Check.require(found.references.includes(this.plan.compositionGeneration), 'AUTHORITY_GENERATION');
+            Check.require(found.references.includes(this.plan.compositionGeneration)||(retained&&this.writer),'AUTHORITY_GENERATION');
             return AuthorityArchive.certificate(directory!.file(source.resourceId + '.pem', found.contentDigest!, 128 * 1024, true));
         } finally { directory?.close(); }
     }
     async read(serviceId: string, reference: string, options: Deadline): Promise<Buffer> {
-        this.deadline(options); const selection = this.selection(serviceId, reference); this.phase(); const source = this.source(selection), cached = this.cached(source);
-        if (cached) { this.deadline(options); return cached; }
+        this.deadline(options); const selection = this.selection(serviceId, reference); this.phase(); const source = this.source(selection), cached = this.cached(source,Boolean(this.writer));
+        if(cached){let receipt:ServiceResourceReceipt|undefined;for(const candidate of this.resources())if(candidate.resourceId===source.resourceId)receipt=candidate;Check.require(receipt,'AUTHORITY_SCOPE');if(!receipt.references.includes(this.plan.compositionGeneration)){this.phase(true);this.deadline(options);await this.inspect(source);this.deadline(options);this.writer!.assert(this.store.path);const current=this.source(selection);Check.require(current.resourceId===source.resourceId&&current.container.actualId===source.container.actualId,'RESOURCE_IDENTITY_CHANGED');this.store.saveResource({...receipt,references:[...receipt.references,this.plan.compositionGeneration].sort()},this.writer!);await this.inspect(current);this.deadline(options);const after=this.cached(current);Check.require(after&&after.equals(cached),'AUTHORITY_CONTENT_CHANGED');return after;}this.deadline(options);return cached;}
         this.phase(true); this.deadline(options);
         await this.inspect(source); this.deadline(options);
         const target = await new ServiceRuntimeInspection(this.plan, this.commands).service(selection.service.serviceId); this.deadline(options); Check.require(target.running && target.actualId === source.container.actualId, 'AUTHORITY_SOURCE_NOT_PREPARED');

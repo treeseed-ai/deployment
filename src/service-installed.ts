@@ -1,15 +1,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { lstatSync, statSync, fstatSync } from 'node:fs';
 import { join } from 'node:path';
-import { InstalledSchemas, type ApplyOptions, type ServicePlan, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
+import { InstalledSchemas, ServiceSchemas, type ApplyOptions, type ServicePlan, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
 import { BootstrapRecords, BootstrapSchemas, WorkerBootstrap } from './service-bootstrap.js';
-import { ServicePlanStore } from './service-plan.js';
+import { ServicePlanStore, ServiceTransitions } from './service-plan.js';
 import { ServiceWorkerClient, ServiceWorkerOwnerClient } from './service-ipc.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 /** Default format-3 transport/launch adapter; the native host remains the sole writer. */
 export class ServiceInstalledHost {
     async apply(planId: string, digest: string, input: ApplyOptions): Promise<{ id: string; accepted: true }> {
-        const options = InstalledSchemas.applyOptions.parse(input), store = new ServicePlanStore(options.installationDirectory), plan = store.read(planId, digest), client = new ServiceWorkerOwnerClient(options), request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: options.idempotencyKey };
+        const options = ServiceSchemas.applyOptions.parse(input), store = new ServicePlanStore(options.installationDirectory), plan = store.read(planId, digest), client = new ServiceWorkerOwnerClient(options), request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: options.idempotencyKey,...(options.restartServices?{restartServices:[...options.restartServices].sort()}:{}) };
+        ServiceTransitions.additive(plan,options.restartServices);
         if (this.control(plan)) { this.running(plan); return client.submit(request); }
         const bootstrap = WorkerBootstrap.prepare(plan);
         let child: ChildProcess | undefined;

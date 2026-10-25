@@ -63,6 +63,7 @@ export class ServicePlanIdentity {
 }
 /** Data-only classification; artifact validity and actual resources remain independently verified. */
 export class ServiceTransitions {
+    static additive(plan:ServicePlan,restartServices?:string[]):void{Check.require(restartServices===undefined,'RESTART_SCOPE_NOT_QUALIFIED');for(const change of plan.changes)Check.require((change.kind==='add'||change.kind==='retain')&&change.requiredActions.length===0,'TRANSITION_ACTION_REQUIRED');}
     static plan(previous: ServicePlan, desired: ServicePlan): ServicePlan['changes'] {
         Check.require(previous.configuration.installationId===desired.configuration.installationId&&previous.configuration.installationDirectory===desired.configuration.installationDirectory&&previous.configuration.origin===desired.configuration.origin&&CanonicalJson.stringify(previous.expectedEngine)===CanonicalJson.stringify(desired.expectedEngine),'TRANSITION_SCOPE');
         Check.require(previous.composition.profile.id===desired.composition.profile.id&&previous.composition.profile.version===desired.composition.profile.version&&previous.composition.profile.workerSocketServiceId===desired.composition.profile.workerSocketServiceId,'PROFILE_MIGRATION_REQUIRED');
