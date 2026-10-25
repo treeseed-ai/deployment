@@ -10,6 +10,8 @@ class ApplicationProgram {
         if (plan.formatVersion !== 3)
             throw new Error('Wrong format');
         const runtime = await ServiceApplicationRuntime.start(plan);
+        const providers=runtime.describe();
+        if(!providers.some(ApplicationProgram.authority)||!providers.some(ApplicationProgram.applicationHost))throw new Error('Missing selected native host providers');
         if (expected === 'drain-only') {
             const pending = runtime.status();
             let refused = false;
@@ -131,6 +133,8 @@ class ApplicationProgram {
     private static listen(port: number, done: (value: void) => void): void { this.listener!.listen(port, '127.0.0.1', done); }
     private static closePort(done: (value: void) => void): void { this.listener!.close(this.portClosed.bind(this, done)); }
     private static portClosed(done: (value: void) => void): void { this.listener = null; done(); }
+    private static authority(value:{capability:string;id:string;ready:boolean;selected:boolean}):boolean{return value.capability==='deployment.installation'&&value.id==='deployment.installation-authority'&&value.ready&&value.selected;}
+    private static applicationHost(value:{capability:string;id:string;ready:boolean;selected:boolean}):boolean{return value.capability==='deployment.applications'&&value.ready&&value.selected;}
     private static repair(value: {
         code: string;
     }): boolean { return value.code === 'APPLICATION_RECOVERY_REQUIRED'; }
