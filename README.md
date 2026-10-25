@@ -272,3 +272,22 @@ qualification and actual retained-resource activation remain the following worke
 The held installation writer pins its owner record's bytes and file identity. Replacement or
 mutation fences that handle permanently; closing a fenced handle preserves the uncertain lock
 and closes descriptors without deleting another owner's record. Explicit repair is required.
+
+### Service-scoped private slot custody
+
+`ServiceCredentials` prepares accepted service slots only under the current installation writer
+and a durable application's prepare phase. It is part of the coherent journal/security boundary,
+not a replaceable authorization policy. Owner containers/probes receive only typed scoped readers.
+Random/UUID slots retain their original bytes; compatible derived slots retain their exact bytes
+and receipts. A changed definition uses a new private version rather than overwriting an old
+record. Logical `secret://<service>/<slot>` references are independent of private physical paths.
+All directories remain 0700 and values/receipts 0600. Plaintext never enters plan/status/output.
+
+Preparation validates the full reference graph and explicit dependency grants before creating
+anything. It resolves only bounded secret/template data from the accepted owner projection;
+no executable interpolation, ambient files, imports or lifecycle scripts are allowed. Cross-service
+reads require the selected service's explicit grant and probe readers also require their declared
+reference allowlist. Foreign/incomplete/unreceipted or changed files block instead of generating
+replacement values. Receipt identity includes installation/service/slot/definition/content and
+creator generation, so an unrelated added service cannot rotate existing credentials or authority.
+Only the worker's actual observations can commit a ready composition; preparing files claims none.

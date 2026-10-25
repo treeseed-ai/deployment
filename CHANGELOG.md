@@ -8,6 +8,8 @@
 
 ### Added
 
+- Prepare versioned service-scoped slots with explicit grants and retained credential bytes (#910).
+
 - Stage exact instance-scoped native providers from verified runtime closures (#910).
 
 - Extend the format-3 journal with ordered application and immutable resource receipts (#910).
