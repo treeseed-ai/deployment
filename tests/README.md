@@ -6,3 +6,8 @@ need an explicit bounded budget for cold engine/fixture preparation. The accepte
 metadata test uses a 60-second budget; missing prerequisites and the production command timeouts
 still fail visibly. It must finish before its fixture cleanup, rather than outliving Bun's
 five-second default and deleting state underneath a pending host inspection.
+
+The complete serial Docker gate now includes a compiled retained-transition scene and cold
+module-entry probes. Measured local predecessor smoke was 472 seconds and the new compiled
+scene 144 seconds, before CI setup. The job budget is 15 minutes; individual protocol/test
+deadlines and missing-prerequisite failures remain enforced, with no skipped positive cases.
