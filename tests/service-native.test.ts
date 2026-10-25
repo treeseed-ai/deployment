@@ -20,6 +20,7 @@ class NativeTests {
             expect(report.reports[1].serviceId).toBe('instance-1');
             expect(report.reports[0].acknowledgements[0].runtimeGeneration).not.toBe(report.reports[1].acknowledgements[0].runtimeGeneration);
             expect(report.reports[2].observations).toContain('fixture.capabilities-qualified');
+            expect(report.reports[2].observations).toContain('fixture.observation-qualified');
             expect(report.history).toContain('probe.invalid-result');
             expect(report.history).toContain('probe.deadline');
             expect(report.history).toContain('probe.pending');
