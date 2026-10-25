@@ -833,3 +833,13 @@ first must work in both Bun and built Node consumers. Internal implementation im
 route through the public composition barrel. The default Docker command class belongs in one
 leaf module and remains publicly re-exported; the host's token initialization cannot depend on
 a previous unrelated import warming the module graph.
+
+### Optional restart-intent contract preparation
+
+Select SDK `.13` source `752b6fd5909eae15a30f1d7519d16e1f4a40a75b`, exact archive
+`dca6c416b8cdf977f021efb632e82e8b1b2f2d1b4a61108fe27a5b59e5848e2c`.
+Force installation and verify installed identity and lock SRI. This preparation only adopts
+the optional schema; the retained apply continuation must enforce its refusal/intent policy.
+The prerequisite candidate is `.38-preparation.1`, independently versioned from `.38`.
+The Ubuntu job budget becomes 15 minutes for the measured serial compiled-worker gate;
+individual deadlines, missing-prerequisite failures and positive cases stay enforced.
