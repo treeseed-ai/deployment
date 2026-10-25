@@ -517,3 +517,13 @@ It verifies five-instance application/read-back, same-key response-loss recovery
 the original bundle, selected-child writer identity and shutdown that preserves resource IDs.
 This qualifies the real compiled entry; the separate bootstrap fixture continues to isolate
 malformed/interrupted ownership cases. Public host launcher integration is the following slice.
+
+The worker hashes its executable on first verification. Only that process may reuse the verified
+digest while both the saved selected-child record and fresh `/proc/self/exe` identity match the
+same private inode, size and pinned digest. Linux prevents write access to a running executable
+inode ([open(2), ETXTBSY](https://man7.org/linux/man-pages/man2/open.2.html)); this is not an
+mtime-based cache. Every inspection still checks path, owner, mode, link count and launch records.
+External readers and changed identities hash afresh or refuse the record. A built canary checks
+kernel write refusal and rejects replacing the pathname even with identical executable bytes.
+This removes redundant synchronous hashing from journal operations without accepting mutable
+worker contents or extending the private RPC deadline.
