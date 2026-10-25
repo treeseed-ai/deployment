@@ -4,6 +4,7 @@ import { satisfies, valid } from 'semver';
 import { PlatformSchemas, CanonicalJson, PlanningBlockedError, InstalledSchemas,ProviderSchemas,type ProviderDeclaration,type InstalledRelease,type ContainerDefinition,type DeploymentConfiguration, type DeploymentPlan, type ReleaseInventory, type DeploymentRecipe, type PluginMetadata } from '@treeseed-cordis/sdk';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 
+interface ArchiveReadLimits { bytes: number; entries: number; files: number; file: number; }
 export class ArchiveMetadata {
   readonly parser:Parser;
   readonly paths=new Set<string>();
@@ -17,18 +18,19 @@ export class ArchiveMetadata {
   chunks:Buffer[]=[];
   resolveResult:((value:Record<string,unknown>)=>void)|null=null;
   rejectResult:((error:Error)=>void)|null=null;
-  constructor(readonly archive:Buffer,private readonly helper=false) {this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
+  constructor(readonly archive:Buffer,private readonly helper=false,private readonly limits:ArchiveReadLimits={bytes:1024**3,entries:100000,files:100000,file:1024**3}) {this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
   read():Promise<Record<string,unknown>> {return new Promise(this.start.bind(this));}
-  private start(resolve:(value:Record<string,unknown>)=>void,reject:(error:Error)=>void):void {this.resolveResult=resolve;this.rejectResult=reject;this.parser.once('error',this.error.bind(this));this.parser.once('end',this.end.bind(this));this.parser.end(this.archive);}
+  private start(resolve:(value:Record<string,unknown>)=>void,reject:(error:Error)=>void):void {this.resolveResult=resolve;this.rejectResult=reject;this.parser.on('error',this.error.bind(this));this.parser.once('end',this.end.bind(this));this.parser.end(this.archive);}
   private entry(entry:ReadEntry):void {
     const path=entry.path.replace(/\/$/,'');
     if(!this.helper&&!path.startsWith('package/')&&path!=='package')this.failure=true;
     if(!path.split('/').every(SafeDirectory.component)||this.paths.has(path)||!['File','Directory','OldFile'].includes(entry.type))this.failure=true;
-    this.paths.add(path);this.bytes+=entry.size;this.maximumFile=Math.max(this.maximumFile,entry.size);if(entry.type==='File'||entry.type==='OldFile'){this.sizes.set(path,entry.size);this.modes.set(path,(entry.mode??0)&0o7777);const hash=new ArchiveFileHash(path,this.hashes);entry.on('data',hash.data.bind(hash));entry.once('end',hash.end.bind(hash));}
+    this.paths.add(path);this.bytes+=entry.size;this.maximumFile=Math.max(this.maximumFile,entry.size);if(this.failure||!this.bounded(entry)){this.failure=true;entry.resume();this.parser.abort(new Error('ARCHIVE_LIMIT'));return;}if(entry.type==='File'||entry.type==='OldFile'){this.sizes.set(path,entry.size);this.modes.set(path,(entry.mode??0)&0o7777);const hash=new ArchiveFileHash(path,this.hashes);entry.on('data',hash.data.bind(hash));entry.once('end',hash.end.bind(hash));}
     if(this.paths.size>100000||this.bytes>1024**3)this.failure=true;
     if(path==='package/package.json'&&entry.type==='File'&&entry.size<=1024*1024){entry.on('data',this.data.bind(this));entry.once('end',this.metadataEnd.bind(this));}
     else entry.resume();
   }
+  private bounded(entry:ReadEntry):boolean {return this.paths.size<=this.limits.entries&&this.bytes<=this.limits.bytes&&entry.size<=this.limits.file&&this.sizes.size+(['File','OldFile'].includes(entry.type)?1:0)<=this.limits.files;}
   private data(value:Buffer):void {this.chunks.push(value);}
   private metadataEnd():void {try{this.metadata=StrictJson.parse(Buffer.concat(this.chunks));}catch{this.failure=true;}}
   private error():void {this.rejectResult!(new PlanningBlockedError([{code:'INVALID_ARCHIVE',message:'Package archive inspection failed.'}]));}

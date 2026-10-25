@@ -159,3 +159,4 @@ export {ServiceAuthorityExports} from './service-authority-export.js';
 export {PostgresServicePlugin,PostgresReadinessPlugin} from './service-postgres.js';
 export {ServiceHttpClient,type ServiceHttpRequest,type ServiceHttpRequests} from './service-http.js';
 export {CaddyServicePlugin} from './service-caddy.js';
+export {PackageArchiveInspector,type PackageArchiveIndex,type PackageArchiveFile} from './package-archive.js';

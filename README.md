@@ -735,7 +735,7 @@ Read the exact hash-pinned regular file through no-symlink descriptor-anchored a
 archive without extraction, package-manager execution, imports or lifecycle scripts. Require valid
 package identity and package-root paths; reject links, duplicate/traversal entries, invalid metadata,
 truncation, ownership/path races and excessive input. Bound compressed input to 64 MiB, unpacked
-contents to 64 MiB, file count to 4096 and individual files to 8 MiB; abort parsing as soon as a
+contents to 64 MiB, file count to 4096, total entries to 8192 and individual files to 8 MiB; abort parsing as soon as a
 budget is exceeded. Errors expose safe structured codes, not filenames, metadata or parser details.
 No installation/store state is created. Built Node consumer tests use genuine prepared archives and
 script/import canaries, plus wrong hashes, symlinks and an oversized entry.
