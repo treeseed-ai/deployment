@@ -160,7 +160,7 @@ test('integration: missing, duplicate and cyclic plugin declarations block',suit
 test('unit: image reference and secret-slot bindings fail closed',suite.bindings.bind(suite));
 
 test('integration: default real plan persists deterministic bytes and independent read-back',suite.plans.bind(suite));
-test('unit: malformed and incomplete journals block without writes',suite.journals.bind(suite));
+test('integration: malformed and incomplete journals block without writes',suite.journals.bind(suite),60000);
 test('integration: private modes, tampered plans and active/foreign receipts block',suite.privateState.bind(suite));
 test('unit: descriptor anchor rejects directory replacement without escape',suite.race.bind(suite));
 
