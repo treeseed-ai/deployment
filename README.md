@@ -122,3 +122,25 @@ Docker image-store qualification: Docker 29.9.1/containerd registers a selected 
 Owner issue: https://github.com/treeseed-ai/deployment/issues/910. Follow the approved Platform Task 3C service/provider/UI plan through exact public archives. Preserve independent repository ownership, strict TypeScript classes, native Cordis lifecycle, historical formats and all seven SDK operations. Expected-generation/idempotency, resource/credential/TLS retention and explicit unsafe restart/migration gates are mandatory. All issues remain open until release.
 
 Every visual component must be mobile-first from 320 CSS pixels to widescreen monitors; test 320/375/768/1024/1440/1920/2560 widths, long content, keyboard/touch and 200% text resizing. Keep authored controls at least 44×44 CSS pixels, required actions visible, logical/fluid dimensions and no page overflow (labeled local semantic-table overflow is permitted). UI owns components/styles/renderers; consumers retain domain behavior and Identity retains Keycloak authority.
+
+### Service graph 3 artifact resolution
+
+`ServiceArtifactResolver.resolve(configuration)` accepts `ServiceSchemas.configuration` and
+an exact format-3 local release. It validates archives, the complete flat Bun lock and OCI
+bytes using the existing bounded artifact verifier. It does not import providers, invoke a
+package manager, read credentials or create installation state. Provider references bind the
+selected package name/version/hash and native class export (entry, classExport, deployment
+contract 0.4). Container and probe exports must appear in the package's SDK-generated
+`cordisPackage` format-4 projection. A service instance's configuration validates against that
+export's projected JSON schema before planning; its definition equals the owner projection.
+
+Named service instances replace fixed roles. Multiple instances may use one provider export;
+bindings and dependency edges identify their distinct service identities. The declarative
+recipe must exactly project each instance's selected digest-pinned image, named volumes,
+scoped secrets, dependency names and sole loopback publication. Provider-owned environment
+and argv remain in the typed service definition, never arbitrary Compose extensions. Resource
+recipe keys are deterministic hashes of service identity plus local slot, avoiding ambiguity
+and the Compose key length limit. Configuration secret references are exactly
+`secret://<service-id>/<slot>`; recipe paths point to that future scoped private credential.
+Unused packages, images, service definitions, mounts or secret slots fail validation. Planning
+only validates these paths; activation is a separate durable worker operation.
