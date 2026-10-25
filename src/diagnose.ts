@@ -177,3 +177,4 @@ export {ServicePlanStore} from './service-plan.js';
 export {ServicePlanIdentity} from './service-plan.js';
 export {ServiceWorkerClient} from './service-ipc.js';
 export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
+export {ServiceCredentials} from './service-credentials.js';

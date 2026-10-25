@@ -183,8 +183,8 @@ export class ServicePlanStore {
             if (engine)
                 Check.require(CanonicalJson.stringify(engine) === CanonicalJson.stringify(receipt.expectedEngine), 'ENGINE_IDENTITY_CHANGED');
             for (const name of entries)
-                Check.require(['installation.json','plans','writer.lock','applications','resources','snapshots','artifacts'].includes(name), 'INCOMPLETE_JOURNAL');
-            if(entries.includes('artifacts')){const artifacts=state.directory('artifacts',true);artifacts.close();}
+                Check.require(['installation.json','plans','writer.lock','applications','resources','snapshots','artifacts','credentials'].includes(name), 'INCOMPLETE_JOURNAL');
+            for(const name of ['artifacts','credentials'])if(entries.includes(name)){const directory=state.directory(name,true);directory.close();}
             if (entries.includes('writer.lock')) {
                 const writer = state.directory('writer.lock', true);
                 try {
@@ -296,6 +296,6 @@ export class ServicePlanStore {
     saveResource(receipt:ServiceResourceReceipt,writer:InstallationWriter):void{const scope=this.openJournal();try{scope.journal.saveResource(receipt,writer);}finally{this.closeJournal(scope);}}
     saveSnapshot(snapshot:ServiceSnapshot,writer:InstallationWriter):void{const scope=this.openJournal();try{scope.journal.saveSnapshot(snapshot,writer);}finally{this.closeJournal(scope);}}
 
-    directory(name:'artifacts',writer?:InstallationWriter):SafeDirectory{const scope=this.openJournal();try{if(scope.state.entries().includes(name))return scope.state.directory(name,true);Check.require(writer,'WRITER_AUTHORITY');writer.assert(this.path);return InstallationStore.mkdir(scope.state,name);}finally{this.closeJournal(scope);}}
+    directory(name:'artifacts'|'credentials',writer?:InstallationWriter):SafeDirectory{const scope=this.openJournal();try{if(scope.state.entries().includes(name))return scope.state.directory(name,true);Check.require(writer,'MISSING_JOURNAL');writer.assert(this.path);return InstallationStore.mkdir(scope.state,name);}finally{this.closeJournal(scope);}}
 
 }
