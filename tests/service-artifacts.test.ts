@@ -5,27 +5,13 @@ import { join } from 'node:path';
 import { create } from 'tar';
 import { PackageDefinition, ProviderV4Schemas, PlatformSchemas, ServiceSchemas, CanonicalJson, PlanningBlockedError, type ServiceInstance, type ServiceRelease } from '@treeseed-cordis/sdk';
 import { PreparedReleaseFixture } from './release-fixture.js';
-class ContainerFixture {
-    static readonly provide = ['container.service'];
-    static readonly inject = ['service.context'];
-    static readonly Config = PlatformSchemas.empty;
-    static readonly declaration = ProviderV4Schemas.declaration.parse({ id: 'fixture.container', pluginId: 'fixture', capability: 'container.service', contractVersion: ProviderV4Schemas.version, target: 'deployment', provide: this.provide, inject: this.inject });
-    static readonly replacement = { kind: 'restart', qualificationDigest: null, stateVersion: 1 };
-    static readonly container = { definition: { imageId: 'application', environment: {}, ports: [{ id: 'http', target: 8080 }], volumes: [], secrets: [], workerSocket: false }, resources: { volumes: [], slots: {}, grants: [], authorities: [] }, providedContracts: [{ port: 'http', contractId: 'fixture.echo', contractVersion: '1.0.0' }], dependencies: [], observationContract: 'fixture.echo', transitionPolicy: { kind: 'additive', stateVersion: 1 } };
-}
-class ProbeFixture {
-    static readonly provide = ['probe.service'];
-    static readonly inject = ['probe.context'];
-    static readonly Config = PlatformSchemas.empty;
-    static readonly declaration = ProviderV4Schemas.declaration.parse({ id: 'fixture.probe', pluginId: 'fixture', capability: 'probe.service', contractVersion: ProviderV4Schemas.version, target: 'deployment', provide: this.provide, inject: this.inject });
-    static readonly replacement = { kind: 'restart', qualificationDigest: null, stateVersion: 1 };
-    static readonly probe = { observationContracts: ['fixture.echo'], schemes: ['http'], maximumDeadlineMs: 5000 };
-}
+import {ContainerFixture,ProbeFixture} from './service-fixture-plugins.js';
 class ServiceFixture extends PreparedReleaseFixture {
     release!: ServiceRelease;
     async services(): Promise<this> {
         await this.prepare();
         const source = join(this.root, 'plugin/package'), image = this.inventory.images[0]!, images = [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'oci-archive' as const, url: 'https://fixture.invalid/image.tar', sha256: 'a'.repeat(64), size: 1 } }];
+        const entry = join(this.root,'provider-entry.ts');writeFileSync(entry,`import {writeFileSync} from 'node:fs';export {ContainerFixture,ProbeFixture} from ${JSON.stringify(join(process.cwd(),'tests/service-fixture-plugins.ts'))};class Canary{static run():void{writeFileSync(${JSON.stringify(join(this.root,'SCRIPT_CANARY'))},'imported');}}Canary.run();`);const build=spawnSync('bun',['build',entry,'--target=node','--outfile',join(source,'index.js')],{encoding:'utf8'});if(build.status!==0)throw new Error('Provider fixture compilation failed');
         const metadata = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as Record<string, unknown>;
         metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(ContainerFixture, 'index.js', 'ContainerFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture')], [], images);
         writeFileSync(join(source, 'package.json'), JSON.stringify(metadata));
@@ -165,3 +151,6 @@ class ServiceArtifactBoundaryTests {
 const boundaries = new ServiceArtifactBoundaryTests();
 test('unit: a container image must be bound by its owning package projection', boundaries.image.bind(boundaries));
 test('integration: service configuration export recipe and asset tampering fail safely without state', boundaries.negative.bind(boundaries));
+
+class ServiceExportCalibrationTests {async exports():Promise<void>{const fixture=await new ServiceFixture().services();try{const entry=join(fixture.root,'plugin/package/index.js'),code="import {pathToFileURL} from 'node:url';class Calibration{static async run(){const exports=await import(pathToFileURL(process.argv[1]).href);for(const name of ['ContainerFixture','ProbeFixture'])if(typeof exports[name]!=='function')throw new Error('missing export');process.stdout.write('native-exports-ok\\n');}}await Calibration.run();";expect(existsSync(join(fixture.root,'SCRIPT_CANARY'))).toBe(false);const result=spawnSync('node',['--input-type=module','-e',code,entry],{encoding:'utf8',timeout:10000});expect(result.status).toBe(0);expect(result.stderr).toBe('');expect(result.stdout).toBe('native-exports-ok\n');expect(existsSync(join(fixture.root,'SCRIPT_CANARY'))).toBe(true);}finally{fixture.close();}}}
+const calibration=new ServiceExportCalibrationTests();test('smoke: archive fixture exports the same native classes used for metadata and calibrates the import canary',calibration.exports.bind(calibration));
