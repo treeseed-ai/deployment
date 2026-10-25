@@ -2,6 +2,9 @@ import { test, expect } from 'bun:test';
 import { createServer, type Server } from 'node:net';
 import { mkdirSync, chmodSync, linkSync, unlinkSync, renameSync, symlinkSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { ObserverServiceFixture } from './service-observer-fixture.js';
 import { ServiceReleaseFixture } from './release-fixture.js';
 import { ComposeDeploymentHost } from '@treeseed-cordis/deployment';
 import { ServiceObserverMount } from '../src/service-observer-mount.js';
@@ -10,6 +13,7 @@ class ObserverMountTests {
     private listen(accept: (value: void) => void): void { this.server!.listen(this.socket, accept); }
     private close(accept: (value: void) => void): void { this.server!.close(this.closed.bind(this, accept)); }
     private closed(accept: (value: void) => void): void { accept(); }
+    async program():Promise<void>{const fixture=new ObserverServiceFixture();try{await fixture.prepared();const file=join(fixture.root,'observer.json');writeFileSync(file,JSON.stringify(fixture.configuration));const result=spawnSync('node',['dist/tests/service-observer-program.js',file],{encoding:'utf8',timeout:150000});if(result.status!==0)throw new Error(result.stderr);expect(JSON.parse(result.stdout)).toEqual({fixtureOnly:true,observerRead:true,readonly:true,ownerDenied:true,measuredEntry:true,sourceFree:true,retained:true});}finally{fixture.close();}}
     async admission(): Promise<void> {
         const fixture = await new ServiceReleaseFixture().services(); let anchor: ServiceObserverMount | null = null;
         try {
@@ -32,3 +36,5 @@ class ObserverMountTests {
 }
 const observerMounts = new ObserverMountTests();
 test('integration: observer mount admission pins private directory socket and exact runtime grant without Docker effects', observerMounts.admission.bind(observerMounts), 30000);
+
+test('smoke: granted real container reads native host observations with no owner control and retains source-free state',observerMounts.program.bind(observerMounts),240000);
