@@ -1,3 +1,5 @@
+import {ServiceJournal} from './service-journal.js';
+import {type ServiceApplicationRecord,type ServiceResourceReceipt,type ServiceSnapshot,type ServiceWorkerRequest} from '@treeseed-cordis/sdk';
 import { lstatSync, fstatSync, mkdirSync, fsyncSync } from 'node:fs';
 import { dirname, basename } from 'node:path';
 import { InstallationStore, InstallationWriter } from './installed.js';
@@ -153,7 +155,7 @@ export class ServicePlanStore {
         directory.close();
         throw error;
     } }
-    private scope(plan: ServicePlan): void { const { id, digest, ...payload } = plan; Check.require(plan.configuration.installationDirectory === this.path && plan.configuration.installationDirectory === resolve(plan.configuration.installationDirectory) && id === 'plan-' + digest && CanonicalJson.digest(payload) === digest, 'PLAN_BINDING'); Check.require(plan.configurationDigest === CanonicalJson.digest(plan.configuration) && plan.releaseDigest === plan.configuration.release.manifestDigest && plan.recipeDigest !== null, 'PLAN_BINDING'); Check.require(plan.projectName === 'cordis-' + CanonicalJson.digest({ installationId: plan.configuration.installationId, installationDirectory: this.path }).slice(0, 16), 'PLAN_BINDING'); Check.require(plan.expectedComposition === null && plan.expectedResourceSet === null && plan.retainedResources.length === 0, 'ACTIVE_JOURNAL_REQUIRED'); }
+    private scope(plan: ServicePlan): void { const { id, digest, ...payload } = plan; Check.require(plan.configuration.installationDirectory === this.path && plan.configuration.installationDirectory === resolve(plan.configuration.installationDirectory) && id === 'plan-' + digest && CanonicalJson.digest(payload) === digest, 'PLAN_BINDING'); Check.require(plan.configurationDigest === CanonicalJson.digest(plan.configuration) && plan.releaseDigest === plan.configuration.release.manifestDigest && plan.recipeDigest !== null, 'PLAN_BINDING'); Check.require(plan.projectName === 'cordis-' + CanonicalJson.digest({ installationId: plan.configuration.installationId, installationDirectory: this.path }).slice(0, 16), 'PLAN_BINDING'); Check.require((plan.expectedComposition===null)===(plan.expectedResourceSet===null)&&(plan.expectedComposition!==null||plan.retainedResources.length===0),'PLAN_BINDING');Check.require(plan.compositionGeneration===CanonicalJson.digest({configuration:plan.configuration,composition:plan.composition,expectedEngine:plan.expectedEngine,artifacts:plan.artifacts}),'PLAN_BINDING'); }
     private parse(bytes: Buffer): ServicePlan { const result = ServiceSchemas.plan.safeParse(StrictJson.parse(bytes)); Check.require(result.success, 'INVALID_PLAN'); this.scope(result.data); return result.data; }
     inspect(configuration?: ServicePlan['configuration'], engine?: ServicePlan['expectedEngine']): boolean { const anchor = this.anchor(); try {
         if (anchor.missing.length || anchor.directory.entries().length === 0)
@@ -181,7 +183,7 @@ export class ServicePlanStore {
             if (engine)
                 Check.require(CanonicalJson.stringify(engine) === CanonicalJson.stringify(receipt.expectedEngine), 'ENGINE_IDENTITY_CHANGED');
             for (const name of entries)
-                Check.require(['installation.json', 'plans', 'writer.lock'].includes(name), 'INCOMPLETE_JOURNAL');
+                Check.require(['installation.json','plans','writer.lock','applications','resources','snapshots'].includes(name), 'INCOMPLETE_JOURNAL');
             if (entries.includes('writer.lock')) {
                 const writer = state.directory('writer.lock', true);
                 try {
@@ -195,13 +197,15 @@ export class ServicePlanStore {
             }
             const plans = state.directory('plans', true);
             try {
+                const allPlans=new Map<string,ServicePlan>();
                 const names = plans.entries();
                 Check.require(names.length > 0 && names.length <= 10000, 'INCOMPLETE_JOURNAL');
                 for (const name of names) {
                     Check.require(/^plan-[a-f0-9]{64}\.json$/.test(name), 'INCOMPLETE_JOURNAL');
                     const plan = this.parse(plans.file(name, undefined, 4 * 1024 * 1024, true));
-                    Check.require(name === plan.id + '.json' && plan.configuration.installationId === receipt.installationId && CanonicalJson.stringify(plan.expectedEngine) === CanonicalJson.stringify(receipt.expectedEngine), 'FOREIGN_INSTALLATION');
+                    Check.require(name === plan.id + '.json' && plan.configuration.installationId === receipt.installationId && CanonicalJson.stringify(plan.expectedEngine) === CanonicalJson.stringify(receipt.expectedEngine), 'FOREIGN_INSTALLATION');allPlans.set(plan.id,plan);
                 }
+                new ServiceJournal(state,allPlans).read();
                 plans.verify();
                 state.verify();
                 anchor.directory.verify();
@@ -232,7 +236,7 @@ export class ServicePlanStore {
     finally {
         root.close();
     } }
-    publish(value: ServicePlan): ServicePlan { const plan = ServiceSchemas.plan.parse(value); this.scope(plan); Check.require(Buffer.byteLength(CanonicalJson.stringify(plan)) < 4 * 1024 * 1024, 'PLAN_TOO_LARGE'); const exists = this.inspect(plan.configuration, plan.expectedEngine), anchor = this.anchor(); let installation = anchor.directory; try {
+    publish(value: ServicePlan,heldWriter?:InstallationWriter): ServicePlan { const plan = ServiceSchemas.plan.parse(value); this.scope(plan); Check.require(Buffer.byteLength(CanonicalJson.stringify(plan)) < 4 * 1024 * 1024, 'PLAN_TOO_LARGE'); const exists = this.inspect(plan.configuration, plan.expectedEngine); if(heldWriter)heldWriter.assert(this.path);if(exists){const current=this.current();Check.require((current?.compositionGeneration??null)===plan.expectedComposition&&(current?CanonicalJson.digest(current.resources):null)===plan.expectedResourceSet,'STALE_GENERATION');}const anchor=this.anchor();let installation = anchor.directory; try {
         for (const part of anchor.missing) {
             mkdirSync(installation.childPath(part), { mode: 0o700 });
             fsyncSync(installation.fd);
@@ -259,7 +263,7 @@ export class ServicePlanStore {
             }
         }
         else {
-            const state = installation.directory('.cordis', true), writer = new InstallationWriter(state);
+            const state = installation.directory('.cordis', true), writer = heldWriter??new InstallationWriter(state);
             try {
                 writer.assert(this.path);
                 const plans = installation.directory('.cordis/plans', true);
@@ -271,7 +275,7 @@ export class ServicePlanStore {
                 }
             }
             finally {
-                writer.close();
+                if(!heldWriter)writer.close();else state.close();
             }
         }
     }
@@ -280,4 +284,15 @@ export class ServicePlanStore {
             installation.close();
         anchor.directory.close();
     } return this.read(plan.id, plan.digest); }
+    private openJournal():{root:SafeDirectory;state:SafeDirectory;journal:ServiceJournal}{Check.require(this.inspect(),'MISSING_JOURNAL');const root=SafeDirectory.open(this.path);let state:SafeDirectory|undefined;try{state=root.directory('.cordis',true);const plansDirectory=state.directory('plans',true),plans=new Map<string,ServicePlan>();try{for(const name of plansDirectory.entries()){const plan=this.parse(plansDirectory.file(name,undefined,4*1024*1024,true));plans.set(plan.id,plan);}}finally{plansDirectory.close();}return {root,state,journal:new ServiceJournal(state,plans)};}catch(error){state?.close();root.close();throw error;}}
+    private closeJournal(scope:{root:SafeDirectory;state:SafeDirectory}):void{scope.state.close();scope.root.close();}
+    writer():InstallationWriter{const scope=this.openJournal();try{return new InstallationWriter(scope.state);}finally{scope.root.close();}}
+    records():ServiceApplicationRecord[]{const scope=this.openJournal();try{return scope.journal.read().records;}finally{this.closeJournal(scope);}}
+    resources():ServiceResourceReceipt[]{const scope=this.openJournal();try{return scope.journal.read().resources;}finally{this.closeJournal(scope);}}
+    current():ServiceSnapshot|null{const scope=this.openJournal();try{return scope.journal.read().current;}finally{this.closeJournal(scope);}}
+    accept(request:Extract<ServiceWorkerRequest,{operation:'submit'}>,writer:InstallationWriter):{record:ServiceApplicationRecord;fresh:boolean}{const scope=this.openJournal();try{return scope.journal.accept(request,writer);}finally{this.closeJournal(scope);}}
+    append(record:ServiceApplicationRecord,writer:InstallationWriter):void{const scope=this.openJournal();try{scope.journal.append(record,writer);}finally{this.closeJournal(scope);}}
+    saveResource(receipt:ServiceResourceReceipt,writer:InstallationWriter):void{const scope=this.openJournal();try{scope.journal.saveResource(receipt,writer);}finally{this.closeJournal(scope);}}
+    saveSnapshot(snapshot:ServiceSnapshot,writer:InstallationWriter):void{const scope=this.openJournal();try{scope.journal.saveSnapshot(snapshot,writer);}finally{this.closeJournal(scope);}}
+
 }

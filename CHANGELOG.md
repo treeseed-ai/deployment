@@ -8,11 +8,9 @@
 
 - Add bounded format-3 observer IPC client with separate owner-control paths (#910).
 
-### Added
 
 - Verify acyclic release-built image bindings and independent runtime closures (#910).
 
-### Added
 - Resolve instance-neutral owner declarations and exact helper assets (#910).
 - Persist extensible service-generation plans through the default host (#910).
 
