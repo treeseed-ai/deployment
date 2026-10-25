@@ -1,4 +1,6 @@
-import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
+import {ServicePlanStore} from './service-plan.js';
+import {ServicePlanningHost} from './service-plan.js';
+import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport } from '@treeseed-cordis/sdk';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
 import { platform, arch, homedir } from 'node:os';
@@ -8,7 +10,7 @@ import {InstalledHost,InstallationStore} from './installed.js';
 import { ArtifactResolver } from './artifacts.js';
 import { PlanStore, PlanningFailure as Check } from './filesystem.js';
 
-export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>>; }
+export interface DeploymentHost { diagnose(configuration?:DiagnosticConfiguration):Promise<DiagnosticReport>; plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan>; apply?(planId:string,digest:string,options:ApplyOptions):Promise<ReturnType<typeof PlatformSchemas.apply.parse>>;status?(installationDirectory:string):Promise<ReturnType<typeof PlatformSchemas.status.parse>>;application?(installationDirectory:string,id:string):Promise<ReturnType<typeof PlatformSchemas.application.parse>>; }
 export interface DiagnosticCommands { execute(args:string[]):string|null; }
 export interface DiagnosticSystem { host():DiagnosticReport['host']; storage(path:string):StorageResult; }
 export interface DiagnosticPorts { available(port:number):Promise<boolean>; }
@@ -48,7 +50,7 @@ export class HostSystem implements DiagnosticSystem {
         catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT'){missing=true;break;}throw error;}
       }
       exists=!missing;
-      if(exists&&readdirSync(path).length){try{if(new InstallationStore(path).inspect()==='installed')new InstallationStore(path).records();else new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
+      if(exists&&readdirSync(path).length){try{if(ServicePlanStore.isFormat(path))new ServicePlanStore(path).inspect();else if(new InstallationStore(path).inspect()==='installed')new InstallationStore(path).records();else new PlanStore(path).inspect();}catch{return {exists,freeBytes:null,code:'FOREIGN_INSTALLATION',message:'Existing directory does not contain valid owned plan-only state.'};}}
       let ancestor=path;
       while(true) {try{lstatSync(ancestor);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;const parent=dirname(ancestor);if(parent===ancestor)throw error;ancestor=parent;}}
       const stat=lstatSync(ancestor);
@@ -114,8 +116,8 @@ export class ComposeDeploymentHost implements DeploymentHost {
     let ready=true;for(const check of checks)if(check.status==='blocked')ready=false;
     return PlatformSchemas.diagnostic.parse({ready,host,engine,installation:{path,exists:storage.exists,freeBytes:storage.freeBytes},port,checks});
   }
-  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan> {
-    configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
+  async plan(configuration:DeploymentConfiguration):Promise<DeploymentPlan|InstalledPlan|ServicePlan> {
+    configuration=PlatformSchemas.desired.or(ServiceSchemas.configuration).parse(configuration);if(ServicePlanningHost.isRelease(configuration))return new ServicePlanningHost(this.commands,this.system).plan(configuration);configuration=PlatformSchemas.desired.parse(configuration);if(InstalledHost.isRelease(configuration))return new InstalledHost(this.commands,this.system).plan(configuration);
     const options=PlatformSchemas.desired.parse(configuration);
     options.installationDirectory=resolve(options.installationDirectory);options.release.directory=resolve(options.release.directory);options.origin=new URL(options.origin).origin;
     options.plugins.sort(ComposeDeploymentHost.pluginOrder);options.credentialReferences.sort();
@@ -157,6 +159,7 @@ export class ComposeDeploymentHost implements DeploymentHost {
 }
 
 export { ArtifactResolver } from './artifacts.js';
+export { ServiceArtifactResolver } from './service-artifacts.js';
 
 /** Planning only observes Linux listener tables; it never binds a socket. */
 export class TcpTableProbe implements DiagnosticPorts {
@@ -169,3 +172,10 @@ export { PlanStore } from './filesystem.js';
 export { DeploymentCapability, DeploymentPlugin, DeploymentComposition } from './composition.js';
 
 export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,DeploymentWorker,WorkerComposition,PostgresContainerPlugin,CaddyContainerPlugin} from './installed.js';
+
+export {ServicePlanStore} from './service-plan.js';
+export {ServicePlanIdentity} from './service-plan.js';
+export {ServiceWorkerClient} from './service-ipc.js';
+export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
+export {ServiceCredentials} from './service-credentials.js';
+export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands} from './service-images.js';
