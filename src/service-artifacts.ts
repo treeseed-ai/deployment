@@ -141,7 +141,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         for (const binding of service.bindings) {
             let count = 0;
             for (const provided of container.container.providedContracts)
-                if (provided.contractId === binding.contractId && provided.contractVersion === binding.contractVersion)
+                if (provided.port===binding.port&&provided.contractId === binding.contractId && provided.contractVersion === binding.contractVersion)
                     count++;
             Check.require(count === 1, 'SERVICE_BINDING_MISMATCH');
         }
@@ -153,7 +153,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                     found = true;
             Check.require(found, 'SERVICE_BINDING_MISMATCH');
         }
-        Check.require(probe.probe.observationContracts.includes(service.readiness.observationContract) && service.readiness.deadlineMs <= probe.probe.maximumDeadlineMs, 'PROBE_CONTRACT_MISMATCH');
+        Check.require(probe.probe.schemes.includes(service.readiness.scheme)&&probe.probe.observationContracts.includes(service.readiness.observationContract) && service.readiness.deadlineMs <= probe.probe.maximumDeadlineMs, 'PROBE_CONTRACT_MISMATCH');
         let image: ServiceRelease['images'][number] | undefined;
         for (const item of inventory.images)
             if (item.id === service.definition.imageId) {
