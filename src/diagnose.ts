@@ -175,3 +175,4 @@ export {PackageArchiveMaterializer,InstallationStore,DeploymentWorkerClient,Depl
 
 export {ServicePlanStore} from './service-plan.js';
 export {ServicePlanIdentity} from './service-plan.js';
+export {ServiceWorkerClient} from './service-ipc.js';
