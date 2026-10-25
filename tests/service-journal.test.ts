@@ -1,14 +1,107 @@
-import {test,expect} from 'bun:test';
-import {writeFileSync,readFileSync,readdirSync,chmodSync,statSync,unlinkSync} from 'node:fs';
-import {join} from 'node:path';
-import {spawnSync} from 'node:child_process';
-import {ServiceReleaseFixture} from './release-fixture.js';
-import {ComposeDeploymentHost,ServicePlanStore} from '../src/diagnose.js';
-import {CanonicalJson,ServiceSchemas,type ServicePlan} from '@treeseed-cordis/sdk';
+import { test, expect } from 'bun:test';
+import { writeFileSync, readFileSync, readdirSync, chmodSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { ServiceReleaseFixture } from './release-fixture.js';
+import { ComposeDeploymentHost, ServicePlanStore } from '../src/diagnose.js';
+import { CanonicalJson, ServiceSchemas, type ServicePlan } from '@treeseed-cordis/sdk';
 class ServiceJournalTests {
- async program():Promise<void>{const fixture=await new ServiceReleaseFixture().services();try{const input=join(fixture.root,'journal-input.json');writeFileSync(input,JSON.stringify(fixture.configuration));const result=spawnSync('node',['dist/tests/service-journal-program.js',input],{encoding:'utf8',timeout:30000});if(result.status!==0)throw new Error(result.stderr);expect(JSON.parse(result.stdout).fixtureOnly).toBe(true);const store=new ServicePlanStore(fixture.installation),record=store.records()[0]!;expect(record.phase).toBe('completed');expect(store.current()!.compositionGeneration).toBe(record.activeComposition);expect(store.resources()[0]!.actualId).toBe('fixture-observation-only');for(const folder of ['applications','resources','snapshots']){expect(statSync(join(fixture.installation,'.cordis',folder)).mode&0o777).toBe(0o700);for(const name of readdirSync(join(fixture.installation,'.cordis',folder)))expect(statSync(join(fixture.installation,'.cordis',folder,name)).mode&0o777).toBe(0o600);}const report=await new ComposeDeploymentHost().diagnose({installationDirectory:fixture.installation,port:58443});let storage=false;for(const check of report.checks)if(check.id==='storage'&&check.status==='pass')storage=true;expect(storage).toBe(true);}finally{fixture.close();}}
- async authority():Promise<void>{const fixture=await new ServiceReleaseFixture().services();try{const plan=await new ComposeDeploymentHost().plan(fixture.configuration);if(plan.formatVersion!==3)throw new Error('Wrong format');const store=new ServicePlanStore(fixture.installation),writer=store.writer();try{expect(store.writer.bind(store)).toThrow();expect(store.publish(plan,writer).id).toBe(plan.id);const intent={protocol:3 as const,operation:'submit' as const,planId:plan.id,digest:plan.digest,idempotencyKey:'request-a'},accepted=store.accept(intent,writer);expect(store.accept(intent,writer).fresh).toBe(false);expect(store.accept.bind(store,{...intent,idempotencyKey:'request-b'},writer)).toThrow();const altered=ServiceJournalTests.changed(plan);store.publish(altered,writer);expect(store.accept.bind(store,{...intent,planId:altered.id,digest:altered.digest},writer)).toThrow();const before=readdirSync(join(fixture.installation,'.cordis/applications'));expect(store.append.bind(store,{...accepted.record,sequence:1,phase:'completed',result:'ready',activeComposition:plan.compositionGeneration},writer)).toThrow();expect(readdirSync(join(fixture.installation,'.cordis/applications'))).toEqual(before);}finally{writer.close();}expect(store.inspect()).toBe(true);}finally{fixture.close();}}
- static changed(plan:ServicePlan):ServicePlan{const {id:_id,digest:_digest,...payload}=structuredClone(plan);payload.configuration.runtimeState='stopped';payload.configurationDigest=CanonicalJson.digest(payload.configuration);payload.compositionGeneration=CanonicalJson.digest({configuration:payload.configuration,composition:payload.composition,expectedEngine:payload.expectedEngine,artifacts:payload.artifacts});const digest=CanonicalJson.digest(payload);return ServiceSchemas.plan.parse({...payload,id:'plan-'+digest,digest});}
- async corruption():Promise<void>{const fixture=await new ServiceReleaseFixture().services();try{const plan=await new ComposeDeploymentHost().plan(fixture.configuration);if(plan.formatVersion!==3)throw new Error('Wrong format');const store=new ServicePlanStore(fixture.installation),writer=store.writer();try{const accepted=store.accept({protocol:3,operation:'submit',planId:plan.id,digest:plan.digest,idempotencyKey:'uncertain'},writer);store.append({...accepted.record,sequence:1,phase:'failed',result:'failed',recovery:'repair-required'},writer);expect(store.accept.bind(store,{protocol:3,operation:'submit',planId:plan.id,digest:plan.digest,idempotencyKey:'later'},writer)).toThrow();}finally{writer.close();}const directory=join(fixture.installation,'.cordis/applications'),name=readdirSync(directory)[0]!,path=join(directory,name),bytes=readFileSync(path);chmodSync(path,0o644);expect(store.inspect.bind(store)).toThrow();chmodSync(path,0o600);writeFileSync(path,'{}');expect(store.inspect.bind(store)).toThrow();writeFileSync(path,bytes);unlinkSync(path);expect(store.inspect.bind(store)).toThrow();}finally{fixture.close();}}
+    async program(): Promise<void> { const fixture = await new ServiceReleaseFixture().services(); try {
+        const input = join(fixture.root, 'journal-input.json');
+        writeFileSync(input, JSON.stringify(fixture.configuration));
+        const result = spawnSync('node', ['dist/tests/service-journal-program.js', input], { encoding: 'utf8', timeout: 30000 });
+        if (result.status !== 0)
+            throw new Error(result.stderr);
+        expect(JSON.parse(result.stdout).fixtureOnly).toBe(true);
+        const store = new ServicePlanStore(fixture.installation), record = store.records()[0]!;
+        expect(record.phase).toBe('completed');
+        expect(store.current()!.compositionGeneration).toBe(record.activeComposition!);
+        const resource = store.resources()[0]!;
+        expect(resource.actualId).toBe('fixture-observation-only');
+        const writer = store.writer();
+        try {
+            expect(store.saveResource.bind(store, { ...resource, actualId: 'foreign-container' }, writer)).toThrow();
+            const snapshot = store.current()!;
+            expect(store.saveSnapshot.bind(store, { ...snapshot, acknowledgements: [] }, writer)).toThrow();
+            expect(store.saveSnapshot.bind(store, { ...snapshot, installationId: 'foreign' }, writer)).toThrow();
+            const accepted = store.accept({ protocol: 3, operation: 'submit', planId: record.planId, digest: record.digest, idempotencyKey: record.idempotencyKey }, writer);
+            expect(accepted.fresh).toBe(false);
+            expect(accepted.record.id).toBe(record.id);
+            expect(store.accept.bind(store, { protocol: 3, operation: 'submit', planId: record.planId, digest: record.digest, idempotencyKey: 'stale-new-request' }, writer)).toThrow();
+        }
+        finally {
+            writer.close();
+        }
+        for (const folder of ['applications', 'resources', 'snapshots']) {
+            expect(statSync(join(fixture.installation, '.cordis', folder)).mode & 0o777).toBe(0o700);
+            for (const name of readdirSync(join(fixture.installation, '.cordis', folder)))
+                expect(statSync(join(fixture.installation, '.cordis', folder, name)).mode & 0o777).toBe(0o600);
+        }
+        const report = await new ComposeDeploymentHost().diagnose({ installationDirectory: fixture.installation, port: 58443 });
+        let storage = false;
+        for (const check of report.checks)
+            if (check.id === 'storage' && check.status === 'pass')
+                storage = true;
+        expect(storage).toBe(true);
+    }
+    finally {
+        fixture.close();
+    } }
+    async authority(): Promise<void> { const fixture = await new ServiceReleaseFixture().services(); try {
+        const plan = await new ComposeDeploymentHost().plan(fixture.configuration);
+        if (plan.formatVersion !== 3)
+            throw new Error('Wrong format');
+        const store = new ServicePlanStore(fixture.installation), writer = store.writer();
+        try {
+            expect(store.writer.bind(store)).toThrow();
+            expect(store.publish(plan, writer).id).toBe(plan.id);
+            const intent = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: 'request-a' }, accepted = store.accept(intent, writer);
+            expect(store.accept(intent, writer).fresh).toBe(false);
+            expect(store.accept.bind(store, { ...intent, idempotencyKey: 'request-b' }, writer)).toThrow();
+            const altered = ServiceJournalTests.changed(plan);
+            store.publish(altered, writer);
+            expect(store.accept.bind(store, { ...intent, planId: altered.id, digest: altered.digest }, writer)).toThrow();
+            const before = readdirSync(join(fixture.installation, '.cordis/applications'));
+            expect(store.append.bind(store, { ...accepted.record, sequence: 1, phase: 'completed', result: 'ready', activeComposition: plan.compositionGeneration }, writer)).toThrow();
+            expect(readdirSync(join(fixture.installation, '.cordis/applications'))).toEqual(before);
+        }
+        finally {
+            writer.close();
+        }
+        expect(store.inspect()).toBe(true);
+    }
+    finally {
+        fixture.close();
+    } }
+    static changed(plan: ServicePlan): ServicePlan { const { id: _id, digest: _digest, ...payload } = structuredClone(plan); payload.configuration.runtimeState = 'stopped'; payload.configurationDigest = CanonicalJson.digest(payload.configuration); payload.compositionGeneration = CanonicalJson.digest({ configuration: payload.configuration, composition: payload.composition, expectedEngine: payload.expectedEngine, artifacts: payload.artifacts }); const digest = CanonicalJson.digest(payload); return ServiceSchemas.plan.parse({ ...payload, id: 'plan-' + digest, digest }); }
+    async corruption(): Promise<void> { const fixture = await new ServiceReleaseFixture().services(); try {
+        const plan = await new ComposeDeploymentHost().plan(fixture.configuration);
+        if (plan.formatVersion !== 3)
+            throw new Error('Wrong format');
+        const store = new ServicePlanStore(fixture.installation), writer = store.writer();
+        try {
+            const accepted = store.accept({ protocol: 3, operation: 'submit', planId: plan.id, digest: plan.digest, idempotencyKey: 'uncertain' }, writer);
+            store.append({ ...accepted.record, sequence: 1, phase: 'failed', result: 'failed', recovery: 'repair-required' }, writer);
+            expect(store.accept.bind(store, { protocol: 3, operation: 'submit', planId: plan.id, digest: plan.digest, idempotencyKey: 'later' }, writer)).toThrow();
+        }
+        finally {
+            writer.close();
+        }
+        const directory = join(fixture.installation, '.cordis/applications'), name = readdirSync(directory).sort()[0]!, path = join(directory, name), bytes = readFileSync(path);
+        chmodSync(path, 0o644);
+        expect(store.inspect.bind(store)).toThrow();
+        chmodSync(path, 0o600);
+        writeFileSync(path, '{}');
+        expect(store.inspect.bind(store)).toThrow();
+        writeFileSync(path, bytes);
+        unlinkSync(path);
+        expect(store.inspect.bind(store)).toThrow();
+    }
+    finally {
+        fixture.close();
+    } }
 }
-const suite=new ServiceJournalTests();test('smoke: built format3 journal persists fixture observations and reads without source',suite.program.bind(suite),30000);test('integration: one writer binds retries conflicts and forbids unobserved completion',suite.authority.bind(suite));test('integration: uncertain interrupted malformed and nonprivate journal state fences reuse',suite.corruption.bind(suite));
+const suite = new ServiceJournalTests();
+test('smoke: built format3 journal persists fixture observations and reads without source', suite.program.bind(suite), 30000);
+test('integration: one writer binds retries conflicts and forbids unobserved completion', suite.authority.bind(suite));
+test('integration: uncertain interrupted malformed and nonprivate journal state fences reuse', suite.corruption.bind(suite));
