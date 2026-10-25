@@ -253,7 +253,7 @@ export class ServicePlanStore {
                                 for (const entry of directory.entries()) {
                                     Check.require(entry === expected, 'INCOMPLETE_JOURNAL');
                                     const stat = lstatSync(directory.childPath(entry));
-                                    Check.require(stat.isSocket() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o600, 'WORKER_SOCKET_OWNER');
+                                    Check.require(stat.isSocket() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && stat.nlink === 1 && (stat.mode & 0o777) === 0o600, 'WORKER_SOCKET_OWNER');
                                 }
                             }
                         }
@@ -390,95 +390,127 @@ export class ServicePlanStore {
         root: SafeDirectory;
         state: SafeDirectory;
         journal: ServiceJournal;
-    } { Check.require(this.inspect(), 'MISSING_JOURNAL'); const root = SafeDirectory.open(this.path); let state: SafeDirectory | undefined; try {
-        state = root.directory('.cordis', true);
-        const plansDirectory = state.directory('plans', true), plans = new Map<string, ServicePlan>();
+    } {
+        Check.require(this.inspect(), 'MISSING_JOURNAL');
+        const root = SafeDirectory.open(this.path);
+        let state: SafeDirectory | undefined;
         try {
-            for (const name of plansDirectory.entries()) {
-                const plan = this.parse(plansDirectory.file(name, undefined, 4 * 1024 * 1024, true));
-                plans.set(plan.id, plan);
+            state = root.directory('.cordis', true);
+            const plansDirectory = state.directory('plans', true), plans = new Map<string, ServicePlan>();
+            try {
+                for (const name of plansDirectory.entries()) {
+                    const plan = this.parse(plansDirectory.file(name, undefined, 4 * 1024 * 1024, true));
+                    plans.set(plan.id, plan);
+                }
             }
+            finally {
+                plansDirectory.close();
+            }
+            return { root, state, journal: new ServiceJournal(state, plans) };
         }
-        finally {
-            plansDirectory.close();
+        catch (error) {
+            state?.close();
+            root.close();
+            throw error;
         }
-        return { root, state, journal: new ServiceJournal(state, plans) };
     }
-    catch (error) {
-        state?.close();
-        root.close();
-        throw error;
-    } }
     private closeJournal(scope: {
         root: SafeDirectory;
         state: SafeDirectory;
     }): void { scope.state.close(); scope.root.close(); }
-    writer(): InstallationWriter { const scope = this.openJournal(); try {
-        Check.require(!scope.state.entries().includes('run') && !scope.state.entries().includes('control'), 'WORKER_REPAIR_REQUIRED');
-        return new InstallationWriter(scope.state);
+    writer(): InstallationWriter {
+        const scope = this.openJournal();
+        try {
+            Check.require(!scope.state.entries().includes('run') && !scope.state.entries().includes('control'), 'WORKER_REPAIR_REQUIRED');
+            return new InstallationWriter(scope.state);
+        }
+        catch (error) {
+            scope.state.close();
+            throw error;
+        }
+        finally {
+            scope.root.close();
+        }
     }
-    catch (error) {
-        scope.state.close();
-        throw error;
+    records(): ServiceApplicationRecord[] {
+        const scope = this.openJournal();
+        try {
+            return scope.journal.read().records;
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        scope.root.close();
-    } }
-    records(): ServiceApplicationRecord[] { const scope = this.openJournal(); try {
-        return scope.journal.read().records;
+    resources(): ServiceResourceReceipt[] {
+        const scope = this.openJournal();
+        try {
+            return scope.journal.read().resources;
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
-    resources(): ServiceResourceReceipt[] { const scope = this.openJournal(); try {
-        return scope.journal.read().resources;
+    current(): ServiceSnapshot | null {
+        const scope = this.openJournal();
+        try {
+            return scope.journal.read().current;
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
-    current(): ServiceSnapshot | null { const scope = this.openJournal(); try {
-        return scope.journal.read().current;
-    }
-    finally {
-        this.closeJournal(scope);
-    } }
     accept(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>, writer: InstallationWriter): {
         record: ServiceApplicationRecord;
         fresh: boolean;
-    } { const scope = this.openJournal(); try {
-        return scope.journal.accept(request, writer);
+    } {
+        const scope = this.openJournal();
+        try {
+            return scope.journal.accept(request, writer);
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
-    append(record: ServiceApplicationRecord, writer: InstallationWriter): void { const scope = this.openJournal(); try {
-        scope.journal.append(record, writer);
+    append(record: ServiceApplicationRecord, writer: InstallationWriter): void {
+        const scope = this.openJournal();
+        try {
+            scope.journal.append(record, writer);
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
-    saveResource(receipt: ServiceResourceReceipt, writer: InstallationWriter): void { const scope = this.openJournal(); try {
-        scope.journal.saveResource(receipt, writer);
+    saveResource(receipt: ServiceResourceReceipt, writer: InstallationWriter): void {
+        const scope = this.openJournal();
+        try {
+            scope.journal.saveResource(receipt, writer);
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
-    saveSnapshot(snapshot: ServiceSnapshot, writer: InstallationWriter): void { const scope = this.openJournal(); try {
-        scope.journal.saveSnapshot(snapshot, writer);
+    saveSnapshot(snapshot: ServiceSnapshot, writer: InstallationWriter): void {
+        const scope = this.openJournal();
+        try {
+            scope.journal.saveSnapshot(snapshot, writer);
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
-    directory(name: 'artifacts' | 'credentials' | 'run' | 'control', writer?: InstallationWriter): SafeDirectory { const scope = this.openJournal(); try {
-        if (scope.state.entries().includes(name))
-            return scope.state.directory(name, true);
-        Check.require(writer, 'MISSING_JOURNAL');
-        writer.assert(this.path);
-        return InstallationStore.mkdir(scope.state, name);
+    directory(name: 'artifacts' | 'credentials' | 'run' | 'control', writer?: InstallationWriter): SafeDirectory {
+        const scope = this.openJournal();
+        try {
+            if (scope.state.entries().includes(name))
+                return scope.state.directory(name, true);
+            Check.require(writer, 'MISSING_JOURNAL');
+            writer.assert(this.path);
+            return InstallationStore.mkdir(scope.state, name);
+        }
+        finally {
+            this.closeJournal(scope);
+        }
     }
-    finally {
-        this.closeJournal(scope);
-    } }
 }

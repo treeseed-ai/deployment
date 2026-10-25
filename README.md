@@ -478,3 +478,12 @@ only the qualified Docker CLI on PATH; it never invokes an ambient Node/Bun/pack
 The executable is built before planning through the owner's public build-time producer. Planning
 and apply do not compile it. Graceful host shutdown preserves installed containers and durable
 records; general restart/recovery remains Task 6. No original installation is launched by tests.
+
+### Endpoint layout and alias refusal
+
+Every accepted connection and parsed request verifies the entire known observer/control endpoint
+layout, not just the pathname used to bind that listener. Socket link counts must be one; changed
+inode, ownership, mode, symlink or unexpected entries refuse dispatch. This protects the observer
+boundary from a linked alias of the control socket, independently of convenience client methods.
+The built regression creates/restores only fixture-owned aliases and proves no application is
+accepted. It does not treat arbitrary same-user host code as sandboxed.
