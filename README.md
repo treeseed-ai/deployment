@@ -160,3 +160,27 @@ credential reader arrive in that typed call. Neither scope exposes the raw Docke
 Artifact fixtures compile the exact native classes used for metadata, including their named
 exports. A separate calibration imports that archive outside planning, proving the import
 canary is effective and the declared exports actually exist.
+
+### Service-generation plans and journal
+
+The default `ComposeDeploymentHost.plan` dispatches exact format-3 bundles to the generic
+service planner. Initial plans describe each named instance and its stable resource identities;
+they do not activate services. Configuration and semantic sets normalize before hashing.
+Desired composition generation excludes expected current state; plan digest includes it.
+Per-service generation excludes unrelated services, global package additions and timestamps.
+
+`ServicePlanStore` recognizes a single format-3 installation journal under the existing
+`.cordis` boundary and uses the same no-overwrite publisher and exclusive installation writer
+as earlier formats. Fresh publication writes complete private plan bytes, then the installation
+receipt; repetition freshly validates state before reusing exact bytes. Read-back validates
+schema, digest, scope, engine and bindings without reopening source artifacts. Invalid,
+foreign, symlinked, incorrectly permissioned or interrupted state fails closed. Formats 1/2
+remain readable by their historical stores and require explicit migration before format 3;
+planning does not implicitly adopt an active installation. Doctor recognizes valid format-3
+plan-only state without calling it active. No credentials or runtime resources are created.
+
+The mandatory Ubuntu 26.04 program test invokes the built default host, verifies exact saved
+plan/read-back and deterministic repetition, removes the source bundle before read-back and
+compares Docker resources, listeners and credential absence. Missing host/engine prerequisites
+fail visibly. This initial-plan slice does not claim format-3 apply, source installation or
+active resource retention; those remain subsequent Task 3C worker acceptance gates.
