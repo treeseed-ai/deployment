@@ -20,7 +20,8 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "dist/tests/release-fixture.*"
+    "dist/tests/release-fixture.*",
+    "dist/tests/service-fixture-plugins.*"
   ],
   "scripts": {
     "check": "bun scripts/tooling.ts check",
