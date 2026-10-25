@@ -268,3 +268,7 @@ unknown or interrupted staging state requires explicit repair. Descriptor-anchor
 canonical manifests, no-overwrite publication and the same installation writer preserve scope
 and byte identity. This stage does not start containers or claim target readiness. Engine/probe
 qualification and actual retained-resource activation remain the following worker delivery.
+
+The held installation writer pins its owner record's bytes and file identity. Replacement or
+mutation fences that handle permanently; closing a fenced handle preserves the uncertain lock
+and closes descriptors without deleting another owner's record. Explicit repair is required.
