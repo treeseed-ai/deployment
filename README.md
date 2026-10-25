@@ -291,3 +291,8 @@ reference allowlist. Foreign/incomplete/unreceipted or changed files block inste
 replacement values. Receipt identity includes installation/service/slot/definition/content and
 creator generation, so an unrelated added service cannot rotate existing credentials or authority.
 Only the worker's actual observations can commit a ready composition; preparing files claims none.
+
+Prepared values are limited to 4 MiB per materialization and 64 MiB in aggregate. Template
+expansion is bounded during resolution, before private publication. `mount(service, slot)`
+returns only the verified private path/resource/digest for an explicitly declared own-service
+mount; it grants no arbitrary path choice. Probe access remains a separate reference allowlist.
