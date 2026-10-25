@@ -14,6 +14,7 @@ class ObserverMountTests {
     private close(accept: (value: void) => void): void { this.server!.close(this.closed.bind(this, accept)); }
     private closed(accept: (value: void) => void): void { accept(); }
     async program():Promise<void>{const fixture=new ObserverServiceFixture();try{await fixture.prepared();const file=join(fixture.root,'observer.json');writeFileSync(file,JSON.stringify(fixture.configuration));const result=spawnSync('node',['dist/tests/service-observer-program.js',file],{encoding:'utf8',timeout:150000});if(result.status!==0)throw new Error(result.stderr);expect(JSON.parse(result.stdout)).toEqual({fixtureOnly:true,observerRead:true,readonly:true,ownerDenied:true,measuredEntry:true,sourceFree:true,retained:true});}finally{fixture.close();}}
+    async race():Promise<void>{const fixture=new ObserverServiceFixture();try{await fixture.prepared();const file=join(fixture.root,'observer-race.json');writeFileSync(file,JSON.stringify(fixture.configuration));const result=spawnSync('node',['dist/tests/service-observer-program.js',file,'race'],{encoding:'utf8',timeout:150000});if(result.status!==0)throw new Error(result.stderr);expect(JSON.parse(result.stdout)).toEqual({fixtureOnly:true,raceRejected:true,started:false,repairRequired:true});}finally{fixture.close();}}
     async admission(): Promise<void> {
         const fixture = await new ServiceReleaseFixture().services(); let anchor: ServiceObserverMount | null = null;
         try {
@@ -38,3 +39,5 @@ const observerMounts = new ObserverMountTests();
 test('integration: observer mount admission pins private directory socket and exact runtime grant without Docker effects', observerMounts.admission.bind(observerMounts), 30000);
 
 test('smoke: granted real container reads native host observations with no owner control and retains source-free state',observerMounts.program.bind(observerMounts),240000);
+
+test('smoke: observer socket replacement restored during real container creation fails before start with repair state',observerMounts.race.bind(observerMounts),240000);

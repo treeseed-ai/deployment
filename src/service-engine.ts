@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import {ServiceObserverMount} from './service-observer-mount.js';
 import { CanonicalJson, ServiceSchemas, type ServicePlan, type ServiceInstance, type ServiceEngine, type ServiceExecutionContext, type ServiceDependency, type ServiceIdentity, type ServiceReadiness, type ServiceResourceReceipt } from '@treeseed-cordis/sdk';
 import { ServicePlanStore } from './service-plan.js';
 import { ServiceCredentials } from './service-credentials.js';
@@ -23,6 +24,7 @@ class RuntimeResources {
         Check.require(names === receipt.name && object.Image === 'sha256:' + receipt.imageDigest, 'RESOURCE_IDENTITY_CHANGED');
         const host = StrictJson.object(object.HostConfig);
         Check.require(host.Privileged === false && host.NetworkMode === plan.projectName + '_default', 'UNSAFE_RUNTIME');
+        const service = RuntimeResources.service(plan, receipt.serviceId!); const observer = ServiceObserverMount.open(plan, service); try { observer?.mounted(object); } finally { observer?.close(); }
     }
     else
         Check.require(object.Name === receipt.name, 'RESOURCE_IDENTITY_CHANGED'); }
@@ -108,8 +110,8 @@ export class ServiceContainerEngine implements ServiceEngine {
         } return result; }
     private save(receipt: ServiceResourceReceipt): ServiceResourceReceipt { const references = [...receipt.references]; if (!references.includes(this.plan.compositionGeneration))
         references.push(this.plan.compositionGeneration); references.sort(); const value = { ...receipt, references }; this.writer.assert(this.store.path); this.store.saveResource(value, this.writer); return value; }
-    private flags(receipt: ServiceResourceReceipt): string[] { const args: string[] = []; for (const [key, value] of Object.entries(RuntimeResources.labels(this.plan, receipt)))
-        args.push('--label', key + '=' + value); return args; }
+    private flags(receipt: ServiceResourceReceipt, observerDigest?: string): string[] { const args: string[] = []; for (const [key, value] of Object.entries(RuntimeResources.labels(this.plan, receipt)))
+        args.push('--label', key + '=' + value); if (observerDigest) args.push('--label', 'ai.treeseed.cordis.observer=' + observerDigest); return args; }
     private async resource(candidate: ServiceResourceReceipt): Promise<ServiceResourceReceipt> { const previous = this.previous(candidate); if (previous) {
         RuntimeResources.checked(this.plan, previous, await RuntimeResources.inspect(this.commands, this.plan, previous.kind, previous.name));
         return this.save(previous);
@@ -132,7 +134,7 @@ export class ServiceContainerEngine implements ServiceEngine {
     } }
     private volumeName(serviceId: string, slot: string): string { return this.plan.projectName + '_r-' + CanonicalJson.digest({ serviceId, slot }).slice(0, 48); }
     private container(service: ServiceInstance): ServiceResourceReceipt { const image = this.image(service), mounts = []; for (const secret of service.definition.secrets)
-        mounts.push({ target: secret.target, ...this.credentials.mount(service.serviceId, secret.slot) }); return this.receipt('container', this.plan.projectName + '_' + service.serviceId, service.serviceId, CanonicalJson.digest({ provider: service.provider, definition: service.definition, stateVersion: service.transitionPolicy.stateVersion, mounts, image }), image.dockerId.slice(7)); }
+        mounts.push({ target: secret.target, ...this.credentials.mount(service.serviceId, secret.slot) }); return this.receipt('container', this.plan.projectName + '_' + service.serviceId, service.serviceId, CanonicalJson.digest({ provider: service.provider, definition: service.definition, stateVersion: service.transitionPolicy.stateVersion, mounts, image, ...service.definition.workerSocket ? {observer: ServiceObserverMount.fingerprint(this.plan, service)} : {} }), image.dockerId.slice(7)); }
     identity(id: string): ServiceIdentity { const service = RuntimeResources.service(this.plan, id), change = this.plan.changes.find(ServiceContainerEngine.named.bind(null, id)); Check.require(change, 'SERVICE_SCOPE'); return { installationId: this.plan.configuration.installationId, serviceId: id, providerId: service.provider.providerId, serviceGeneration: change.serviceGeneration, resourceId: this.container(service).resourceId }; }
     async ready(id: string): Promise<ServiceReadiness> { RuntimeResources.service(this.plan, id); await new ServiceRuntimeInspection(this.plan, this.commands).service(id); return { serviceId: id, ready: false, observations: ['protocol-qualification-required'] }; }
     private static named(id: string, value: {
@@ -141,14 +143,14 @@ export class ServiceContainerEngine implements ServiceEngine {
     private static port(id: string, value: {
         id: string;
     }): boolean { return id === value.id; }
-    async start(id: string, definition: ServiceInstance['definition']): Promise<void> { this.authority(); const service = RuntimeResources.service(this.plan, id); Check.require(CanonicalJson.stringify(ServiceSchemas.definition.parse(definition)) === CanonicalJson.stringify(service.definition), 'SERVICE_RECIPE_MISMATCH'); Check.require(this.plan.configuration.runtimeState === 'running', 'STOPPED_ACTIVATION_UNSUPPORTED'); Check.require(!service.definition.workerSocket, 'OBSERVER_SOCKET_NOT_PREPARED'); await new ServiceRuntimeInspection(this.plan, this.commands).audit(); const image = this.image(service), metadata = await RuntimeResources.inspect(this.commands, this.plan, 'image', image.dockerId); Check.require(metadata.Id === image.dockerId && metadata.Os === 'linux' && metadata.Architecture === 'amd64', 'IMAGE_IDENTITY_CHANGED'); await this.resource(this.receipt('network', this.plan.projectName + '_default', null, CanonicalJson.digest({ driver: 'bridge', project: this.plan.projectName }))); for (const slot of service.resources.volumes)
+    async start(id: string, definition: ServiceInstance['definition']): Promise<void> { this.authority(); const service = RuntimeResources.service(this.plan, id); Check.require(CanonicalJson.stringify(ServiceSchemas.definition.parse(definition)) === CanonicalJson.stringify(service.definition), 'SERVICE_RECIPE_MISMATCH'); Check.require(this.plan.configuration.runtimeState === 'running', 'STOPPED_ACTIVATION_UNSUPPORTED'); const observer = ServiceObserverMount.open(this.plan, service); try { await new ServiceRuntimeInspection(this.plan, this.commands).audit(); const image = this.image(service), metadata = await RuntimeResources.inspect(this.commands, this.plan, 'image', image.dockerId); Check.require(metadata.Id === image.dockerId && metadata.Os === 'linux' && metadata.Architecture === 'amd64', 'IMAGE_IDENTITY_CHANGED'); await this.resource(this.receipt('network', this.plan.projectName + '_default', null, CanonicalJson.digest({ driver: 'bridge', project: this.plan.projectName }))); for (const slot of service.resources.volumes)
         await this.resource(this.receipt('volume', this.volumeName(id, slot), id, CanonicalJson.digest({ slot, stateVersion: service.transitionPolicy.stateVersion }))); const candidate = this.container(service), previous = this.previous(candidate); if (previous) {
         RuntimeResources.checked(this.plan, previous, await RuntimeResources.inspect(this.commands, this.plan, 'container', previous.name));
         const state = await new ServiceRuntimeInspection(this.plan, this.commands).service(id);
         Check.require(state.running, 'RESOURCE_STOPPED_REQUIRES_ACTION');
         this.save(previous);
         return;
-    } this.authority(); await new ServiceRuntimeInspection(this.plan, this.commands).audit(); const args = ['container', 'create', '--pull=never', '--name', candidate.name, '--network', this.plan.projectName + '_default', '--network-alias', id, '--security-opt', 'no-new-privileges:true', '--restart', 'unless-stopped', ...this.flags(candidate)]; if (service.definition.user === 'installation-owner')
+    } this.authority(); await new ServiceRuntimeInspection(this.plan, this.commands).audit(); const args = ['container', 'create', '--pull=never', '--name', candidate.name, '--network', this.plan.projectName + '_default', '--network-alias', id, '--security-opt', 'no-new-privileges:true', '--restart', 'unless-stopped', ...this.flags(candidate, observer?.digest)]; if (observer) args.push('--mount', observer.argument()); if (service.definition.user === 'installation-owner')
         args.push('--user', String(process.getuid!()) + ':0'); for (const [key, value] of Object.entries(service.definition.environment)) {
         let text: string;
         if (typeof value === 'string')
@@ -172,16 +174,21 @@ export class ServiceContainerEngine implements ServiceEngine {
         args.push(image.dockerId, ...(service.definition.command ?? []));
         this.authority();
         await this.commands.verify(this.plan.expectedEngine);
+        observer?.verify();
         await this.commands.run(this.plan.expectedEngine, args);
+        observer?.verify();
         anchor.verify();
         for (const secret of service.definition.secrets)
             this.credentials.mount(id, secret.slot);
         const object = await RuntimeResources.inspect(this.commands, this.plan, 'container', candidate.name), receipt = { ...candidate, actualId: RuntimeResources.physical('container', object) };
+        observer?.mounted(object, observer.source());
         RuntimeResources.checked(this.plan, receipt, object);
         this.save(receipt);
         this.authority();
         await this.commands.verify(this.plan.expectedEngine);
+        observer?.verify();
         await this.commands.run(this.plan.expectedEngine, ['container', 'start', receipt.actualId!]);
+        observer?.verify();
         anchor.verify();
         for (const secret of service.definition.secrets)
             this.credentials.mount(id, secret.slot);
@@ -189,5 +196,5 @@ export class ServiceContainerEngine implements ServiceEngine {
     }
     finally {
         anchor.close();
-    } }
+    } } finally {observer?.close();} }
 }

@@ -756,3 +756,16 @@ endpoints fail closed. An uncertain create remains explicit repair state. A genu
 must read accepted observations with the public client from inside a real container, prove
 writes fail and owner submission is denied, and preserve source-free read-back. This does not
 authorize implicit host-root restart or mounting the owner control endpoint.
+
+Qualification note: on Ubuntu 26.04.1 / Linux 7.0.0-38, Docker 29.9.1 accepted an open
+`/proc/<pid>/fd/<fd>` directory source at create time but runc rejected start with `EINVAL`;
+adding `/.` or a child component did not qualify it. The same pinned Node image started with
+the canonical directory source. The implementation retains the descriptor and checks directory/
+socket identities and change times around the canonical-path create/start operations. This is
+Docker's host-path bind interface, not descriptor transfer to its daemon. See the official
+[bind-mount interface](https://docs.docker.com/engine/storage/bind-mounts/). No unsafe fallback
+or extra directory is exposed on failure; an uncertain effect requires explicit repair.
+
+The real container race fixture replaces and restores the observer socket after Docker create.
+Without the pinned change-time checks, the regression starts the container and fails. With the
+checks, it records explicit repair state before any start. No owner request is admitted.
