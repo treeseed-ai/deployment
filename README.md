@@ -184,3 +184,20 @@ plan/read-back and deterministic repetition, removes the source bundle before re
 compares Docker resources, listeners and credential absence. Missing host/engine prerequisites
 fail visibly. This initial-plan slice does not claim format-3 apply, source installation or
 active resource retention; those remain subsequent Task 3C worker acceptance gates.
+
+### Instance-neutral declaration materialization
+
+`ServiceProjection.resolve(service, declaration, graph, configuration)` derives the exact
+resolved definition/resources from dependency-port, context and validated configuration
+markers. It reads no credential bytes and invokes no class or helper. Secret references resolve
+to own slots or explicit dependency-port grants; template cycles and foreign references fail.
+Environment and private configuration must match that complete owner projection. This lets
+API/Identity consume renamed selected instances without literal database/identity DNS names.
+
+Prepared helper archives are inspected against release-pinned complete file hashes/modes and
+size before a plan can report `stage-helper`; planning never fetches or executes a helper.
+Public asset descriptors validate both size and SHA-256. Projected configuration uses standard
+JSON Schema formats, rejects asynchronous schemas before invocation and exposes no raw error
+or input value. The API/worker-socket image binds only its own locked runtime package closure
+and selected UI asset set, so an unrelated private plugin cannot force an API image rebuild.
+The complete installation package set remains bound by the release and plan.

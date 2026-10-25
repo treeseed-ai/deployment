@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Resolve instance-neutral owner declarations and exact helper assets (#910).
 - Persist extensible service-generation plans through the default host (#910).
 
 - Deployment: deliver Task 3C typed providers and mobile-first UI integration (#910).
