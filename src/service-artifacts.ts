@@ -1,3 +1,5 @@
+import addFormats from 'ajv-formats';
+import { ServiceProjection } from './service-projection.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { PlatformSchemas, ServiceSchemas, PluginManagementSchemas, CanonicalJson, PlanningBlockedError, type ServiceRelease, type ServiceInstance, type PluginPackageDescriptor, type PluginExportDescriptor, type DeploymentRecipe, type DeploymentPlan } from '@treeseed-cordis/sdk';
 import { ArtifactResolver, ArchiveMetadata, type PackageData } from './artifacts.js';
@@ -30,7 +32,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 for (const path of reader.paths)
                     Check.require(PlatformSchemas.relative.safeParse(path).success, 'PROVIDER_PATH');
                 Check.require(metadata.name === entry.name && metadata.version === entry.version, 'PACKAGE_IDENTITY');
-                packages.set(entry.name, { entry, bytes, metadata, files: reader.paths, hashes: reader.hashes });
+                packages.set(entry.name, { entry, bytes, metadata, files: reader.paths, hashes: reader.hashes, sizes: reader.sizes });
             }
             this.lock(root, lock, packages, true);
             const descriptors = this.packages(configuration.plugins, inventory, packages), bindings: ServiceArtifactResolution['pluginBindings'] = [], selected = new Set<string>();
@@ -38,7 +40,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 const container = this.provider(service.provider, descriptors, packages, 'container.service'), probe = this.provider(service.readiness.provider, descriptors, packages, 'probe.service');
                 this.configuration(container, service.configuration);
                 this.configuration(probe, service.readiness.configuration);
-                this.service(service, container, probe, inventory);
+                this.service(service, container, probe, inventory, configuration);
                 const owner = descriptors.get(service.provider.package.name)!;
                 let imageBound = false;
                 for (const image of owner.images)
@@ -66,7 +68,8 @@ class ServiceArtifactVerifier extends ArtifactResolver {
             images.sort(ArtifactResolver.imageOrder);
             for (const image of images)
                 artifacts.push(this.image(directory, image, true));
-            this.apiImage(directory, inventory, artifacts);
+            this.apiImage(directory, inventory, artifacts, packages);
+            await this.helpers(directory, inventory);
             directory.verify();
             return { inventory, recipe, pluginBindings: bindings, artifacts, releaseDigest: configuration.release.manifestDigest, lockDigest: inventory.lockfile.sha256, recipeDigest: inventory.recipe.sha256 };
         }
@@ -122,7 +125,10 @@ class ServiceArtifactVerifier extends ArtifactResolver {
     }
     private configuration(provider: PluginExportDescriptor, value: Record<string, unknown>): void {
         try {
-            const validator = new Ajv2020({ strict: true, allErrors: false, useDefaults: true, coerceTypes: false, removeAdditional: false }), validate = validator.compile(provider.configurationSchema);
+            const validator = new Ajv2020({ strict: true, allErrors: false, useDefaults: true, coerceTypes: false, removeAdditional: false });
+            addFormats(validator);
+            const validate = validator.compile(provider.configurationSchema);
+            Check.require(Reflect.get(validate, '$async') !== true, 'UNSUPPORTED_CONFIGURATION_SCHEMA');
             Check.require(validate(value) === true, 'INVALID_PROVIDER_CONFIGURATION');
         }
         catch (error) {
@@ -131,12 +137,13 @@ class ServiceArtifactVerifier extends ArtifactResolver {
             Check.block('UNSUPPORTED_CONFIGURATION_SCHEMA');
         }
     }
-    private service(service: ServiceInstance, container: PluginExportDescriptor, probe: PluginExportDescriptor, inventory: ServiceRelease): void {
+    private service(service: ServiceInstance, container: PluginExportDescriptor, probe: PluginExportDescriptor, inventory: ServiceRelease, configuration: ReturnType<typeof ServiceSchemas.configuration.parse>): void {
         Check.require(container.container && probe.probe, 'MISSING_PROVIDER_PROJECTION');
+        const projected = ServiceProjection.resolve(service, container.container, inventory.composition, configuration);
         const definition = JSON.parse(CanonicalJson.stringify(service.definition)) as ServiceInstance['definition'];
         for (const port of definition.ports)
             delete port.publication;
-        Check.require(CanonicalJson.stringify(definition) === CanonicalJson.stringify(container.container.definition) && CanonicalJson.stringify(service.resources) === CanonicalJson.stringify(container.container.resources) && CanonicalJson.stringify(service.transitionPolicy) === CanonicalJson.stringify(container.container.transitionPolicy) && service.readiness.observationContract === container.container.observationContract, 'SERVICE_DEFINITION_MISMATCH');
+        Check.require(CanonicalJson.stringify(definition) === CanonicalJson.stringify(projected.definition) && CanonicalJson.stringify(service.resources) === CanonicalJson.stringify(projected.resources) && CanonicalJson.stringify(service.transitionPolicy) === CanonicalJson.stringify(container.container.transitionPolicy) && service.readiness.observationContract === container.container.observationContract, 'SERVICE_DEFINITION_MISMATCH');
         Check.require(service.bindings.length === container.container.providedContracts.length, 'SERVICE_BINDING_MISMATCH');
         for (const binding of service.bindings) {
             let count = 0;
@@ -228,7 +235,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         for (const name of [...descriptors.keys()].sort()) {
             const descriptor = descriptors.get(name)!, data = packages.get(name)!;
             for (const asset of descriptor.assets) {
-                Check.require(data.hashes.get('package/' + asset.path) === asset.sha256, 'ASSET_INTEGRITY');
+                Check.require(data.hashes.get('package/' + asset.path) === asset.sha256 && data.sizes.get('package/' + asset.path) === asset.size, 'ASSET_INTEGRITY');
                 assets.push({ package: name, version: descriptor.package.version, path: asset.path, sha256: asset.sha256 });
             }
             for (const image of descriptor.images) {
@@ -249,15 +256,18 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         package: string;
         path: string;
     }): number { const left = a.package + ':' + a.path, right = b.package + ':' + b.path; return left < right ? -1 : left > right ? 1 : 0; }
-    private apiImage(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts']): void {
+    private apiImage(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>): void {
         const id = inventory.composition.profile.workerSocketServiceId;
         if (!id)
             return;
         const service = inventory.composition.services.find(ServiceArtifactVerifier.serviceId.bind(null, id))!, image = inventory.images.find(ServiceArtifactVerifier.matchesImage.bind(null, service.definition.imageId))!, packages: DeploymentPlan['artifacts'] = [];
+        const closure = new Set<string>(), queue = [service.provider.package.name];
+        while (queue.length) { const name = queue.shift()!; if (closure.has(name)) continue; const entry = data.get(name); Check.require(entry, 'MISSING_PACKAGE'); closure.add(name); for (const field of ['dependencies', 'peerDependencies']) { const entries = entry.metadata[field]; if (entries !== undefined) for (const dependency of Object.keys(StrictJson.object(entries))) if (data.has(dependency)) queue.push(dependency); } }
         let configDigest = '';
         for (const artifact of artifacts)
-            if (artifact.kind === 'package')
-                packages.push(artifact);
+            if (artifact.kind === 'package') {
+                if (closure.has(artifact.name)) packages.push(artifact);
+            }
             else if (artifact.manifestDigest === image.manifestDigest)
                 configDigest = artifact.configDigest;
         Check.require(configDigest, 'MISSING_IMAGE');
@@ -268,6 +278,17 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         }
         finally {
             layout.close();
+        }
+    }
+    private async helpers(directory: SafeDirectory, inventory: ServiceRelease): Promise<void> {
+        for (const helper of inventory.helpers?.helpers ?? []) {
+            Check.require(helper.path, 'PREPARED_HELPER_REQUIRED');
+            const bytes = directory.file(helper.path, helper.sha256, 512 * 1024 * 1024);
+            Check.require(bytes.length === helper.size, 'HELPER_INTEGRITY');
+            const reader = new ArchiveMetadata(bytes, true); await reader.read();
+            Check.require(reader.hashes.size === helper.files.length && reader.bytes <= 512 * 1024 * 1024 && reader.paths.size <= 16384, 'HELPER_INTEGRITY');
+            for (const path of reader.paths) Check.require(PlatformSchemas.relative.safeParse(path).success, 'HELPER_INTEGRITY');
+            for (const file of helper.files) Check.require(reader.hashes.get(file.path) === file.sha256 && reader.modes.get(file.path) === file.mode, 'HELPER_INTEGRITY');
         }
     }
     private static serviceId(id: string, service: ServiceInstance): boolean { return service.serviceId === id; }

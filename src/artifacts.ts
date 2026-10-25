@@ -8,6 +8,8 @@ export class ArchiveMetadata {
   readonly parser:Parser;
   readonly paths=new Set<string>();
   readonly hashes=new Map<string,string>();
+  readonly sizes=new Map<string,number>();
+  readonly modes=new Map<string,number>();
   metadata:unknown=null;
   failure=false;
   bytes=0;
@@ -15,14 +17,14 @@ export class ArchiveMetadata {
   chunks:Buffer[]=[];
   resolveResult:((value:Record<string,unknown>)=>void)|null=null;
   rejectResult:((error:Error)=>void)|null=null;
-  constructor(readonly archive:Buffer) {this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
+  constructor(readonly archive:Buffer,private readonly helper=false) {this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
   read():Promise<Record<string,unknown>> {return new Promise(this.start.bind(this));}
   private start(resolve:(value:Record<string,unknown>)=>void,reject:(error:Error)=>void):void {this.resolveResult=resolve;this.rejectResult=reject;this.parser.once('error',this.error.bind(this));this.parser.once('end',this.end.bind(this));this.parser.end(this.archive);}
   private entry(entry:ReadEntry):void {
     const path=entry.path.replace(/\/$/,'');
-    if(!path.startsWith('package/')&&path!=='package')this.failure=true;
+    if(!this.helper&&!path.startsWith('package/')&&path!=='package')this.failure=true;
     if(!path.split('/').every(SafeDirectory.component)||this.paths.has(path)||!['File','Directory','OldFile'].includes(entry.type))this.failure=true;
-    this.paths.add(path);this.bytes+=entry.size;this.maximumFile=Math.max(this.maximumFile,entry.size);if(entry.type==='File'||entry.type==='OldFile'){const hash=new ArchiveFileHash(path,this.hashes);entry.on('data',hash.data.bind(hash));entry.once('end',hash.end.bind(hash));}
+    this.paths.add(path);this.bytes+=entry.size;this.maximumFile=Math.max(this.maximumFile,entry.size);if(entry.type==='File'||entry.type==='OldFile'){this.sizes.set(path,entry.size);this.modes.set(path,(entry.mode??0)&0o7777);const hash=new ArchiveFileHash(path,this.hashes);entry.on('data',hash.data.bind(hash));entry.once('end',hash.end.bind(hash));}
     if(this.paths.size>100000||this.bytes>1024**3)this.failure=true;
     if(path==='package/package.json'&&entry.type==='File'&&entry.size<=1024*1024){entry.on('data',this.data.bind(this));entry.once('end',this.metadataEnd.bind(this));}
     else entry.resume();
@@ -30,7 +32,7 @@ export class ArchiveMetadata {
   private data(value:Buffer):void {this.chunks.push(value);}
   private metadataEnd():void {try{this.metadata=StrictJson.parse(Buffer.concat(this.chunks));}catch{this.failure=true;}}
   private error():void {this.rejectResult!(new PlanningBlockedError([{code:'INVALID_ARCHIVE',message:'Package archive inspection failed.'}]));}
-  private end():void {try{Check.require(!this.failure&&this.metadata,'INVALID_ARCHIVE');this.resolveResult!(StrictJson.object(this.metadata));}catch(error){this.rejectResult!(error as Error);}}
+  private end():void {try{Check.require(!this.failure&&(this.metadata||this.helper),'INVALID_ARCHIVE');this.resolveResult!(StrictJson.object(this.metadata??{}));}catch(error){this.rejectResult!(error as Error);}}
 }
 class ArchiveFileHash {
  private readonly hash=createHash('sha256');constructor(private readonly path:string,private readonly hashes:Map<string,string>){}
@@ -43,7 +45,7 @@ class DependencyGraph {
   validate():void {for(const name of this.edges.keys())this.visit(name);}
   private visit(name:string):void {Check.require(this.edges.has(name),'MISSING_SERVICE');Check.require(!this.visiting.has(name),'DEPENDENCY_CYCLE');if(this.visited.has(name))return;this.visiting.add(name);for(const dependency of this.edges.get(name)!)this.visit(dependency);this.visiting.delete(name);this.visited.add(name);}
 }
-export interface PackageData {hashes:Map<string,string>;files:Set<string>;entry:ReleaseInventory['packages'][number];metadata:Record<string,unknown>;bytes:Buffer;}
+export interface PackageData {sizes:Map<string,number>;hashes:Map<string,string>;files:Set<string>;entry:ReleaseInventory['packages'][number];metadata:Record<string,unknown>;bytes:Buffer;}
 export interface ArtifactResolution {inventory:ReleaseInventory|InstalledRelease;recipe:DeploymentRecipe;pluginBindings:Array<PluginMetadata|ProviderDeclaration>;artifacts:DeploymentPlan['artifacts'];releaseDigest:string;lockDigest:string;recipeDigest:string;}
 export class ArtifactResolver {
   resolve(configuration:DeploymentConfiguration):Promise<ArtifactResolution & {inventory:ReleaseInventory;pluginBindings:PluginMetadata[]}>;
@@ -57,7 +59,7 @@ export class ArtifactResolver {
       const recipe=this.schema(PlatformSchemas.recipe.safeParse(StrictJson.parse(directory.file(inventory.recipe.path,inventory.recipe.sha256))));
       Check.require(inventory.packages.length<=256&&inventory.images.length<=64,'INVENTORY_LIMIT');
       const packages=new Map<string,PackageData>(),paths=new Set<string>();let runtimeBytes=0,runtimeFiles=0;
-      for(const entry of inventory.packages){Check.require(!packages.has(entry.name)&&!paths.has(entry.path)&&valid(entry.version),'DUPLICATE_PACKAGE');paths.add(entry.path);const bytes=directory.file(entry.path,entry.sha256),reader=new ArchiveMetadata(bytes),metadata=await reader.read();if(installed){runtimeBytes+=reader.bytes;runtimeFiles+=reader.hashes.size;Check.require(runtimeBytes<=64*1024*1024&&runtimeFiles<=4096&&reader.maximumFile<=8*1024*1024,'PROVIDER_CLOSURE');for(const path of reader.paths)Check.require(PlatformSchemas.relative.safeParse(path).success,'PROVIDER_PATH');}Check.require(metadata.name===entry.name&&metadata.version===entry.version,'PACKAGE_IDENTITY');packages.set(entry.name,{entry,bytes,metadata,files:reader.paths,hashes:reader.hashes});}
+      for(const entry of inventory.packages){Check.require(!packages.has(entry.name)&&!paths.has(entry.path)&&valid(entry.version),'DUPLICATE_PACKAGE');paths.add(entry.path);const bytes=directory.file(entry.path,entry.sha256),reader=new ArchiveMetadata(bytes),metadata=await reader.read();if(installed){runtimeBytes+=reader.bytes;runtimeFiles+=reader.hashes.size;Check.require(runtimeBytes<=64*1024*1024&&runtimeFiles<=4096&&reader.maximumFile<=8*1024*1024,'PROVIDER_CLOSURE');for(const path of reader.paths)Check.require(PlatformSchemas.relative.safeParse(path).success,'PROVIDER_PATH');}Check.require(metadata.name===entry.name&&metadata.version===entry.version,'PACKAGE_IDENTITY');packages.set(entry.name,{entry,bytes,metadata,files:reader.paths,hashes:reader.hashes,sizes:reader.sizes});}
       this.lock(root,lock,packages,installed);const pluginBindings=inventory.formatVersion===2?this.installedPlugins(configuration,inventory,packages,bundled,recipe):this.plugins(configuration,inventory,packages);this.recipe(configuration,inventory,recipe);if(inventory.formatVersion===2)ContainerTemplates.validate(inventory.composition,configuration,recipe);
       const artifacts:DeploymentPlan['artifacts']=[];
       for(const name of [...packages.keys()].sort()){const entry=packages.get(name)!.entry;artifacts.push({kind:'package',name:entry.name,version:entry.version,sha256:entry.sha256});}

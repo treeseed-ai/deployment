@@ -195,7 +195,10 @@ Environment and private configuration must match that complete owner projection.
 API/Identity consume renamed selected instances without literal database/identity DNS names.
 
 Prepared helper archives are inspected against release-pinned complete file hashes/modes and
-size before a plan can report `stage-helper`; planning never fetches or executes a helper.
+archive size before a plan can report `stage-helper`; planning never fetches or executes a helper.
+Prepared helper archives use a tar/gzip file tree with inventory-relative paths and exact
+owner-read-only (0400) or executable (0500) file modes. Qualification packages standard
+tool bytes into this bounded tree; upstream installers and archives are never executed.
 Public asset descriptors validate both size and SHA-256. Projected configuration uses standard
 JSON Schema formats, rejects asynchronous schemas before invocation and exposes no raw error
 or input value. The API/worker-socket image binds only its own locked runtime package closure
