@@ -215,3 +215,18 @@ Adding an unrelated private package preserves an existing runtime image's packag
 The public test-fixture export resolves its native provider module relative to its own compiled
 package, independently of a consumer's working directory. A built Node program changes to a
 fresh directory before preparing the fixture; owner source paths are not a public dependency.
+
+### Format-3 observer/control boundary
+
+`ServiceWorkerClient` is the public read-only protocol-3 client consumed by API and CLI. It
+accepts an absolute `host.sock` observer path (or an installation directory), checks private
+owner/socket identities around each descriptor-anchored exchange, bounds complete strict JSON
+responses and validates the exact operation's result. It exposes only status and application
+read-back. The future worker exposes the observer under `.cordis/run/host.sock`; its separately
+mounted `.cordis/control/worker.sock` remains owner-local for plan/submit/plugin management.
+A read-only API mount must never contain the control socket. The client is not the permission
+boundary: the worker must independently restrict observer dispatch to its read-only operations.
+Expected structured blockers retain their safe codes; malformed, timed-out, oversized or runtime
+failures never become successful status or application observations. Historical protocol 2 stays
+unchanged. SDK `.10` supplies the accepted evidence/plan/private protocol schemas; actual generic
+worker activation and installed read-back remain the following delivery slice.

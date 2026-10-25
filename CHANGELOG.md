@@ -4,6 +4,10 @@
 
 ### Added
 
+- Add bounded format-3 observer IPC client with separate owner-control paths (#910).
+
+### Added
+
 - Verify acyclic release-built image bindings and independent runtime closures (#910).
 
 ### Added
