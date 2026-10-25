@@ -4,6 +4,8 @@
 
 ### Added
 
+- Extend the format-3 journal with ordered application and immutable resource receipts (#910).
+
 - Add bounded format-3 observer IPC client with separate owner-control paths (#910).
 
 ### Added

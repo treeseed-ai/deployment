@@ -230,3 +230,23 @@ Expected structured blockers retain their safe codes; malformed, timed-out, over
 failures never become successful status or application observations. Historical protocol 2 stays
 unchanged. SDK `.10` supplies the accepted evidence/plan/private protocol schemas; actual generic
 worker activation and installed read-back remain the following delivery slice.
+
+### Format-3 durable application and resource receipts
+
+`ServicePlanStore` extends the same format-selected `.cordis` journal for application events,
+resource receipts and committed composition snapshots. It reuses `InstallationWriter` and the
+existing private atomic no-overwrite publisher; there is no second lock or mutable active pointer.
+Application events have a contiguous global order and per-application sequence. Canonical intent,
+installation, engine, exact saved plan and idempotency key bind acceptance before any effects.
+Only one application may be pending. Uncertain failed effects require explicit repair; a new
+request cannot silently adopt them. Identical keys recover the existing exact application while
+conflicting intents block. Accepted requests bind the current composition/resource-set digest.
+
+Immutable resource receipts bind scope, creator generation, definition/actual/content/image
+identity and referencing compositions. Snapshots bind exact receipt bytes and target observations.
+A completed ready event requires a previously published matching snapshot with ready target
+acknowledgements. Read-back validates the entire ordered journal and installation scope without
+opening the original bundle. A writer already held by the durable worker publishes plans and
+records under that same authority. This persistence qualification uses explicit observation
+fixtures; only actual engine/probe inspection in the worker can produce runtime readiness.
+Historical journals and migration remain separate explicit boundaries.
