@@ -566,7 +566,7 @@ probe, mutation or source-bundle access. Dependency endpoints are declared TCP t
 their typed owner contract determines application protocol. Unknown/unaccepted services fail safely.
 The response makes no active/healthy claim and contains no private paths or credential bytes.
 
-That following slice gives probe contexts a deeply frozen copy of this metadata. This enables direct/routed
+Native probe contexts receive a deeply frozen copy of this metadata. This enables direct/routed
 owner probes to compare API-measured package/entry content and accepted service generations while
 the engine independently verifies actual resource/image identity. It avoids a health endpoint
 recursing through overall worker readiness. Every public SDK operation and historical transport
@@ -576,5 +576,8 @@ The host refuses observations before the application passes artifact validation,
 IDs, or after uncertain/failed application state. Observation reads do not inspect readiness or
 mutate records. Runtime bindings come only from the accepted plan; external service images have
 `runtime:null`. Data and dependency arrays returned inside the host are deeply frozen. The public
-observer client validates response scope against the requested service ID. Native probe injection
-of the same context follows as a separate bounded slice.
+observer client validates response scope against the requested service ID. A probe's observation
+identity must match its service, expected installation/composition/service generations and asset
+digest. Dependency identities contain only its declared accepted bindings. Existing deadline,
+cancellation, credential grants and native lease drain remain authoritative; metadata adds no
+credential, host command or installation-writer capability.
