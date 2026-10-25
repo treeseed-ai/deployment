@@ -332,3 +332,10 @@ containers. `ServiceRuntimeInspection` verifies resource identity, running state
 endpoints; only selected owner probe classes may establish readiness. No container-running result
 can complete an application. Tests use a genuine pinned Node image with a compiled TypeScript
 fixture service, explicitly disposable and independent of application/Keycloak readiness.
+
+The development-only `./testing/runtime` export provides `ServiceRuntimeFixture`. It produces
+its own compiled class service/image from the previously qualified exact Node base digest,
+exports native OCI bytes, and constructs genuine provider archives and private slot declarations.
+It pulls that exact fixture prerequisite only when absent, before invoking the engine; deployment
+never pulls it. Cleanup selects only this fixture's unique project labels and image tag. This
+producer is neither an application release nor evidence that API/Keycloak readiness is complete.

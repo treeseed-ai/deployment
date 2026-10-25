@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.13",
+  "version": "0.0.0-cordis.14",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -13,6 +13,10 @@
     "./testing": {
       "types": "./dist/tests/release-fixture.d.ts",
       "default": "./dist/tests/release-fixture.js"
+    },
+    "./testing/runtime": {
+      "types": "./dist/tests/service-runtime-fixture.d.ts",
+      "default": "./dist/tests/service-runtime-fixture.js"
     }
   },
   "files": [
@@ -21,7 +25,8 @@
     "LICENSE",
     "NOTICE",
     "dist/tests/release-fixture.*",
-    "dist/tests/service-fixture-plugins.*"
+    "dist/tests/service-fixture-plugins.*",
+    "dist/tests/service-runtime-fixture.*"
   ],
   "scripts": {
     "check": "bun scripts/tooling.ts check",
