@@ -296,3 +296,17 @@ Prepared values are limited to 4 MiB per materialization and 64 MiB in aggregate
 expansion is bounded during resolution, before private publication. `mount(service, slot)`
 returns only the verified private path/resource/digest for an explicitly declared own-service
 mount; it grants no arbitrary path choice. Probe access remains a separate reference allowlist.
+
+### Exact installed image preparation
+
+`ServiceImages` stages only the selected verified native OCI manifests/configurations/layers
+from an accepted local bundle, under the application's stage phase and existing writer. It uses
+a fixed verified local Unix endpoint for effects, while checking the selected context and daemon
+identity before and after preparation. No registry pull, container startup, package script or
+credential generation occurs. Exact already-present images may remain shared.
+
+Private image cache entries contain the selected OCI closure, complete load archive and verified
+binding record. Reuse freshly checks bundle/prerequisite bytes and the daemon's exact immutable
+image identity; missing, foreign, incomplete or changed cache state blocks instead of overwriting
+or adopting it. The result maps logical image IDs to actual immutable engine identities for the
+bounded actuator. It makes no protocol-ready or active composition claim.

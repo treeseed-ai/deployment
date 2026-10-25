@@ -8,6 +8,8 @@
 
 ### Added
 
+- Prepare exact native OCI images through the accepted installation writer (#910).
+
 - Prepare versioned service-scoped slots with explicit grants and retained credential bytes (#910).
 
 - Stage exact instance-scoped native providers from verified runtime closures (#910).
