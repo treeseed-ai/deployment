@@ -356,3 +356,13 @@ safe unready observations. A timed-out call retains its native lease until its p
 repeated calls cannot bypass that pending call. Scope disposal drains accepted leases and fences
 an uncooperative scope instead of claiming completed cleanup. Closing provider scopes does not
 stop installed containers or discard durable resources. A later worker owns application commit.
+
+The native-scope program exercises two actual HTTP probe instances and a separately identified
+probe-boundary fixture. That fixture returns wrong-instance and secret-like results, a false result,
+and a late promise before qualifying immutable context and own/granted callback restrictions.
+Neither malformed output nor late credential access is accepted. The late promise retains its
+native lease; subsequent calls report pending until it settles. This qualifies the probe boundary,
+not a replacement for the genuine HTTP or eventual API/Keycloak protocol tests.
+
+Absolute deadlines are checked again when a probe promise settles. A blocked event loop must not
+allow a late success through merely because its timeout callback has not run yet.
