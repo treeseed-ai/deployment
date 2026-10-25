@@ -33,7 +33,7 @@ export class PreparedReleaseFixture {
     this.write('package.json',{name:'cordis-fixture-composition',version:'1.0.0',private:true,dependencies:{'@fixture/plugin':'file:archives/plugin.tgz'}});
     const lock=spawnSync('bun',['install','--lockfile-only','--ignore-scripts'],{cwd:this.bundle,encoding:'utf8'});
     if(lock.status!==0)throw new Error('Fixture standard lock generation failed');
-    const config={architecture:'amd64',os:'linux',config:{},rootfs:{type:'layers',diff_ids:[]},history:[]};
+    const config={architecture:'amd64',os:'linux',config:{Labels:{'ai.treeseed.cordis.test-fixture':PreparedReleaseFixture.sha(this.root)}},rootfs:{type:'layers',diff_ids:[]},history:[]};
     const configBytes=JSON.stringify(config),configDigest=PreparedReleaseFixture.sha(configBytes);writeFileSync(join(this.bundle,'oci/blobs/sha256',configDigest),configBytes);
     const manifest={schemaVersion:2,mediaType:'application/vnd.oci.image.manifest.v1+json',config:{mediaType:'application/vnd.oci.image.config.v1+json',digest:'sha256:'+configDigest,size:Buffer.byteLength(configBytes)},layers:[]};
     const manifestBytes=JSON.stringify(manifest),manifestDigest=PreparedReleaseFixture.sha(manifestBytes);writeFileSync(join(this.bundle,'oci/blobs/sha256',manifestDigest),manifestBytes);

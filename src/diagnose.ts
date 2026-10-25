@@ -178,3 +178,4 @@ export {ServicePlanIdentity} from './service-plan.js';
 export {ServiceWorkerClient} from './service-ipc.js';
 export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
 export {ServiceCredentials} from './service-credentials.js';
+export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands} from './service-images.js';
