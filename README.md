@@ -204,3 +204,10 @@ JSON Schema formats, rejects asynchronous schemas before invocation and exposes 
 or input value. The API/worker-socket image binds only its own locked runtime package closure
 and selected UI asset set, so an unrelated private plugin cannot force an API image rebuild.
 The complete installation package set remains bound by the release and plan.
+
+Release-built `runtimeImages` associations select a packaged runtime entry without embedding
+a future image digest in its own archive. The prepared release binds the final image; its
+OCI configuration labels must bind the owning package's complete locked runtime archive
+closure, packaged entry digest, and selected asset generation. External images retain exact
+package descriptors. Every association belongs to one package and is used by its service.
+Adding an unrelated private package preserves an existing runtime image's package-set label.
