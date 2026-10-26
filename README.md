@@ -938,5 +938,5 @@ application, so existing phase scans already enforce this permission invariant.
 The genuine authority programme retains real adapters and an owner writer, records failed state,
 then attempts all five effect seams. Typed refusals and unchanged private/resource inventories
 are required. Valid default phase paths remain covered by their normal compiled programmes.
-The programme verifies the existing fixed permission invariant; it introduces no policy provider
+The programme verifies the existing permission invariant; it introduces no policy provider
 or replacement runtime permission implementation.
