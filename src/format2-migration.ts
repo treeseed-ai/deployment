@@ -1,3 +1,4 @@
+import{resolve}from'node:path';
 import { MigrationArtifacts } from './migration-artifacts.js';
 import { linkSync, unlinkSync, lstatSync, fsyncSync } from 'node:fs';
 import { CanonicalJson, ServiceSchemas, InstalledSchemas, type InstalledPlan } from '@treeseed-cordis/sdk';
@@ -10,16 +11,13 @@ export class Format2Migration {
     static read(path: string): Format2MigrationResult { return MigrationCustody.read(path).result; }
     private static plan(state: SafeDirectory, digest: string): InstalledPlan { const plan = InstalledSchemas.plan.parse(StrictJson.parse(state.file('plans/plan-' + digest + '.json', undefined, 4 * 1024 * 1024, true))), { id, digest: stored, ...payload } = plan; Check.require(stored === digest && id === 'plan-' + digest && CanonicalJson.digest(payload) === digest && plan.configuration.installationDirectory === state.path.slice(0, -'/.cordis'.length), 'PLAN_BINDING'); return plan; }
     static async run(path: string, input: Format2MigrationRequest): Promise<Format2MigrationResult> {
+        Check.require(path.startsWith('/')&&resolve(path)===path,'MIGRATION_SCOPE');
         const parsed = MigrationSchemas.request.safeParse(input);
         Check.require(parsed.success, 'MIGRATION_AUTHORIZATION_REQUIRED');
         const request = parsed.data;
         let root: SafeDirectory;
-        try {
-            root = SafeDirectory.open(path);
-        }
-        catch {
-            return Check.block('MIGRATION_NOT_REQUIRED');
-        }
+        try {lstatSync(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return Check.block('MIGRATION_NOT_REQUIRED');throw error;}
+        root=SafeDirectory.open(path);
         try {
             Check.require(root.entries().join(',') === '.cordis', 'MIGRATION_NOT_REQUIRED');
             const state = root.directory('.cordis', true);
