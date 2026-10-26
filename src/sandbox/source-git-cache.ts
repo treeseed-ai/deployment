@@ -61,6 +61,7 @@ export async function acquireSourceBundle(input: {
   try {
     await writeFile(join(lock, 'job.json'), JSON.stringify({ jobId, assignmentId: authorization.assignmentId, authorizationId: authorization.id, pid: process.pid }), { mode: 0o600, flag: 'wx' });
     const result = await dependencies.volume(cache, input.maxBundleBytes, async volume => {
+    current(authorization, dependencies.now());
     fetchEntered = true;
     const temporary = join(volume, `${jobId}.bundle`);
 		const git = join(volume, 'repository.git');
