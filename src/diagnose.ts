@@ -154,3 +154,5 @@ export {PluginRequestStore} from './plugin-registry.js';
 export {ManagedSourceTools} from './managed-tools.js';
 
 export {ManagedReleaseCache,ManagedReleaseReader} from './release-cache.js';
+
+export {NpmSourcePlugin,NpmSourceRuntime,PackageSourceTokens,type PackageSourceResolver} from './npm-source.js';

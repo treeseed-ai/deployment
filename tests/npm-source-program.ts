@@ -16,33 +16,69 @@ class RegistryFixture {
     version = '1.0.0';
     requests = 0;
     authorization = false;
-    tamperTrust=false;crossOrigin=false;invalidIntegrity=false;trustChanges=0;
-    constructor(private readonly root: string,private readonly installation:string) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.reply.bind(this)); }
-    private reply(request: IncomingMessage, response: ServerResponse): void { this.requests++; this.changeTrust(); this.authorization ||= request.headers.authorization !== undefined; const versions: Record<string, unknown> = {}; for (const version of ['1.0.0', '2.0.0']) {
-        const archive = readFileSync(join(this.root, 'source-' + version + '.tgz'));
-        versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin?'https://unapproved.invalid/':this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity?'sha512-AAAA':'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'touch MUST_NOT_RUN' } };
-    } response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ name: '@fixture/npm-source', 'dist-tags': { latest: this.version }, versions })); }
-    private changeTrust():void{if(!this.tamperTrust)return;const artifacts=join(this.installation,'.cordis/artifacts');for(const name of readdirSync(artifacts))if(name.startsWith('source-resolution-')){const path=join(artifacts,name,'source-ca.pem');if(existsSync(path)){const bytes=readFileSync(path);chmodSync(path,0o600);writeFileSync(path,bytes);chmodSync(path,0o400);this.trustChanges++;}}}
-    origin(): string { const address = this.server.address(); if (!address || typeof address === 'string')
-        throw new Error('Registry not listening'); return 'https://127.0.0.1:' + address.port + '/'; }
+    tamperTrust = false;
+    crossOrigin = false;
+    invalidIntegrity = false;
+    trustChanges = 0;
+    constructor(private readonly root: string, private readonly installation: string) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.reply.bind(this)); }
+    private reply(request: IncomingMessage, response: ServerResponse): void {
+        this.requests++;
+        this.changeTrust();
+        this.authorization ||= request.headers.authorization !== undefined;
+        const versions: Record<string, unknown> = {};
+        for (const version of ['1.0.0', '2.0.0']) {
+            const archive = readFileSync(join(this.root, 'source-' + version + '.tgz'));
+            versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin ? 'https://unapproved.invalid/' : this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity ? 'sha512-AAAA' : 'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'touch MUST_NOT_RUN' } };
+        }
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ name: '@fixture/npm-source', 'dist-tags': { latest: this.version }, versions }));
+    }
+    private changeTrust(): void { if (!this.tamperTrust)
+        return; const artifacts = join(this.installation, '.cordis/artifacts'); for (const name of readdirSync(artifacts))
+        if (name.startsWith('source-resolution-')) {
+            const path = join(artifacts, name, 'source-ca.pem');
+            if (existsSync(path)) {
+                const bytes = readFileSync(path);
+                chmodSync(path, 0o600);
+                writeFileSync(path, bytes);
+                chmodSync(path, 0o400);
+                this.trustChanges++;
+            }
+        } }
+    origin(): string {
+        const address = this.server.address();
+        if (!address || typeof address === 'string')
+            throw new Error('Registry not listening');
+        return 'https://127.0.0.1:' + address.port + '/';
+    }
     async listen(): Promise<void> { await new Promise<void>(this.start.bind(this)); }
     private start(done: () => void, reject: (error: Error) => void): void { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', done); }
-    async close(): Promise<void> { if (this.closed)
-        return; this.closed = true; await new Promise<void>(this.stop.bind(this)); }
+    async close(): Promise<void> {
+        if (this.closed)
+            return;
+        this.closed = true;
+        await new Promise<void>(this.stop.bind(this));
+    }
     private stop(done: () => void): void { this.server.closeAllConnections(); this.server.close(this.stopped.bind(this, done)); }
-    private stopped(done: () => void, error?: Error): void { if (error)
-        throw error; done(); }
+    private stopped(done: () => void, error?: Error): void {
+        if (error)
+            throw error;
+        done();
+    }
 }
 class NpmSourceProgram {
-    static failed(error:unknown):never{if(error instanceof PlanningBlockedError)throw new Error(error.blockers.map(NpmSourceProgram.code).join(","));throw error;}
-    private static code(blocker:{code:string}):string{return blocker.code;}
+    static failed(error: unknown): never { if (error instanceof PlanningBlockedError)
+        throw new Error(error.blockers.map(NpmSourceProgram.code).join(",")); throw error; }
+    private static code(blocker: {
+        code: string;
+    }): string { return blocker.code; }
     static async run(file: string): Promise<void> {
         const constructor = Reflect.get(Deployment, 'NpmSourceRuntime') as {
             start(plan: ServicePlan): Promise<SourceRuntime>;
         };
         if (!constructor?.start)
             throw new Error('NATIVE_NPM_SOURCE_UNAVAILABLE');
-        const input = JSON.parse(readFileSync(file, 'utf8')), registry = new RegistryFixture(input.root,input.configuration.installationDirectory);
+        const input = JSON.parse(readFileSync(file, 'utf8')), registry = new RegistryFixture(input.root, input.configuration.installationDirectory);
         await registry.listen();
         let runtime: SourceRuntime | undefined;
         try {
@@ -59,7 +95,15 @@ class NpmSourceProgram {
             if (resolved.stage !== 'resolved' || resolved.resolution?.kind !== 'npm' || resolved.resolution.version !== '1.0.0' || resolved.sourceReceipt !== null)
                 throw new Error('Missing exact resolution before acquisition');
             const count = registry.requests;
-            let conflicted=false;try{runtime.begin('@fixture/npm-source@2.0.0','exact-npm-request');}catch{conflicted=true;}if(!conflicted||registry.requests!==count)throw new Error('Conflicting source intent admitted');
+            let conflicted = false;
+            try {
+                runtime.begin('@fixture/npm-source@2.0.0', 'exact-npm-request');
+            }
+            catch {
+                conflicted = true;
+            }
+            if (!conflicted || registry.requests !== count)
+                throw new Error('Conflicting source intent admitted');
             registry.version = '2.0.0';
             rmSync(configuration.release.directory, { recursive: true });
             const replay = await runtime.resolve(record);
@@ -77,7 +121,27 @@ class NpmSourceProgram {
             }
             if (!denied || registry.requests !== count + 1)
                 throw new Error('Unapproved target performed network lookup');
-            for(const mode of ['cross-origin','integrity','ca-race']){registry.crossOrigin=mode==='cross-origin';registry.invalidIntegrity=mode==='integrity';registry.tamperTrust=mode==='ca-race';let rejected=false;try{await runtime.resolve(runtime.begin('@fixture/npm-source','unsafe-'+mode));}catch{rejected=true;}if(mode==='ca-race'&&registry.trustChanges===0)throw new Error('Trust-race fixture did not perturb a real CA file');if(!rejected)throw new Error('Unapproved npm metadata or changed trust admitted: '+mode);}registry.crossOrigin=false;registry.invalidIntegrity=false;registry.tamperTrust=false;
+            for (const mode of ['cross-origin', 'integrity', 'ca-race']) {
+                registry.crossOrigin = mode === 'cross-origin';
+                registry.invalidIntegrity = mode === 'integrity';
+                registry.tamperTrust = mode === 'ca-race';
+                let rejected = false;
+                try {
+                    await runtime.resolve(runtime.begin('@fixture/npm-source', 'unsafe-' + mode));
+                }
+                catch(error) {
+                    const expected:Record<string,string>={'cross-origin':'NPM_TARBALL_ORIGIN',integrity:'NPM_METADATA_INTEGRITY','ca-race':'SOURCE_CA_CHANGED'};
+                    if(!(error instanceof PlanningBlockedError)||error.blockers[0]?.code!==expected[mode])throw error;
+                    rejected=true;
+                }
+                if (mode === 'ca-race' && registry.trustChanges === 0)
+                    throw new Error('Trust-race fixture did not perturb a real CA file');
+                if (!rejected)
+                    throw new Error('Unapproved npm metadata or changed trust admitted: ' + mode);
+            }
+            registry.crossOrigin = false;
+            registry.invalidIntegrity = false;
+            registry.tamperTrust = false;
             const uncertain = runtime.begin('@fixture/npm-source@missing', 'interrupted-npm-request');
             let failed = false;
             try {

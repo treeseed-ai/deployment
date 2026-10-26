@@ -7,8 +7,11 @@ import { create } from 'tar';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
 import { ServiceReleaseFixture } from './release-fixture.js';
 class NpmSourceTests {
-    private static command(program: string, args: string[]): void { const result = spawnSync(program, args, { encoding: 'utf8', timeout: 120000 }); if (result.status !== 0)
-        throw new Error(result.stderr); }
+    private static command(program: string, args: string[]): void {
+        const result = spawnSync(program, args, { encoding: 'utf8', timeout: 120000 });
+        if (result.status !== 0)
+            throw new Error(result.stderr);
+    }
     private static sha(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
     async program(): Promise<void> {
         const fixture = await new ServiceReleaseFixture().services();
@@ -56,14 +59,18 @@ class NpmSourceTests {
             fixture.close();
         }
     }
-    private writable(path: string): void { const stat = lstatSync(path); if (stat.isSymbolicLink())
-        return; if (stat.isDirectory()) {
-        chmodSync(path, 0o700);
-        for (const name of readdirSync(path))
-            this.writable(join(path, name));
+    private writable(path: string): void {
+        const stat = lstatSync(path);
+        if (stat.isSymbolicLink())
+            return;
+        if (stat.isDirectory()) {
+            chmodSync(path, 0o700);
+            for (const name of readdirSync(path))
+                this.writable(join(path, name));
+        }
+        else
+            chmodSync(path, 0o600);
     }
-    else
-        chmodSync(path, 0o600); }
 }
 const suite = new NpmSourceTests();
 test('smoke: native managed Bun resolves approved HTTPS npm identity once and replays source-free after tag movement', suite.program.bind(suite), 240000);
