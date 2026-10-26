@@ -1242,3 +1242,5 @@ that same set semantics. Order alone cannot invalidate an unchanged archived dec
 a saved-plan round trip. Normalization preserves every entry and value; command argument order,
 JSON payload arrays and other meaningful ordered data remain exact. Changed mount targets,
 secrets, grants or policy still fail independently before any activation.
+The derived recipe also compares dependency/secret references, ports and mounts as sets on both
+sides; it preserves every exact reference, target and publication value.
