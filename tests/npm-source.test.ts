@@ -8,6 +8,7 @@ import { create } from 'tar';
 import { CanonicalJson, PackageDefinition } from '@treeseed-cordis/sdk';
 import { ServiceReleaseFixture } from './release-fixture.js';
 import { ServiceRuntimeFixture } from './service-runtime-fixture.js';
+import { ServiceWorkerBuild } from '@treeseed-cordis/deployment';
 import { ExtensionContainerFixture, StatefulExtensionFixture, ExtensionProbeFixture } from './source-registry-fixture.js';
 class NpmSourceTests {
     private static command(program: string, args: string[]): void {
@@ -118,6 +119,7 @@ class NpmSourceTests {
                 this.calibrate(fixture, helper, directory, false);
                 await create({ cwd: directory, file: join(fixture.root, 'source-' + version + '.tgz'), gzip: true, portable: true, prefix: 'package/' }, ['package.json', 'index.js', 'postinstall.ts']);
             }
+            if (fresh) { const output = join(fixture.root, 'fresh-worker'); mkdirSync(output, { mode: 0o700 }); const worker = ServiceWorkerBuild.produce(output); copyFileSync(join(output, worker.path), join(fixture.bundle, 'fresh-compiled-worker')); fixture.release.composition.worker = { ...worker, path: 'fresh-compiled-worker' }; }
             fixture.refreshService();
             const program = fresh ? 'installed-plugin-program' : 'plugin-install-program', input = join(fixture.root, 'plugin-install.json'), executable = join(fixture.root, program);
             writeFileSync(input, JSON.stringify({ root: fixture.root, configuration: fixture.configuration }));

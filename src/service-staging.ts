@@ -18,11 +18,12 @@ interface StagePackage {
     hashes: Map<string, string>;
 }
 export class ServiceProviderStager {
+    private static turn(done: (value: void) => void): void { setImmediate(done); }
     private readonly plan: ServicePlan;
     private readonly store: ServicePlanStore;
     constructor(plan: ServicePlan) { this.plan = ServiceSchemas.plan.parse(plan); this.store = new ServicePlanStore(this.plan.configuration.installationDirectory); }
     async stage(serviceId: string, kind: 'container' | 'probe', writer: InstallationWriter): Promise<PreparedServiceProvider> {
-        writer.assert(this.store.path);
+        await new Promise(ServiceProviderStager.turn); writer.assert(this.store.path);
         Check.require(kind === 'container' || kind === 'probe', 'PROVIDER_KIND');
         let accepted = false;
         for (const record of this.store.records())

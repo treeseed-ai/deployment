@@ -160,3 +160,4 @@ export {ManagedReleaseCache,ManagedReleaseReader} from './release-cache.js';
 export {NpmSourcePlugin,NpmSourceRuntime,PackageSourceTokens,type PackageSourceResolver} from './npm-source.js';
 
 export type {ResolvedPackageArchive} from './source-archive.js';
+export { InstalledPluginManager } from './installed-plugins.js';
