@@ -24,3 +24,19 @@ The malformed/incomplete journal test invokes real `ComposeDeploymentHost.plan`,
 read-only host/engine inspection. Classify it as integration with a 60-second cold-host
 budget. CI reproduced 5.443 seconds against the previous implicit five-second unit budget.
 The same assertions and production command deadlines remain unchanged.
+
+## Complete smoke partition gate
+
+The scoped replacement qualification recorded 882.48 seconds of smoke and 23.16 seconds
+of unit/integration work before compiler/source checks. A single 15-minute CI job cannot
+reliably run that complete gate. CI keeps Ubuntu 26.04 and the same assertions, splitting
+smoke into `transitions` (retained planning/application and scoped restart programmes)
+and `foundation` (every other test file, including future additions). Each runner owns
+its disposable Docker resources. Local `bun run verify` remains complete and sequential.
+
+`bun scripts/verification.ts smoke transitions|foundation` runs its exact sorted file set.
+`bun scripts/verification.ts inventory` reports both sets for read-back. Partition validation
+requires nonempty disjoint sets, every discovered `tests/*.test.ts` exactly once, and all
+explicit transition files present. Unknown commands/partitions fail with exit 2 before tests.
+The final `verify` CI job requires static/unit/integration and both smoke jobs to succeed;
+a skipped, failed or cancelled prerequisite cannot produce a green aggregate gate.

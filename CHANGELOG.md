@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Partition complete smoke qualification within CI job budgets (#954).
+
 ### Added
 - Persist exact plugin request intent and source custody before effects (#910).
 
