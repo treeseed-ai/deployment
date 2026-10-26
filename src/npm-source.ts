@@ -1,3 +1,4 @@
+import {PackageClosureAcquirer} from './source-closure.js';
 import { SourceArchiveCache, type ResolvedPackageArchive } from './source-archive.js';
 import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type PluginRequestRecord, type PluginInstallRequest } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle } from '@treeseed-cordis/sdk/runtime';
@@ -8,17 +9,19 @@ import { ManagedReleaseCache } from './release-cache.js';
 import { InstallationStore } from './installed.js';
 import { SafeDirectory, PlanningFailure as Check } from './filesystem.js';
 export interface PackageSourceResolver {
+    acquire(record:PluginRequestRecord):Promise<PluginRequestRecord>;
     fetch(record: PluginRequestRecord): Promise<ResolvedPackageArchive>;
     resolve(record: PluginRequestRecord): Promise<PluginRequestRecord>;
 }
 class SourceAdapter {
-    parse(value: unknown): PackageSourceResolver { Check.require(value !== null && typeof value === 'object' && typeof Reflect.get(value, 'resolve') === 'function' && typeof Reflect.get(value, 'fetch') === 'function', 'INVALID_SOURCE_ADAPTER'); return value as PackageSourceResolver; }
+    parse(value: unknown): PackageSourceResolver { Check.require(value !== null && typeof value === 'object' && typeof Reflect.get(value, 'resolve') === 'function' && typeof Reflect.get(value, 'fetch') === 'function' && typeof Reflect.get(value,'acquire')==='function', 'INVALID_SOURCE_ADAPTER'); return value as PackageSourceResolver; }
 }
 export class PackageSourceTokens {
     static readonly npm = new CapabilityToken<PackageSourceResolver>('source.npm', ProviderV4Schemas.version, new SourceAdapter());
 }
 class NpmPackageSource implements PackageSourceResolver {
     private readonly requests: PluginRequestStore;
+    private readonly jobs=new Map<string,Promise<PluginRequestRecord>>();
     constructor(private readonly authority: InstallationAuthority) { this.requests = new PluginRequestStore(authority.plan, authority.writer); }
     private current(input: PluginRequestRecord): PluginRequestRecord {
         const record = PluginManagementSchemas.install.parse(input.intent);
@@ -29,7 +32,9 @@ class NpmPackageSource implements PackageSourceResolver {
             }
         return Check.block('PLUGIN_REQUEST_NOT_FOUND');
     }
-    async fetch(input: PluginRequestRecord): Promise<ResolvedPackageArchive> { const record = this.current(input), policy = this.authority.plan.acquisitionPolicy; Check.require(policy && record.policyDigest === CanonicalJson.digest(policy) && record.stage === 'resolved' && record.resolution?.kind === 'npm', 'SOURCE_RESOLUTION_REQUIRED'); const intent = PluginManagementSchemas.install.parse(record.intent), resolution = record.resolution; let granted = false; let certificate: Buffer | undefined; for (const grant of policy.npm)
+    acquire(input:PluginRequestRecord):Promise<PluginRequestRecord>{const record=this.current(input),existing=this.jobs.get(record.requestId);if(existing)return existing;const job=new PackageClosureAcquirer(this.authority,this).acquire(record).finally(this.finished.bind(this,record.requestId));this.jobs.set(record.requestId,job);return job;}
+    private finished(id:string):void{this.jobs.delete(id);}
+    async fetch(input: PluginRequestRecord): Promise<ResolvedPackageArchive> { const record = this.current(input), policy = this.authority.plan.acquisitionPolicy; Check.require(policy && record.policyDigest === CanonicalJson.digest(policy) && ['resolved','acquired','prepared','pending','active'].includes(record.stage) && record.resolution?.kind === 'npm', 'SOURCE_RESOLUTION_REQUIRED'); const intent = PluginManagementSchemas.install.parse(record.intent), resolution = record.resolution; let granted = false; let certificate: Buffer | undefined; for (const grant of policy.npm)
         if (grant.registry === resolution.registry && grant.packages.includes(resolution.name) && (intent.target ? grant.targets.includes(intent.target) : grant.targets.length === 1)) {
             Check.require(!granted, 'NPM_SOURCE_NOT_APPROVED');
             granted = true;
@@ -50,7 +55,7 @@ class NpmPackageSource implements PackageSourceResolver {
         Check.require(record.operation === 'install' && policy && record.policyDigest === CanonicalJson.digest(policy), 'SOURCE_POLICY_REQUIRED');
         const intent = PluginManagementSchemas.install.parse(record.intent), locator = PluginSource.parse(intent.source);
         Check.require(locator.kind === 'npm', 'NPM_SOURCE_REQUIRED');
-        if (record.stage === 'resolved' && record.resolution?.kind === 'npm')
+        if (record.resolution?.kind === 'npm')
             return record;
         Check.require(record.stage === 'received', 'SOURCE_RESOLUTION_UNCERTAIN');
         Check.require(record.expectedGeneration === (this.authority.store.current()?.compositionGeneration ?? null), 'STALE_GENERATION');
@@ -124,6 +129,7 @@ export class NpmSourceRuntime implements PackageSourceResolver {
     finally {
         await lease.release();
     } }
+    async acquire(record:PluginRequestRecord):Promise<PluginRequestRecord>{Check.require(!this.closed,'HOST_CLOSED');const lease=await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm);try{return await lease.value.acquire(record);}finally{await lease.release();}}
     async close(): Promise<void> {
         if (this.closed)
             return;

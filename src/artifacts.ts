@@ -74,11 +74,17 @@ export class ArtifactResolver {
   static imageOrder(a:ReleaseInventory['images'][number],b:ReleaseInventory['images'][number]):number {return a.reference.localeCompare(b.reference);}
   protected schema<T>(result:{success:true;data:T}|{success:false}):T {Check.require(result.success,'INVALID_RELEASE_SCHEMA');return result.data;}
   private fields(value:unknown):Record<string,unknown> {return value===undefined?{}:StrictJson.object(value);}
-  private unsupported(metadata:Record<string,unknown>,installed=false):void {
+  protected unsupported(metadata:Record<string,unknown>,installed=false):void {
     for(const key of ['optionalDependencies','overrides','resolutions','workspaces','bundledDependencies','bundleDependencies','peerDependenciesMeta'])if(metadata[key]!==undefined&&!(installed&&key==='peerDependenciesMeta'))Check.require(Object.keys(this.fields(metadata[key])).length===0,'UNSUPPORTED_DEPENDENCIES');
   }
+  private exactOverrides(root:Record<string,unknown>,lock:Record<string,unknown>,packages:Map<string,PackageData>):Record<string,unknown> {
+    if(root.overrides===undefined){Check.require(lock.overrides===undefined||Object.keys(this.fields(lock.overrides)).length===0,'UNSUPPORTED_LOCK_OVERRIDES');return root;}
+    const overrides=this.fields(root.overrides),dependencies=this.fields(root.dependencies);Check.require(Object.keys(overrides).length===packages.size&&CanonicalJson.stringify(overrides)===CanonicalJson.stringify(dependencies)&&CanonicalJson.stringify(overrides)===CanonicalJson.stringify(this.fields(lock.overrides)),'UNSUPPORTED_LOCK_OVERRIDES');
+    for(const [name,path] of Object.entries(overrides)){const data=packages.get(name);Check.require(data&&path==='file:'+data.entry.path,'UNSUPPORTED_LOCK_OVERRIDES');}
+    const result={...root};delete result.overrides;return result;
+  }
   protected lock(root:Record<string,unknown>,lock:Record<string,unknown>,packages:Map<string,PackageData>,installed=false):void {
-    this.unsupported(root,installed);Check.require(lock.lockfileVersion===2&&lock.configVersion===1,'UNSUPPORTED_LOCK');
+    this.unsupported(this.exactOverrides(root,lock,packages),installed);Check.require(lock.lockfileVersion===2&&lock.configVersion===1,'UNSUPPORTED_LOCK');
     const workspaces=StrictJson.object(lock.workspaces);Check.require(Object.keys(workspaces).length===1&&workspaces[''],'UNSUPPORTED_WORKSPACE');
     const workspace=StrictJson.object(workspaces['']),dependencies=this.fields(root.dependencies);
     Check.require(CanonicalJson.stringify(dependencies)===CanonicalJson.stringify(this.fields(workspace.dependencies)),'LOCK_ROOT_MISMATCH');

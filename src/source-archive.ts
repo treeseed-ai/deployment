@@ -15,6 +15,8 @@ export interface ResolvedPackageArchive {
     readonly size: number;
     readonly descriptor: PluginPackageDescriptor;
 }
+export interface RuntimePackageArchive {readonly path:string;readonly sha256:string;readonly size:number;readonly metadata:Readonly<Record<string,unknown>>;}
+interface CachedArchive extends RuntimePackageArchive {readonly descriptor:PluginPackageDescriptor|null;}
 type NpmResolution = Extract<NonNullable<PluginRequestRecord['resolution']>, {
     kind: 'npm';
 }>;
@@ -71,35 +73,35 @@ class SourceArchiveSchema {
 }
 /** Raw-byte custody only. It does not claim complete dependency closure or activation. */
 export class SourceArchiveCache {
-    constructor(private readonly authority: InstallationAuthority, private readonly record: PluginRequestRecord) { }
+    constructor(private readonly authority: InstallationAuthority, private readonly record: PluginRequestRecord,private readonly runtime?:NpmResolution) { }
     private authorize(): NpmResolution { this.authority.writer.assert(this.authority.store.path); for (const current of new PluginRequestStore(this.authority.plan, this.authority.writer).records())
         if (current.requestId === this.record.requestId) {
-            Check.require(CanonicalJson.stringify(current) === CanonicalJson.stringify(this.record) && current.stage === 'resolved' && current.resolution?.kind === 'npm', 'SOURCE_REQUEST_CHANGED');
-            return current.resolution;
+            Check.require(CanonicalJson.stringify(current) === CanonicalJson.stringify(this.record) && ['resolved','acquired','prepared','pending','active'].includes(current.stage) && current.resolution!==null, 'SOURCE_REQUEST_CHANGED');
+            if(this.runtime)return this.runtime;Check.require(current.resolution?.kind==='npm','SOURCE_REQUEST_CHANGED');return current.resolution;
         } return Check.block('PLUGIN_REQUEST_NOT_FOUND'); }
     private key(resolution: NpmResolution): string { return CanonicalJson.digest({ formatVersion: 1, installationId: this.authority.plan.configuration.installationId, installationDirectory: this.authority.store.path, resolution }); }
-    private directory(create: boolean): SafeDirectory | null { const artifacts = this.authority.store.directory('artifacts', this.authority.writer); try {
-        if (!artifacts.entries().includes('packages')) {
+    private directory(create: boolean): SafeDirectory | null { const artifacts = this.authority.store.directory('artifacts', this.authority.writer),name=this.runtime?'runtime-packages':'packages'; try {
+        if (!artifacts.entries().includes(name)) {
             if (!create)
                 return null;
-            const directory = InstallationStore.mkdir(artifacts, 'packages');
+            const directory = InstallationStore.mkdir(artifacts, name);
             return directory;
         }
-        return artifacts.directory('packages', true);
+        return artifacts.directory(name, true);
     }
     finally {
         artifacts.close();
     } }
     private static file(directory: SafeDirectory, name: string): void { const stat = lstatSync(directory.childPath(name)); Check.require(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && stat.nlink === 1 && (stat.mode & 0o777) === 0o400, 'SOURCE_ARCHIVE_PERMISSIONS'); }
-    private static declaration(index: PackageArchiveIndex, resolution: NpmResolution): PluginPackageDescriptor { Check.require(index.metadata.name === resolution.name && index.metadata.version === resolution.version, 'SOURCE_ARCHIVE_IDENTITY'); const parsed = PluginManagementSchemas.packageDescriptor.safeParse(index.metadata.cordisPackage); Check.require(parsed.success && parsed.data.package.name === resolution.name && parsed.data.package.version === resolution.version, 'INVALID_PLUGIN_PACKAGE'); const files = new Map<string,PackageArchiveIndex['files'][number]>(); for (const file of index.files)
+    private declaration(index: PackageArchiveIndex, resolution: NpmResolution): PluginPackageDescriptor|null { Check.require(index.metadata.name === resolution.name && index.metadata.version === resolution.version, 'SOURCE_ARCHIVE_IDENTITY');if(this.runtime)return null;const parsed = PluginManagementSchemas.packageDescriptor.safeParse(index.metadata.cordisPackage); Check.require(parsed.success && parsed.data.package.name === resolution.name && parsed.data.package.version === resolution.version, 'INVALID_PLUGIN_PACKAGE'); const files = new Map<string,PackageArchiveIndex['files'][number]>(); for (const file of index.files)
         files.set(file.path, file); for (const provider of parsed.data.providers)
         Check.require(files.has(provider.entry), 'INVALID_PLUGIN_PACKAGE'); for (const asset of parsed.data.assets) {
         const file = files.get(asset.path);
         Check.require(file && file.sha256 === asset.sha256 && file.size === asset.size, 'INVALID_PLUGIN_PACKAGE');
     } return parsed.data; }
     private sri(bytes: Buffer, resolution: NpmResolution): void { const match = /^(sha256|sha512)-([A-Za-z0-9+/]+=*)$/.exec(resolution.sri); Check.require(match && createHash(match[1]!).update(bytes).digest('base64') === match[2], 'SOURCE_ARCHIVE_INTEGRITY'); }
-    private async read(directory: SafeDirectory, resolution: NpmResolution): Promise<ResolvedPackageArchive> { const stat = fstatSync(directory.fd); Check.require(stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o500 && directory.entries().join(',') === 'archive.tgz,receipt.json', 'SOURCE_ARCHIVE_INCOMPLETE'); SourceArchiveCache.file(directory, 'receipt.json'); const bytes = directory.file('receipt.json', undefined, 4 * 1024 * 1024), parsed=SourceArchiveSchema.receipt.safeParse(StrictJson.parse(bytes));Check.require(parsed.success,'SOURCE_ARCHIVE_INCOMPLETE');const receipt=parsed.data; Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && CanonicalJson.stringify(receipt.resolution) === CanonicalJson.stringify(resolution), 'SOURCE_ARCHIVE_SCOPE'); SourceArchiveCache.file(directory, 'archive.tgz'); const archive = directory.file('archive.tgz', receipt.sha256, 64 * 1024 * 1024); Check.require(archive.length === receipt.size, 'SOURCE_ARCHIVE_INTEGRITY'); this.sri(archive, resolution); const index = await PackageArchiveInspector.inspect(directory.path+'/archive.tgz', receipt.sha256), descriptor = SourceArchiveCache.declaration(index, resolution); directory.verify(); this.authorize(); return Object.freeze({ path: directory.path + '/archive.tgz', sha256: receipt.sha256, size: receipt.size, descriptor }); }
-    private async existing(resolution: NpmResolution): Promise<ResolvedPackageArchive | null> { const packages = this.directory(false); if (!packages)
+    private async read(directory: SafeDirectory, resolution: NpmResolution): Promise<CachedArchive> { const stat = fstatSync(directory.fd); Check.require(stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o500 && directory.entries().join(',') === 'archive.tgz,receipt.json', 'SOURCE_ARCHIVE_INCOMPLETE'); SourceArchiveCache.file(directory, 'receipt.json'); const bytes = directory.file('receipt.json', undefined, 4 * 1024 * 1024), parsed=SourceArchiveSchema.receipt.safeParse(StrictJson.parse(bytes));Check.require(parsed.success,'SOURCE_ARCHIVE_INCOMPLETE');const receipt=parsed.data; Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && CanonicalJson.stringify(receipt.resolution) === CanonicalJson.stringify(resolution), 'SOURCE_ARCHIVE_SCOPE'); SourceArchiveCache.file(directory, 'archive.tgz'); const archive = directory.file('archive.tgz', receipt.sha256, 64 * 1024 * 1024); Check.require(archive.length === receipt.size, 'SOURCE_ARCHIVE_INTEGRITY'); this.sri(archive, resolution); const index = await PackageArchiveInspector.inspect(directory.path+'/archive.tgz', receipt.sha256), descriptor = this.declaration(index, resolution); directory.verify(); this.authorize(); return Object.freeze({ path: directory.path + '/archive.tgz', sha256: receipt.sha256, size: receipt.size, descriptor,metadata:index.metadata }); }
+    private async existing(resolution: NpmResolution): Promise<CachedArchive | null> { const packages = this.directory(false); if (!packages)
         return null; try {
         for (const name of packages.entries())
             Check.require(/^[a-f0-9]{64}$/.test(name), 'SOURCE_ARCHIVE_INCOMPLETE');
@@ -117,10 +119,13 @@ export class SourceArchiveCache {
     finally {
         packages.close();
     } }
-    async fetch(ca: Buffer | undefined): Promise<ResolvedPackageArchive> {
+    async fetch(ca:Buffer|undefined):Promise<ResolvedPackageArchive>{Check.require(!this.runtime,'PLUGIN_ARCHIVE_REQUIRED');const data=await this.raw(ca);Check.require(data.descriptor,'INVALID_PLUGIN_PACKAGE');return Object.freeze({path:data.path,sha256:data.sha256,size:data.size,descriptor:data.descriptor});}
+    async fetchRuntime(ca:Buffer|undefined):Promise<RuntimePackageArchive>{Check.require(this.runtime,'RUNTIME_ARCHIVE_REQUIRED');const data=await this.raw(ca);return Object.freeze({path:data.path,sha256:data.sha256,size:data.size,metadata:data.metadata});}
+    private async raw(ca: Buffer | undefined): Promise<CachedArchive> {
         const resolution = this.authorize(), existing = await this.existing(resolution);
         if (existing)
             return existing;
+        Check.require(this.record.stage==='resolved','SOURCE_RECEIPT_ARTIFACT_MISSING');
         const bytes = await new SourceDownload(resolution.tarball, ca).run();
         this.sri(bytes, resolution);
         this.authorize();
@@ -135,7 +140,7 @@ export class SourceArchiveCache {
             try {
                 InstallationStore.publish(directory, 'archive.tgz', bytes, 0o400);
                 const index = await PackageArchiveInspector.inspect(directory.path + '/archive.tgz', sha256);
-                SourceArchiveCache.declaration(index, resolution);
+                this.declaration(index, resolution);
                 this.authorize();
                 InstallationStore.publish(directory, 'receipt.json', { formatVersion: 1, installationId: this.authority.plan.configuration.installationId, installationDirectory: this.authority.store.path, resolution, sha256, size: bytes.length }, 0o400);
                 fchmodSync(directory.fd, 0o500);
