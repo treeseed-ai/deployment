@@ -1381,3 +1381,26 @@ ordinary lock offline from verified archives, with lifecycle scripts disabled. N
 runs on the host. The acquired receipt binds root archive, complete closure and helper identities;
 source-free repeated acquisition revalidates these bytes. Missing/tampered or uncertain closure
 state is refused. Source-only packages still require the separate approved isolated-build path.
+
+### Approved isolated Git builds
+
+Committed source without distributable exports returns `BUILD_REQUIRED` unless the accepted
+Git grant names an exact build policy. The policy digest covers its origin, commit, source entry
+and SHA-256, output package directory, digest-pinned Linux/amd64 build image, managed helper
+release, disabled network and bounded deadline. Package lifecycle fields grant no execution.
+
+The native build provider runs only that approved entry in a disposable non-serving Docker
+container: non-root UID, read-only root, dropped capabilities, no-new-privileges, no network,
+ports, installation socket or credentials, bounded memory/process/CPU/tmpfs and deadline. Its
+only host inputs are held read-only copies of verified source/helper/driver bytes. Writable build
+output stays inside bounded tmpfs. The generated TypeScript-class driver suppresses source logs,
+packs only the declared output directory with managed Bun and lifecycle scripts disabled, and
+returns bounded archive bytes for the same non-executing package/metadata verifier. It never
+runs source scripts on the host or mounts the installation root. Exact owned build containers
+are removed and absence verified before success. Unknown effects or interrupted publication
+leave private evidence and refuse reuse; they cannot produce an active result.
+
+Immutable build receipts bind installation/engine, raw commit/tree/archive, complete policy and
+helper identities, and produced native archive. Source-free reuse verifies all retained bytes;
+future closure and activation retain their own admission checks. A failed build cannot silently
+fall back to a prepared artifact or a different image/entry. Keycloak identity is unchanged.

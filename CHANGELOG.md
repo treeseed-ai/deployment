@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Build explicitly approved source-only Git plugins in bounded disposable isolation (#910).
+
+### Added
 - Verify complete locked dependency closure for exact prepared Git plugin archives (#910).
 
 ### Added
