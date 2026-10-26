@@ -25,6 +25,13 @@ export class ProbeFixture {
     static readonly replacement = { kind: 'restart', qualificationDigest: null, stateVersion: 1 };
     static readonly probe = { observationContracts: ['fixture.echo'], schemes: ['http'], maximumDeadlineMs: 5000 };
 }
+/** Independent package consumer of the same exact static fixture image. */
+export class SharedStaticContainerFixture extends ContainerFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...ContainerFixture.declaration, id: 'shared-image.container', pluginId: 'shared-image' });
+}
+export class SharedStaticProbeFixture extends ProbeFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...ProbeFixture.declaration, id: 'shared-image.probe', pluginId: 'shared-image' });
+}
 /** Explicit negative readiness fixture for a serving, restarted container. */
 export class RestartUnreadyProbeFixture extends ProbeFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({...ProbeFixture.declaration,id:'fixture.restart-unready-probe'});
