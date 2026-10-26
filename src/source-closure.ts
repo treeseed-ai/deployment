@@ -15,13 +15,13 @@ import { NpmRegistryLookup } from './source-registry.js';
 import { SourceArchiveCache } from './source-archive.js';
 import { PluginRequestStore } from './plugin-registry.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
-interface RootArchive {
+export interface RootArchive {
     descriptor:PluginPackageDescriptor;
     path: string;
     sha256: string;
     size: number;
 }
-interface RootSources {
+export interface RootSources {
     fetch(record: PluginRequestRecord): Promise<RootArchive>;
 }
 class ClosureSchemas {
@@ -177,13 +177,13 @@ export class SourceClosureStore {
 export class PackageClosureAcquirer {
     private readonly requests: PluginRequestStore;
     private readonly store: SourceClosureStore;
-    constructor(private readonly authority: InstallationAuthority, private readonly source: RootSources) { this.requests = new PluginRequestStore(authority.plan, authority.writer); this.store = new SourceClosureStore(authority); }
+    constructor(private readonly authority: InstallationAuthority, private readonly source: RootSources, private readonly retainedLocator?:string) { this.requests = new PluginRequestStore(authority.plan, authority.writer); this.store = new SourceClosureStore(authority); }
     private current(record: PluginRequestRecord): void { this.authority.writer.assert(this.authority.store.path); for (const current of this.requests.records())
         if (current.requestId === record.requestId) {
             Check.require(CanonicalJson.stringify(current) === CanonicalJson.stringify(record), 'SOURCE_REQUEST_CHANGED');
             return;
         } Check.block('PLUGIN_REQUEST_NOT_FOUND'); }
-    private base(): ServicePlan { const snapshot = this.authority.store.current(); if (!snapshot)
+    base(): ServicePlan { const snapshot = this.authority.store.current(); if (!snapshot)
         return this.authority.plan; const records = this.authority.store.records(); for (let index = records.length - 1; index >= 0; index--) {
         const record = records[index]!;
         if (record.phase === 'completed' && record.desiredComposition === snapshot.compositionGeneration)
@@ -246,6 +246,7 @@ export class PackageClosureAcquirer {
                         continue;
                     }
                     Check.require(packages.size < 1024, 'SOURCE_CLOSURE_LIMIT');
+                    Check.require(record.operation==='install','REGISTERED_DEPENDENCY_REACQUISITION_REQUIRED');
                     const intent = PluginManagementSchemas.install.parse(record.intent), grant = NpmRegistryLookup.grant(this.authority.plan, dependency, intent.target), directory = InstallationStore.mkdir(work, 'lookup-' + CanonicalJson.digest({ dependency, range }));
                     let resolution;
                     try {
@@ -280,7 +281,8 @@ export class PackageClosureAcquirer {
                 entries.push(data.entry);
             const manifest = ClosureSchemas.manifest.parse({ formatVersion: 1, baseReleaseDigest: base.releaseDigest, root: { name: rootIdentity.name, version: rootIdentity.version, sha256: fetched.sha256, sri: rootSri }, packageJson: { path: 'package.json', sha256: PackageClosureAcquirer.hash(rootFile) }, lockfile: { path: 'bun.lock', sha256: PackageClosureAcquirer.hash(lockFile) }, packages: entries }), digest = await this.store.publish(record, manifest, work, packages);
             this.current(record);
-            const common={locator:(record.intent as {source:string}).source,name:rootIdentity.name,version:rootIdentity.version,archiveDigest:fetched.sha256,sri:rootSri,closureDigest:digest,helperDigests:record.resolution.helperDigests};
+            Check.require(record.operation==='install'||this.retainedLocator!==undefined,'REGISTERED_SOURCE_PROVENANCE_REQUIRED');
+            const common={locator:record.operation==='select'?this.retainedLocator!:(record.intent as {source:string}).source,name:rootIdentity.name,version:rootIdentity.version,archiveDigest:fetched.sha256,sri:rootSri,closureDigest:digest,helperDigests:record.resolution.helperDigests};
             let sourceReceipt;
             if(record.resolution.kind==='npm')sourceReceipt=PluginManagementSchemas.sourceReceipt.parse({...common,kind:'npm',registry:record.resolution.registry});
             else{const archive=await SourceClosureStore.gitArchive(this.authority,record);Check.require(archive.sha256===fetched.sha256,'SOURCE_CLOSURE_IDENTITY');sourceReceipt=PluginManagementSchemas.sourceReceipt.parse({...common,kind:'git',origin:record.resolution.origin,commit:record.resolution.commit,tree:archive.tree,buildPolicyDigest:archive.buildPolicyDigest});}
