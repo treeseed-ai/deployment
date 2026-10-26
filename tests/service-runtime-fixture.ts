@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ServiceReleaseFixture, PreparedReleaseFixture } from './release-fixture.js';
-import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture, AuthorityContainerFixture, AuthorityConsumerFixture, AuthorityProbeFixture, RestartAuthorityFixture } from './service-fixture-plugins.js';
+import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture, AuthorityContainerFixture, AuthorityConsumerFixture, AuthorityProbeFixture, RestartAuthorityFixture, RestartUnreadyProbeFixture } from './service-fixture-plugins.js';
 import { ServiceProjection } from '../src/service-projection.js';
 import { CanonicalJson, ServiceSchemas, PackageDefinition, type ServiceRelease } from '@treeseed-cordis/sdk';
 interface Descriptor {
@@ -48,7 +48,7 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         const image = this.exportImage();
         this.release.images = [image];
         const source = join(this.root, 'plugin/package'), metadata = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as Record<string, unknown>;
-        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(RuntimeContainerFixture, 'index.js', 'RuntimeContainerFixture'), PackageDefinition.export(RestartAuthorityFixture, 'index.js', 'RestartAuthorityFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture'), PackageDefinition.export(QualificationProbeFixture, 'index.js', 'QualificationProbeFixture'), PackageDefinition.export(AuthorityContainerFixture, 'index.js', 'AuthorityContainerFixture'), PackageDefinition.export(AuthorityConsumerFixture, 'index.js', 'AuthorityConsumerFixture'), PackageDefinition.export(AuthorityProbeFixture, 'index.js', 'AuthorityProbeFixture')], [], [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'prepared' } }]);
+        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(RuntimeContainerFixture, 'index.js', 'RuntimeContainerFixture'), PackageDefinition.export(RestartAuthorityFixture, 'index.js', 'RestartAuthorityFixture'), PackageDefinition.export(RestartUnreadyProbeFixture, 'index.js', 'RestartUnreadyProbeFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture'), PackageDefinition.export(QualificationProbeFixture, 'index.js', 'QualificationProbeFixture'), PackageDefinition.export(AuthorityContainerFixture, 'index.js', 'AuthorityContainerFixture'), PackageDefinition.export(AuthorityConsumerFixture, 'index.js', 'AuthorityConsumerFixture'), PackageDefinition.export(AuthorityProbeFixture, 'index.js', 'AuthorityProbeFixture')], [], [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'prepared' } }]);
         this.recipe = { services: {}, volumes: {}, secrets: {} };
         this.configuration.credentialReferences = [];
         for (const service of this.release.composition.services) {
