@@ -32,7 +32,7 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         ServiceRuntimeFixture.run('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-days', '1', '-subj', '/CN=Cordis public authority fixture', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-keyout', join(directory, 'fixture-key.pem'), '-out', this.authorityCertificate]);
         return this.authorityCertificate;
     }
-    async running(qualification = false, authority = false): Promise<this> {
+    async running(qualification = false, authority = false, authorityServices?:readonly string[]): Promise<this> {
         await this.services();
         this.project = 'cordis-' + CanonicalJson.digest({ installationId: this.configuration.installationId, installationDirectory: this.installation }).slice(0, 16);
         const inspect = spawnSync('docker', ['image', 'inspect', ServiceRuntimeFixture.base], { encoding: 'utf8' });
@@ -52,12 +52,12 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         this.recipe = { services: {}, volumes: {}, secrets: {} };
         this.configuration.credentialReferences = [];
         for (const service of this.release.composition.services) {
-            const provider = authority ? (service === this.release.composition.services[1] ? AuthorityConsumerFixture : AuthorityContainerFixture) : RuntimeContainerFixture;
+            const hasAuthority=authority&&(authorityServices===undefined||authorityServices.includes(service.serviceId)),provider = hasAuthority ? (service === this.release.composition.services[1] ? AuthorityConsumerFixture : AuthorityContainerFixture) : RuntimeContainerFixture;
             service.provider = { ...service.provider, providerId: provider.declaration.id, classExport: provider.name };
             service.configuration = {};
             service.readiness.deadlineMs = 5000;
             service.dependencies = authority && provider === AuthorityConsumerFixture ? [{ port: 'primary', bindingId: this.release.composition.services[0]!.bindings[0]!.bindingId, contractId: 'fixture.echo', contractVersion: '1.0.0' }] : [];
-            if (authority) {
+            if (hasAuthority) {
                 service.readiness.provider = { ...service.readiness.provider, providerId: AuthorityProbeFixture.declaration.id, classExport: AuthorityProbeFixture.name };
                 service.readiness.credentialReferences = ['secret://' + service.serviceId + '/public-ca'];
                 if (provider === AuthorityConsumerFixture) service.readiness.credentialReferences.push('secret://' + this.release.composition.services[0]!.serviceId + '/public-ca');
