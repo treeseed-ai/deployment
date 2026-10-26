@@ -1346,3 +1346,19 @@ Archive/closure acquisition remains explicitly unqualified in this prefix; the d
 manager adopts the same provider once those gates pass. Git commands use a held installation-private bare repository with empty templates and owner-only
 permissions. The explicit repository and held configuration checks exclude a containing development
 checkout; the source lookup does not check out files. See the [Git repository option](https://git-scm.com/docs/git#Documentation/git.txt---git-dirpath) and [Git initialization documentation](https://git-scm.com/docs/git-init).
+
+### Exact Git package archive custody
+
+The Git source provider fetches the already accepted commit into private bare bookkeeping with
+no checkout, hooks, submodules, ambient credentials or mutable-ref fallback. A bounded helper
+process and private-work budget stop excessive object/archive acquisition. Reject symlinks,
+submodules, excessive files/sizes and unsafe paths before accepting package bytes. Inspect the
+resulting tar without extraction, imports, package-manager execution or lifecycle scripts.
+
+A complete owner-private immutable receipt binds the original origin/commit/tree, helper identities,
+installation scope, exact archive hash and native package descriptor. The declared package must
+match an approved origin/target package grant; provider entries and asset identities must exist.
+Publication reserves an exclusive directory before effects and never overwrites/adopts incomplete
+state. Repeated fetch reads and verifies the exact stored bytes even after source/bundle removal;
+tampered or missing accepted state requires explicit repair. Complete dependency closure, source-only
+builds and installation activation remain separately gated after this archive slice.

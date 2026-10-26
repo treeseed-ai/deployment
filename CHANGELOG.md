@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Retain bounded exact Git package archives with private immutable custody and source-free read-back (#910).
+
 ### Fixed
 - Keep live plugin transport preflight independent of mutable owner journal publication (#980).
 
