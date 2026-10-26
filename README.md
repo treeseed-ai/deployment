@@ -880,3 +880,11 @@ The outside-in programme must run through the real compiled durable worker, chan
 fixture container provider, verify an observable new response and physical ID, preserve all
 unaffected IDs/private bytes, reject missing/extra scope and migration, and read back/replay after
 original source removal. Final API-image/UI-only restart qualification remains an assembled gate.
+
+Returning to a previously selected container definition is a fresh physical replacement, even
+when its bytes and metadata match historical inputs. Allocate a fresh resource identity for
+the new container while preserving the earlier immutable receipt; never overwrite the earlier
+actual Docker identity. Unchanged current definitions continue to retain their current identity.
+The compiled programme must replace and then revert one service under exact explicit scopes
+and read back all three accepted requests after removing source. Interrupted scoped restarts
+must leave the prior committed snapshot and private bytes intact and refuse further writes.
