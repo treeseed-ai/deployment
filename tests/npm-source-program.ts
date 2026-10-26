@@ -2,7 +2,7 @@ import * as Deployment from '@treeseed-cordis/deployment';
 import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type ServicePlan, type ServiceGraph, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
 import { createServer, type Server } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, chmodSync, renameSync, symlinkSync, unlinkSync, lstatSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 interface FetchedArchive {
@@ -266,6 +266,34 @@ class NpmSourceProgram {
             const checked = await new Deployment.ServiceArtifactResolver().resolve(prepared);
             if (checked.inventory.composition.services.length !== graph.services.length || checked.releaseDigest !== prepared.release.manifestDigest || registry.requests !== stoppedCount)
                 throw new Error('Prepared release not independently verified source-free');
+            for (const path of [join(dirname(prepared.release.directory), 'receipt.json'), join(prepared.release.directory, 'compose.json')]) {
+                const original = readFileSync(path);
+                chmodSync(path, 0o600); writeFileSync(path, '{}'); chmodSync(path, 0o400);
+                let refused = false;
+                try { await runtime.prepare(acquired, graph); } catch (error) { refused = error instanceof PlanningBlockedError; }
+                chmodSync(path, 0o600); writeFileSync(path, original); chmodSync(path, 0o400);
+                if (!refused) throw new Error('Changed private prepared release adopted');
+            }
+            if (CanonicalJson.stringify(await runtime.prepare(acquired, graph)) !== CanonicalJson.stringify(prepared))
+                throw new Error('Restored prepared release changed');
+            const preparedRoot = dirname(prepared.release.directory), preparedReceipt = join(preparedRoot, 'receipt.json'), receiptBackup = join(input.root, 'prepared-receipt-backup'), bundleBackup = join(input.root, 'prepared-bundle-backup');
+            if ((lstatSync(preparedRoot).mode & 0o777) !== 0o500 || (lstatSync(preparedReceipt).mode & 0o777) !== 0o400)
+                throw new Error('Prepared release is not sealed');
+            for (const mode of ['missing-receipt', 'symlink-bundle']) {
+                chmodSync(preparedRoot, 0o700);
+                if (mode === 'missing-receipt') renameSync(preparedReceipt, receiptBackup);
+                else { chmodSync(prepared.release.directory, 0o700); renameSync(prepared.release.directory, bundleBackup); chmodSync(bundleBackup, 0o500); symlinkSync(bundleBackup, prepared.release.directory); }
+                chmodSync(preparedRoot, 0o500);
+                let refused = false;
+                try { await runtime.prepare(acquired, graph); } catch (error) { refused = error instanceof PlanningBlockedError; }
+                chmodSync(preparedRoot, 0o700);
+                if (mode === 'missing-receipt') renameSync(receiptBackup, preparedReceipt);
+                else { unlinkSync(prepared.release.directory); chmodSync(bundleBackup, 0o700); renameSync(bundleBackup, prepared.release.directory); chmodSync(prepared.release.directory, 0o500); }
+                chmodSync(preparedRoot, 0o500);
+                if (!refused) throw new Error('Incomplete or linked prepared release adopted');
+            }
+            if (CanonicalJson.stringify(await runtime.prepare(acquired, graph)) !== CanonicalJson.stringify(prepared) || registry.requests !== stoppedCount)
+                throw new Error('Prepared custody repair changed source identity');
             const closureRoot = join(plan.configuration.installationDirectory, '.cordis', 'artifacts', 'closures', acquired.sourceReceipt!.closureDigest);
             for (const name of ['receipt.json', 'bun.lock']) {
                 const path = join(closureRoot, name), original = readFileSync(path);

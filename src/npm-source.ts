@@ -1,4 +1,5 @@
 import {PackageClosureAcquirer} from './source-closure.js';
+import { PreparedServiceRelease } from './prepared-release.js';
 import { SourceArchiveCache, type ResolvedPackageArchive } from './source-archive.js';
 import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type PluginRequestRecord, type PluginInstallRequest } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle } from '@treeseed-cordis/sdk/runtime';
@@ -130,6 +131,7 @@ export class NpmSourceRuntime implements PackageSourceResolver {
         await lease.release();
     } }
     async acquire(record:PluginRequestRecord):Promise<PluginRequestRecord>{Check.require(!this.closed,'HOST_CLOSED');const lease=await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm);try{return await lease.value.acquire(record);}finally{await lease.release();}}
+    async prepare(record: PluginRequestRecord, composition: ServicePlan['composition']): Promise<ServicePlan['configuration']> { Check.require(!this.closed, 'HOST_CLOSED'); return new PreparedServiceRelease(this.authority).prepare(record, composition); }
     async close(): Promise<void> {
         if (this.closed)
             return;
