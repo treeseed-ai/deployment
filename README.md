@@ -1381,3 +1381,13 @@ ordinary lock offline from verified archives, with lifecycle scripts disabled. N
 runs on the host. The acquired receipt binds root archive, complete closure and helper identities;
 source-free repeated acquisition revalidates these bytes. Missing/tampered or uncertain closure
 state is refused. Source-only packages still require the separate approved isolated-build path.
+
+### Mutable helper work and accepted custody
+
+The in-flight helper work walk measures owned regular files, rejects symlinks and enforces the
+same file/entry/byte bounds while a trusted pinned helper is running. It must allow transient
+regular-file hard links: Git publishes an object by linking its temporary file and then removing
+the temporary name. Paths are counted conservatively, including both names. Completed helper
+work and every accepted artifact still require single-link files before success. A persistent
+hard link is refused at the final check; this distinction never raises a resource budget or
+relaxes archive/custody validation. See [Git object publication](https://github.com/git/git/blob/v2.55.0/object-file.c).

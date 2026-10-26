@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Distinguish transient private Git object publication from final single-link custody (#989).
+
 ### Added
 - Verify complete locked dependency closure for exact prepared Git plugin archives (#910).
 
