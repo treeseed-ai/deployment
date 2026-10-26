@@ -239,7 +239,7 @@ class NpmSourceProgram {
             writeFileSync(fetched.path, savedBytes);
             chmodSync(fetched.path, 0o400);
             const receiptPath=join(dirname(fetched.path),'receipt.json'),receiptBytes=readFileSync(receiptPath);chmodSync(receiptPath,0o600);writeFileSync(receiptPath,'{}\n');chmodSync(receiptPath,0o400);let malformedReceipt=false;try{await runtime.fetch(resolved);}catch(error){malformedReceipt=error instanceof PlanningBlockedError;}if(!malformedReceipt)throw new Error('Malformed archive receipt did not produce a safe typed blocker');chmodSync(receiptPath,0o600);writeFileSync(receiptPath,receiptBytes);chmodSync(receiptPath,0o400);
-            if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
+            if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(join(input.root,'SCRIPT_CANARY')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
                 throw new Error('Credentials or lifecycle canary escaped');
             process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true }) + '\n');
         }

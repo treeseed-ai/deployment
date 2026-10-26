@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, chmodSync, realpathSync, symlinkSync, lstatSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, chmodSync, realpathSync, symlinkSync, lstatSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { create } from 'tar';
@@ -13,6 +13,7 @@ class NpmSourceTests {
             throw new Error(result.stderr);
     }
     private static sha(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
+    private calibrate(fixture:ServiceReleaseFixture,helper:string):void {const directory=join(fixture.root,'pkg-1.0.0'),lifecycle=join(fixture.root,'MUST_NOT_RUN'),imported=join(fixture.root,'SCRIPT_CANARY');const scripted=spawnSync(join(helper,'bun'),['--no-env-file','run','postinstall'],{cwd:directory,encoding:'utf8',timeout:15000,env:{PATH:helper,HOME:fixture.root,LANG:'C.UTF-8'}});if(scripted.status!==0||!existsSync(lifecycle)||readFileSync(lifecycle,'utf8')!=='executed')throw new Error('LIFECYCLE_CANARY_NOT_OBSERVABLE_AT_ABSOLUTE_PATH');unlinkSync(lifecycle);const code="import{pathToFileURL}from'node:url';class Calibration{static async run(){await import(pathToFileURL(process.argv[1]).href);}}await Calibration.run();",loaded=spawnSync('node',['--input-type=module','-e',code,join(directory,'index.js')],{encoding:'utf8',timeout:15000,env:{PATH:process.env.PATH,HOME:fixture.root}});if(loaded.status!==0||!existsSync(imported))throw new Error('IMPORT_CANARY_NOT_OBSERVABLE_AT_ABSOLUTE_PATH');unlinkSync(imported);}
     async program(): Promise<void> {
         const fixture = await new ServiceReleaseFixture().services();
         try {
@@ -42,6 +43,7 @@ class NpmSourceTests {
                 copyFileSync(join(fixture.root, 'plugin/package/index.js'), join(directory, 'index.js'));
                 await create({ cwd: directory, file: join(fixture.root, 'source-' + version + '.tgz'), gzip: true, portable: true, prefix: 'package/' }, ['package.json', 'index.js']);
             }
+            this.calibrate(fixture,helper);
             NpmSourceTests.command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-days', '1', '-subj', '/CN=Cordis registry fixture', '-addext', 'basicConstraints=critical,CA:TRUE', '-keyout', join(fixture.root, 'ca-key.pem'), '-out', join(fixture.bundle, 'source-ca.pem')]);
             NpmSourceTests.command('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-noenc', '-subj', '/CN=127.0.0.1', '-keyout', join(fixture.root, 'key.pem'), '-out', join(fixture.root, 'server.csr')]);
             writeFileSync(join(fixture.root, 'server.ext'), 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n');
