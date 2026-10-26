@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Attribute retained listener evidence to the actual fixture owner and verify Docker publications (#995).
+
 ### Added
 - Select exact previously registered provider artifacts with durable request identity (#910).
 

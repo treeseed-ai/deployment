@@ -45,3 +45,11 @@ installation may resolve exact declared dependencies from the registry, with lif
 and dotenv loading disabled. Root lockfile installation does not imply cached registry manifests
 for another project. Runtime source-free retry is tested separately against accepted private
 artifacts and helpers; the consumer setup must not claim offline capability from a warm cache.
+
+Listener-retention checks use Linux TCP socket inodes attributed to the fixture owner and its
+actual descendants. Unrelated sibling process restarts on a shared developer host are outside
+that observation scope. Genuine parent/child listener tests establish attribution and a new
+listener is a failing delta. Docker host publications are checked separately against the accepted
+service ports (private additions have none). Original container/resource identities, private
+credential bytes, direct protocol and TLS authority remain exact retention assertions. No port
+ignore list or bypass flag is allowed. Issue #995 records the prior host-wide false failures.
