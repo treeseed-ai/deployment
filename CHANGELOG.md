@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Distinguish transient private Git object publication from final single-link custody (#989).
+
 ### Added
 - Admit approved Git source builds into the shared verified runtime closure (#910).
 

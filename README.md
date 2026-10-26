@@ -1429,3 +1429,13 @@ The Git runtime's default construction registers the same native build provider 
 installed host. A build receipt alone does not grant activation: registration, selection, coherent
 planning, application completion and actual target-generation/resource acknowledgements remain
 required. Keycloak identity and existing installation ownership are preserved.
+
+### Mutable helper work and accepted custody
+
+The in-flight helper work walk measures owned regular files, rejects symlinks and enforces the
+same file/entry/byte bounds while a trusted pinned helper is running. It must allow transient
+regular-file hard links: Git publishes an object by linking its temporary file and then removing
+the temporary name. Paths are counted conservatively, including both names. Completed helper
+work and every accepted artifact still require single-link files before success. A persistent
+hard link is refused at the final check; this distinction never raises a resource budget or
+relaxes archive/custody validation. See [Git object publication](https://github.com/git/git/blob/v2.55.0/object-file.c).
