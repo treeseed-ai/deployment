@@ -1096,3 +1096,18 @@ never be described as a verified complete closure or active plugin.
 This prefix also adopts exact SDK `.16`, source `4c0ecd2a0fc28545dbf677cc988ce69f0cf2f15d`,
 archive SHA-256 `4084aa8dbe9767984fac9fef7f5cea30a0bec93ed416138d32c804e6389fdba5`.
 Keep one exact SDK peer across the eventual owner closure; preserve all prior frozen artifacts.
+
+### No-overwrite cache directory reservation
+
+Retained releases and managed helper trees reserve their final digest directory with exclusive
+creation. Files publish atomically and the directory becomes immutable only after the complete
+allowlist and receipt have been written and verified. A concurrent empty destination, symlink,
+unknown entry or interrupted partial directory is preserved and refused with a safe conflict;
+there is no check-then-directory-rename or recursive cleanup of uncertain state. Existing complete
+entries still require exact scoped read-back and byte verification before reuse.
+
+This is required even for an empty destination: Linux rename may replace it after a precheck.
+See [rename(2)](https://man7.org/linux/man-pages/man2/rename.2.html). A disposable Node24.19.0
+filesystem probe confirmed the replacement behavior; the built custody regressions inject that
+specific destination race at the filesystem boundary. Ordinary default tests still exercise real
+publication without injection. Private incomplete state needs explicit repair, not automatic adoption.

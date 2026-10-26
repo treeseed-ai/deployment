@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Preserve concurrent foreign cache directories through exclusive no-overwrite reservation (#962).
+
 ### Added
 - Retain verified original NPM archives through bounded HTTPS acquisition without imports or activation (#910).
 
