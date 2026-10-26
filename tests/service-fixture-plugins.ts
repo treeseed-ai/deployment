@@ -25,6 +25,11 @@ export class ProbeFixture {
     static readonly replacement = { kind: 'restart', qualificationDigest: null, stateVersion: 1 };
     static readonly probe = { observationContracts: ['fixture.echo'], schemes: ['http'], maximumDeadlineMs: 5000 };
 }
+/** Explicit negative readiness fixture for a serving, restarted container. */
+export class RestartUnreadyProbeFixture extends ProbeFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({...ProbeFixture.declaration,id:'fixture.restart-unready-probe'});
+    override async observe(context:ProbeContext):Promise<ServiceReadiness>{return {serviceId:context.serviceId,ready:false,observations:['fixture.replacement.unready']};}
+}
 export class CredentialContainerFixture extends ContainerFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...ContainerFixture.declaration, id: 'fixture.credentials' });
     static override readonly container: NonNullable<PluginExportDescriptor['container']> = PluginManagementSchemas.container.parse({ ...ContainerFixture.container, definition: { ...ContainerFixture.container.definition, secrets: [{ slot: 'password', target: '/run/cordis/password' }, { slot: 'configuration', target: '/run/cordis/configuration.json' }] }, resources: { ...ContainerFixture.container.resources, slots: { password: { kind: 'random' }, identity: { kind: 'uuid' }, configuration: { kind: 'json', value: { service: { $context: 'serviceId' }, password: { $secret: { slot: 'password' } }, origin: { $context: 'origin' } } } } } });
@@ -88,6 +93,11 @@ export class QualificationProbeFixture {
 export class AuthorityContainerFixture extends RuntimeContainerFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...RuntimeContainerFixture.declaration, id: 'fixture.authority-container' });
     static override readonly container = PluginManagementSchemas.container.parse({ ...RuntimeContainerFixture.container, resources: { ...RuntimeContainerFixture.container.resources, authorities: [{ id: 'public-ca', volume: 'data', path: 'root.crt' }] } });
+}
+/** Exact selectable replacement fixture: same owned state, observable new process configuration. */
+export class RestartAuthorityFixture extends AuthorityContainerFixture {
+    static override readonly declaration = ProviderV4Schemas.declaration.parse({...AuthorityContainerFixture.declaration,id:'fixture.restart-authority'});
+    static override readonly container = PluginManagementSchemas.container.parse({...AuthorityContainerFixture.container,definition:{...AuthorityContainerFixture.container.definition,environment:{...AuthorityContainerFixture.container.definition.environment,FIXTURE_REVISION:'replacement'}}});
 }
 export class AuthorityConsumerFixture extends AuthorityContainerFixture {
     static override readonly declaration = ProviderV4Schemas.declaration.parse({ ...AuthorityContainerFixture.declaration, id: 'fixture.authority-consumer' });

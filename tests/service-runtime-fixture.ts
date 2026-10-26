@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ServiceReleaseFixture, PreparedReleaseFixture } from './release-fixture.js';
-import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture, AuthorityContainerFixture, AuthorityConsumerFixture, AuthorityProbeFixture } from './service-fixture-plugins.js';
+import { RuntimeContainerFixture, ProbeFixture, QualificationProbeFixture, AuthorityContainerFixture, AuthorityConsumerFixture, AuthorityProbeFixture, RestartAuthorityFixture, RestartUnreadyProbeFixture } from './service-fixture-plugins.js';
 import { ServiceProjection } from '../src/service-projection.js';
 import { CanonicalJson, ServiceSchemas, PackageDefinition, type ServiceRelease } from '@treeseed-cordis/sdk';
 interface Descriptor {
@@ -32,7 +32,7 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         ServiceRuntimeFixture.run('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-days', '1', '-subj', '/CN=Cordis public authority fixture', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-keyout', join(directory, 'fixture-key.pem'), '-out', this.authorityCertificate]);
         return this.authorityCertificate;
     }
-    async running(qualification = false, authority = false): Promise<this> {
+    async running(qualification = false, authority = false, authorityServices?:readonly string[]): Promise<this> {
         await this.services();
         this.project = 'cordis-' + CanonicalJson.digest({ installationId: this.configuration.installationId, installationDirectory: this.installation }).slice(0, 16);
         const inspect = spawnSync('docker', ['image', 'inspect', ServiceRuntimeFixture.base], { encoding: 'utf8' });
@@ -41,23 +41,23 @@ export class ServiceRuntimeFixture extends ServiceReleaseFixture {
         const build = join(this.root, 'runtime-image');
         mkdirSync(build);
         if (authority) copyFileSync(this.publicAuthority(), join(build, 'authority.pem'));
-        writeFileSync(join(build, 'http.ts'), `import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';import {readFileSync,writeFileSync,existsSync} from 'node:fs';export class FixtureServer {static start():void {if(existsSync('/fixture/authority.pem')&&!existsSync('/data/root.crt'))writeFileSync('/data/root.crt',readFileSync('/fixture/authority.pem'));if(!existsSync('/data/identity'))writeFileSync('/data/identity',process.env.FIXTURE_SERVICE_ID!);createServer(this.serve.bind(this)).listen(8080,'0.0.0.0');}static serve(_request:IncomingMessage,response:ServerResponse):void {const configuration=JSON.parse(readFileSync('/run/cordis/configuration.json','utf8')) as {service:string;password:string};const password=readFileSync('/run/cordis/password','utf8');response.setHeader('content-type','application/json');response.end(JSON.stringify({serviceId:configuration.service,passwordPresent:password.length===64&&password===configuration.password,volumeMarker:readFileSync('/data/identity','utf8')}));}}FixtureServer.start();`);
+        writeFileSync(join(build, 'http.ts'), `import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';import {readFileSync,writeFileSync,existsSync} from 'node:fs';export class FixtureServer {static start():void {if(existsSync('/fixture/authority.pem')&&!existsSync('/data/root.crt'))writeFileSync('/data/root.crt',readFileSync('/fixture/authority.pem'));if(!existsSync('/data/identity'))writeFileSync('/data/identity',process.env.FIXTURE_SERVICE_ID!);createServer(this.serve.bind(this)).listen(8080,'0.0.0.0');}static serve(_request:IncomingMessage,response:ServerResponse):void {const configuration=JSON.parse(readFileSync('/run/cordis/configuration.json','utf8')) as {service:string;password:string};const password=readFileSync('/run/cordis/password','utf8');response.setHeader('content-type','application/json');response.end(JSON.stringify({serviceId:configuration.service,passwordPresent:password.length===64&&password===configuration.password,volumeMarker:readFileSync('/data/identity','utf8'),...(process.env.FIXTURE_REVISION?{revision:process.env.FIXTURE_REVISION}:{})}));}}FixtureServer.start();`);
         ServiceRuntimeFixture.run('bun', ['build', join(build, 'http.ts'), '--target=node', '--outfile', join(build, 'http.js')]);
         writeFileSync(join(build, 'Dockerfile'), 'FROM ' + ServiceRuntimeFixture.base + '\nCOPY http.js /fixture/http.js\n' + (authority ? 'COPY authority.pem /fixture/authority.pem\n' : '') + 'CMD ["node","/fixture/http.js"]\n');
         ServiceRuntimeFixture.run('docker', ['build', '--network=none', '--pull=false', '--tag', this.imageTag, build]);
         const image = this.exportImage();
         this.release.images = [image];
         const source = join(this.root, 'plugin/package'), metadata = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as Record<string, unknown>;
-        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(RuntimeContainerFixture, 'index.js', 'RuntimeContainerFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture'), PackageDefinition.export(QualificationProbeFixture, 'index.js', 'QualificationProbeFixture'), PackageDefinition.export(AuthorityContainerFixture, 'index.js', 'AuthorityContainerFixture'), PackageDefinition.export(AuthorityConsumerFixture, 'index.js', 'AuthorityConsumerFixture'), PackageDefinition.export(AuthorityProbeFixture, 'index.js', 'AuthorityProbeFixture')], [], [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'prepared' } }]);
+        metadata.cordisPackage = PackageDefinition.define('@fixture/plugin', '1.0.0', 'fixture', [PackageDefinition.export(RuntimeContainerFixture, 'index.js', 'RuntimeContainerFixture'), PackageDefinition.export(RestartAuthorityFixture, 'index.js', 'RestartAuthorityFixture'), PackageDefinition.export(RestartUnreadyProbeFixture, 'index.js', 'RestartUnreadyProbeFixture'), PackageDefinition.export(ProbeFixture, 'index.js', 'ProbeFixture'), PackageDefinition.export(QualificationProbeFixture, 'index.js', 'QualificationProbeFixture'), PackageDefinition.export(AuthorityContainerFixture, 'index.js', 'AuthorityContainerFixture'), PackageDefinition.export(AuthorityConsumerFixture, 'index.js', 'AuthorityConsumerFixture'), PackageDefinition.export(AuthorityProbeFixture, 'index.js', 'AuthorityProbeFixture')], [], [{ id: image.id, reference: image.reference, manifestDigest: image.manifestDigest, indexSha256: image.indexSha256, source: { kind: 'prepared' } }]);
         this.recipe = { services: {}, volumes: {}, secrets: {} };
         this.configuration.credentialReferences = [];
         for (const service of this.release.composition.services) {
-            const provider = authority ? (service === this.release.composition.services[1] ? AuthorityConsumerFixture : AuthorityContainerFixture) : RuntimeContainerFixture;
+            const hasAuthority=authority&&(authorityServices===undefined||authorityServices.includes(service.serviceId)),provider = hasAuthority ? (service === this.release.composition.services[1] ? AuthorityConsumerFixture : AuthorityContainerFixture) : RuntimeContainerFixture;
             service.provider = { ...service.provider, providerId: provider.declaration.id, classExport: provider.name };
             service.configuration = {};
             service.readiness.deadlineMs = 5000;
             service.dependencies = authority && provider === AuthorityConsumerFixture ? [{ port: 'primary', bindingId: this.release.composition.services[0]!.bindings[0]!.bindingId, contractId: 'fixture.echo', contractVersion: '1.0.0' }] : [];
-            if (authority) {
+            if (hasAuthority) {
                 service.readiness.provider = { ...service.readiness.provider, providerId: AuthorityProbeFixture.declaration.id, classExport: AuthorityProbeFixture.name };
                 service.readiness.credentialReferences = ['secret://' + service.serviceId + '/public-ca'];
                 if (provider === AuthorityConsumerFixture) service.readiness.credentialReferences.push('secret://' + this.release.composition.services[0]!.serviceId + '/public-ca');
