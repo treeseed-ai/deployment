@@ -1454,3 +1454,12 @@ credential and TLS retention, direct service behavior, exact replay after source
 already-active selection and prepared/action-required unsafe state changes. A fresh installed
 manager launches the exact compiled durable owner; cold readers still make no current health
 claim and cannot implicitly restart an uncertain owner. Keycloak authority is unchanged.
+
+### Cold worker module prelude
+
+The actual compiled worker must finish loading its runtime modules before it parses arguments
+or opens installation state. The build-artifact reader is loaded only when accepted built-source
+custody is read; it must not eagerly construct a build/runtime-root dependency during bootstrap
+schema initialization. This preserves one native authority and the same artifact verification.
+An argument-only compiled-worker smoke returns exit 2 with no output or installation effects,
+without Node, Bun, Git or Docker on its PATH. The longer default-owner/apply checks remain required.

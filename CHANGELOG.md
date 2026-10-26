@@ -6,6 +6,9 @@
 - Install exact Git and approved built-source providers through the durable native host (#910).
 
 ### Fixed
+- Preserve cold compiled-worker initialization after source-build adoption (#991).
+
+### Fixed
 - Distinguish transient private Git object publication from final single-link custody (#989).
 
 ### Added
