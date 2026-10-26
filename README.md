@@ -1206,3 +1206,24 @@ An active host continues to require exact current snapshot/resource scope and ve
 Prepared planning executes no application, container, credential or source effect. A subsequent
 explicit submission freshly verifies the candidate; initial publication never silently adopts
 failed or interrupted application history.
+
+### Native plugin-management operations
+
+The default durable host owns native `deployment.plugins` and `source.npm` providers under its
+existing installation authority. Its owner-only socket supports `plugin.install`, `plugin.list`
+and `plugin.inspect` through `ServiceWorkerOwnerClient`. The observer socket rejects every plugin
+operation. Acquisition and request persistence use the same authority/writer as applications;
+acquired packages receive neither. Client adapters dispatch portable requests through that owner
+boundary and contain no alternate provider resolver or start/stop scheduler.
+
+An installation-scoped request saves its complete canonical intent before effects. Repeating an
+idempotency key joins the same job or reads its exact durable record; a conflicting intent fails.
+A bounded call returns `pending` while acquisition continues, with no active claim or fabricated
+plan/application references. Native leases keep accepted background work counted during host
+drain. Restarted unresolved lookups are fenced rather than re-resolving mutable source.
+
+This registration slice persists an exact acquired alternative as `prepared`, with explicit next
+actions and no active generation. List/inspect read private accepted custody without source access.
+They never import a candidate or infer readiness from acquisition. Typed selection, plan/apply
+activation and non-NPM sources follow in subsequent owner slices; unsupported operations return
+structured blockers. Existing credentials, resources and Keycloak authority stay unchanged.
