@@ -11,3 +11,11 @@ The complete serial Docker gate now includes a compiled retained-transition scen
 module-entry probes. Measured local predecessor smoke was 472 seconds and the new compiled
 scene 144 seconds, before CI setup. The job budget is 15 minutes; individual protocol/test
 deadlines and missing-prerequisite failures remain enforced, with no skipped positive cases.
+
+Scoped restart fixtures retain five genuine service containers, all owned volumes and credential
+slots, and two explicit public-CA owners (instances 0 and 2). Other instances use the ordinary
+protocol probe. The full authority/cross-grant suite continues to qualify all authority owners;
+the scoped programme concentrates repeated observation on its unchanged CA owner and replaced
+CA-bearing service. Preserve all resource/private-byte assertions, actual HTTP output, immutable
+reversion history, exact scopes and default compiled worker. This bounds repeated authority
+inspection within the existing 15-minute serial CI budget without weakening runtime audits.
