@@ -8,6 +8,8 @@ import { ServiceWorkerLimits } from './service-ipc.js';
 import { ServiceApplicationToken, ServiceApplicationRuntime } from './service-application.js';
 import { InstallationAuthorityToken, type InstallationAuthority } from './service-authority.js';
 import { InstallationStore } from './installed.js';
+import { NpmSourcePlugin, PackageSourceTokens } from './npm-source.js';
+import { PluginManagerPlugin, PluginManagerToken } from './plugin-manager.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 class HostFailure {
     static blocked(code: string): ServiceWorkerResponse { return { protocol: 3, success: false, kind: 'blocked', blockers: [{ code, message: 'Host request blocked: ' + code + '.' }] }; }
@@ -33,6 +35,17 @@ class HostDispatch {
         this.verify();
         if (observer && !['status', 'application', 'observation.context'].includes(request.operation))
             return HostFailure.blocked('OBSERVER_OPERATION_REFUSED');
+        if (request.operation.startsWith('plugin.')) {
+            const lease = await CordisServiceLocator.from(this.context).acquire(PluginManagerToken.instance);
+            try { let result;
+                if (request.operation === 'plugin.install') result = await lease.value.install(request.request);
+                else if (request.operation === 'plugin.select') result = await lease.value.select(request.request);
+                else if (request.operation === 'plugin.list') result = await lease.value.list(request.scope, request.target);
+                else if (request.operation === 'plugin.inspect') result = await lease.value.inspect(request.requestId);
+                else return HostFailure.blocked('OWNER_OPERATION_UNAVAILABLE');
+                return ServiceWorkerSchemas.response.parse({ protocol: 3, success: true, result });
+            } finally { await lease.release(); }
+        }
         if (!['plan','submit', 'status', 'application', 'observation.context'].includes(request.operation))
             return HostFailure.blocked('OWNER_OPERATION_UNAVAILABLE');
         const lease = await CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host);
@@ -265,7 +278,7 @@ class HostSockets implements HostTransport, HostLayout {
 }
 class HostSocketPlugin {
     static readonly provide = [HostTransportToken.instance.id];
-    static readonly inject = ['cordis.composition', InstallationAuthorityToken.instance.id, ServiceApplicationToken.host.id];
+    static readonly inject = ['cordis.composition', InstallationAuthorityToken.instance.id, ServiceApplicationToken.host.id, PluginManagerToken.instance.id];
     static readonly Config = ServiceSchemas.plan;
     static readonly declaration = ProviderV4Schemas.declaration.parse({ id: 'deployment.private-unix-protocol', pluginId: 'deployment', capability: HostTransportToken.instance.id, contractVersion: ProviderV4Schemas.version, target: 'deployment', provide: this.provide, inject: this.inject });
     private readonly sockets: HostSockets;
@@ -277,7 +290,7 @@ export class ServiceHostRuntime extends ServiceApplicationRuntime {
     private transportStopped = false;
     static override async start(input: ServicePlan, bootstrap?: {
         nonce: string;
-    }): Promise<ServiceHostRuntime> { const plan = ServiceSchemas.plan.parse(input), registration: ProviderRegistration = { token: HostTransportToken.instance, plugin: HostSocketPlugin, declaration: HostSocketPlugin.declaration, configuration: plan, artifact: { kind: 'bundled', identity: 'deployment-private-unix-protocol.1:' + plan.composition.worker.sha256 } }, scope = await this.mount(plan, [registration], bootstrap); return new ServiceHostRuntime(scope.handle, scope.context); }
+    }): Promise<ServiceHostRuntime> { const plan = ServiceSchemas.plan.parse(input), artifact = { kind: 'bundled' as const, identity: 'deployment-private-unix-protocol.1:' + plan.composition.worker.sha256 }, registrations: ProviderRegistration[] = [{ token: PackageSourceTokens.npm, plugin: NpmSourcePlugin, declaration: NpmSourcePlugin.declaration, configuration: plan, artifact }, { token: PluginManagerToken.instance, plugin: PluginManagerPlugin, declaration: PluginManagerPlugin.declaration, configuration: plan, artifact }, { token: HostTransportToken.instance, plugin: HostSocketPlugin, declaration: HostSocketPlugin.declaration, configuration: plan, artifact }], scope = await this.mount(plan, registrations, bootstrap); return new ServiceHostRuntime(scope.handle, scope.context); }
     override async close(timeoutMs = 10000): Promise<void> {
         if (!this.transportStopped) {
             const lease = await CordisServiceLocator.from(this.context).acquire(HostTransportToken.instance);

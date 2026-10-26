@@ -1,7 +1,8 @@
 import { Socket } from 'node:net';
 import { lstatSync, fstatSync, type Stats } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
-import { CanonicalJson, PlatformSchemas, PlanningBlockedError, ServiceSchemas, ServiceWorkerSchemas, type ServiceWorkerRequest, type ServiceWorkerResponse, type ServicePlan, type ServiceStatus, type ServiceObservationContext, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
+import { CanonicalJson, PlatformSchemas, PluginManagementSchemas, PlanningBlockedError, ServiceSchemas, ServiceWorkerSchemas, type PluginInstallRequest, type PluginSelectRequest, type PluginInstallResult, type ServiceWorkerRequest, type ServiceWorkerResponse, type ServicePlan, type ServiceStatus, type ServiceObservationContext, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
+import type { PluginManager } from './plugin-manager.js';
 import { ServicePlanStore } from './service-plan.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 class ObserverExchange {
@@ -92,7 +93,7 @@ class PrivateWorkerRequest {
     } }
 }
 export class ServiceWorkerLimits {static readonly planningTimeoutMs=180000;}
-export class ServiceWorkerOwnerClient {
+export class ServiceWorkerOwnerClient implements PluginManager {
     private readonly socket: string;
     private readonly timeoutMs: number;
     constructor(options: {
@@ -102,6 +103,10 @@ export class ServiceWorkerOwnerClient {
     private request(request: ServiceWorkerRequest): Promise<Extract<ServiceWorkerResponse, {
         success: true;
     }>> { return PrivateWorkerRequest.run(this.socket, ServiceWorkerSchemas.request.parse(request), this.timeoutMs); }
+    async install(input: PluginInstallRequest): Promise<PluginInstallResult> { const request = PluginManagementSchemas.install.parse(input), result = PluginManagementSchemas.result.parse((await this.request({ protocol: 3, operation: 'plugin.install', request })).result); Check.require(result.requestId === request.idempotencyKey, 'PLUGIN_RESPONSE_BINDING'); return result; }
+    async select(input: PluginSelectRequest): Promise<PluginInstallResult> { const request = PluginManagementSchemas.select.parse(input), result = PluginManagementSchemas.result.parse((await this.request({ protocol: 3, operation: 'plugin.select', request })).result); Check.require(result.requestId === request.idempotencyKey, 'PLUGIN_RESPONSE_BINDING'); return result; }
+    async list(scope: PluginInstallRequest['scope'] = 'installation', target?: PluginInstallRequest['target']): Promise<PluginInstallResult[]> { return PluginManagementSchemas.result.array().parse((await this.request({ protocol: 3, operation: 'plugin.list', scope, ...(target !== undefined ? { target } : {}) })).result); }
+    async inspect(requestId: string): Promise<PluginInstallResult> { requestId = PluginManagementSchemas.key.parse(requestId); const result = PluginManagementSchemas.result.parse((await this.request({ protocol: 3, operation: 'plugin.inspect', requestId })).result); Check.require(result.requestId === requestId, 'PLUGIN_RESPONSE_BINDING'); return result; }
     async plan(configuration:ServicePlan['configuration']):Promise<ServicePlan>{configuration=ServiceSchemas.configuration.parse(configuration);const result=(await PrivateWorkerRequest.run(this.socket,{protocol:3,operation:'plan',configuration},ServiceWorkerLimits.planningTimeoutMs)).result,plan=ServiceSchemas.plan.parse(result);Check.require(plan.configuration.installationId===configuration.installationId&&plan.configuration.installationDirectory===resolve(configuration.installationDirectory)&&plan.expectedEngine.context===configuration.engineContext,'WORKER_BINDING');const stored=new ServicePlanStore(configuration.installationDirectory).read(plan.id,plan.digest);Check.require(CanonicalJson.stringify(stored)===CanonicalJson.stringify(plan),'WORKER_BINDING');return stored;}
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';

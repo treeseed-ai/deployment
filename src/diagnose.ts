@@ -130,6 +130,8 @@ export {ServicePlanStore} from './service-plan.js';
 export {ServicePlanIdentity,ServiceTransitions} from './service-plan.js';
 export {ServiceWorkerClient,ServiceWorkerOwnerClient} from './service-ipc.js';
 export {ServiceHostRuntime} from './service-host.js';
+export { PluginManagerToken, PluginManagerPlugin, type PluginManager } from './plugin-manager.js';
+export { PluginRegistryReader } from './plugin-reader.js';
 export {ServiceProviderStager,type PreparedServiceProvider} from './service-staging.js';
 export {ServiceCredentials} from './service-credentials.js';
 export {ServiceImages,LocalDockerCommands,type ServiceImageBinding,type ServiceImageCommands,type ServiceAuthorityCommands} from './service-images.js';
