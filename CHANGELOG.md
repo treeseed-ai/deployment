@@ -2,8 +2,8 @@
 
 ## [Unreleased]
 
-### Fixed
-- Fence deployment effects to the current accepted application phase (#950).
+### Added
+- Qualify held-adapter fences across terminal application phases (#950).
 
 ### Fixed
 - Project pending application status without competing with activation readiness (#910).
