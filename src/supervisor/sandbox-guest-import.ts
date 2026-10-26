@@ -17,18 +17,18 @@ export function configuredSandboxGuestDigest(path = '/etc/treeseed/sandbox/broke
 	return digests[0]!;
 }
 
-export function bindExistingSandboxGuestTrust(digest: string, command: CommandRunner, path = '/etc/treeseed/sandbox/broker.json') {
+export function bindExistingSandboxGuestTrust(digest: string, command: CommandRunner, path = '/etc/treeseed/sandbox/broker.json', restartBroker = true) {
 	if (!/^sha256:[a-f0-9]{64}$/u.test(digest)) throw new Error('Sandbox guest digest is invalid.');
 	const current = sandboxBrokerConfigurationSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
 	for (const image of new Set(current.guestImages.map((entry) => entry.image))) {
 		command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'inspect', containerdImageReference(image, digest)], '');
 	}
 	atomicJson(path, { ...current, guestImages: current.guestImages.map((entry) => ({ ...entry, digest })) }, 0o640);
-	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
+	if (restartBroker) command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
 	return { changed: current.guestImages.some((entry) => entry.digest !== digest), digest };
 }
 
-export function importSandboxGuestArchive(archive: string, image: string, command: CommandRunner, brokerPath = '/etc/treeseed/sandbox/broker.json') {
+export function importSandboxGuestArchive(archive: string, image: string, command: CommandRunner, brokerPath = '/etc/treeseed/sandbox/broker.json', restartBroker = true) {
 	const current = sandboxBrokerConfigurationSchema.parse(JSON.parse(readFileSync(brokerPath, 'utf8')));
 	const requested = image.replace(/^docker\.io\//u, '').replace(/:local$/u, '');
 	const configured = [...new Set(current.guestImages.map(({ image: configuredImage }) => configuredImage.replace(/^docker\.io\//u, '').replace(/(?::[^/]+)?$/u, '')))];
@@ -41,6 +41,6 @@ export function importSandboxGuestArchive(archive: string, image: string, comman
 	if (!digest) throw new Error('Containerd did not report an immutable target digest for the imported development sandbox image.');
 	for (const configuredImage of new Set(current.guestImages.map((entry) => entry.image))) command('/usr/bin/ctr', ['--address', current.containerdAddress, '--namespace', current.namespace, 'images', 'tag', '--force', sourceImage, containerdImageReference(configuredImage, digest)]);
 	atomicJson(brokerPath, { ...current, guestImages: current.guestImages.map((entry) => ({ ...entry, digest })) }, 0o640);
-	command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
+	if (restartBroker) command('/usr/bin/systemctl', ['restart', 'treeseed-sandbox-broker.service']);
 	return { image, digest, architecture, imported: true };
 }
