@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import {ServiceObserverMount} from './service-observer-mount.js';
-import { CanonicalJson, ServiceSchemas, type ServicePlan, type ServiceInstance, type ServiceEngine, type ServiceExecutionContext, type ServiceDependency, type ServiceIdentity, type ServiceReadiness, type ServiceResourceReceipt } from '@treeseed-cordis/sdk';
+import { CanonicalJson, ServiceSchemas, type ServicePlan, type ServiceInstance, type ServiceEngine, type ServiceExecutionContext, type ServiceDependency, type ServiceIdentity, type ServiceReadiness, type ServiceResourceReceipt, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
 import { ServicePlanStore } from './service-plan.js';
 import { ServiceCredentials } from './service-credentials.js';
 import { LocalDockerCommands, type ServiceImageCommands } from './service-images.js';
@@ -12,7 +12,7 @@ export class RuntimeResources {
         const result=new Map<string,ServiceResourceReceipt>(),current=new Set(store.current()?.resources.map(RuntimeResources.bindingId)??[]);
         for(const item of versions.values())if(current.has(item.resourceId))result.set(this.key(item),item);
         for(const item of versions.values())if(item.kind!=='container'&&item.references.includes(plan.compositionGeneration))result.set(this.key(item),item);
-        for(const item of versions.values())if(item.kind==='container'&&item.serviceId&&item.resourceId===this.containerId(plan,item.name,item.serviceId,item.definitionDigest))result.set(this.key(item),item);
+        let checked=false,record:ServiceApplicationRecord|undefined;for(const item of versions.values())if(item.kind==='container'&&item.serviceId&&item.resourceId===this.containerId(plan,item.name,item.serviceId,item.definitionDigest)){if(current.has(item.resourceId))continue;if(!checked){record=store.records().at(-1);checked=true;}if(record?.planId===plan.id&&record.digest===plan.digest&&record.recovery===null&&['activate','readiness','commit'].includes(record.phase))result.set(this.key(item),item);}
         return [...result.values()];
     }
     private static key(value:ServiceResourceReceipt):string{return value.kind+':'+(value.serviceId??'')+':'+value.name;}

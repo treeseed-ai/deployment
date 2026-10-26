@@ -4,6 +4,11 @@
 
 ### Added
 - Qualify scoped container replacement and immutable physical history (#910).
+- Qualify held-adapter fences across terminal application phases (#950).
+
+### Fixed
+- Project pending application status without competing with activation readiness (#910).
+
 ### Changed
 - Prepare native replacement fixtures with exact service-intent contracts and authority ownership (#910).
 

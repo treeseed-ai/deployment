@@ -206,22 +206,23 @@ class ServiceApplications implements ServiceApplicationHost {
         }
     }
     async observationContext(serviceId:string):Promise<ServiceObservationContext>{this.writer.assert(this.store.path);let accepted=false;for(const record of this.store.records())if(record.planId===this.acceptedPlan.id&&record.digest===this.acceptedPlan.digest&&['stage','prepare','activate','readiness','commit','completed'].includes(record.phase))accepted=true;Check.require(accepted,'SERVICE_NOT_ACCEPTED');return new ServiceObservations(this.acceptedPlan).context(serviceId);}
-    private activePlan(generation:string,records:ServiceApplicationRecord[]):ServicePlan{for(const record of records)if(record.phase==='completed'&&record.result==='ready'&&record.activeComposition===generation)return this.store.read(record.planId,record.digest);return Check.block('INVALID_ACTIVE_COMPOSITION');}
+    private activePlan(generation:string,records:ServiceApplicationRecord[]):ServicePlan{for(let index=records.length-1;index>=0;index--){const record=records[index]!;if(record.phase==='completed'&&record.result==='ready'&&record.activeComposition===generation)return this.store.read(record.planId,record.digest);}return Check.block('INVALID_ACTIVE_COMPOSITION');}
     async status(): Promise<ServiceStatus> {
         const records = this.store.records(), last = records.at(-1), current = this.store.current(), services: ServiceStatus['services'] = [], blockers: ServiceStatus['blockers'] = [], freshAcks = new ServiceAcknowledgements(this.acceptedPlan.compositionGeneration);
-        let ready = current !== null && current.compositionGeneration===this.acceptedPlan.compositionGeneration&&!last?.recovery&&!this.faulted;
+        const applying=last!==undefined&&this.job!==null&&!['completed','failed','cancelled'].includes(last.phase);
+        let ready = current !== null && current.compositionGeneration===this.acceptedPlan.compositionGeneration&&!last?.recovery&&!this.faulted&&!applying;
         if (current) {
-            try {
+            if(!applying){try {
                 await new ServiceRuntimeInspection(this.acceptedPlan).audit();
             }
             catch {
                 ready = false;
                 blockers.push({ code: 'RESOURCE_IDENTITY_CHANGED', message: 'An installed resource requires verification.' });
-            }
-            const activePlan=this.activePlan(current.compositionGeneration,records),resources=this.resources(activePlan);
+            }}
+            const activePlan=this.activePlan(current.compositionGeneration,records),resources=applying?current.resources:this.resources(activePlan);
             for (const service of activePlan.composition.services) {
-                let qualified = false, observations: readonly string[] = ['service.unavailable'];
-                try {
+                let qualified = false, observations: readonly string[] = [applying?'application.pending':'service.unavailable'];
+                if(!applying){try {
                     const scope = this.scopes.get(service.serviceId);
                     Check.require(scope, 'MISSING_NATIVE_SCOPE');
                     const result = await scope.ready();
@@ -231,8 +232,8 @@ class ServiceApplications implements ServiceApplicationHost {
                         for (const ack of result.acknowledgements ?? [])
                             freshAcks.add(ack);
                 }
-                catch { qualified = false; }
-                let container: ServiceResourceReceipt | undefined;
+                catch { qualified = false; }}
+                let container: Pick<ServiceResourceReceipt,'resourceId'> | undefined;
                 for (const receipt of resources)
                     if (receipt.kind === 'container' && receipt.serviceId === service.serviceId)
                         container = receipt;
@@ -247,6 +248,8 @@ class ServiceApplications implements ServiceApplicationHost {
             blockers.push({ code: 'APPLICATION_RECOVERY_REQUIRED', message: 'Application effects require explicit repair.' });
         if (this.faulted)
             blockers.push({ code: 'HOST_RECOVERY_REQUIRED', message: 'Host requires explicit repair.' });
+        else if(applying)
+            blockers.push({code:'APPLICATION_PENDING',message:'Application is in progress; readiness has not been accepted.'});
         else if (current && !ready)
             blockers.push({ code: 'SERVICE_NOT_READY', message: 'A selected service is not ready.' });
         return ServiceSchemas.status.parse({ formatVersion: 3, installationId: this.acceptedPlan.configuration.installationId, engine: this.acceptedPlan.expectedEngine.context, desiredComposition: last?.desiredComposition ?? null, activeComposition: current?.compositionGeneration ?? null, ready, plugins: [], blockers, applicationId: last?.id ?? null, services, resourceSetDigest: current ? CanonicalJson.digest(current.resources) : null, acknowledgements: ready ? freshAcks.values() : [] });

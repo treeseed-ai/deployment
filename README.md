@@ -923,3 +923,20 @@ is committed. Steady status resumes fresh physical/protocol verification afterwa
 An exact desired generation may recur with a different physical incarnation. Select the latest
 completed application matching the committed snapshot, and report that snapshot's resource
 identities. A historical desired-generation match cannot select an earlier container receipt.
+
+### Current-phase effect permission
+
+Container actuation, image/package staging, credential preparation and authority-cache publication
+require the latest accepted application record for the exact saved plan and digest, the same
+installation writer, an appropriate current phase and no recovery fence. A historical stage,
+prepare or activate record grants no later permission. Failed and completed applications cannot
+reuse a retained adapter to perform another effect. Admitted completed authority-cache reads remain source-free and read-only. An initial failed
+application without completed admission refuses even cached access; no read repairs custody.
+`records()` is a latest-state view per application, and the journal admits only one pending
+application, so existing phase scans already enforce this permission invariant.
+
+The genuine authority programme retains real adapters and an owner writer, records failed state,
+then attempts all five effect seams. Typed refusals and unchanged private/resource inventories
+are required. Valid default phase paths remain covered by their normal compiled programmes.
+The programme verifies the existing fixed permission invariant; it introduces no policy provider
+or replacement runtime permission implementation.
