@@ -1,5 +1,5 @@
 import * as Deployment from '@treeseed-cordis/deployment';
-import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type ServicePlan, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
+import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type ServicePlan, type ServiceGraph, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
 import { createServer, type Server } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, chmodSync } from 'node:fs';
@@ -12,6 +12,7 @@ interface FetchedArchive {
     descriptor: PluginPackageDescriptor;
 }
 interface SourceRuntime {
+    prepare?(record: PluginRequestRecord, composition: ServiceGraph): Promise<ServicePlan['configuration']>;
     acquire?(record: PluginRequestRecord): Promise<PluginRequestRecord>;
     fetch?(record: PluginRequestRecord): Promise<FetchedArchive>;
     begin(source: string, key: string, target?: 'deployment' | 'cli'): PluginRequestRecord;
@@ -253,6 +254,18 @@ class NpmSourceProgram {
                 throw new Error('Stopped-owner retry lost pinned resolution');
             if (typeof runtime.acquire !== 'function' || CanonicalJson.stringify(await runtime.acquire(resolved)) !== CanonicalJson.stringify(acquired))
                 throw new Error('Completed closure did not read source-free after owner restart');
+            if (typeof runtime.prepare !== 'function')
+                throw new Error('PRIVATE_PREPARED_RELEASE_UNAVAILABLE');
+            const graph = structuredClone(plan.composition);
+            for (const service of graph.services)
+                for (const provider of [service.provider, service.readiness.provider])
+                    provider.package = { name: acquired.sourceReceipt!.name, version: acquired.sourceReceipt!.version, sha256: acquired.sourceReceipt!.archiveDigest };
+            const prepared = await runtime.prepare(acquired, graph);
+            if (!prepared.release.directory.startsWith(configuration.installationDirectory + '/.cordis/artifacts/prepared/') || CanonicalJson.stringify(await runtime.prepare(acquired, graph)) !== CanonicalJson.stringify(prepared))
+                throw new Error('Private prepared release not deterministic');
+            const checked = await new Deployment.ServiceArtifactResolver().resolve(prepared);
+            if (checked.inventory.composition.services.length !== graph.services.length || checked.releaseDigest !== prepared.release.manifestDigest || registry.requests !== stoppedCount)
+                throw new Error('Prepared release not independently verified source-free');
             const closureRoot = join(plan.configuration.installationDirectory, '.cordis', 'artifacts', 'closures', acquired.sourceReceipt!.closureDigest);
             for (const name of ['receipt.json', 'bun.lock']) {
                 const path = join(closureRoot, name), original = readFileSync(path);
