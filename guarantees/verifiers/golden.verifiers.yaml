@@ -481,6 +481,41 @@ verifiers:
     ownerPackage: '@treeseed/deployment'
     testFile: tests/development-provider-handoff.test.ts
     testName: selects the prepared provider snapshot after first-start admission through the original boundary
+  deployment.golden.guest-expired-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: updates the managed guest and rebinds the provider after physically fencing expired unknown recovery without changing its bytes
+  deployment.golden.guest-import-retry:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: retries interrupted guest import using the original host trust and unchanged recovery authority
+  deployment.golden.guest-live-recovery:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves guest trust and recovery authority after sandbox-live-recovery rejection through the original boundary
+  deployment.golden.guest-physical-work:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves guest trust and recovery authority after sandbox-physical-work rejection through the original boundary
+  deployment.golden.guest-build-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves guest trust and recovery authority after sandbox-build-failure rejection through the original boundary
+  deployment.golden.guest-import-failure:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves guest trust and recovery authority after sandbox-import-failure rejection through the original boundary
+  deployment.golden.guest-invalid-prior:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/development-provider-handoff.test.ts
+    testName: preserves guest trust and recovery authority after sandbox-invalid-prior rejection through the original boundary
   deployment.golden.provider-claims-identities:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

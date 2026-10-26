@@ -121,6 +121,8 @@ jobs:
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run tests/sandbox-host-inspection-native.test.ts tests/warm-sandbox-pool.test.ts tests/sandbox-vm-custody.test.ts
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'
+      - name: Reproduce managed SDK guest recovery before complete suites
+        run: sudo --preserve-env=GITHUB_WORKSPACE,NPM_CONFIG_CACHE,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run tests/development-provider-handoff.test.ts -t 'managed guest|interrupted guest import|guest trust and recovery authority'
       - run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH bash -euo pipefail -c 'npm run verify:direct'
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'

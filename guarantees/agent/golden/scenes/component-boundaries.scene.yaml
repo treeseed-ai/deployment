@@ -242,6 +242,27 @@ workflow:
   - id: provider-handoff-first-start
     action: { verifier: deployment.golden.provider-handoff-first-start }
     expect: { status: passed }
+  - id: guest-expired-recovery
+    action: { verifier: deployment.golden.guest-expired-recovery }
+    expect: { status: passed }
+  - id: guest-import-retry
+    action: { verifier: deployment.golden.guest-import-retry }
+    expect: { status: passed }
+  - id: guest-live-recovery
+    action: { verifier: deployment.golden.guest-live-recovery }
+    expect: { status: passed }
+  - id: guest-physical-work
+    action: { verifier: deployment.golden.guest-physical-work }
+    expect: { status: passed }
+  - id: guest-build-failure
+    action: { verifier: deployment.golden.guest-build-failure }
+    expect: { status: passed }
+  - id: guest-import-failure
+    action: { verifier: deployment.golden.guest-import-failure }
+    expect: { status: passed }
+  - id: guest-invalid-prior
+    action: { verifier: deployment.golden.guest-invalid-prior }
+    expect: { status: passed }
   - id: provider-claims-identities
     action: { verifier: deployment.golden.provider-claims-identities }
     expect: { status: passed }
