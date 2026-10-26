@@ -1404,3 +1404,9 @@ Immutable build receipts bind installation/engine, raw commit/tree/archive, comp
 helper identities, and produced native archive. Source-free reuse verifies all retained bytes;
 future closure and activation retain their own admission checks. A failed build cannot silently
 fall back to a prepared artifact or a different image/entry. Keycloak identity is unchanged.
+
+The Docker daemon receives exact sealed staging paths; host filesystem reads stay anchored to
+held descriptors with linked identity/content checks before and after execution. No parent
+installation directory is mounted. Cleanup verifies the created container's exact ID, image and
+owned-build label independently of execution admission, so a refused isolation configuration
+still removes only that created resource. See [Docker read-only bind mounts](https://docs.docker.com/engine/storage/bind-mounts/).
