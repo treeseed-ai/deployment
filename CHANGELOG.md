@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Select exact previously registered provider artifacts with durable request identity (#910).
+
+### Added
 - Install exact Git and approved built-source providers through the durable native host (#910).
 
 ### Changed

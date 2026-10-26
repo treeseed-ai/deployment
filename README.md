@@ -1463,3 +1463,17 @@ custody is read; it must not eagerly construct a build/runtime-root dependency d
 schema initialization. This preserves one native authority and the same artifact verification.
 An argument-only compiled-worker smoke returns exit 2 with no output or installation effects,
 without Node, Bun, Git or Docker on its PATH. The longer default-owner/apply checks remain required.
+
+### Registered provider selection
+
+`PluginManager.select` selects an exact provider from previously verified installation records;
+it never resolves a mutable package locator. Scope, target, capability, service identity and
+expected generation remain explicit. Duplicate accepted records for the same artifact are one
+candidate; different artifacts advertising the same provider are ambiguous and are refused.
+The selected closure and bytes are verified again before any decision. An already-selected
+container requires fresh application/resource/target read-back and returns `already-active`;
+unsafe transitions remain prepared with explicit actions. Unknown providers, capabilities,
+foreign scopes and stale generations cannot activate. A select request has its own durable
+idempotency record and preserves the original source provenance. No download or lifecycle script
+is allowed merely to discover a registered candidate. Qualified live-probe admission is a
+separate verified transition; metadata alone never grants it.
