@@ -1,9 +1,13 @@
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync,mkdtempSync,rmSync } from 'node:fs';
+import{tmpdir}from'node:os';
+import{ServiceWorkerBuild}from'@treeseed-cordis/deployment';
 import { join } from 'node:path';
 import { ServiceRuntimeFixture } from './service-runtime-fixture.js';
 class StandaloneWorkerTests {
+    prelude():void{const root=mkdtempSync(join(tmpdir(),'cordis-worker-prelude-'));try{const worker=ServiceWorkerBuild.produce(root),result=spawnSync(join(root,worker.path),['--invalid'],{encoding:'utf8',timeout:15000,env:{PATH:'/no-developer-tools',HOME:root}});if(result.status!==2||result.stdout!==''||result.stderr!=='')throw new Error('COLD_WORKER_PRELUDE:'+result.status+':'+result.stderr.slice(-2000));expect(result.status).toBe(2);}finally{rmSync(root,{recursive:true,force:true});}}
+
     async program(): Promise<void> {
         const fixture = new ServiceRuntimeFixture();
         try {
@@ -25,3 +29,5 @@ class StandaloneWorkerTests {
 }
 const suite = new StandaloneWorkerTests();
 test('smoke: genuine compiled worker applies five fixture services with Docker-only PATH and drains privately', suite.program.bind(suite), 240000);
+
+test('smoke: cold compiled worker loads its actual module prelude and rejects arguments without developer tools',suite.prelude.bind(suite),120000);
