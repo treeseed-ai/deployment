@@ -6,12 +6,20 @@ import { ServiceCredentials } from './service-credentials.js';
 import { LocalDockerCommands, type ServiceImageCommands } from './service-images.js';
 import { InstallationWriter } from './installed.js';
 import { StrictJson, PlanningFailure as Check } from './filesystem.js';
-class RuntimeResources {
-    static selected(store: ServicePlanStore): ServiceResourceReceipt[] { const result = new Map<string, ServiceResourceReceipt>(); for (const item of store.resources()) {
-        const prior = result.get(item.resourceId);
-        if (!prior || prior.references.length < item.references.length)
-            result.set(item.resourceId, item);
-    } return [...result.values()]; }
+export class RuntimeResources {
+    static selected(store: ServicePlanStore,plan:ServicePlan): ServiceResourceReceipt[] {
+        const versions=new Map<string,ServiceResourceReceipt>();for(const item of store.resources()){const prior=versions.get(item.resourceId);if(!prior||prior.references.length<item.references.length)versions.set(item.resourceId,item);}
+        const result=new Map<string,ServiceResourceReceipt>(),current=new Set(store.current()?.resources.map(RuntimeResources.bindingId)??[]);
+        for(const item of versions.values())if(item.references.includes(plan.compositionGeneration)){const key=item.kind+':'+(item.serviceId??'')+':'+item.name;Check.require(!result.has(key)||result.get(key)!.resourceId===item.resourceId,'AMBIGUOUS_RESOURCE');result.set(key,item);}
+        for(const item of versions.values())if(current.has(item.resourceId)&&!result.has(item.kind+':'+(item.serviceId??'')+':'+item.name))result.set(item.kind+':'+(item.serviceId??'')+':'+item.name,item);
+        return [...result.values()];
+    }
+    private static bindingId(value:{resourceId:string}):string{return value.resourceId;}
+    static retiring(store:ServicePlanStore,plan:ServicePlan,receipt:ServiceResourceReceipt):boolean{if(receipt.kind!=='container'||!receipt.serviceId||receipt.references.includes(plan.compositionGeneration))return false;const record=store.records().at(-1);return record?.planId===plan.id&&record.digest===plan.digest&&record.phase==='activate'&&record.restartServices?.includes(receipt.serviceId)===true&&store.current()?.resources.some(RuntimeResources.resourceId.bind(null,receipt.resourceId))===true&&plan.changes.some(RuntimeResources.restartChange.bind(null,receipt.serviceId));}
+    private static resourceId(id:string,value:{resourceId:string}):boolean{return value.resourceId===id;}
+    private static restartChange(id:string,value:ServicePlan['changes'][number]):boolean{return value.serviceId===id&&(value.kind==='replace'||value.kind==='reconfigure')&&CanonicalJson.stringify(value.requiredActions)==='["restart"]';}
+    static restart(store:ServicePlanStore,plan:ServicePlan,id:string):boolean{const record=store.records().at(-1);return record?.planId===plan.id&&record.digest===plan.digest&&record.phase==='activate'&&record.restartServices?.includes(id)===true&&plan.changes.some(RuntimeResources.restartChange.bind(null,id));}
+    static async present(commands:ServiceImageCommands,plan:ServicePlan,receipt:ServiceResourceReceipt):Promise<boolean>{Check.require(receipt.actualId,'RESOURCE_IDENTITY');const output=await commands.run(plan.expectedEngine,['container','ls','--all','--no-trunc','--filter','id='+receipt.actualId,'--format','{{json .}}']);if(!output.trim())return false;const rows=output.trim().split('\n');Check.require(rows.length===1&&StrictJson.object(StrictJson.parse(Buffer.from(rows[0]!))).ID===receipt.actualId,'RESOURCE_IDENTITY_CHANGED');return true;}
     static service(plan: ServicePlan, id: string): ServiceInstance { for (const service of plan.composition.services)
         if (service.serviceId === id)
             return service; return Check.block('SERVICE_SCOPE'); }
@@ -35,9 +43,10 @@ export class ServiceRuntimeInspection {
     private readonly plan: ServicePlan;
     private readonly store: ServicePlanStore;
     constructor(plan: ServicePlan, private readonly commands: ServiceImageCommands = new LocalDockerCommands()) { this.plan = ServiceSchemas.plan.parse(plan); this.store = new ServicePlanStore(this.plan.configuration.installationDirectory); }
-    async audit(): Promise<void> { await this.commands.verify(this.plan.expectedEngine); const receipts = RuntimeResources.selected(this.store), known = new Map<string, ServiceResourceReceipt>(); for (const receipt of receipts)
+    async audit(): Promise<void> { await this.commands.verify(this.plan.expectedEngine); const receipts = RuntimeResources.selected(this.store,this.plan), known = new Map<string, ServiceResourceReceipt>(); for (const receipt of receipts)
         if (['container', 'network', 'volume'].includes(receipt.kind)) {
             Check.require(receipt.actualId, 'RESOURCE_IDENTITY');
+            if(RuntimeResources.retiring(this.store,this.plan,receipt)&&!await RuntimeResources.present(this.commands,this.plan,receipt))continue;
             const object = await RuntimeResources.inspect(this.commands, this.plan, receipt.kind, receipt.name);
             RuntimeResources.checked(this.plan, receipt, object);
             known.set(receipt.kind + ':' + receipt.name, receipt);
@@ -57,7 +66,7 @@ export class ServiceRuntimeInspection {
         running: boolean;
         endpoint: string;
         actualId: string;
-    }> { const service = RuntimeResources.service(this.plan, id), port = service.definition.ports.find(ServiceRuntimeInspection.port.bind(null, portId ?? service.readiness.endpoint.portId)); Check.require(port, 'SERVICE_ENDPOINT'); let receipt: ServiceResourceReceipt | undefined; for (const item of RuntimeResources.selected(this.store))
+    }> { const service = RuntimeResources.service(this.plan, id), port = service.definition.ports.find(ServiceRuntimeInspection.port.bind(null, portId ?? service.readiness.endpoint.portId)); Check.require(port, 'SERVICE_ENDPOINT'); let receipt: ServiceResourceReceipt | undefined; for (const item of RuntimeResources.selected(this.store,this.plan))
         if (item.kind === 'container' && item.serviceId === id) {
             Check.require(!receipt, 'AMBIGUOUS_RESOURCE');
             receipt = item;
@@ -103,11 +112,12 @@ export class ServiceContainerEngine implements ServiceEngine {
         if (record.planId === this.plan.id && record.digest === this.plan.digest && record.phase === 'activate')
             active = true; Check.require(active, 'ACCEPTED_ACTIVATION_REQUIRED'); }
     private receipt(kind: ServiceResourceReceipt['kind'], name: string, serviceId: string | null, definitionDigest: string, imageDigest: string | null = null): ServiceResourceReceipt { const resourceId = CanonicalJson.digest({ installationId: this.plan.configuration.installationId, installationDirectory: this.store.path, kind, serviceId, name, definitionDigest }); return ServiceSchemas.resourceReceipt.parse({ formatVersion: 3, installationId: this.plan.configuration.installationId, installationDirectory: this.store.path, resourceId, kind, serviceId, name, creatingGeneration: this.plan.compositionGeneration, definitionDigest, references: [this.plan.compositionGeneration], actualId: null, contentDigest: null, imageDigest, path: null, ownerUid: process.getuid!(), legacy: null }); }
-    private previous(candidate: ServiceResourceReceipt): ServiceResourceReceipt | undefined { let result: ServiceResourceReceipt | undefined; for (const receipt of RuntimeResources.selected(this.store))
+    private previous(candidate: ServiceResourceReceipt): ServiceResourceReceipt | undefined { let result: ServiceResourceReceipt | undefined; for (const receipt of RuntimeResources.selected(this.store,this.plan))
         if (receipt.kind === candidate.kind && receipt.name === candidate.name) {
-            Check.require(receipt.resourceId === candidate.resourceId && receipt.definitionDigest === candidate.definitionDigest, 'RESOURCE_CHANGE_REQUIRES_ACTION');
+            Check.require((receipt.resourceId === candidate.resourceId && receipt.definitionDigest === candidate.definitionDigest)||RuntimeResources.retiring(this.store,this.plan,receipt), 'RESOURCE_CHANGE_REQUIRES_ACTION');
             result = receipt;
         } return result; }
+    private async stop(receipt:ServiceResourceReceipt,remove:boolean):Promise<void>{this.authority();Check.require(receipt.serviceId&&RuntimeResources.restart(this.store,this.plan,receipt.serviceId),'RESTART_SCOPE_MISMATCH');await new ServiceRuntimeInspection(this.plan,this.commands).audit();RuntimeResources.checked(this.plan,receipt,await RuntimeResources.inspect(this.commands,this.plan,'container',receipt.name));await this.commands.verify(this.plan.expectedEngine);await this.commands.run(this.plan.expectedEngine,['container','stop','--time','10',receipt.actualId!]);const stopped=await RuntimeResources.inspect(this.commands,this.plan,'container',receipt.name);RuntimeResources.checked(this.plan,receipt,stopped);Check.require(StrictJson.object(stopped.State).Running===false,'RESOURCE_STILL_RUNNING');this.authority();await this.commands.verify(this.plan.expectedEngine);if(remove)await this.commands.run(this.plan.expectedEngine,['container','rm',receipt.actualId!]);}
     private save(receipt: ServiceResourceReceipt): ServiceResourceReceipt { const references = [...receipt.references]; if (!references.includes(this.plan.compositionGeneration))
         references.push(this.plan.compositionGeneration); references.sort(); const value = { ...receipt, references }; this.writer.assert(this.store.path); this.store.saveResource(value, this.writer); return value; }
     private flags(receipt: ServiceResourceReceipt, observerDigest?: string): string[] { const args: string[] = []; for (const [key, value] of Object.entries(RuntimeResources.labels(this.plan, receipt)))
@@ -146,10 +156,9 @@ export class ServiceContainerEngine implements ServiceEngine {
     async start(id: string, definition: ServiceInstance['definition']): Promise<void> { this.authority(); const service = RuntimeResources.service(this.plan, id); Check.require(CanonicalJson.stringify(ServiceSchemas.definition.parse(definition)) === CanonicalJson.stringify(service.definition), 'SERVICE_RECIPE_MISMATCH'); Check.require(this.plan.configuration.runtimeState === 'running', 'STOPPED_ACTIVATION_UNSUPPORTED'); const observer = ServiceObserverMount.open(this.plan, service); try { await new ServiceRuntimeInspection(this.plan, this.commands).audit(); const image = this.image(service), metadata = await RuntimeResources.inspect(this.commands, this.plan, 'image', image.dockerId); Check.require(metadata.Id === image.dockerId && metadata.Os === 'linux' && metadata.Architecture === 'amd64', 'IMAGE_IDENTITY_CHANGED'); await this.resource(this.receipt('network', this.plan.projectName + '_default', null, CanonicalJson.digest({ driver: 'bridge', project: this.plan.projectName }))); for (const slot of service.resources.volumes)
         await this.resource(this.receipt('volume', this.volumeName(id, slot), id, CanonicalJson.digest({ slot, stateVersion: service.transitionPolicy.stateVersion }))); const candidate = this.container(service), previous = this.previous(candidate); if (previous) {
         RuntimeResources.checked(this.plan, previous, await RuntimeResources.inspect(this.commands, this.plan, 'container', previous.name));
-        const state = await new ServiceRuntimeInspection(this.plan, this.commands).service(id);
-        Check.require(state.running, 'RESOURCE_STOPPED_REQUIRES_ACTION');
-        this.save(previous);
-        return;
+        const restart=RuntimeResources.restart(this.store,this.plan,id);
+        if(previous.resourceId!==candidate.resourceId){Check.require(restart,'RESOURCE_CHANGE_REQUIRES_ACTION');await this.stop(previous,true);}
+        else{if(restart){await this.stop(previous,false);this.authority();await this.commands.run(this.plan.expectedEngine,['container','start',previous.actualId!]);}const state=await new ServiceRuntimeInspection(this.plan,this.commands).service(id);Check.require(state.running,'RESOURCE_STOPPED_REQUIRES_ACTION');this.save(previous);return;}
     } this.authority(); await new ServiceRuntimeInspection(this.plan, this.commands).audit(); const args = ['container', 'create', '--pull=never', '--name', candidate.name, '--network', this.plan.projectName + '_default', '--network-alias', id, '--security-opt', 'no-new-privileges:true', '--restart', 'unless-stopped', ...this.flags(candidate, observer?.digest)]; if (observer) args.push('--mount', observer.argument()); if (service.definition.user === 'installation-owner')
         args.push('--user', String(process.getuid!()) + ':0'); for (const [key, value] of Object.entries(service.definition.environment)) {
         let text: string;

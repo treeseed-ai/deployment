@@ -10,7 +10,7 @@ import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesyste
 export class ServiceInstalledHost {
     async apply(planId: string, digest: string, input: ApplyOptions): Promise<{ id: string; accepted: true }> {
         const options = ServiceSchemas.applyOptions.parse(input), store = new ServicePlanStore(options.installationDirectory), plan = store.read(planId, digest), client = new ServiceWorkerOwnerClient(options), request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: options.idempotencyKey,...(options.restartServices?{restartServices:[...options.restartServices].sort()}:{}) };
-        ServiceTransitions.additive(plan,options.restartServices);
+        ServiceTransitions.activation(plan,options.restartServices);
         if (this.control(plan)) { this.running(plan); return client.submit(request); }
         const bootstrap = WorkerBootstrap.prepare(plan);
         let child: ChildProcess | undefined;

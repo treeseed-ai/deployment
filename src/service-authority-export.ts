@@ -4,7 +4,7 @@ import { posix } from 'node:path';
 import { CanonicalJson, PlanningBlockedError, ServiceSchemas, type ServicePlan, type ServiceInstance, type ServiceResourceReceipt } from '@treeseed-cordis/sdk';
 import { AuthorityArchive } from './service-export.js';
 import { LocalDockerCommands, type ServiceAuthorityCommands } from './service-images.js';
-import { ServiceRuntimeInspection } from './service-engine.js';
+import { RuntimeResources, ServiceRuntimeInspection } from './service-engine.js';
 import { ServicePlanStore } from './service-plan.js';
 import { InstallationStore, InstallationWriter } from './installed.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
@@ -47,7 +47,7 @@ export class ServiceAuthorityExports {
         Check.require(accepted, 'ACCEPTED_ACTIVATION_REQUIRED');
         if (publishing) { Check.require(this.writer, 'AUTHORITY_NOT_PREPARED'); this.writer.assert(this.store.path); }
     }
-    private resources(): ServiceResourceReceipt[] { const latest = new Map<string, ServiceResourceReceipt>(); for (const receipt of this.store.resources()) { const prior = latest.get(receipt.resourceId); if (!prior || prior.references.length < receipt.references.length) latest.set(receipt.resourceId, receipt); } return [...latest.values()]; }
+    private resources(): ServiceResourceReceipt[] { return RuntimeResources.selected(this.store,this.plan); }
     private source(selection: AuthoritySelection): AuthoritySource {
         const { service, declaration } = selection, name = this.plan.projectName + '_r-' + CanonicalJson.digest({ serviceId: service.serviceId, slot: declaration.volume }).slice(0, 48);
         let volume: ServiceResourceReceipt | undefined, container: ServiceResourceReceipt | undefined;
