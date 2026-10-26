@@ -31,8 +31,16 @@ class NpmSourceTests {
             for (const version of ['1.0.0', '2.0.0', '3.0.0']) {
                 const directory = join(fixture.root, 'pkg-' + version);
                 mkdirSync(directory);
-                const metadata=JSON.parse(readFileSync(join(fixture.root,'plugin/package/package.json'),'utf8'));metadata.name='@fixture/npm-source';metadata.version=version;metadata.scripts={postinstall:'touch MUST_NOT_RUN'};metadata.cordisPackage.package={name:metadata.name,version};if(version==='3.0.0')delete metadata.cordisPackage;writeFileSync(join(directory,'package.json'),JSON.stringify(metadata));copyFileSync(join(fixture.root,'plugin/package/index.js'),join(directory,'index.js'));
-                await create({ cwd: directory, file: join(fixture.root, 'source-' + version + '.tgz'), gzip: true, portable: true, prefix: 'package/' }, ['package.json','index.js']);
+                const metadata = JSON.parse(readFileSync(join(fixture.root, 'plugin/package/package.json'), 'utf8'));
+                metadata.name = '@fixture/npm-source';
+                metadata.version = version;
+                metadata.scripts = { postinstall: 'touch MUST_NOT_RUN' };
+                metadata.cordisPackage.package = { name: metadata.name, version };
+                if (version === '3.0.0')
+                    delete metadata.cordisPackage;
+                writeFileSync(join(directory, 'package.json'), JSON.stringify(metadata));
+                copyFileSync(join(fixture.root, 'plugin/package/index.js'), join(directory, 'index.js'));
+                await create({ cwd: directory, file: join(fixture.root, 'source-' + version + '.tgz'), gzip: true, portable: true, prefix: 'package/' }, ['package.json', 'index.js']);
             }
             NpmSourceTests.command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-days', '1', '-subj', '/CN=Cordis registry fixture', '-addext', 'basicConstraints=critical,CA:TRUE', '-keyout', join(fixture.root, 'ca-key.pem'), '-out', join(fixture.bundle, 'source-ca.pem')]);
             NpmSourceTests.command('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-noenc', '-subj', '/CN=127.0.0.1', '-keyout', join(fixture.root, 'key.pem'), '-out', join(fixture.root, 'server.csr')]);
@@ -52,7 +60,7 @@ class NpmSourceTests {
             const result = spawnSync(executable, [input], { encoding: 'utf8', timeout: 120000, env: { PATH: path, HOME: process.env.HOME, DOCKER_CONFIG: process.env.DOCKER_CONFIG, NPM_TOKEN: 'NEVER_INHERIT', HTTPS_PROXY: 'http://127.0.0.1:1' } });
             if (result.status !== 0)
                 throw new Error(result.stderr);
-            expect(JSON.parse(result.stdout)).toEqual({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true,exactArchive:true,offlineArchive:true,tamperRefused:true });
+            expect(JSON.parse(result.stdout)).toEqual({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true });
         }
         finally {
             this.writable(fixture.root);

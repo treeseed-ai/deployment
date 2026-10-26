@@ -3,11 +3,16 @@ import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type Ser
 import { createServer, type Server } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { join,dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-interface FetchedArchive { path:string;sha256:string;size:number;descriptor:PluginPackageDescriptor; }
+interface FetchedArchive {
+    path: string;
+    sha256: string;
+    size: number;
+    descriptor: PluginPackageDescriptor;
+}
 interface SourceRuntime {
-    fetch?(record:PluginRequestRecord):Promise<FetchedArchive>;
+    fetch?(record: PluginRequestRecord): Promise<FetchedArchive>;
     begin(source: string, key: string, target?: 'deployment' | 'cli'): PluginRequestRecord;
     resolve(record: PluginRequestRecord): Promise<PluginRequestRecord>;
     close(): Promise<void>;
@@ -22,35 +27,44 @@ class RegistryFixture {
     crossOrigin = false;
     invalidIntegrity = false;
     trustChanges = 0;
-    archiveRequests=0;
-    corruptArchive=false;
+    archiveRequests = 0;
+    corruptArchive = false;
     constructor(private readonly root: string, private readonly installation: string) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.reply.bind(this)); }
     private reply(request: IncomingMessage, response: ServerResponse): void {
-        const match=/^\/source-(1\.0\.0|2\.0\.0|3\.0\.0)\.tgz$/.exec(request.url??'');
-        if(match){this.archiveRequests++;const bytes=readFileSync(join(this.root,'source-'+match[1]+'.tgz'));response.end(this.corruptArchive?Buffer.alloc(bytes.length,0x41):bytes);return;}
+        const match = /^\/source-(1\.0\.0|2\.0\.0|3\.0\.0)\.tgz$/.exec(request.url ?? '');
+        if (match) {
+            this.archiveRequests++;
+            const bytes = readFileSync(join(this.root, 'source-' + match[1] + '.tgz'));
+            response.end(this.corruptArchive ? Buffer.alloc(bytes.length, 0x41) : bytes);
+            return;
+        }
         this.requests++;
         this.changeTrust();
         this.authorization ||= request.headers.authorization !== undefined;
         const versions: Record<string, unknown> = {};
-        for (const version of ['1.0.0', '2.0.0','3.0.0']) {
+        for (const version of ['1.0.0', '2.0.0', '3.0.0']) {
             const archive = readFileSync(join(this.root, 'source-' + version + '.tgz'));
             versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin ? 'https://unapproved.invalid/' : this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity ? 'sha512-AAAA' : 'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'touch MUST_NOT_RUN' } };
         }
         response.setHeader('content-type', 'application/json');
         response.end(JSON.stringify({ name: '@fixture/npm-source', 'dist-tags': { latest: this.version }, versions }));
     }
-    private changeTrust(): void { if (!this.tamperTrust)
-        return; const artifacts = join(this.installation, '.cordis/artifacts'); for (const name of readdirSync(artifacts))
-        if (name.startsWith('source-resolution-')) {
-            const path = join(artifacts, name, 'source-ca.pem');
-            if (existsSync(path)) {
-                const bytes = readFileSync(path);
-                chmodSync(path, 0o600);
-                writeFileSync(path, bytes);
-                chmodSync(path, 0o400);
-                this.trustChanges++;
+    private changeTrust(): void {
+        if (!this.tamperTrust)
+            return;
+        const artifacts = join(this.installation, '.cordis/artifacts');
+        for (const name of readdirSync(artifacts))
+            if (name.startsWith('source-resolution-')) {
+                const path = join(artifacts, name, 'source-ca.pem');
+                if (existsSync(path)) {
+                    const bytes = readFileSync(path);
+                    chmodSync(path, 0o600);
+                    writeFileSync(path, bytes);
+                    chmodSync(path, 0o400);
+                    this.trustChanges++;
+                }
             }
-        } }
+    }
     origin(): string {
         const address = this.server.address();
         if (!address || typeof address === 'string')
@@ -73,8 +87,11 @@ class RegistryFixture {
     }
 }
 class NpmSourceProgram {
-    static failed(error: unknown): never { if (error instanceof PlanningBlockedError)
-        throw new Error(error.blockers.map(NpmSourceProgram.code).join(",")); throw error; }
+    static failed(error: unknown): never {
+        if (error instanceof PlanningBlockedError)
+            throw new Error(error.blockers.map(NpmSourceProgram.code).join(","));
+        throw error;
+    }
     private static code(blocker: {
         code: string;
     }): string { return blocker.code; }
@@ -135,10 +152,11 @@ class NpmSourceProgram {
                 try {
                     await runtime.resolve(runtime.begin('@fixture/npm-source', 'unsafe-' + mode));
                 }
-                catch(error) {
-                    const expected:Record<string,string>={'cross-origin':'NPM_TARBALL_ORIGIN',integrity:'NPM_METADATA_INTEGRITY','ca-race':'SOURCE_CA_CHANGED'};
-                    if(!(error instanceof PlanningBlockedError)||error.blockers[0]?.code!==expected[mode])throw error;
-                    rejected=true;
+                catch (error) {
+                    const expected: Record<string, string> = { 'cross-origin': 'NPM_TARBALL_ORIGIN', integrity: 'NPM_METADATA_INTEGRITY', 'ca-race': 'SOURCE_CA_CHANGED' };
+                    if (!(error instanceof PlanningBlockedError) || error.blockers[0]?.code !== expected[mode])
+                        throw error;
+                    rejected = true;
                 }
                 if (mode === 'ca-race' && registry.trustChanges === 0)
                     throw new Error('Trust-race fixture did not perturb a real CA file');
@@ -165,30 +183,65 @@ class NpmSourceProgram {
             catch { }
             if (registry.requests !== failedCount)
                 throw new Error('Uncertain lookup silently retried');
-            if(typeof runtime.fetch!=='function')throw new Error('EXACT_NPM_ARCHIVE_ACQUISITION_UNAVAILABLE');
-            const fetched=await runtime.fetch(resolved);
-            if(fetched.descriptor.package.name!=='@fixture/npm-source'||fetched.descriptor.package.version!=='1.0.0'||fetched.sha256!==createHash('sha256').update(readFileSync(join(input.root,'source-1.0.0.tgz'))).digest('hex')||!fetched.path.startsWith(configuration.installationDirectory+'/.cordis/artifacts/'))throw new Error('Wrong verified original archive');
-            const bad=await runtime.resolve(runtime.begin('@fixture/npm-source@2.0.0','corrupt-archive-request'));
-            registry.corruptArchive=true;let corrupt=false;
-            try{await runtime.fetch(bad);}catch(error){corrupt=error instanceof PlanningBlockedError&&error.blockers[0]?.code==='SOURCE_ARCHIVE_INTEGRITY';}
-            registry.corruptArchive=false;if(!corrupt)throw new Error('Changed archive SRI accepted');
-            const valid=await runtime.fetch(bad);if(valid.descriptor.package.version!=='2.0.0')throw new Error('Exact archive retry failed');
-            const malformed=await runtime.resolve(runtime.begin('@fixture/npm-source@3.0.0','undeclared-archive-request'));
-            let malformedDenied=false;try{await runtime.fetch(malformed);}catch(error){malformedDenied=error instanceof PlanningBlockedError&&error.blockers[0]?.code==='INVALID_PLUGIN_PACKAGE';}
-            if(!malformedDenied)throw new Error('Undeclared plugin archive admitted');
+            if (typeof runtime.fetch !== 'function')
+                throw new Error('EXACT_NPM_ARCHIVE_ACQUISITION_UNAVAILABLE');
+            const fetched = await runtime.fetch(resolved);
+            if (fetched.descriptor.package.name !== '@fixture/npm-source' || fetched.descriptor.package.version !== '1.0.0' || fetched.sha256 !== createHash('sha256').update(readFileSync(join(input.root, 'source-1.0.0.tgz'))).digest('hex') || !fetched.path.startsWith(configuration.installationDirectory + '/.cordis/artifacts/'))
+                throw new Error('Wrong verified original archive');
+            const bad = await runtime.resolve(runtime.begin('@fixture/npm-source@2.0.0', 'corrupt-archive-request'));
+            registry.corruptArchive = true;
+            let corrupt = false;
+            try {
+                await runtime.fetch(bad);
+            }
+            catch (error) {
+                corrupt = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'SOURCE_ARCHIVE_INTEGRITY';
+            }
+            registry.corruptArchive = false;
+            if (!corrupt)
+                throw new Error('Changed archive SRI accepted');
+            const valid = await runtime.fetch(bad);
+            if (valid.descriptor.package.version !== '2.0.0')
+                throw new Error('Exact archive retry failed');
+            const malformed = await runtime.resolve(runtime.begin('@fixture/npm-source@3.0.0', 'undeclared-archive-request'));
+            let malformedDenied = false;
+            try {
+                await runtime.fetch(malformed);
+            }
+            catch (error) {
+                malformedDenied = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'INVALID_PLUGIN_PACKAGE';
+            }
+            if (!malformedDenied)
+                throw new Error('Undeclared plugin archive admitted');
+            const stoppedCount=registry.requests;
             await runtime.close();
             runtime = undefined;
             await registry.close();
             runtime = await constructor.start(plan);
-            if (CanonicalJson.stringify(await runtime.resolve(record)) !== CanonicalJson.stringify(resolved) || registry.requests !== failedCount)
+            if (CanonicalJson.stringify(await runtime.resolve(record)) !== CanonicalJson.stringify(resolved) || registry.requests !== stoppedCount)
                 throw new Error('Stopped-owner retry lost pinned resolution');
-            if(typeof runtime.fetch!=='function'||CanonicalJson.stringify(await runtime.fetch(resolved))!==CanonicalJson.stringify(fetched))throw new Error('Offline exact archive custody changed');
-            const savedBytes=readFileSync(fetched.path);chmodSync(fetched.path,0o600);writeFileSync(fetched.path,Buffer.alloc(savedBytes.length,0x42));chmodSync(fetched.path,0o400);
-            let tamper=false;try{await runtime.fetch(resolved);}catch(error){tamper=error instanceof PlanningBlockedError;}
-            if(!tamper)throw new Error('Changed cached archive adopted');chmodSync(fetched.path,0o600);writeFileSync(fetched.path,savedBytes);chmodSync(fetched.path,0o400);
+            if (typeof runtime.fetch !== 'function' || CanonicalJson.stringify(await runtime.fetch(resolved)) !== CanonicalJson.stringify(fetched))
+                throw new Error('Offline exact archive custody changed');
+            const savedBytes = readFileSync(fetched.path);
+            chmodSync(fetched.path, 0o600);
+            writeFileSync(fetched.path, Buffer.alloc(savedBytes.length, 0x42));
+            chmodSync(fetched.path, 0o400);
+            let tamper = false;
+            try {
+                await runtime.fetch(resolved);
+            }
+            catch (error) {
+                tamper = error instanceof PlanningBlockedError;
+            }
+            if (!tamper)
+                throw new Error('Changed cached archive adopted');
+            chmodSync(fetched.path, 0o600);
+            writeFileSync(fetched.path, savedBytes);
+            chmodSync(fetched.path, 0o400);
+            const receiptPath=join(dirname(fetched.path),'receipt.json'),receiptBytes=readFileSync(receiptPath);chmodSync(receiptPath,0o600);writeFileSync(receiptPath,'{}\n');chmodSync(receiptPath,0o400);let malformedReceipt=false;try{await runtime.fetch(resolved);}catch(error){malformedReceipt=error instanceof PlanningBlockedError;}if(!malformedReceipt)throw new Error('Malformed archive receipt did not produce a safe typed blocker');chmodSync(receiptPath,0o600);writeFileSync(receiptPath,receiptBytes);chmodSync(receiptPath,0o400);
             if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
                 throw new Error('Credentials or lifecycle canary escaped');
-            process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true,exactArchive:true,offlineArchive:true,tamperRefused:true }) + '\n');
+            process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true }) + '\n');
         }
         finally {
             await runtime?.close();
