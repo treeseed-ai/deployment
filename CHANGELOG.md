@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Persist exact plugin request intent and source custody before effects (#910).
+
+### Added
 - Qualify scoped container replacement and immutable physical history (#910).
 - Qualify held-adapter fences across terminal application phases (#950).
 

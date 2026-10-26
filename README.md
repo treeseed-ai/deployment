@@ -940,3 +940,26 @@ then attempts all five effect seams. Typed refusals and unchanged private/resour
 are required. Valid default phase paths remain covered by their normal compiled programmes.
 The programme verifies the existing permission invariant; it introduces no policy provider
 or replacement runtime permission implementation.
+
+### Durable plugin request custody
+
+Plugin install/select is owned by Deployment and accepted through the installation owner,
+never the observer endpoint. Before source access, the host persists the validated canonical
+intent, caller-visible idempotency key, pinned expected composition and approved policy digest.
+The same key recovers the exact accepted request and source resolution; changed intent or
+policy conflicts before network/build work. A new bare CLI invocation generates a new key.
+
+Private append-only request records live at `.cordis/plugins/requests`. Each event binds the
+prior event digest and a monotonic sequence; the original request identity and policy never
+change. Resolution is persisted before archive acquisition; acquired source identity is
+persisted before registration/activation. Existing accepted resolution/artifact/result values
+cannot be replaced by retry. Unknown, interrupted, non-private, foreign or malformed state
+fails closed rather than being adopted. Failed publication can leave private incomplete
+state requiring repair. Installation's existing writer controls these records; registry
+metadata grants no authority and adds no second dependency resolver or writer.
+
+Request inspection/listing returns safe typed results and caller-visible keys, including
+incomplete requests; it never exposes source credentials, configuration values or build output.
+Only exact target observations may produce active/already-active. Prepared/pending/blocked
+remain non-success activation outcomes. Acquisition/build and activation are separate bounded
+continuations; this persistence slice itself imports no package and starts no container.
