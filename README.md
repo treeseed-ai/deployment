@@ -1037,3 +1037,9 @@ its pinned bytes, and full verification streams every retained file. Links, wron
 changed modes, extra/missing files or interrupted entries refuse. No active/healthy claim or
 resource reservation follows from cache custody. Read-back and exact reuse need no original
 bundle, package manager, imports, scripts or new runtime resources.
+
+Large retained files use asynchronous descriptor reads/writes and verification. Staging yields
+between files and chunks so pending owner/observer status remains responsive; copying a worker
+or image must not monopolize the durable host's event loop. The built custody test observes
+partial progress through a large inspection-only worker fixture before publication, alongside
+the existing concurrent-status compiled application tests.
