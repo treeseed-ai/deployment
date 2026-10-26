@@ -39,3 +39,9 @@ all four sets for read-back. Validation requires known suites, disjoint/exhausti
 valid paths, nonempty groups and a workflow matrix matching the inventory. Unknown partitions
 fail with exit 2 before execution. The existing aggregate `verify` gate requires checks and the
 complete smoke matrix to succeed. This change affects development verification only.
+
+The packed plugin-fixture consumer uses an empty dedicated Bun cache. Its build-time package
+installation may resolve exact declared dependencies from the registry, with lifecycle scripts
+and dotenv loading disabled. Root lockfile installation does not imply cached registry manifests
+for another project. Runtime source-free retry is tested separately against accepted private
+artifacts and helpers; the consumer setup must not claim offline capability from a warm cache.
