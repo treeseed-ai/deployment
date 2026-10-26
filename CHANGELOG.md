@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Preserve cold compiled-worker initialization after source-build adoption (#991).
+
+### Fixed
 - Distinguish transient private Git object publication from final single-link custody (#989).
 
 ### Added

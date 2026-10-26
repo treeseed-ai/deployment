@@ -1439,3 +1439,12 @@ the temporary name. Paths are counted conservatively, including both names. Comp
 work and every accepted artifact still require single-link files before success. A persistent
 hard link is refused at the final check; this distinction never raises a resource budget or
 relaxes archive/custody validation. See [Git object publication](https://github.com/git/git/blob/v2.55.0/object-file.c).
+
+### Cold worker module prelude
+
+The actual compiled worker must finish loading its runtime modules before it parses arguments
+or opens installation state. The build-artifact reader is loaded only when accepted built-source
+custody is read; it must not eagerly construct a build/runtime-root dependency during bootstrap
+schema initialization. This preserves one native authority and the same artifact verification.
+An argument-only compiled-worker smoke returns exit 2 with no output or installation effects,
+without Node, Bun, Git or Docker on its PATH. The longer default-owner/apply checks remain required.
