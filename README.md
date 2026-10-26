@@ -1513,3 +1513,15 @@ return an explicit blocker rather than acquiring new bytes. The new selection re
 new closure while preserving source resolution, root integrity and helper/policy identity.
 Accepted idempotent retries reuse that exact result. Selecting another instance of a registered
 provider remains an explicit new generation and requires actual target/resource read-back.
+
+The public `@treeseed-cordis/deployment/testing/live` fixture prepares a genuine installed-live
+qualification bundle: exact native old/next readiness classes, their declared qualification,
+complete package lock, OCI bytes and the actual compiled durable worker. `prepareLive()` is
+preparation only. `startRegistry()` adds its private-CA disposable source and accepted exact
+transition policy; `source()` names the fixture package. `stopRegistry()` makes subsequent exact
+replay/registered-selection checks source-free. The public `dispose()` awaits the exact fixture
+worker's shutdown before removing only fixture-owned resources and bytes. Consumers must use
+these public artifacts, not copy provider code or import a sibling checkout. The installed
+programme must verify an independent owner PID, actual new probe observations, retained physical
+resources, exact replay and public apply read-back. This fixture grants no Keycloak/session or
+production installation authority.

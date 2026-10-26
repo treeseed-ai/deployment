@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Export genuine installed live-provider fixtures for public consumer and default-worker qualification (#910).
+
+### Added
 - Admit exact qualified live readiness-provider selections through native lifecycle and target read-back (#910).
 
 ### Added
