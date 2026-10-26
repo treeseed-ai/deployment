@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- Verify saved service declarations across canonical semantic-set ordering (#972).
 ### Added
 - Register acquired plugin alternatives through native owner-only management RPCs with durable pending/read-back results (#910).
 - Plan receipt-verified private releases under the existing fresh or active owner root (#910).

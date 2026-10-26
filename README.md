@@ -1233,3 +1233,12 @@ It validates the installation and request journal, creates no store state and ac
 Prepared registration reads back exactly with the owner stopped and source unavailable. Historical
 active results become recovery-required with no active generation/acknowledgements; stored data
 cannot establish runtime health. Reading a closed root does not restart or adopt its endpoints.
+
+### Canonical service declaration equality
+
+Saved plans normalize service ports, named-volume mounts, secret mounts and resource sets.
+Artifact read-back compares both the selected definition/resources and package projection using
+that same set semantics. Order alone cannot invalidate an unchanged archived declaration after
+a saved-plan round trip. Normalization preserves every entry and value; command argument order,
+JSON payload arrays and other meaningful ordered data remain exact. Changed mount targets,
+secrets, grants or policy still fail independently before any activation.
