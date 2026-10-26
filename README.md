@@ -1190,3 +1190,19 @@ access. Existing incomplete or changed state fails safely and requires explicit 
 
 This path does not yet relax the planner's general overlapping-storage rejection. Only a future
 owner-host request verified against this exact receipt may consume a private prepared release.
+
+### Planning a prepared release under the owner root
+
+The owner host may plan an exact private prepared release under its existing installation writer.
+The private exception requires a complete sealed preparation receipt, the same immutable accepted
+request/source receipt, the current base generation, unchanged installation/engine/origin scope
+and independent artifact read-back. Arbitrary overlapping directories remain blocked. The public
+observer socket cannot plan or mutate sources.
+
+A fresh, non-serving root may replace its initial plan before the first application only while
+the application/resource journals are empty. It preserves the bootstrap profile/worker/helper
+and acquisition-policy roots and uses the existing writer rather than acquiring another one.
+An active host continues to require exact current snapshot/resource scope and verified readiness.
+Prepared planning executes no application, container, credential or source effect. A subsequent
+explicit submission freshly verifies the candidate; initial publication never silently adopts
+failed or interrupted application history.

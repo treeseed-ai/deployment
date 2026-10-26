@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 ### Added
+- Plan receipt-verified private releases under the existing fresh or active owner root (#910).
 - Prepare complete installation-private releases from verified source closures and typed service graphs (#910).
 
 ### Added
