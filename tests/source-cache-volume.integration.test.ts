@@ -23,6 +23,9 @@ it('native source admission reclaims only an inactive fetch volume under real bo
       const idleImage = join(idle, 'objects.ext4'), heldImage = join(held, 'objects.ext4'), journal = join(held, 'acquisition.lock', 'job.json');
       await writeFile(idleImage, '', { mode: 0o600 });
       await exec('/usr/bin/fallocate', ['--length', '167772160', idleImage]); await exec('/usr/sbin/mkfs.ext4', ['-q', '-F', '-m', '0', idleImage]);
+      // Formatting may discard unused blocks. Restore a physically allocated
+      // idle cache so this fixture applies measured parent pressure everywhere.
+      await exec('/usr/bin/fallocate', ['--length', '167772160', idleImage]);
       await writeFile(heldImage, 'unknown in-flight source', { mode: 0o600 }); await writeFile(journal, 'original unresolved owner', { mode: 0o600 });
       const bundle = join(storage, 'bundles', 'immutable.bundle'), product = join(storage, 'simulations', 'retained-product');
       await writeFile(bundle, 'original immutable bundle', { mode: 0o400 }); await writeFile(product, 'original retained work', { mode: 0o600 });

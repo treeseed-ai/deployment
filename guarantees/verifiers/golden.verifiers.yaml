@@ -1,6 +1,46 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
+  deployment.golden.source-cache-pressure-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-pressure.test.ts
+    testName: reclaims only an inactive fetch cache under storage pressure before admitting the unchanged source quota
+  deployment.golden.source-cache-retention-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-pressure.test.ts
+    testName: retains live unknown mounted linked unsafe and unrelated cache entries without touching work or forcing transport cleanup
+  deployment.golden.source-cache-concurrency-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-pressure.test.ts
+    testName: uses the existing fetch fence for concurrent reclamation and remains idempotent after the exact image is removed
+  deployment.golden.source-cache-requirement-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-pressure.test.ts
+    testName: rejects invalid space requirements before probing or changing cache ownership
+  deployment.golden.source-cache-pressure-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/source-cache-volume.integration.test.ts
+    testName: native source admission reclaims only an inactive fetch volume under real bounded filesystem pressure and preserves retained work
+  deployment.golden.broker-shutdown-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-broker-shutdown.test.ts
+    testName: normal broker termination stops every listener and drains its pristine warm pool once across repeated signals
+  deployment.golden.broker-shutdown-errors-unit:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-broker-shutdown.test.ts
+    testName: retains every shutdown error while still closing all listeners and removing signal hooks
+  deployment.golden.broker-shutdown-native:
+    kind: vitestCase
+    ownerPackage: '@treeseed/deployment'
+    testFile: tests/sandbox-broker-shutdown-native.test.ts
+    testName: native broker signal handling closes actual listeners once and preserves failed warm teardown and retained work
   deployment.golden.admin-public-identity-resource:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

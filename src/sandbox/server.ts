@@ -10,6 +10,7 @@ import { verifySandboxAssignment, verifySandboxLeaseRenewal } from './trust.js';
 import { sandboxAssignmentSchema, sandboxLeaseRenewalSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { proxyModelRequest } from './model-gateway.js';
 import { recoverWorkspaceBuilds } from './workspace-build-recovery.js';
+import { installSandboxBrokerShutdown } from './broker-shutdown.js';
 
 async function body(request: IncomingMessage) {
 	let input = ''; for await (const chunk of request) { input += String(chunk); if (input.length > 1_048_576) throw new Error('Sandbox broker request exceeds one MiB.'); }
@@ -106,7 +107,8 @@ export async function startSandboxBroker() {
 		} catch (error) { respond(response, 400, { error: error instanceof Error ? error.message : 'relay_operation_failed' }); }
 	});
 	relay.listen(configuration.relay.port, configuration.relay.listenHost);
-	createAssignmentProxy(runtime).listen(configuration.relay.port + 1, configuration.relay.listenHost);
+	const proxy = createAssignmentProxy(runtime).listen(configuration.relay.port + 1, configuration.relay.listenHost);
+	installSandboxBrokerShutdown([server, relay, proxy], () => runtime.drainWarmPool());
 	return server;
 }
 

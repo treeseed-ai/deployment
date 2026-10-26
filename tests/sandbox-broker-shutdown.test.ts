@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSandboxBroker } from '../src/sandbox/server.js';
+import { installSandboxBrokerShutdown } from '../src/sandbox/broker-shutdown.js';
 
 const state = vi.hoisted(() => ({ root: '', created: 0, closed: 0, drain: vi.fn(async () => undefined) }));
 vi.mock('../src/sandbox/configuration.js', () => ({ loadSandboxBrokerConfiguration: () => ({
@@ -41,4 +42,19 @@ it('normal broker termination stops every listener and drains its pristine warm 
   expect(handlers.has('SIGTERM')).toBe(true); expect(handlers.has('SIGINT')).toBe(true);
   handlers.get('SIGTERM')!(); handlers.get('SIGTERM')!(); handlers.get('SIGINT')!();
   await vi.waitFor(() => { expect(state.closed).toBe(3); expect(state.drain).toHaveBeenCalledTimes(1); });
+});
+
+it('retains every shutdown error while still closing all listeners and removing signal hooks', async () => {
+  for (const mode of ['listener', 'idle', 'drain']) {
+    const original = new Error(`original ${mode} failure`), before = process.listenerCount('SIGTERM');
+    let closed = 0, idle = 0, drained = 0;
+    const servers = Array.from({ length: 3 }, (_, index) => ({
+      close(callback: (error?: Error) => void) { closed++; callback(mode === 'listener' && index === 0 ? original : undefined); },
+      closeIdleConnections() { idle++; if (mode === 'idle' && index === 0) throw original; },
+    }));
+    const close = installSandboxBrokerShutdown(servers, async () => { drained++; if (mode === 'drain') throw original; });
+    const first = close(); expect(close()).toBe(first);
+    await expect(first).rejects.toMatchObject({ message: 'Sandbox broker shutdown failed.', errors: [original] });
+    expect({ closed, idle, drained }).toEqual({ closed: 3, idle: 3, drained: 1 }); expect(process.listenerCount('SIGTERM')).toBe(before);
+  }
 });
