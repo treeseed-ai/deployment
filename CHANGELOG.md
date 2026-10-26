@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Admit exact qualified live readiness-provider selections through native lifecycle and target read-back (#910).
+
+### Added
 - Export genuine HTTPS Git and approved-build fixtures for independent public-package consumers (#910).
 
 ### Fixed

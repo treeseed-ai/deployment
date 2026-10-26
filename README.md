@@ -1488,3 +1488,19 @@ Consumer tests must import this packed public interface and use the real install
 source acquisition or import another checkout. Neither planning nor fixture preparation executes
 a package lifecycle script or creates installation credentials. The caller still owns explicit
 fixture cleanup; Keycloak identity authority is unchanged.
+
+### Qualified live readiness-provider selection
+
+A registered `probe.service` may replace an existing service's observer without replacing its
+container only when the accepted acquisition policy binds the exact previous/next artifacts,
+provider IDs, deployment target, state version and qualification digest. The selected package
+must advertise that same live qualification. Metadata alone is insufficient. The container,
+image, service configuration, bindings, grants, endpoint, observation contract, probe configuration
+and owned state remain identical. Any wider transition still requires explicit restart/migration.
+
+Native service scopes drain admitted leases before awaited Cordis disposal and reconstruction
+within the same durable owner. No container restart or second writer is implied by a native
+scope change. Candidate readiness and exact target/resource generation read-back precede active
+publication. Pending drain/disposal is not activation; timeout or uncertain cleanup fences the
+transition and requires explicit repair. Existing resources, credential bytes, TLS/issuer identity
+and the installed host root remain intact. Full cross-runtime replacement remains Task 4.
