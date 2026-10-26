@@ -1362,3 +1362,11 @@ Publication reserves an exclusive directory before effects and never overwrites/
 state. Repeated fetch reads and verifies the exact stored bytes even after source/bundle removal;
 tampered or missing accepted state requires explicit repair. Complete dependency closure, source-only
 builds and installation activation remain separately gated after this archive slice.
+
+The committed-tree archive path admits at most 4,096 regular files, 8 MiB per file and 64 MiB
+of source bytes. Symlinks, submodules, `.gitmodules` and `.gitattributes` are refused in this
+bounded path; archive attribute rewriting is not silently treated as exact committed bytes.
+Git work is checked during execution and after each helper command (8,192 entries, 64 MiB
+per file, 128 MiB total) with the existing 120-second helper deadline and process-group cleanup.
+The archive explicitly uses `tar.umask=0022` to retain Git's executable/non-executable distinction
+without group-write permissions. See [Git archive configuration and attributes](https://git-scm.com/docs/git-archive).
