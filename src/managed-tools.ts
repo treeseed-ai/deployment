@@ -1,7 +1,7 @@
 import {ManagedReleaseCache} from './release-cache.js';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
-import { openSync, closeSync, fstatSync, writeFileSync, fsyncSync, fchmodSync, chmodSync, renameSync, lstatSync, readdirSync, rmSync, constants } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { openSync, closeSync, fstatSync, writeFileSync, fsyncSync, fchmodSync, chmodSync, lstatSync, readdirSync, constants } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { Parser, type ReadEntry } from 'tar';
 import { CanonicalJson, ServiceSchemas, SourceToolSchemas, type ServicePlan, type SourceToolDefinition, type PluginRequestRecord } from '@treeseed-cordis/sdk';
@@ -171,14 +171,13 @@ export class ManagedSourceTools {
         if (directory !== root)
             directory.close();
     } }
-    private writable(path: string): void { const stat = lstatSync(path); if (stat.isSymbolicLink())
-        return; if (stat.isDirectory()) {
-        chmodSync(path, 0o700);
-        for (const name of readdirSync(path))
-            this.writable(join(path, name));
+    private reserve(directory: SafeDirectory, identity: string): SafeDirectory {
+        try { return InstallationStore.mkdir(directory, identity); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'EEXIST') Check.block('HELPER_PUBLICATION_CONFLICT');
+            throw error;
+        }
     }
-    else
-        chmodSync(path, 0o600); }
     private async prepare(id: string, request: PluginRequestRecord): Promise<{
         directory: SafeDirectory;
         helper: SourceToolDefinition;
@@ -206,8 +205,7 @@ export class ManagedSourceTools {
             const retained=new ManagedReleaseCache(this.plan).open();let bytes:Buffer;if(retained){try{bytes=retained.read(helper.path);}finally{retained.close();}}else{const release=SafeDirectory.open(this.plan.configuration.release.directory);try{bytes=release.file(helper.path,helper.sha256,512*1024*1024);}finally{release.close();}}Check.require(bytes.length===helper.size,'HELPER_INTEGRITY');
             const files = await new HelperArchiveContents(bytes, helper).read();
             this.authorize(request);
-            const temporary = '.pending-' + randomUUID(), working = InstallationStore.mkdir(cache, temporary);
-            let published = false;
+            const working = this.reserve(cache, identity);
             try {
                 for (const file of helper.files)
                     this.output(working, file.path, files.get(file.path)!, file.mode);
@@ -216,17 +214,10 @@ export class ManagedSourceTools {
                 this.verify(working, helper);
                 this.authorize(request);
                 cache.verify();
-                Check.require(!cache.entries().includes(identity), 'HELPER_PUBLICATION_CONFLICT');
-                renameSync(cache.childPath(temporary), cache.childPath(identity));
-                published = true;
                 fsyncSync(cache.fd);
             }
             finally {
                 working.close();
-                if (!published) {
-                    this.writable(cache.childPath(temporary));
-                    rmSync(cache.childPath(temporary), { recursive: true });
-                }
             }
             const directory = cache.directory(identity);
             try {

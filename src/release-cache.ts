@@ -1,7 +1,7 @@
 import { open, type FileHandle } from 'node:fs/promises';
 import { z } from 'zod';
-import { createHash, randomUUID } from 'node:crypto';
-import { openSync, closeSync, readSync, writeFileSync, fstatSync, lstatSync, fchmodSync, chmodSync, fsyncSync, renameSync, constants } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { openSync, closeSync, readSync, writeFileSync, fstatSync, lstatSync, fchmodSync, chmodSync, fsyncSync, constants } from 'node:fs';
 import { dirname, basename, join } from 'node:path';
 import { CanonicalJson, PlatformSchemas, ServiceSchemas, type ServicePlan, type ServiceRelease, type PluginRequestRecord } from '@treeseed-cordis/sdk';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
@@ -376,6 +376,13 @@ export class ManagedReleaseCache {
     finally {
         await handle.close();
     } directory.verify(); }
+    private reserve(directory: SafeDirectory): SafeDirectory {
+        try { return InstallationStore.mkdir(directory, this.plan.releaseDigest); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'EEXIST') Check.block('RELEASE_CACHE_CONFLICT');
+            throw error;
+        }
+    }
     async stage(writer: InstallationWriter, request?: PluginRequestRecord): Promise<ManagedReleaseReader> {
         this.authorize(writer, request);
         const existing = this.open();
@@ -400,7 +407,7 @@ export class ManagedReleaseCache {
             releases = artifacts.entries().includes('releases') ? artifacts.directory('releases', true) : InstallationStore.mkdir(artifacts, 'releases');
             for (const name of releases.entries())
                 Check.require(/^[a-f0-9]{64}$/.test(name), 'INCOMPLETE_RELEASE_CACHE');
-            const temporary = '.pending-' + randomUUID(), entry = InstallationStore.mkdir(releases, temporary);
+            const entry = this.reserve(releases);
             try {
                 const bundle = InstallationStore.mkdir(entry, 'bundle');
                 try {
@@ -419,8 +426,6 @@ export class ManagedReleaseCache {
                 await this.immutable(entry);
                 this.authorize(writer, request);
                 releases.verify();
-                Check.require(!releases.entries().includes(this.plan.releaseDigest), 'RELEASE_CACHE_CONFLICT');
-                renameSync(releases.childPath(temporary), releases.childPath(this.plan.releaseDigest));
                 fsyncSync(releases.fd);
             }
             finally {
