@@ -267,8 +267,12 @@ class ServiceArtifactVerifier extends ArtifactResolver {
     private static selectedImage(inventory: ServiceRelease, name: string, id: string): boolean { for (const service of inventory.composition.services) if (service.provider.package.name === name && service.definition.imageId === id) return true; return false; }
     private runtimeImages(directory: SafeDirectory, inventory: ServiceRelease, artifacts: DeploymentPlan['artifacts'], data: Map<string, PackageData>, descriptors: Map<string, PluginPackageDescriptor>): Record<string, ServiceRuntimeBinding> {
         const result: Record<string, ServiceRuntimeBinding> = {};
-        const owners = new Map<string, string>();
-        for (const [name, descriptor] of descriptors) for (const image of [...descriptor.images, ...descriptor.runtimeImages ?? []]) if (ServiceArtifactVerifier.selectedImage(inventory, name, image.id)) { Check.require(!owners.has(image.id), 'IMAGE_PACKAGE_BINDING'); owners.set(image.id, name); }
+        const owners = new Map<string, boolean>();
+        for (const [name, descriptor] of descriptors) for (const image of [...descriptor.images, ...descriptor.runtimeImages ?? []]) if (ServiceArtifactVerifier.selectedImage(inventory, name, image.id)) {
+            const runtime = Object.hasOwn(image, 'entry'), previous = owners.get(image.id);
+            // assets() already binds every static declaration to the same exact inventory edge.
+            Check.require(previous === undefined || (!previous && !runtime), 'IMAGE_PACKAGE_BINDING'); owners.set(image.id, runtime);
+        }
         const verified = new Map<string, ServiceRuntimeBinding>();
         for (const service of inventory.composition.services) {
             const owner = descriptors.get(service.provider.package.name)!;

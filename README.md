@@ -1267,3 +1267,14 @@ JSON payload arrays and other meaningful ordered data remain exact. Changed moun
 secrets, grants or policy still fail independently before any activation.
 The derived recipe also compares dependency/secret references, ports and mounts as sets on both
 sides; it preserves every exact reference, target and publication value.
+
+### Shared static image selections
+
+Independent provider packages may consume one exact static OCI inventory selection. Each selected
+package declaration must match its reference, index SHA-256 and manifest digest; the inventory edge,
+configuration and layers are still independently verified. Sharing image bytes does not transfer
+provider/package ownership, service identity, resource grants or private state between instances.
+
+Runtime images bound to package closure, entry and asset labels retain one unambiguous owner.
+Duplicate runtime ownership or mixed static/runtime ownership of an image ID remains blocked.
+No image download, mutable reference or unselected inventory is introduced by static sharing.

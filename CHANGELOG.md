@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- Share exact static image selections across independent container provider packages (#974).
 ### Fixed
 - Verify saved service declarations across canonical semantic-set ordering (#972).
 ### Added
