@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Resolve verified installed packages in the compiled worker without ambient configuration autoloading (#1004).
+
 ### Added
 - Activate explicitly selected qualified readiness providers and expose genuine installed-live fixtures (#910).
 

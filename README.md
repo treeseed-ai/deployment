@@ -1533,3 +1533,19 @@ provider; a package advertising containers retains container selection by defaul
 installation uses the same exact accepted qualification, native drain and target read-back as
 registered `select`. It never invents a service scope or ignores container-binding arguments.
 Ambiguous or unqualified choices remain prepared/action-required.
+
+## Compiled worker package resolution
+
+The trusted worker compiler enables package.json loading for verified installed package
+resolution and explicitly disables dotenv, bunfig and tsconfig autoloading. This is the same
+policy used by the fixed production worker and the compiled external-package qualification
+programme. Package metadata loading supplies ordinary module resolution; accepted archive
+hashes, closed dependency inventories, native declarations and scoped grants remain required.
+No package-manager execution, ambient preload or lifecycle script runs during activation.
+
+Bun 1.4.4's compile defaults disable runtime package metadata loading. The earlier producer
+therefore failed to import Cordis from a genuine sealed Postgres provider, although the full
+package was present and development import worked. The exact-archive compiled spike and the
+genuine default API assembly are required evidence, alongside the cold worker prelude. See
+[the official executable configuration documentation](https://bun.sh/docs/bundler/executables)
+and open issue #1004. This correction makes no claim that arbitrary unverified plugins are safe.
