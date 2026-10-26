@@ -102,7 +102,7 @@ class GitArchiveProgram {
                     await tools.run('bun', ['--eval', "import{writeFileSync,truncateSync}from'node:fs';class BudgetCanary{static run(){writeFileSync('growing.bin','');truncateSync('growing.bin',64*1024*1024+1);setTimeout(BudgetCanary.wait,10000);}static wait(){writeFileSync('budget-completed','unexpected');}}BudgetCanary.run();"], work, record, true);
                 }
                 catch (error) {
-                    bounded = error instanceof Error && error.message === 'SOURCE_TOOL_FAILED';
+                    if(error instanceof PlanningBlockedError)for(const blocker of error.blockers)if(blocker.code==='SOURCE_WORK_BUDGET')bounded=true;
                 }
                 if (!bounded || existsSync(join(work, 'budget-completed')))
                     throw new Error('GIT_WORK_BUDGET_NOT_ENFORCED');
