@@ -54,6 +54,8 @@ export class PluginFixtureTools {
 export class PluginInstallationFixture {
     readonly runtime = new ServiceRuntimeFixture();
     private registry: RegistryFixture | undefined;
+    private git: import('./git-source-fixture.js').InstallationSources | undefined;
+    private gitSources:{first:string;second:string}|undefined;
     get root(): string { return this.runtime.root; }
     get installation(): string { return this.runtime.installation; }
     get bundle(): string { return this.runtime.bundle; }
@@ -86,15 +88,16 @@ export class PluginInstallationFixture {
             fixture.refreshService();
         return this;
     }
-    source(version = '1.0.0'): string { if (!['1.0.0', '2.0.0'].includes(version)) throw new Error('UNKNOWN_FIXTURE_VERSION'); return '@fixture/extension@' + version; }
+    source(version = '1.0.0'): string { if (!['1.0.0', '2.0.0'].includes(version)) throw new Error('UNKNOWN_FIXTURE_VERSION'); return this.gitSources?(version==='2.0.0'?this.gitSources.second:this.gitSources.first):'@fixture/extension@' + version; }
     async startRegistry(): Promise<string> {
-        if (this.registry) throw new Error('FIXTURE_REGISTRY_ALREADY_CREATED');
+        if (this.registry||this.git) throw new Error('FIXTURE_REGISTRY_ALREADY_CREATED');
         this.registry = new RegistryFixture(this.root, this.installation, '@fixture/extension', ['1.0.0', '2.0.0']);
         await this.registry.listen();
         this.runtime.release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: this.runtime.release.helpers!.releaseIdentity, npm: [{ registry: this.registry.origin(), packages: ['@fixture/extension'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: PluginFixtureTools.sha(readFileSync(join(this.bundle, 'source-ca.pem'))) } }], git: [], builds: [] };
         this.runtime.refreshService();
         return this.registry.origin();
     }
-    async stopRegistry(): Promise<void> { await this.registry?.close(); }
+    async startGit(build=false):Promise<string>{if(this.registry||this.git)throw new Error('FIXTURE_REGISTRY_ALREADY_CREATED');const{GitFixtureTools,InstallationSources}=await import('./git-source-fixture.js');await GitFixtureTools.helper(this.runtime);const gitIdentity=GitFixtureTools.installationRepository(this.runtime),gitBuild=build?{...GitFixtureTools.buildRepository(this.runtime),image:ServiceRuntimeFixture.base}:undefined;this.git=new InstallationSources({root:this.root,gitIdentity,gitBuild},this.installation);await this.git.listen();this.gitSources={first:this.git.source(),second:this.git.source('2.0.0')};this.runtime.release.acquisitionPolicy=this.git.policy(this.runtime.release.helpers!.releaseIdentity,{path:'source-ca.pem',sha256:PluginFixtureTools.sha(readFileSync(join(this.bundle,'source-ca.pem')))});this.runtime.refreshService();return this.source();}
+    async stopRegistry(): Promise<void> { await this.registry?.close(); await this.git?.close(); }
     async close(): Promise<void> { try { await this.stopRegistry(); } finally { PluginFixtureTools.writable(this.root); this.runtime.close(); } }
 }

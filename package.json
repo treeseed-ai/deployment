@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.69",
+  "version": "0.0.0-cordis.71",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -32,7 +32,8 @@
     "dist/tests/service-fixture-plugins.*",
     "dist/tests/service-runtime-fixture.*",
     "dist/tests/plugin-installation-fixture.*",
-    "dist/tests/source-registry-fixture.*"
+    "dist/tests/source-registry-fixture.*",
+    "dist/tests/git-source-fixture.*"
   ],
   "scripts": {
     "check": "bun scripts/tooling.ts check",
@@ -75,7 +76,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.69"
+      "version": "0.0.0-cordis.71"
     },
     "providers": [
       {

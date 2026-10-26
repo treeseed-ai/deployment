@@ -1477,3 +1477,14 @@ foreign scopes and stale generations cannot activate. A select request has its o
 idempotency record and preserves the original source provenance. No download or lifecycle script
 is allowed merely to discover a registered candidate. Qualified live-probe admission is a
 separate verified transition; metadata alone never grants it.
+The public `@treeseed-cordis/deployment/testing/plugins` fixture also supports
+`startGit(build = false)`. After `prepare()`, it packages a genuine local Git helper and its
+libraries, serves an actual bare repository over private-CA HTTPS, records its exact grant and
+refreshes the release inventory. `source()` returns the Git locator; version 2 selects the
+second genuine commit. With `build = true`, the first source is an exact source-only commit
+with an explicitly pinned isolated build policy. This is fixture preparation, not activation.
+The same `stopRegistry()`/`close()` closes either transport; a fixture cannot start both.
+Consumer tests must import this packed public interface and use the real installer, not copy
+source acquisition or import another checkout. Neither planning nor fixture preparation executes
+a package lifecycle script or creates installation credentials. The caller still owns explicit
+fixture cleanup; Keycloak identity authority is unchanged.
