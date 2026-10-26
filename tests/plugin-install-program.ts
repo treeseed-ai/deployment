@@ -86,6 +86,8 @@ class PluginInstallProgram {
             const second = await this.install(owner, { ...request, serviceId: 'private-addon-two', idempotencyKey: 'install-private-two' });
             if (second.state !== 'active' || (await owner.status()).services.length !== 6) throw new Error('Second typed instance did not activate');
             this.same(store, current); await this.direct(store, 'private-addon-two');
+            const historical = await owner.inspect(request.idempotencyKey);
+            if (['active', 'already-active'].includes(historical.state) || historical.activeGeneration !== null || historical.acknowledgements.length) throw new Error('Historical request claimed current-generation activation');
             await registry.close(); const count = registry.requests, replay = await owner.install({ ...request, serviceId: 'private-addon-two', idempotencyKey: 'install-private-two' });
             if (CanonicalJson.stringify(replay) !== CanonicalJson.stringify(second) || registry.requests !== count || !(await owner.list('installation', 'deployment')).length) throw new Error('Exact accepted install retry reopened source or changed application');
             if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN'))) throw new Error('Package lifecycle or credential canary executed');

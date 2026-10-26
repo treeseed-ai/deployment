@@ -91,7 +91,7 @@ export class PluginRequestJournal {
         if (['acquired', 'prepared', 'pending', 'active'].includes(record.stage))
             Check.require(record.sourceReceipt !== null, 'PLUGIN_SOURCE_REQUIRED');
         if (['prepared', 'pending', 'active', 'blocked', 'recovery-required'].includes(record.stage)) {
-            Check.require(record.result !== null && record.result.state === record.stage, 'PLUGIN_RESULT_STAGE');
+            Check.require(record.result !== null && (record.stage === 'active' ? ['active', 'already-active'].includes(record.result.state) : record.result.state === record.stage), 'PLUGIN_RESULT_STAGE');
         }
         if (['received', 'resolving'].includes(record.stage))
             Check.require(record.resolution === null && record.sourceReceipt === null && record.result === null, 'PLUGIN_PREMATURE_SOURCE');

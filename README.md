@@ -1224,9 +1224,9 @@ drain. Restarted unresolved lookups are fenced rather than re-resolving mutable 
 
 This registration slice persists an exact acquired alternative as `prepared`, with explicit next
 actions and no active generation. List/inspect read private accepted custody without source access.
-They never import a candidate or infer readiness from acquisition. Typed selection, plan/apply
-activation and non-NPM sources follow in subsequent owner slices; unsupported operations return
-structured blockers. Existing credentials, resources and Keycloak authority stay unchanged.
+They never import a candidate or infer readiness from acquisition. Qualified container selection
+uses the plan/apply path described below; unsupported targets and non-NPM sources remain explicit
+actions. Existing credentials, resources and Keycloak authority stay unchanged.
 
 `PluginRegistryReader` provides read-only cold list/inspect through the same result contracts.
 It validates the installation and request journal, creates no store state and acquires no writer.
@@ -1243,7 +1243,7 @@ contract ports to explicit binding IDs. Provided ports default to instance-quali
 required dependencies never guess legacy roles. Configuration is validated/defaulted by the
 package schema, then its declaration is materialized through the existing bounded projection.
 
-Reuse only exact images already verified in the accepted release. Additional images/assets,
+Reuse only exact image selections already verified in the accepted release. Additional images/assets,
 ambiguous providers/probes/ports, conflicting package/plugin selections, public-edge changes and
 unproven target transitions remain prepared with explicit actions. They do not change selection.
 The host prepares an exact private release, plans through the same application service and
