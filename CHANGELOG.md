@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Preserve verified legacy resources and private custody through explicit non-serving format-2 migration (#910).
+
+### Added
 - Activate explicitly selected qualified readiness providers and expose genuine installed-live fixtures (#910).
 
 ### Added

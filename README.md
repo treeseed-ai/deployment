@@ -1533,3 +1533,26 @@ provider; a package advertising containers retains container selection by defaul
 installation uses the same exact accepted qualification, native drain and target read-back as
 registered `select`. It never invents a service scope or ignores container-binding arguments.
 Ambiguous or unqualified choices remain prepared/action-required.
+
+## Explicit non-serving format-2 custody migration
+
+`InstallationStore.migrate({from:2,expectedComposition,authorization:'non-serving'})`
+uses the existing installation writer and independently verifies the legacy saved plan,
+completed application, Docker daemon, four stopped owned containers, exact images, owned
+network/volumes, private credential receipt and retained TLS authority. It neither stops
+services nor starts them: caller-authorized quiescence must already be observable. An active
+API, old worker socket/writer, changed resource, foreign file or uncertain journal blocks
+before publication. No caller-supplied quiescence assertion substitutes for observations.
+
+The format-3 custody receipt records exact legacy service/resource identities, private slot
+paths and authority digest. Old plans/applications/artifacts are retained byte-for-byte and
+never appended to by format-3 operations. Legacy provider classes do not acquire fabricated
+format-4 contracts or active acknowledgements. Custody read-back reports non-serving state;
+provider/runtime upgrade still requires an independently qualified explicit migration/restart
+plan. Normal install/plan/apply cannot silently adopt these resources.
+
+Publication seals a private intent, resource inventory and source-file manifest, retains the
+original receipt by rename, then publishes the format-3 receipt atomically. Any interrupted
+publication fences the installation for explicit repair. Readers verify stored evidence
+without reopening the source bundle; live migration admission separately rechecks daemon and
+physical non-serving state. All migration issues remain open until release.
