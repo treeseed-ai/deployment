@@ -39,7 +39,9 @@ class PluginInstallProgram {
             if (old.kind === 'container' && old.actualId && this.docker(['container', 'inspect', '--format', '{{.State.Running}}', old.actualId]) !== 'true') throw new Error('Prior container stopped');
         }
         for (const [path, digest] of prior.files) if (this.hash(readFileSync(join(store.path, path))) !== digest) throw new Error('Prior credential or authority bytes changed');
-        if (this.authority(current) !== prior.authority || CanonicalJson.stringify(this.listeners()) !== CanonicalJson.stringify(prior.listeners)) throw new Error('Prior authority or listener changed');
+        if (this.authority(current) !== prior.authority) throw new Error('Prior authority changed');
+        const listeners = this.listeners();
+        if (CanonicalJson.stringify(listeners) !== CanonicalJson.stringify(prior.listeners)) throw new Error('Prior listeners changed:' + JSON.stringify({ before: prior.listeners, after: listeners }));
     }
     private static async application(owner: ServiceWorkerOwnerClient, id: string): Promise<void> {
         const deadline = Date.now() + 120000; let result = await owner.application(id);
