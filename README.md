@@ -1233,3 +1233,26 @@ It validates the installation and request journal, creates no store state and ac
 Prepared registration reads back exactly with the owner stopped and source unavailable. Historical
 active results become recovery-required with no active generation/acknowledgements; stored data
 cannot establish runtime health. Reading a closed root does not restart or adopt its endpoints.
+
+### Safe container installation
+
+An installation-scoped NPM request can activate a private container service when its package
+selects one unambiguous typed container provider and compatible probe. `serviceId` names the
+instance; omission uses a valid plugin ID or a deterministic private ID. `bindings` maps package
+contract ports to explicit binding IDs. Provided ports default to instance-qualified binding IDs;
+required dependencies never guess legacy roles. Configuration is validated/defaulted by the
+package schema, then its declaration is materialized through the existing bounded projection.
+
+Reuse only exact images already verified in the accepted release. Additional images/assets,
+ambiguous providers/probes/ports, conflicting package/plugin selections, public-edge changes and
+unproven target transitions remain prepared with explicit actions. They do not change selection.
+The host prepares an exact private release, plans through the same application service and
+automatically submits only additive/retained changes in a running composition. Restart, state
+migration, removal, issuer or TLS-authority changes require separate explicit action.
+
+`active` requires the completed application, current resource set and exact selected target
+acknowledgements. Bounded replies remain pending until that evidence exists. A fresh request for
+an already selected exact artifact/configuration validates source and actual readiness before
+returning `already-active`; same-key retries reuse the exact durable request/application. Adding
+another instance preserves existing container/volume identities, credentials, private authority
+and listeners. Registry registration alone never establishes activation.
