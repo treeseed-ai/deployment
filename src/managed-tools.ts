@@ -48,17 +48,30 @@ class HelperArchiveFile {
     private data(bytes: Buffer): void { this.chunks.push(bytes); }
     private end(): void { this.files.set(this.entry.path, Buffer.concat(this.chunks)); }
 }
+/** A private helper work tree has a hard postcondition and a monitored in-flight disk budget. */
+class SourceWorkBudget {
+    static verify(directory:SafeDirectory):void{const counts={bytes:0,entries:0};this.walk(directory,counts);directory.verify();}
+    private static walk(directory:SafeDirectory,counts:{bytes:number;entries:number}):void{for(const name of directory.entries()){
+        let stat;try{stat=lstatSync(directory.childPath(name));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')continue;throw error;}
+        Check.require(++counts.entries<=8192&&!stat.isSymbolicLink()&&stat.uid===process.getuid?.(),'SOURCE_WORK_BUDGET');
+        if(stat.isDirectory()){let child;try{child=directory.directory(name);}catch(error){if(!directory.entries().includes(name))continue;throw error;}try{this.walk(child,counts);}finally{child.close();}}
+        else{Check.require(stat.isFile()&&stat.nlink===1&&stat.size<=64*1024*1024,'SOURCE_WORK_BUDGET');counts.bytes+=stat.size;Check.require(counts.bytes<=128*1024*1024,'SOURCE_WORK_BUDGET');}
+    }}
+}
 class ManagedToolProcess {
     private child: ChildProcess | undefined;
     private timer: ReturnType<typeof setTimeout> | undefined;
+    private monitor: ReturnType<typeof setInterval> | undefined;
+    private budgetFailure:Error|undefined;
     private failed = false;
     private count = 0;
     private chunks: Buffer[] = [];
     private accept: ((bytes: Buffer) => void) | undefined;
     private reject: ((error: Error) => void) | undefined;
-    constructor(private readonly executable: string, private readonly args: string[], private readonly cwd: string, private readonly environment: Record<string, string>) { }
+    constructor(private readonly executable: string, private readonly args: string[], private readonly cwd: string, private readonly environment: Record<string, string>,private readonly budget?:SafeDirectory) { }
     run(): Promise<Buffer> { return new Promise(this.start.bind(this)); }
-    private start(accept: (bytes: Buffer) => void, reject: (error: Error) => void): void { this.accept = accept; this.reject = reject; this.child = spawn(this.executable, this.args, { cwd: this.cwd, env: this.environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); this.child.stdout?.on('data', this.output.bind(this)); this.child.stderr?.on('data', this.stderr.bind(this)); this.child.once('error', this.fail.bind(this)); this.child.once('close', this.closed.bind(this)); this.timer = setTimeout(this.fail.bind(this), 120000); }
+    private start(accept: (bytes: Buffer) => void, reject: (error: Error) => void): void { this.accept = accept; this.reject = reject; this.child = spawn(this.executable, this.args, { cwd: this.cwd, env: this.environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); this.child.stdout?.on('data', this.output.bind(this)); this.child.stderr?.on('data', this.stderr.bind(this)); this.child.once('error', this.fail.bind(this)); this.child.once('close', this.closed.bind(this)); this.timer = setTimeout(this.fail.bind(this), 120000);if(this.budget)this.monitor=setInterval(this.inspect.bind(this),25); }
+    private inspect():void{try{SourceWorkBudget.verify(this.budget!);}catch(error){this.budgetFailure=error as Error;this.fail();}}
     private output(bytes: Buffer): void { this.count += bytes.length; if (this.count > 8 * 1024 * 1024) {
         this.fail();
         return;
@@ -73,7 +86,7 @@ class ManagedToolProcess {
     catch {
         this.child?.kill('SIGKILL');
     } }
-    private closed(code: number | null): void { clearTimeout(this.timer); if (this.child?.pid) {
+    private closed(code: number | null): void { clearTimeout(this.timer);clearInterval(this.monitor); if (this.child?.pid) {
         let live = false;
         try {
             process.kill(-this.child.pid, 0);
@@ -82,7 +95,8 @@ class ManagedToolProcess {
         catch { }
         if (live)
             this.fail();
-    } if (this.failed || code !== 0)
+    } if(this.budgetFailure)this.reject!(this.budgetFailure);
+    else if (this.failed || code !== 0)
         this.reject!(new Error('SOURCE_TOOL_FAILED'));
     else
         this.accept!(Buffer.concat(this.chunks)); }
@@ -246,7 +260,7 @@ export class ManagedSourceTools {
     finally {
         working.close();
     } }
-    async run(id: string, args: string[], cwd: string, request: PluginRequestRecord): Promise<Buffer> { Check.require(args.length > 0 && args.length <= 128, 'SOURCE_TOOL_ARGUMENTS'); for (const argument of args)
+    async run(id: string, args: string[], cwd: string, request: PluginRequestRecord, boundedWork=false): Promise<Buffer> { Check.require(args.length > 0 && args.length <= 128, 'SOURCE_TOOL_ARGUMENTS'); for (const argument of args)
         Check.require(typeof argument === 'string' && argument.length <= 4096 && !argument.includes('\0'), 'SOURCE_TOOL_ARGUMENTS'); const selected = await this.prepare(id, request); let work: SafeDirectory | undefined; let parent: SafeDirectory | undefined; let fd: number | undefined; try {
         Check.require(resolve(cwd) === cwd && (cwd === join(this.plan.configuration.installationDirectory, '.cordis/artifacts') || cwd.startsWith(join(this.plan.configuration.installationDirectory, '.cordis/artifacts') + '/')), 'SOURCE_TOOL_DIRECTORY');
         work = SafeDirectory.open(cwd);
@@ -267,7 +281,8 @@ export class ManagedSourceTools {
                 paths.push(join(root, path));
             environment.LD_LIBRARY_PATH = paths.join(':');
         }
-        const bytes = await new ManagedToolProcess('/proc/' + process.pid + '/fd/' + fd, args, '/proc/' + process.pid + '/fd/' + work.fd, environment).run();
+        const bytes = await new ManagedToolProcess('/proc/' + process.pid + '/fd/' + fd, args, '/proc/' + process.pid + '/fd/' + work.fd, environment,boundedWork?work:undefined).run();
+        if(boundedWork)SourceWorkBudget.verify(work);
         this.authorize(request);
         const after = fstatSync(fd), linked = lstatSync(parent.childPath(name));
         Check.require(before.dev === after.dev && before.ino === after.ino && before.size === after.size && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs && linked.dev === before.dev && linked.ino === before.ino, 'HELPER_INTEGRITY');

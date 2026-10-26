@@ -1,4 +1,4 @@
-import { openSync, closeSync, fstatSync, lstatSync, constants, type Stats } from 'node:fs';
+import { GitArchiveCache, GitRepositoryGuard } from './git-archive.js';
 import { createHash } from 'node:crypto';
 import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, ProviderV4Schemas, ServiceSchemas, type PluginInstallRequest, type PluginRequestRecord, type ServicePlan } from '@treeseed-cordis/sdk';
 import { Context, CordisServiceLocator, type CompositionHandle } from '@treeseed-cordis/sdk/runtime';
@@ -12,20 +12,6 @@ import { ManagedSourceTools } from './managed-tools.js';
 import { SourceTrust } from './source-registry.js';
 import { InstallationStore } from './installed.js';
 import { SafeDirectory, PlanningFailure as Check } from './filesystem.js';
-/** Held private Git bookkeeping; source repositories never supply local command configuration. */
-class GitRepositoryGuard {
-    private readonly fd:number;
-    private readonly before:Stats;
-    private readonly digest:string;
-    constructor(readonly directory:SafeDirectory){
-        this.fd=openSync(directory.childPath('config'),constants.O_RDONLY|constants.O_NOFOLLOW);
-        this.before=fstatSync(this.fd);
-        try{this.digest=createHash('sha256').update(directory.file('config',undefined,1024*1024,true)).digest('hex');this.verify();}catch(error){closeSync(this.fd);throw error;}
-    }
-    path():string{return '/proc/'+process.pid+'/fd/'+this.directory.fd;}
-    verify():void{const after=fstatSync(this.fd),linked=lstatSync(this.directory.childPath('config'));Check.require(after.dev===this.before.dev&&after.ino===this.before.ino&&after.size===this.before.size&&after.mtimeMs===this.before.mtimeMs&&after.ctimeMs===this.before.ctimeMs&&linked.dev===this.before.dev&&linked.ino===this.before.ino,'GIT_CONFIGURATION_CHANGED');this.directory.file('config',this.digest,1024*1024,true);this.directory.verify();}
-    close():void{closeSync(this.fd);this.directory.close();}
-}
 class GitSourceAdapter {
     parse(value:unknown):PackageSourceResolver{Check.require(value!==null&&typeof value==='object','INVALID_SOURCE_ADAPTER');for(const name of ['resolve','fetch','acquire'])Check.require(typeof Reflect.get(value,name)==='function','INVALID_SOURCE_ADAPTER');return value as PackageSourceResolver;}
 }
@@ -63,7 +49,7 @@ class GitPackageSource implements PackageSourceResolver {
             repository.verify();trust?.verify();work.verify();const resolution=PluginManagementSchemas.resolution.parse({kind:'git',origin:locator.url,commit,helperDigests:helpers});return this.requests.append({...record,sequence:record.sequence+1,stage:'resolved',resolution});
         }finally{repository?.close();trust?.close();work?.close();artifacts?.close();release.close();}
     }
-    async fetch(_record:PluginRequestRecord):Promise<ResolvedPackageArchive>{return Check.block('GIT_ACQUISITION_NOT_QUALIFIED');}
+    async fetch(input:PluginRequestRecord):Promise<ResolvedPackageArchive>{return new GitArchiveCache(this.authority,this.current(input)).fetch();}
     async acquire(_record:PluginRequestRecord):Promise<PluginRequestRecord>{return Check.block('GIT_ACQUISITION_NOT_QUALIFIED');}
 }
 /** The host adopts this same native provider when Git archive/closure admission is qualified. */
