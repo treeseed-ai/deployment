@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Changed
-- Prepare native replacement and negative-readiness fixtures with explicit authority ownership (#910).
+- Prepare native replacement fixtures with exact service-intent contracts and authority ownership (#910).
 
 ### Changed
 - Prepare exact optional restart-intent contracts for bounded additive activation (#910).

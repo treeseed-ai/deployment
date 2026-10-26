@@ -893,3 +893,13 @@ A composition digest describes desired inputs, rather than a unique running inca
 Returning to exact earlier release bytes may repeat that digest with different physical
 resources. Journal read-back must bind the completed record's resource set and target
 acknowledgements to its exact immutable snapshot, preserving every earlier snapshot.
+
+### Shared service-intent contract alignment
+
+The replacement fixture preparation selects SDK `.14`, source
+`597a9abd79b76fb292a80cd86e4ea83042fbec62`, archive SHA-256
+`c92fb068064a6db4823b29c31602b47e01c21200af759a770480a1a0cc4240a2`.
+Use forced fresh installation and read back installed identity, vendor bytes and lock SRI.
+This aligns future explicit instance/binding intent with UI/Identity/Admin candidates while
+preserving the existing restart contract and seven operation IDs. Schema adoption and fixture
+preparation alone do not grant replacement or source-install activation.
