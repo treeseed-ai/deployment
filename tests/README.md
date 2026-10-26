@@ -19,3 +19,8 @@ the scoped programme concentrates repeated observation on its unchanged CA owner
 CA-bearing service. Preserve all resource/private-byte assertions, actual HTTP output, immutable
 reversion history, exact scopes and default compiled worker. This bounds repeated authority
 inspection within the existing 15-minute serial CI budget without weakening runtime audits.
+
+The malformed/incomplete journal test invokes real `ComposeDeploymentHost.plan`, including
+read-only host/engine inspection. Classify it as integration with a 60-second cold-host
+budget. CI reproduced 5.443 seconds against the previous implicit five-second unit budget.
+The same assertions and production command deadlines remain unchanged.
