@@ -44,7 +44,7 @@ class RegistryFixture {
         const versions: Record<string, unknown> = {};
         for (const version of ['1.0.0', '2.0.0', '3.0.0']) {
             const archive = readFileSync(join(this.root, 'source-' + version + '.tgz'));
-            versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin ? 'https://unapproved.invalid/' : this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity ? 'sha512-AAAA' : 'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'touch MUST_NOT_RUN' } };
+            versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin ? 'https://unapproved.invalid/' : this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity ? 'sha512-AAAA' : 'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'bun postinstall.ts' } };
         }
         response.setHeader('content-type', 'application/json');
         response.end(JSON.stringify({ name: '@fixture/npm-source', 'dist-tags': { latest: this.version }, versions }));
