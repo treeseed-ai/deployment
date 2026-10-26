@@ -474,6 +474,7 @@ export class ServicePlanStore {
             scope.root.close();
         }
     }
+    /** Latest state per application, in request creation order; chronological events remain in the journal. */
     records(): ServiceApplicationRecord[] {
         const scope = this.openJournal();
         try {
