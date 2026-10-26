@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Project pending application status without competing with activation readiness (#910).
+
 ### Changed
 - Prepare native replacement fixtures with exact service-intent contracts and authority ownership (#910).
 

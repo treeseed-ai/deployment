@@ -910,3 +910,16 @@ Use forced fresh installation and read back installed identity, vendor bytes and
 This aligns future explicit instance/binding intent with UI/Identity/Admin candidates while
 preserving the existing restart contract and seven operation IDs. Schema adoption and fixture
 preparation alone do not grant replacement or source-install activation.
+
+### Status during accepted application
+
+While an accepted application is validating or changing the installation, status projects the
+last committed snapshot with `ready: false`, no acknowledgements, an `APPLICATION_PENDING`
+blocker and `application.pending` per-service observations. It performs no target readiness
+invocation during that interval, preserving activation's exclusive readiness qualification.
+The committed resource set remains explicitly the prior accepted set until the new snapshot
+is committed. Steady status resumes fresh physical/protocol verification afterward.
+
+An exact desired generation may recur with a different physical incarnation. Select the latest
+completed application matching the committed snapshot, and report that snapshot's resource
+identities. A historical desired-generation match cannot select an earlier container receipt.
