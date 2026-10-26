@@ -1,3 +1,4 @@
+import {ManagedReleaseCache} from './release-cache.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { openSync, closeSync, fstatSync, writeFileSync, fsyncSync, fchmodSync, chmodSync, renameSync, lstatSync, readdirSync, rmSync, constants } from 'node:fs';
@@ -202,15 +203,7 @@ export class ManagedSourceTools {
                 }
             }
             Check.require(helper.path, 'SOURCE_HELPER_UNAVAILABLE');
-            const release = SafeDirectory.open(this.plan.configuration.release.directory);
-            let bytes: Buffer;
-            try {
-                bytes = release.file(helper.path, helper.sha256, 512 * 1024 * 1024);
-                Check.require(bytes.length === helper.size, 'HELPER_INTEGRITY');
-            }
-            finally {
-                release.close();
-            }
+            const retained=new ManagedReleaseCache(this.plan).open();let bytes:Buffer;if(retained){try{bytes=retained.read(helper.path);}finally{retained.close();}}else{const release=SafeDirectory.open(this.plan.configuration.release.directory);try{bytes=release.file(helper.path,helper.sha256,512*1024*1024);}finally{release.close();}}Check.require(bytes.length===helper.size,'HELPER_INTEGRITY');
             const files = await new HelperArchiveContents(bytes, helper).read();
             this.authorize(request);
             const temporary = '.pending-' + randomUUID(), working = InstallationStore.mkdir(cache, temporary);

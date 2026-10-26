@@ -1,3 +1,4 @@
+import {ManagedReleaseCache} from './release-cache.js';
 import { ServiceObservations } from './service-observation.js';
 import { CanonicalJson, CapabilityToken, PlatformSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type ServiceApplicationRecord, type ServiceWorkerRequest, type ServiceStatus, type ServiceObservationContext, type ServiceSnapshot, type ServiceResourceReceipt, type ServiceReadiness } from '@treeseed-cordis/sdk';
 import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle, type ProviderRegistration } from '@treeseed-cordis/sdk/runtime';
@@ -176,6 +177,7 @@ class ServiceApplications implements ServiceApplicationHost {
         try {
             await this.validate(candidate,initial.restartServices);
             record = this.event(record, 'stage');
+            const release=await new ManagedReleaseCache(candidate).stage(this.writer);release.close();
             this.acceptedPlan=candidate;for(const scope of this.scopes.values())await scope.close();this.scopes.clear();
             const prepared = new Map<string, PreparedServiceScope>();
             for (const service of this.acceptedPlan.composition.services)

@@ -13,7 +13,8 @@ class ManagedToolsProgram {
         const registry = new Deployment.PluginRequestStore(plan, writer), intent: PluginInstallRequest = { source: '@fixture/managed@1.0.0', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', idempotencyKey: 'managed-helper-request', configuration: {} }, initial = registry.begin(intent, 'a'.repeat(64), null).record, request = registry.append({ ...initial, sequence: 1, stage: 'resolving' }), constructor = Reflect.get(Deployment, 'ManagedSourceTools') as new (p: ServicePlan, w: typeof writer, release: string) => Tools;
         if (typeof constructor !== 'function')
             throw new Error('MANAGED_SOURCE_TOOLS_UNAVAILABLE');
-        const tools = new constructor(plan, writer, plan.helpers.releaseIdentity), version = await tools.version('bun', request);
+        const retained=await new Deployment.ManagedReleaseCache(plan).stage(writer,request);try{retained.verify();}finally{retained.close();}rmSync(configuration.release.directory,{recursive:true});
+            const tools = new constructor(plan, writer, plan.helpers.releaseIdentity), version = await tools.version('bun', request);
         if (version !== '1.4.4')
             throw new Error('Wrong native helper');
         let refused = false;
@@ -54,7 +55,7 @@ class ManagedToolsProgram {
         await new Promise(this.delay);
         if (existsSync('/proc/' + childId + '/status') && !/^State:\s+Z/m.test(readFileSync('/proc/' + childId + '/status', 'utf8')))
             throw new Error('Helper child remained active');
-        rmSync(configuration.release.directory, { recursive: true });
+        rmSync(configuration.release.directory, { recursive: true, force:true });
         if (await tools.version('bun', request) !== version)
             throw new Error('Offline helper reuse failed');
         const path = await tools.path('bun', request), bytes = readFileSync(path);
