@@ -1577,3 +1577,18 @@ The combined Deployment76 candidate retains the migration and compiled-worker co
 without changing repository ownership or runtime authority. Direct migration admission also
 requires an absolute canonical installation path before any filesystem access; callers cannot
 commit a migration through an ambiguous path and then fail its scoped read-back.
+
+## Explicit restart of asset-bound private configuration
+
+A reviewed UI asset/image replacement may update an existing JSON configuration's `assetDigest`
+projection together with its bound composition asset identity. Qualify only this exact change:
+slot names/kinds, credential references/values, issuer/account/grant data, volume layouts,
+authorities and worker privileges remain identical. Updated configuration must be a leaf;
+references from another service require separate migration qualification. No arbitrary private
+configuration update is admitted. The provider's state version stays fixed and the exact
+affected restart scopes remain mandatory.
+
+Retain every previous private file and all unchanged resource identities. Publish the new
+asset-bound configuration under its new definition digest and mount it only in the explicitly
+replaced container. Readiness/asset generation acknowledgements must verify the new closure;
+no implicit restart or live image replacement is inferred. Identity remains Identity-owned.

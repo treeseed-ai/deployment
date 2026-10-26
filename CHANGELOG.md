@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
+
+### Fixed
 - Resolve verified installed packages in the compiled worker without ambient configuration autoloading (#1004).
 
 ### Added
