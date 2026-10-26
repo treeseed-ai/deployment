@@ -1142,6 +1142,8 @@ compatible; a previously unseen package uses approved managed Bun selector resol
 required/peer edge must accept the one selected version. Conflicting/nested versions, aliases,
 Git/workspace/patch dependencies, optional runtime dependencies and unsupported bundle forms block.
 Optional peer declarations retain the existing narrowly checked runtime rules.
+Bound the closure to 1,024 archives, 64 MiB per archive and 512 MiB of archive bytes in total;
+check retained inventory sizes before reading the base closure into memory.
 
 Approve each new package and target at an unambiguous registry before its lookup. Inspect source
 archives without extraction or import. Generate a normal Bun v2 lock offline from exact local
