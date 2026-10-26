@@ -1463,3 +1463,15 @@ custody is read; it must not eagerly construct a build/runtime-root dependency d
 schema initialization. This preserves one native authority and the same artifact verification.
 An argument-only compiled-worker smoke returns exit 2 with no output or installation effects,
 without Node, Bun, Git or Docker on its PATH. The longer default-owner/apply checks remain required.
+
+The public `@treeseed-cordis/deployment/testing/plugins` fixture also supports
+`startGit(build = false)`. After `prepare()`, it packages a genuine local Git helper and its
+libraries, serves an actual bare repository over private-CA HTTPS, records its exact grant and
+refreshes the release inventory. `source()` returns the Git locator; version 2 selects the
+second genuine commit. With `build = true`, the first source is an exact source-only commit
+with an explicitly pinned isolated build policy. This is fixture preparation, not activation.
+The same `stopRegistry()`/`close()` closes either transport; a fixture cannot start both.
+Consumer tests must import this packed public interface and use the real installer, not copy
+source acquisition or import another checkout. Neither planning nor fixture preparation executes
+a package lifecycle script or creates installation credentials. The caller still owns explicit
+fixture cleanup; Keycloak identity authority is unchanged.
