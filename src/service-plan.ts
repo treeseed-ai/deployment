@@ -354,21 +354,29 @@ export class ServicePlanStore {
     read(id: string, digest: string): ServicePlan {
         Check.require(/^plan-[a-f0-9]{64}$/.test(id) && id === 'plan-' + digest, 'PLAN_IDENTITY');
         Check.require(this.inspect(), 'MISSING_JOURNAL');
+        return this.readPublished(id, digest);
+    }
+    /** Immutable record/scope read only. Never establishes mutable journal or runtime health. */
+    readPublished(id: string, digest: string): ServicePlan {
+        Check.require(/^plan-[a-f0-9]{64}$/.test(id) && id === 'plan-' + digest, 'PLAN_IDENTITY');
         const root = SafeDirectory.open(this.path);
         try {
-            const plans = root.directory('.cordis/plans', true);
+            const state = root.directory('.cordis', true);
             try {
-                const plan = this.parse(plans.file(id + '.json', undefined, 4 * 1024 * 1024, true));
-                Check.require(plan.id === id && plan.digest === digest, 'PLAN_IDENTITY');
-                return plan;
-            }
-            finally {
-                plans.close();
-            }
-        }
-        finally {
-            root.close();
-        }
+                const receipt = ServiceSchemas.receipt.safeParse(StrictJson.parse(state.file('installation.json', undefined, 4 * 1024 * 1024, true)));
+                Check.require(receipt.success, 'INVALID_JOURNAL');
+                Check.require(receipt.data.ownerUid === process.getuid?.() && receipt.data.installationDirectory === this.path, 'FOREIGN_INSTALLATION');
+                Check.require(receipt.data.migration === null, 'MIGRATION_NOT_QUALIFIED');
+                const plans = state.directory('plans', true);
+                try {
+                    const plan = this.parse(plans.file(id + '.json', undefined, 4 * 1024 * 1024, true));
+                    Check.require(plan.id === id && plan.digest === digest, 'PLAN_IDENTITY');
+                    Check.require(plan.configuration.installationId === receipt.data.installationId && CanonicalJson.stringify(plan.expectedEngine) === CanonicalJson.stringify(receipt.data.expectedEngine), 'FOREIGN_INSTALLATION');
+                    plans.verify(); state.verify(); root.verify();
+                    return plan;
+                } finally { plans.close(); }
+            } finally { state.close(); }
+        } finally { root.close(); }
     }
     publish(value: ServicePlan, heldWriter?: InstallationWriter): ServicePlan {
         const plan = ServiceSchemas.plan.parse(value);

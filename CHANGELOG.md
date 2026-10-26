@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Keep live plugin transport preflight independent of mutable owner journal publication (#980).
+
 ### Added
 - Resolve approved HTTPS Git locators to durable exact commits using a managed native source provider (#910).
 
@@ -121,3 +124,6 @@
 
 
 - Add read-only Compose host diagnostics (#900).
+
+### Changed
+- Qualify the packed test-fixture consumer from an empty dependency cache (#910).

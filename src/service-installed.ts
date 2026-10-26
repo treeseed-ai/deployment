@@ -9,12 +9,12 @@ import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesyste
 /** Default format-3 transport/launch adapter; the native host remains the sole writer. */
 export class ServiceInstalledHost {
     async apply(planId: string, digest: string, input: ApplyOptions): Promise<{ id: string; accepted: true }> {
-        const options = ServiceSchemas.applyOptions.parse(input), store = new ServicePlanStore(options.installationDirectory), plan = store.read(planId, digest), request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: options.idempotencyKey,...(options.restartServices?{restartServices:[...options.restartServices].sort()}:{}) };
+        const options = ServiceSchemas.applyOptions.parse(input), store = new ServicePlanStore(options.installationDirectory), plan = store.readPublished(planId, digest), request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: options.idempotencyKey,...(options.restartServices?{restartServices:[...options.restartServices].sort()}:{}) };
         ServiceTransitions.activation(plan,options.restartServices);
         return (await this.owner(plan.id, plan.digest, options.installationDirectory)).submit(request);
     }
     async owner(planId: string, digest: string, directory: string): Promise<ServiceWorkerOwnerClient> {
-        const store = new ServicePlanStore(directory), plan = store.read(planId, digest), client = new ServiceWorkerOwnerClient({ installationDirectory: directory });
+        const store = new ServicePlanStore(directory), plan = store.readPublished(planId, digest), client = new ServiceWorkerOwnerClient({ installationDirectory: directory });
         if (this.control(plan)) { this.running(plan); return client; }
         const bootstrap = WorkerBootstrap.prepare(plan);
         let child: ChildProcess | undefined;
@@ -61,7 +61,7 @@ export class ServiceInstalledHost {
             const launch = state.directory('launch', true);
             let intent;
             try { intent = BootstrapSchemas.intent.safeParse(StrictJson.parse(launch.file('intent.json', undefined, 4096, true))); Check.require(intent.success, 'BOOTSTRAP_REPAIR_REQUIRED'); } finally { launch.close(); }
-            const initial = store.read(intent.data.planId, intent.data.digest), data = BootstrapRecords.read(state, new Map([[initial.id, initial]]));
+            const initial = store.readPublished(intent.data.planId, intent.data.digest), data = BootstrapRecords.read(state, new Map([[initial.id, initial]]));
             Check.require(data?.ready && data.child && data.executable, 'WORKER_REPAIR_REQUIRED');
             const writer = state.directory('writer.lock', true);
             try {

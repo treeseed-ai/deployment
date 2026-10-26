@@ -40,3 +40,9 @@ requires nonempty disjoint sets, every discovered `tests/*.test.ts` exactly once
 explicit transition files present. Unknown commands/partitions fail with exit 2 before tests.
 The final `verify` CI job requires static/unit/integration and both smoke jobs to succeed;
 a skipped, failed or cancelled prerequisite cannot produce a green aggregate gate.
+
+The packed plugin-fixture consumer uses an empty dedicated Bun cache. Its build-time package
+installation may resolve exact declared dependencies from the registry, with lifecycle scripts
+and dotenv loading disabled. Root lockfile installation does not imply cached registry manifests
+for another project. Runtime source-free retry is tested separately against accepted private
+artifacts and helpers; the consumer setup must not claim offline capability from a warm cache.

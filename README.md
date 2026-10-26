@@ -1314,6 +1314,15 @@ plugin source. Consumers spawn their own built CLI and assert actual plans/appli
 retained resources and credential/TLS bytes through public contracts. No cross-checkout source
 imports or copied Deployment host implementation are needed for assembled verification.
 
+### Live transport read-back boundary
+
+Installed-manager transport preflight verifies immutable saved plan/installation/launch identities,
+private endpoints and the owning process. It delegates mutable request/application/resource journal
+reads to the live owner. An external caller must not sample intermediate event/head publication
+while the owner is writing. Cold reads still validate the complete stopped journal; malformed or
+interrupted state, foreign scope, changed worker/socket identities and uncertain launch records
+remain blocked. A published plan alone establishes neither journal completeness nor runtime health.
+
 ### Exact approved Git source resolution
 
 Native `source.git` implements the same typed source-resolver seam as NPM. Resolution accepts only
