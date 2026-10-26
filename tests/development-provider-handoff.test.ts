@@ -49,3 +49,6 @@ it.each(['polling','empty','first-start','closed-recovery','native-closed-recove
   'selects the prepared provider snapshot after %s admission through the original boundary',shape=>{
     expect(run(shape)).toEqual({shape,started:true,runtimeCustodyVerified:true});
   },240_000);
+it('updates the managed guest and rebinds the provider after physically fencing expired unknown recovery without changing its bytes',()=>{
+    expect(run('sandbox-expired-recovery')).toEqual({shape:'sandbox-expired-recovery',started:true,guestTrustUpdated:true,providerRebound:true,originalRecoveryUnchanged:true});
+},240_000);
