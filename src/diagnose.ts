@@ -150,3 +150,5 @@ export {PackageArchiveInspector,type PackageArchiveIndex,type PackageArchiveFile
 export {ServiceProjection} from './service-projection.js';
 
 export {PluginRequestStore} from './plugin-registry.js';
+
+export {ManagedSourceTools} from './managed-tools.js';
