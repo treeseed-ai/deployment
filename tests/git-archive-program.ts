@@ -29,7 +29,8 @@ class GitArchiveProgram {
                     return;
         throw error;
     } throw new Error('GIT_ARCHIVE_ACCEPTED_BLOCKER:' + code); }
-    static async run(file: string,closure=false): Promise<void> {
+    static async run(file: string,mode='archive'): Promise<void> {
+        const closure=mode.startsWith('closure');
         const Runtime = Reflect.get(Deployment, 'GitSourceRuntime') as {
             start(plan: ServicePlan): Promise<GitRuntime>;
         };
@@ -43,7 +44,7 @@ class GitArchiveProgram {
         try {
             const path = join(configuration.release.directory, 'release.json'), release = ServiceSchemas.release.parse(JSON.parse(readFileSync(path, 'utf8'))), certificate = readFileSync(join(configuration.release.directory, 'source-ca.pem'));
             if(closure){dependencies=new RegistryFixture(input.root,configuration.installationDirectory);await dependencies.listen();}
-            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers!.releaseIdentity, npm: dependencies?[{registry:dependencies.origin(),packages:['@fixture/runtime'],targets:['deployment'],certificateAuthority:{path:'source-ca.pem',sha256:createHash('sha256').update(certificate).digest('hex')}}]:[], git: [{ origin: registry.locator(), packages: ['@fixture/git-source'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: createHash('sha256').update(certificate).digest('hex') } }], builds: [] };
+            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers!.releaseIdentity, npm: dependencies?[{registry:dependencies.origin(),packages:[mode==='closure-denied'?'@fixture/forbidden':'@fixture/runtime'],targets:['deployment'],certificateAuthority:{path:'source-ca.pem',sha256:createHash('sha256').update(certificate).digest('hex')}}]:[], git: [{ origin: registry.locator(), packages: ['@fixture/git-source'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: createHash('sha256').update(certificate).digest('hex') } }], builds: [] };
             const bytes = CanonicalJson.stringify(release) + '\n';
             writeFileSync(path, bytes);
             configuration.release.manifestDigest = createHash('sha256').update(bytes).digest('hex');
@@ -61,7 +62,8 @@ class GitArchiveProgram {
             const index = await Deployment.PackageArchiveInspector.inspect(archive.path, archive.sha256), files = new Map(index.files.map(GitArchiveProgram.entry));
             if (files.get('revision.txt') !== createHash('sha256').update('first exact commit\n').digest('hex'))
                 throw new Error('GIT_ARCHIVE_FOLLOWED_MOVED_REF');
-            if(closure){const acquired=await runtime.acquire(record),receipt=acquired.sourceReceipt;if(acquired.stage!=='acquired'||receipt?.kind!=='git'||receipt.commit!==input.identity.first||receipt.name!=='@fixture/git-source'||receipt.version!=='1.0.0'||receipt.archiveDigest!==archive.sha256||receipt.buildPolicyDigest!==null||receipt.helperDigests.length!==2)throw new Error('EXACT_GIT_CLOSURE_RECEIPT_MISSING');const root=join(configuration.installationDirectory,'.cordis/artifacts/closures',receipt.closureDigest),manifest=JSON.parse(readFileSync(join(root,'receipt.json'),'utf8')) as {manifest:{packages:Array<{name:string;version:string}>}};let found=false;for(const dependency of manifest.manifest.packages)if(dependency.name==='@fixture/runtime'&&dependency.version==='1.0.0')found=true;if(!found||dependencies!.archiveRequests!==1)throw new Error('GIT_RUNTIME_DEPENDENCY_NOT_VERIFIED');await registry.close();await dependencies!.close();await runtime.close();runtime=await Runtime.start(plan);const offline=await runtime.acquire(await runtime.resolve(runtime.begin(locator,'git-archive')));if(CanonicalJson.stringify(offline)!==CanonicalJson.stringify(acquired))throw new Error('GIT_CLOSURE_SOURCE_FREE_CHANGED');if(existsSync(join(input.root,'MUST_NOT_RUN'))||existsSync(join(input.root,'SCRIPT_CANARY'))||existsSync(join(configuration.installationDirectory,'.cordis/credentials')))throw new Error('GIT_CLOSURE_EXECUTED_OR_ACTIVATED');process.stdout.write(JSON.stringify({fixtureOnly:true,native:true,exact:true,sourceFree:true,closure:true,dependency:true,noScripts:true,noActivation:true})+'\n');return;}
+            if(mode==='closure-denied'){let denied=false;try{await runtime.acquire(record);}catch(error){if(error instanceof PlanningBlockedError)for(const blocker of error.blockers)if(blocker.code==='NPM_SOURCE_NOT_APPROVED')denied=true;}if(!denied||dependencies!.requests!==0||dependencies!.archiveRequests!==0)throw new Error('GIT_CLOSURE_DEPENDENCY_GRANT_BYPASSED');process.stdout.write(JSON.stringify({fixtureOnly:true,dependencyDenied:true,noFetch:true,noActivation:true})+'\n');return;}
+            if(closure){const acquired=await runtime.acquire(record),receipt=acquired.sourceReceipt;if(acquired.stage!=='acquired'||receipt?.kind!=='git'||receipt.commit!==input.identity.first||receipt.name!=='@fixture/git-source'||receipt.version!=='1.0.0'||receipt.archiveDigest!==archive.sha256||receipt.buildPolicyDigest!==null||receipt.helperDigests.length!==2)throw new Error('EXACT_GIT_CLOSURE_RECEIPT_MISSING');const root=join(configuration.installationDirectory,'.cordis/artifacts/closures',receipt.closureDigest),manifest=JSON.parse(readFileSync(join(root,'receipt.json'),'utf8')) as {manifest:{packages:Array<{name:string;version:string;path:string}>}};let found=false;for(const dependency of manifest.manifest.packages)if(dependency.name==='@fixture/runtime'&&dependency.version==='1.0.0')found=true;if(!found||dependencies!.archiveRequests!==1)throw new Error('GIT_RUNTIME_DEPENDENCY_NOT_VERIFIED');await registry.close();await dependencies!.close();await runtime.close();runtime=await Runtime.start(plan);const offline=await runtime.acquire(await runtime.resolve(runtime.begin(locator,'git-archive')));if(CanonicalJson.stringify(offline)!==CanonicalJson.stringify(acquired))throw new Error('GIT_CLOSURE_SOURCE_FREE_CHANGED');const dependency=manifest.manifest.packages.find(GitArchiveProgram.runtimeDependency);if(!dependency)throw new Error('MISSING_RUNTIME_FIXTURE');const dependencyPath=join(root,dependency.path);chmodSync(dependencyPath,0o600);writeFileSync(dependencyPath,'tampered dependency');chmodSync(dependencyPath,0o400);let tampered=false;try{await runtime.acquire(offline);}catch(error){if(error instanceof PlanningBlockedError)for(const blocker of error.blockers)if(blocker.code==='ARTIFACT_INTEGRITY')tampered=true;}if(!tampered)throw new Error('GIT_CLOSURE_TAMPER_ACCEPTED');if(existsSync(join(input.root,'MUST_NOT_RUN'))||existsSync(join(input.root,'SCRIPT_CANARY'))||existsSync(join(configuration.installationDirectory,'.cordis/credentials')))throw new Error('GIT_CLOSURE_EXECUTED_OR_ACTIVATED');process.stdout.write(JSON.stringify({fixtureOnly:true,native:true,exact:true,sourceFree:true,closure:true,dependency:true,noScripts:true,noActivation:true})+'\n');return;}
             for (const [ref, commit, code] of [['unsafe-symlink', input.identity.symlink, 'UNSUPPORTED_GIT_TREE'], ['unsafe-attributes', input.identity.attributes, 'UNSUPPORTED_GIT_ATTRIBUTES'], ['unsafe-size', input.identity.oversized, 'GIT_TREE_BUDGET']]) {
                 const bad = await runtime.resolve(runtime.begin(registry.locator() + '#' + commit, 'git-' + ref));
                 await this.refused(runtime, bad, code!);
@@ -121,6 +123,7 @@ class GitArchiveProgram {
             await registry.close();await dependencies?.close();
         }
     }
+    private static runtimeDependency(value:{name:string}):boolean{return value.name==='@fixture/runtime';}
     static failed(error: unknown): never { if (error instanceof PlanningBlockedError) {
         const codes: string[] = [];
         for (const blocker of error.blockers)
@@ -135,4 +138,4 @@ class GitArchiveProgram {
         string
     ] { return [file.path, file.sha256]; }
 }
-await GitArchiveProgram.run(process.argv[2]!,process.argv[3]==='closure').catch(GitArchiveProgram.failed);
+await GitArchiveProgram.run(process.argv[2]!,process.argv[3]??'archive').catch(GitArchiveProgram.failed);
