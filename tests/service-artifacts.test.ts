@@ -49,6 +49,21 @@ const suite = new ServiceArtifactTests();
 test('integration: exact format3 bundle resolves five instances sharing native container and probe exports without imports or state', suite.resolve.bind(suite));
 test('unit: owner container projection cannot be overridden by a service instance', suite.mismatch.bind(suite));
 class ServiceArtifactProgramTests {
+    async roundtrip(): Promise<void> {
+        const fixture = await new ServiceFixture().withCredentials();
+        try {
+            const file = join(fixture.root, 'canonical-request.json'), archive = readFileSync(join(fixture.bundle, 'archives/plugin.tgz'));
+            writeFileSync(file, JSON.stringify(fixture.configuration));
+            const code = "import{readFileSync,writeFileSync}from'node:fs';import{createHash}from'node:crypto';import{join}from'node:path';import{CanonicalJson,PlanningBlockedError}from'@treeseed-cordis/sdk';import{ServicePlanIdentity,ServiceArtifactResolver}from'@treeseed-cordis/deployment';class Program{static async run(){const configuration=JSON.parse(readFileSync(process.argv[1],'utf8')),path=join(configuration.release.directory,'release.json'),release=JSON.parse(readFileSync(path,'utf8'));release.composition=ServicePlanIdentity.graph(release.composition);if(process.argv[2]==='changed-target')release.composition.services[0].definition.secrets[0].target='/run/cordis/foreign';const bytes=CanonicalJson.stringify(release)+'\\n';writeFileSync(path,bytes);configuration.release.manifestDigest=createHash('sha256').update(bytes).digest('hex');const input=CanonicalJson.stringify(configuration);try{await new ServiceArtifactResolver().resolve(configuration);}catch(error){if(process.argv[2]==='changed-target'&&error instanceof PlanningBlockedError&&error.blockers[0]?.code==='SERVICE_DEFINITION_MISMATCH'){process.stdout.write('target-refused\\n');return;}throw error;}if(process.argv[2]==='changed-target')throw new Error('Changed secret target accepted');if(readFileSync(path,'utf8')!==bytes||CanonicalJson.stringify(configuration)!==input)throw new Error('Verifier mutated caller input');process.stdout.write('canonical-roundtrip-ok\\n');}}await Program.run();";
+            const result = spawnSync('node', ['--input-type=module', '-e', code, file], { encoding: 'utf8', timeout: 15000 });
+            if (result.status !== 0) throw new Error(result.stderr);
+            expect(result.stdout).toBe('canonical-roundtrip-ok\n');
+            const changed = spawnSync('node', ['--input-type=module', '-e', code, file, 'changed-target'], { encoding: 'utf8', timeout: 15000 });
+            expect(changed.status).toBe(0); expect(changed.stdout).toBe('target-refused\n');
+            expect(readFileSync(join(fixture.bundle, 'archives/plugin.tgz')).equals(archive)).toBe(true);
+            expect(existsSync(fixture.installation)).toBe(false); expect(existsSync(join(fixture.root, 'SCRIPT_CANARY'))).toBe(false);
+        } finally { fixture.close(); }
+    }
     async program(): Promise<void> {
         const fixture = await new ServiceFixture().services();
         try {
@@ -68,6 +83,7 @@ class ServiceArtifactProgramTests {
 }
 const program = new ServiceArtifactProgramTests();
 test('smoke: built public deployment artifact verifies a five-service release as a Node program', program.program.bind(program));
+test('smoke: public artifact resolver accepts canonical saved credential graphs and still refuses changed secret targets', program.roundtrip.bind(program));
 class ServiceArtifactBoundaryTests {
     async image(): Promise<void> {
         const fixture = await new ServiceFixture().services();
