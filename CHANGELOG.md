@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Partition complete smoke qualification within CI job budgets (#954).
+
 ### Added
 - Qualify scoped container replacement and immutable physical history (#910).
 - Qualify held-adapter fences across terminal application phases (#950).
