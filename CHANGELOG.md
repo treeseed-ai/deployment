@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Verify and retain complete locked runtime source closures before acquired receipts (#910).
+
 ### Changed
 - Share the approved managed registry lookup invariant for source and dependency acquisition (#910).
 

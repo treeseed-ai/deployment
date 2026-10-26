@@ -1131,3 +1131,29 @@ provider and the same installation writer. This helper is an invariant of source
 not a second provider resolver or an additional authority grant. Its extraction preserves the
 existing public source contract and durable request stages; complete dependency closure is still
 implemented and qualified separately.
+
+### Complete locked source closure
+
+`PackageSourceResolver.acquire(record)` and `NpmSourceRuntime.acquire(record)` finish an exact
+source acquisition by saving a verified complete runtime closure and appending its SDK `acquired`
+source receipt. The closure includes the selected package plus the current accepted release's
+runtime packages and any new required ordinary dependencies. Reuse an existing exact version when
+compatible; a previously unseen package uses approved managed Bun selector resolution. Every
+required/peer edge must accept the one selected version. Conflicting/nested versions, aliases,
+Git/workspace/patch dependencies, optional runtime dependencies and unsupported bundle forms block.
+Optional peer declarations retain the existing narrowly checked runtime rules.
+
+Approve each new package and target at an unambiguous registry before its lookup. Inspect source
+archives without extraction or import. Generate a normal Bun v2 lock offline from exact local
+archives with `--lockfile-only --offline --ignore-scripts --no-env-file`; independently validate
+its full flat closure, metadata, SRI and package bytes using the existing release verifier. Include
+no source script execution or activation. Absolute fixture lifecycle/import markers must remain
+absent while the package manager runs.
+
+Persist an exclusive request-bound closure attempt before dependency lookup/build effects.
+In-process same-key callers join the same acquisition; an interrupted incomplete attempt refuses
+mutable re-resolution and requires explicit repair. Publish complete immutable closure files and
+read back every digest before appending the `acquired` receipt. Receipt/digest inputs exclude
+clock samples and metadata publication times; source lookup evidence remains private bookkeeping.
+Completed read-back works with the original bundle and registry gone. A closure is acquired data,
+not a registration, plan, application or active/healthy claim. Full host/CLI integration still follows.
