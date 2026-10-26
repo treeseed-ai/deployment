@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Attribute retained listener evidence to the actual fixture owner and verify Docker publications (#995).
+
 ### Added
 - Install exact Git and approved built-source providers through the durable native host (#910).
 
