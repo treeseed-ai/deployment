@@ -22,7 +22,7 @@ interface Cache {
 class CacheProgressProbe {
     observed=false;private readonly timer:ReturnType<typeof setInterval>;
     constructor(private readonly plan:ServicePlan){this.timer=setInterval(this.sample.bind(this),1);}
-    private sample():void{const root=join(this.plan.configuration.installationDirectory,'.cordis/artifacts/releases');if(!existsSync(root))return;for(const name of readdirSync(root))if(name.startsWith('.pending-')){const worker=join(root,name,'bundle',this.plan.composition.worker.path);if(existsSync(worker)){const size=statSync(worker).size;if(size>0&&size<this.plan.composition.worker.size)this.observed=true;}}}
+    private sample():void{const root=join(this.plan.configuration.installationDirectory,'.cordis/artifacts/releases');if(!existsSync(root))return;for(const name of readdirSync(root))if(name.startsWith('.pending-')||name===this.plan.releaseDigest){const worker=join(root,name,'bundle',this.plan.composition.worker.path);if(existsSync(worker)){const size=statSync(worker).size;if(size>0&&size<this.plan.composition.worker.size)this.observed=true;}}}
     close():void{clearInterval(this.timer);}
 }
 class ReleaseCacheProgram {
