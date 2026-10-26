@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Distinguish transient private Git object publication from final single-link custody (#989).
+
 ### Added
 - Build explicitly approved source-only Git plugins in bounded disposable isolation (#910).
 

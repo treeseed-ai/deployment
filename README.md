@@ -1414,3 +1414,13 @@ still removes only that created resource. See [Docker read-only bind mounts](htt
 The isolated-build slice exposes `PluginBuildRuntime` and its typed native `PluginBuildAdapter`
 for host qualification. Installed Git routing and source-build closure adoption are a following
 slice; this prefix alone does not claim a successful installed source-only plugin.
+
+### Mutable helper work and accepted custody
+
+The in-flight helper work walk measures owned regular files, rejects symlinks and enforces the
+same file/entry/byte bounds while a trusted pinned helper is running. It must allow transient
+regular-file hard links: Git publishes an object by linking its temporary file and then removing
+the temporary name. Paths are counted conservatively, including both names. Completed helper
+work and every accepted artifact still require single-link files before success. A persistent
+hard link is refused at the final check; this distinction never raises a resource budget or
+relaxes archive/custody validation. See [Git object publication](https://github.com/git/git/blob/v2.55.0/object-file.c).
