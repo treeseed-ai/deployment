@@ -1,0 +1,29 @@
+import {Context} from 'cordis';
+import {readFileSync,writeFileSync,mkdirSync,existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {create} from 'tar';
+import {CanonicalJson,PlatformSchemas,ProviderV4Schemas,PackageDefinition,ServiceTokens,type ProbeContext,type ServiceReadiness} from '@treeseed-cordis/sdk';
+import {ProbeFixture} from './service-fixture-plugins.js';
+import {ServiceRuntimeFixture} from './service-runtime-fixture.js';
+import {PluginFixtureTools} from './plugin-installation-fixture.js';
+interface LifecycleFiles{disposed:string;mounted:string;}
+export class LiveProbeOld{
+    static readonly provide=ProbeFixture.provide;static readonly inject=ProbeFixture.inject;static readonly probe=ProbeFixture.probe;
+    static readonly Config=PlatformSchemas.empty.extend({disposed:PlatformSchemas.absolute,mounted:PlatformSchemas.absolute});
+    static readonly declaration=ProviderV4Schemas.declaration.parse({...ProbeFixture.declaration,id:'fixture-live.old',pluginId:'fixture-live'});
+    static readonly replacement={kind:'live',stateVersion:1,qualificationDigest:CanonicalJson.digest({fixtureOnly:true,qualification:'native-probe-lease-drain.1'})};
+    constructor(context:Context,protected readonly files:LifecycleFiles){context.provide(ServiceTokens.probe().id,this);context.effect(this.effect.bind(this));}
+    async observe(context:ProbeContext):Promise<ServiceReadiness>{const response=await fetch(context.endpoint,{signal:context.signal});return {serviceId:context.serviceId,ready:response.ok,observations:[response.ok?'fixture.live.old.ready':'fixture.live.old.blocked']};}
+    private effect():()=>void{return this.disposed.bind(this);}
+    private disposed():void{writeFileSync(this.files.disposed,'disposed');}
+}
+export class LiveProbeNext extends LiveProbeOld{
+    static override readonly declaration=ProviderV4Schemas.declaration.parse({...LiveProbeOld.declaration,id:'fixture-live.next'});
+    constructor(context:Context,files:LifecycleFiles){super(context,files);if(!existsSync(files.disposed))throw new Error('PRIOR_NATIVE_DISPOSAL_NOT_AWAITED');writeFileSync(files.mounted,'mounted');}
+    override async observe(context:ProbeContext):Promise<ServiceReadiness>{const result=await super.observe(context);return {...result,observations:[...result.observations,'fixture.live.next']};}
+}
+/** Genuine archive, complete lock and policy declaration, prepared before installation. */
+export class LiveProbeFixture extends ServiceRuntimeFixture{
+    async prepareLive():Promise<this>{await this.running(false,true);await PluginFixtureTools.tools(this);PluginFixtureTools.certificates(this);const directory=join(this.root,'live-package');mkdirSync(directory);const entry=join(this.root,'live-entry.ts'),module=fileURLToPath(new URL(import.meta.url.endsWith('.ts')?'./live-probe-fixture.ts':'./live-probe-fixture.js',import.meta.url));writeFileSync(entry,'export{LiveProbeOld,LiveProbeNext}from'+JSON.stringify(module)+';\n');PluginFixtureTools.command(process.execPath,['build',entry,'--target=node','--outfile',join(directory,'index.js')]);const descriptor=PackageDefinition.define('@fixture/live-probe','1.0.0','fixture-live',[PackageDefinition.export(LiveProbeOld,'index.js','LiveProbeOld'),PackageDefinition.export(LiveProbeNext,'index.js','LiveProbeNext')],[],[]);writeFileSync(join(directory,'package.json'),JSON.stringify({name:descriptor.package.name,version:descriptor.package.version,type:'module',exports:'./index.js',cordisPackage:descriptor}));const archive=join(this.bundle,'archives/live-probe.tgz');await create({cwd:directory,file:archive,gzip:true,portable:true,prefix:'package/'},['package.json','index.js']);const sha=PluginFixtureTools.sha(readFileSync(archive));writeFileSync(join(this.root,'source-1.0.0.tgz'),readFileSync(archive));const root=JSON.parse(readFileSync(join(this.bundle,'package.json'),'utf8'));root.dependencies[descriptor.package.name]='file:archives/live-probe.tgz';writeFileSync(join(this.bundle,'package.json'),JSON.stringify(root));PluginFixtureTools.command(process.execPath,['install','--lockfile-only','--force','--ignore-scripts','--cwd',this.bundle]);this.release.packageJson.sha256=PluginFixtureTools.sha(readFileSync(join(this.bundle,'package.json')));this.release.lockfile.sha256=PluginFixtureTools.sha(readFileSync(join(this.bundle,'bun.lock')));this.release.packages.push({name:descriptor.package.name,version:descriptor.package.version,path:'archives/live-probe.tgz',sha256:sha});this.configuration.plugins.push({id:descriptor.pluginId,package:descriptor.package.name,version:descriptor.package.version,integrity:sha});const service=this.release.composition.services[2]!;service.readiness.provider={pluginId:descriptor.pluginId,providerId:LiveProbeOld.declaration.id,target:'deployment',package:{...descriptor.package,sha256:sha},entry:'index.js',classExport:'LiveProbeOld',contractVersion:ProviderV4Schemas.version};service.readiness.configuration={disposed:join(this.root,'old-disposed'),mounted:join(this.root,'next-mounted')};service.readiness.credentialReferences=[];this.refreshService();return this;}
+}
