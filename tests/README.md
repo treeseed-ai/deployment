@@ -60,3 +60,10 @@ exceeds ten minutes; sharing that work with native host and registered-selection
 would exhaust the existing fifteen-minute job budget. All other installed-provider suites remain
 in `runtime`; both groups and every source/transition/foundation group are mandatory. No case is
 skipped and the deadline is unchanged.
+
+Registered-selection closure qualification runs the same source-stopped seven-service programme
+against genuine NPM, committed Git and approved source-only Git. Each transition must reuse
+accepted provenance, build the current complete offline lock and preserve every prior resource.
+The NPM/plain-Git cases have a required `registered` smoke job; approved-build reuse has a
+required `build-registered` job. These are disjoint exhaustive file groups alongside the existing
+five groups, with the same fifteen-minute budget and all-success aggregate. No case is skipped.
