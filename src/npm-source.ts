@@ -1,3 +1,4 @@
+import { SourceArchiveCache, type ResolvedPackageArchive } from './source-archive.js';
 import { createHash } from 'node:crypto';
 import { openSync, closeSync, fstatSync, lstatSync, constants, type Stats } from 'node:fs';
 import { valid, satisfies, validRange } from 'semver';
@@ -10,10 +11,11 @@ import { ManagedReleaseCache } from './release-cache.js';
 import { InstallationStore } from './installed.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 export interface PackageSourceResolver {
+    fetch(record: PluginRequestRecord): Promise<ResolvedPackageArchive>;
     resolve(record: PluginRequestRecord): Promise<PluginRequestRecord>;
 }
 class SourceAdapter {
-    parse(value: unknown): PackageSourceResolver { Check.require(value !== null && typeof value === 'object' && typeof Reflect.get(value, 'resolve') === 'function', 'INVALID_SOURCE_ADAPTER'); return value as PackageSourceResolver; }
+    parse(value: unknown): PackageSourceResolver { Check.require(value !== null && typeof value === 'object' && typeof Reflect.get(value, 'resolve') === 'function' && typeof Reflect.get(value, 'fetch') === 'function', 'INVALID_SOURCE_ADAPTER'); return value as PackageSourceResolver; }
 }
 export class PackageSourceTokens {
     static readonly npm = new CapabilityToken<PackageSourceResolver>('source.npm', ProviderV4Schemas.version, new SourceAdapter());
@@ -22,13 +24,18 @@ export class PackageSourceTokens {
 class SourceTrust {
     private readonly fd: number;
     private readonly identity: Stats;
-    constructor(private readonly directory: SafeDirectory, bytes: Buffer, private readonly digest: string) { InstallationStore.publish(directory, 'source-ca.pem', bytes, 0o400); this.fd = openSync(directory.childPath('source-ca.pem'), constants.O_RDONLY | constants.O_NOFOLLOW); this.identity = fstatSync(this.fd); try {
-        this.verify();
+    constructor(private readonly directory: SafeDirectory, bytes: Buffer, private readonly digest: string) {
+        InstallationStore.publish(directory, 'source-ca.pem', bytes, 0o400);
+        this.fd = openSync(directory.childPath('source-ca.pem'), constants.O_RDONLY | constants.O_NOFOLLOW);
+        this.identity = fstatSync(this.fd);
+        try {
+            this.verify();
+        }
+        catch (error) {
+            closeSync(this.fd);
+            throw error;
+        }
     }
-    catch (error) {
-        closeSync(this.fd);
-        throw error;
-    } }
     path(): string { return '/proc/' + process.pid + '/fd/' + this.fd; }
     verify(): void { const before = this.identity, after = fstatSync(this.fd), linked = lstatSync(this.directory.childPath('source-ca.pem')); Check.require(after.isFile() && after.uid === process.getuid?.() && after.nlink === 1 && (after.mode & 0o777) === 0o400 && after.dev === before.dev && after.ino === before.ino && after.size === before.size && after.mtimeMs === before.mtimeMs && after.ctimeMs === before.ctimeMs && linked.dev === before.dev && linked.ino === before.ino, 'SOURCE_CA_CHANGED'); this.directory.file('source-ca.pem', this.digest, 1024 * 1024); this.directory.verify(); }
     close(): void { closeSync(this.fd); }
@@ -45,6 +52,21 @@ class NpmPackageSource implements PackageSourceResolver {
             }
         return Check.block('PLUGIN_REQUEST_NOT_FOUND');
     }
+    async fetch(input: PluginRequestRecord): Promise<ResolvedPackageArchive> { const record = this.current(input), policy = this.authority.plan.acquisitionPolicy; Check.require(policy && record.policyDigest === CanonicalJson.digest(policy) && record.stage === 'resolved' && record.resolution?.kind === 'npm', 'SOURCE_RESOLUTION_REQUIRED'); const intent = PluginManagementSchemas.install.parse(record.intent), resolution = record.resolution; let granted = false; let certificate: Buffer | undefined; for (const grant of policy.npm)
+        if (grant.registry === resolution.registry && grant.packages.includes(resolution.name) && (intent.target ? grant.targets.includes(intent.target) : grant.targets.length === 1)) {
+            Check.require(!granted, 'NPM_SOURCE_NOT_APPROVED');
+            granted = true;
+            if (grant.certificateAuthority) {
+                const release = new ManagedReleaseCache(this.authority.plan).open();
+                Check.require(release, 'SOURCE_TRUST_UNAVAILABLE');
+                try {
+                    certificate = release.read(grant.certificateAuthority.path);
+                }
+                finally {
+                    release.close();
+                }
+            }
+        } Check.require(granted, 'NPM_SOURCE_NOT_APPROVED'); return new SourceArchiveCache(this.authority, record).fetch(certificate); }
     async resolve(input: PluginRequestRecord): Promise<PluginRequestRecord> {
         let record = this.current(input);
         const plan = this.authority.plan, policy = plan.acquisitionPolicy;
@@ -153,6 +175,12 @@ export class NpmSourceRuntime implements PackageSourceResolver {
             await lease.release();
         }
     }
+    async fetch(record: PluginRequestRecord): Promise<ResolvedPackageArchive> { Check.require(!this.closed, 'HOST_CLOSED'); const lease = await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm); try {
+        return await lease.value.fetch(record);
+    }
+    finally {
+        await lease.release();
+    } }
     async close(): Promise<void> {
         if (this.closed)
             return;
