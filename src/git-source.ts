@@ -1,3 +1,4 @@
+import {PluginBuildPlugin,PluginBuildToken} from './source-build.js';
 import {PackageClosureAcquirer} from './source-closure.js';
 import { GitArchiveCache, GitRepositoryGuard } from './git-archive.js';
 import { createHash } from 'node:crypto';
@@ -20,7 +21,7 @@ export class GitSourceToken { static readonly instance=new CapabilityToken<Packa
 class GitPackageSource implements PackageSourceResolver {
     private readonly requests:PluginRequestStore;
     private readonly jobs=new Map<string,Promise<PluginRequestRecord>>();
-    constructor(private readonly authority:InstallationAuthority){this.requests=new PluginRequestStore(authority.plan,authority.writer);}
+    constructor(private readonly authority:InstallationAuthority,private readonly locator:CordisServiceLocator){this.requests=new PluginRequestStore(authority.plan,authority.writer);}
     private current(input:PluginRequestRecord):PluginRequestRecord{const intent=PluginManagementSchemas.install.parse(input.intent);for(const record of this.requests.records())if(record.requestId===input.requestId){Check.require(CanonicalJson.stringify(record.intent)===CanonicalJson.stringify(intent)&&record.intentDigest===input.intentDigest&&record.policyDigest===input.policyDigest&&record.expectedGeneration===input.expectedGeneration,'IDEMPOTENCY_CONFLICT');return record;}return Check.block('PLUGIN_REQUEST_NOT_FOUND');}
     private static patterns(ref:string|null):string[]{if(ref===null||ref==='HEAD')return ['HEAD'];if(ref.startsWith('refs/'))return [ref,ref+'^{}'];return ['refs/heads/'+ref,'refs/tags/'+ref,'refs/tags/'+ref+'^{}'];}
     private static commit(bytes:Buffer,patterns:string[]):string{
@@ -51,20 +52,20 @@ class GitPackageSource implements PackageSourceResolver {
             repository.verify();trust?.verify();work.verify();const resolution=PluginManagementSchemas.resolution.parse({kind:'git',origin:locator.url,commit,helperDigests:helpers});return this.requests.append({...record,sequence:record.sequence+1,stage:'resolved',resolution});
         }finally{repository?.close();trust?.close();work?.close();artifacts?.close();release.close();}
     }
-    async fetch(input:PluginRequestRecord):Promise<ResolvedPackageArchive>{return new GitArchiveCache(this.authority,this.current(input)).fetch();}
+    async fetch(input:PluginRequestRecord):Promise<ResolvedPackageArchive>{const record=this.current(input),raw=await new GitArchiveCache(this.authority,record).source();if(raw.descriptor)return Object.freeze({path:raw.path,sha256:raw.sha256,size:raw.size,tree:raw.tree,descriptor:raw.descriptor});const lease=await this.locator.acquire(PluginBuildToken.instance);try{return await lease.value.build(record);}finally{await lease.release();}}
     acquire(input:PluginRequestRecord):Promise<PluginRequestRecord>{const record=this.current(input),existing=this.jobs.get(record.requestId);if(existing)return existing;const job=new PackageClosureAcquirer(this.authority,this).acquire(record).finally(this.finished.bind(this,record.requestId));this.jobs.set(record.requestId,job);return job;}
     private finished(id:string):void{this.jobs.delete(id);}
 }
 /** The host adopts this same native provider when Git archive/closure admission is qualified. */
 export class GitSourcePlugin {
-    static readonly provide=[GitSourceToken.instance.id];static readonly inject=[InstallationAuthorityToken.instance.id];static readonly Config=ServiceSchemas.plan;
+    static readonly provide=[GitSourceToken.instance.id];static readonly inject=['cordis.composition',InstallationAuthorityToken.instance.id,PluginBuildToken.instance.id];static readonly Config=ServiceSchemas.plan;
     static readonly declaration=ProviderV4Schemas.declaration.parse({id:'deployment.git-source',pluginId:'deployment',capability:GitSourceToken.instance.id,contractVersion:ProviderV4Schemas.version,target:'deployment',provide:this.provide,inject:this.inject});
-    constructor(context:Context,plan:ServicePlan){const authority=InstallationAuthorityToken.instance.parse(Reflect.get(context,InstallationAuthorityToken.instance.id));Check.require(CanonicalJson.stringify(authority.plan)===CanonicalJson.stringify(ServiceSchemas.plan.parse(plan)),'PLAN_BINDING');context.provide(GitSourceToken.instance.id,new GitPackageSource(authority));}
+    constructor(context:Context,plan:ServicePlan){const authority=InstallationAuthorityToken.instance.parse(Reflect.get(context,InstallationAuthorityToken.instance.id));Check.require(CanonicalJson.stringify(authority.plan)===CanonicalJson.stringify(ServiceSchemas.plan.parse(plan)),'PLAN_BINDING');context.provide(GitSourceToken.instance.id,new GitPackageSource(authority,CordisServiceLocator.from(context)));}
 }
 export class GitSourceRuntime extends ServiceApplicationRuntime implements PackageSourceResolver {
     private sourceClosed=false;
     private constructor(handle:CompositionHandle,context:Context,private readonly authority:InstallationAuthority){super(handle,context);}
-    static async start(input:ServicePlan):Promise<GitSourceRuntime>{const plan=ServiceSchemas.plan.parse(input),artifact={kind:'bundled' as const,identity:'deployment-git-source.1:'+plan.composition.worker.sha256},scope=await this.mount(plan,[{token:GitSourceToken.instance,plugin:GitSourcePlugin,declaration:GitSourcePlugin.declaration,configuration:plan,artifact}]);return new GitSourceRuntime(scope.handle,scope.context,InstallationAuthorityToken.instance.parse(Reflect.get(scope.context,InstallationAuthorityToken.instance.id)));}
+    static async start(input:ServicePlan):Promise<GitSourceRuntime>{const plan=ServiceSchemas.plan.parse(input),artifact={kind:'bundled' as const,identity:'deployment-git-source.1:'+plan.composition.worker.sha256},scope=await this.mount(plan,[{token:PluginBuildToken.instance,plugin:PluginBuildPlugin,declaration:PluginBuildPlugin.declaration,configuration:plan,artifact},{token:GitSourceToken.instance,plugin:GitSourcePlugin,declaration:GitSourcePlugin.declaration,configuration:plan,artifact}]);return new GitSourceRuntime(scope.handle,scope.context,InstallationAuthorityToken.instance.parse(Reflect.get(scope.context,InstallationAuthorityToken.instance.id)));}
     begin(source:string,key:string,target:PluginInstallRequest['target']='deployment'):PluginRequestRecord{Check.require(!this.sourceClosed&&this.authority.plan.acquisitionPolicy,'SOURCE_POLICY_REQUIRED');const intent:PluginInstallRequest={source,idempotencyKey:key,installationDirectory:this.authority.plan.configuration.installationDirectory,scope:'installation',target,configuration:{}};return new PluginRequestStore(this.authority.plan,this.authority.writer).begin(intent,CanonicalJson.digest(this.authority.plan.acquisitionPolicy),this.authority.store.current()?.compositionGeneration??null).record;}
     async resolve(record:PluginRequestRecord):Promise<PluginRequestRecord>{Check.require(!this.sourceClosed,'HOST_CLOSED');const lease=await CordisServiceLocator.from(this.context).acquire(GitSourceToken.instance);try{return await lease.value.resolve(record);}finally{await lease.release();}}
     async fetch(record:PluginRequestRecord):Promise<ResolvedPackageArchive>{Check.require(!this.sourceClosed,'HOST_CLOSED');const lease=await CordisServiceLocator.from(this.context).acquire(GitSourceToken.instance);try{return await lease.value.fetch(record);}finally{await lease.release();}}

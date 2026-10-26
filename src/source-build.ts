@@ -151,6 +151,7 @@ class NativePluginBuilder implements PluginBuildAdapter {
             seen.add(mount.Destination);
         }
     } return value; }
+    async stored(input:PluginRequestRecord):Promise<BuiltPluginArchive>{const record=this.accepted(input),policy=this.policy(record),raw=await new GitArchiveCache(this.authority,record).stored(),artifacts=this.authority.store.directory('artifacts',this.authority.writer);try{Check.require(artifacts.entries().includes('builds'),'BUILD_ARTIFACT_MISSING');const cache=artifacts.directory('builds',true);try{const key=this.key(raw,record,policy);Check.require(cache.entries().includes(key),'BUILD_ARTIFACT_MISSING');const entry=cache.directory(key);try{return await this.read(entry,raw,record,policy);}finally{entry.close();}}finally{cache.close();}}finally{artifacts.close();}}
     async build(input: PluginRequestRecord): Promise<BuiltPluginArchive> {
         const record = this.accepted(input), policy = this.policy(record), raw = await new GitArchiveCache(this.authority, record).source(), artifacts = this.authority.store.directory('artifacts', this.authority.writer);
         let cache: SafeDirectory | undefined, work: SafeDirectory | undefined, source: SafeDirectory | undefined, helper: BuildFile | undefined, driver: BuildFile | undefined, id: string | undefined, image: string | undefined, key = '', mounts: Record<string, string> | undefined;
@@ -270,3 +271,6 @@ export class PluginBuildRuntime extends ServiceApplicationRuntime implements Plu
     } }
     async close(timeout = 10000): Promise<void> { this.buildClosed = true; await super.close(timeout); }
 }
+
+/** Read-only accepted build custody; it cannot launch a build or reacquire source. */
+export class PluginBuildArtifacts {constructor(private readonly authority:InstallationAuthority){}read(record:PluginRequestRecord):Promise<BuiltPluginArchive>{return new NativePluginBuilder(this.authority).stored(record);}}

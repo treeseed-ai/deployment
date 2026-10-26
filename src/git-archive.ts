@@ -78,7 +78,8 @@ export class GitArchiveCache {
         files.set(path, { size: length, mode: match[1] === '100755' ? 0o755 : 0o644 });
     } Check.require(files.size > 0, 'INVALID_GIT_TREE'); return files; }
     async fetch():Promise<ResolvedGitArchive>{const raw=await this.source();Check.require(raw.descriptor,'BUILD_REQUIRED');return Object.freeze({path:raw.path,sha256:raw.sha256,size:raw.size,tree:raw.tree,descriptor:raw.descriptor});}
-    async source(): Promise<RawGitArchive> {
+    stored():Promise<RawGitArchive>{return this.source(true);}
+    async source(readOnly=false): Promise<RawGitArchive> {
         const resolution = this.authorize(), policy = this.authority.plan.acquisitionPolicy, intent = PluginManagementSchemas.install.parse(this.record.intent);
         Check.require(policy && this.record.policyDigest === CanonicalJson.digest(policy), 'SOURCE_POLICY_REQUIRED');
         const grants = [];
@@ -89,6 +90,7 @@ export class GitArchiveCache {
         const grant = grants[0]!, artifacts = this.authority.store.directory('artifacts', this.authority.writer);
         let cache: SafeDirectory | undefined, working: SafeDirectory | undefined, repository: GitRepositoryGuard | undefined, trust: SourceTrust | undefined;
         try {
+            Check.require(!readOnly||artifacts.entries().includes('git-packages'),'GIT_ARCHIVE_MISSING');
             cache = artifacts.entries().includes('git-packages') ? artifacts.directory('git-packages', true) : InstallationStore.mkdir(artifacts, 'git-packages');
             for (const name of cache.entries())
                 Check.require(/^[a-f0-9]{64}$/.test(name), 'GIT_ARCHIVE_INCOMPLETE');
@@ -102,6 +104,7 @@ export class GitArchiveCache {
                     saved.close();
                 }
             }
+            Check.require(!readOnly,'GIT_ARCHIVE_MISSING');
             Check.require(this.record.stage === 'resolved', 'SOURCE_RECEIPT_ARTIFACT_MISSING');
             const saved = InstallationStore.mkdir(cache, key);
             try {
