@@ -1,4 +1,28 @@
 workflow:
+  - id: source-cache-pressure-unit
+    action: { verifier: deployment.golden.source-cache-pressure-unit }
+    expect: { status: passed }
+  - id: source-cache-retention-unit
+    action: { verifier: deployment.golden.source-cache-retention-unit }
+    expect: { status: passed }
+  - id: source-cache-concurrency-unit
+    action: { verifier: deployment.golden.source-cache-concurrency-unit }
+    expect: { status: passed }
+  - id: source-cache-requirement-unit
+    action: { verifier: deployment.golden.source-cache-requirement-unit }
+    expect: { status: passed }
+  - id: source-cache-pressure-native
+    action: { verifier: deployment.golden.source-cache-pressure-native }
+    expect: { status: passed }
+  - id: broker-shutdown-unit
+    action: { verifier: deployment.golden.broker-shutdown-unit }
+    expect: { status: passed }
+  - id: broker-shutdown-errors-unit
+    action: { verifier: deployment.golden.broker-shutdown-errors-unit }
+    expect: { status: passed }
+  - id: broker-shutdown-native
+    action: { verifier: deployment.golden.broker-shutdown-native }
+    expect: { status: passed }
   - id: admin-public-identity-resource
     action: { verifier: deployment.golden.admin-public-identity-resource }
     expect: { status: passed }

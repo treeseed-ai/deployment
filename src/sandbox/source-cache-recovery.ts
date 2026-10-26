@@ -16,7 +16,7 @@ const production: CacheRecoveryOperations = {
     return (await exec(command, args, { encoding: 'utf8', timeout: 30_000, maxBuffer: 65_536 })).stdout.trim();
   },
 };
-async function owned(path: string, directory: boolean) {
+export async function assertSourceCacheCustody(path: string, directory: boolean) {
   const info = await lstat(path);
   if ((directory ? !info.isDirectory() : !info.isFile() || info.nlink !== 1)
     || info.uid !== process.getuid?.() || info.mode & 0o077 || await realpath(path) !== path) {
@@ -33,8 +33,8 @@ export async function recoverSourceCacheFence(cache: string, operations = produc
     return null;
   });
   if (!exists) return false;
-  await owned(cache, true); await owned(lock, true);
-  const journal = join(lock, 'job.json'), info = await owned(journal, false);
+  await assertSourceCacheCustody(cache, true); await assertSourceCacheCustody(lock, true);
+  const journal = join(lock, 'job.json'), info = await assertSourceCacheCustody(journal, false);
   if (info.size > 4096) throw new Error('Source cache recovery journal exceeds its bound.');
   const job = JSON.parse(await readFile(journal, 'utf8')) as { pid?: unknown; jobId?: unknown };
   if (!Number.isSafeInteger(job.pid) || Number(job.pid) < 2 || !/^[a-f0-9-]{36}$/u.test(String(job.jobId))) {
@@ -60,7 +60,7 @@ export async function recoverSourceCacheFence(cache: string, operations = produc
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return null;
   });
-  if (unfinished) { await owned(creating, false); await rm(creating); }
+  if (unfinished) { await assertSourceCacheCustody(creating, false); await rm(creating); }
   await rm(lock, { recursive: true }); // exact root-owned fetch journal, never execution work
   return true;
 }

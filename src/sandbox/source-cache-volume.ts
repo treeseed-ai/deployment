@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { lstat, mkdir, open, realpath, rename, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { reclaimSourceCacheSpace } from './source-cache-reclamation.js';
 
 const exec = promisify(execFile);
 export interface SourceCacheVolumeOperations {
@@ -33,7 +34,8 @@ export async function withSourceCacheVolume<T>(cache: string, bundleLimit: numbe
       || prior.size !== bytes || await realpath(image) !== image) throw new Error('Source cache quota/custody changed; explicit recovery required.');
   } else {
     const available = await statfs(cache);
-    if (available.bavail * available.bsize < bytes + bundleLimit + 268_435_456) {
+    const requiredBytes = bytes + bundleLimit + 268_435_456;
+    if (available.bavail * available.bsize < requiredBytes && !await reclaimSourceCacheSpace(cache, requiredBytes, commands)) {
       // Only this rejection proves no allocation command or fetch descendant has started.
       throw Object.assign(new Error('Source cache storage admission is full; reclaim inactive caches before retrying.'), { code: 'SOURCE_CACHE_STORAGE_FULL' });
     }
