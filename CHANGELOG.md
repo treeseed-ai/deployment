@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Install exact Git and approved built-source providers through the durable native host (#910).
+
 ### Fixed
 - Distinguish transient private Git object publication from final single-link custody (#989).
 

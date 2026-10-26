@@ -1439,3 +1439,18 @@ the temporary name. Paths are counted conservatively, including both names. Comp
 work and every accepted artifact still require single-link files before success. A persistent
 hard link is refused at the final check; this distinction never raises a resource budget or
 relaxes archive/custody validation. See [Git object publication](https://github.com/git/git/blob/v2.55.0/object-file.c).
+
+### Installed Git providers
+
+The durable host registers the same native NPM, Git and approved-build providers used by their
+standalone qualification roots. `PluginManager.install` selects the source adapter from the
+accepted locator; both adapters produce the same verified package/closure before the existing
+registration, selection, private release, plan/apply and target read-back path. No Git-specific
+container engine, second writer or separate activation implementation is introduced.
+
+Committed distributable Git packages and explicitly approved source-only Git builds can add
+qualified private service instances when safe. The same contract suite checks original resource,
+credential and TLS retention, direct service behavior, exact replay after source shutdown,
+already-active selection and prepared/action-required unsafe state changes. A fresh installed
+manager launches the exact compiled durable owner; cold readers still make no current health
+claim and cannot implicitly restart an uncertain owner. Keycloak authority is unchanged.
