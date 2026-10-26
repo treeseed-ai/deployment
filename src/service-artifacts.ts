@@ -144,11 +144,12 @@ class ServiceArtifactVerifier extends ArtifactResolver {
     }
     private service(service: ServiceInstance, container: PluginExportDescriptor, probe: PluginExportDescriptor, inventory: ServiceRelease, configuration: ReturnType<typeof ServiceSchemas.configuration.parse>): void {
         Check.require(container.container && probe.probe, 'MISSING_PROVIDER_PROJECTION');
-        const projected = ServiceProjection.resolve(service, container.container, inventory.composition, configuration);
+        const projected = ServiceProjection.canonical(ServiceProjection.resolve(service, container.container, inventory.composition, configuration));
         const definition = JSON.parse(CanonicalJson.stringify(service.definition)) as ServiceInstance['definition'];
         for (const port of definition.ports)
             delete port.publication;
-        Check.require(CanonicalJson.stringify(definition) === CanonicalJson.stringify(projected.definition) && CanonicalJson.stringify(service.resources) === CanonicalJson.stringify(projected.resources) && CanonicalJson.stringify(service.transitionPolicy) === CanonicalJson.stringify(container.container.transitionPolicy) && service.readiness.observationContract === container.container.observationContract, 'SERVICE_DEFINITION_MISMATCH');
+        const actual = ServiceProjection.canonical({ definition, resources: service.resources });
+        Check.require(CanonicalJson.stringify(actual) === CanonicalJson.stringify(projected) && CanonicalJson.stringify(service.transitionPolicy) === CanonicalJson.stringify(container.container.transitionPolicy) && service.readiness.observationContract === container.container.observationContract, 'SERVICE_DEFINITION_MISMATCH');
         Check.require(service.bindings.length === container.container.providedContracts.length, 'SERVICE_BINDING_MISMATCH');
         for (const binding of service.bindings) {
             let count = 0;
@@ -223,11 +224,12 @@ class ServiceArtifactVerifier extends ArtifactResolver {
         Check.require(usedImages.size === inventory.images.length, 'UNUSED_IMAGE');
         Check.require(CanonicalJson.stringify(references.sort()) === CanonicalJson.stringify([...configuration.credentialReferences].sort()), 'INVALID_SECRET_REFERENCE');
         const actual = JSON.parse(CanonicalJson.stringify(recipe)) as DeploymentRecipe;
-        for (const service of Object.values(actual.services))
-            if (service.depends_on)
-                service.depends_on.sort();
+        ServiceArtifactVerifier.recipeSets(services);
+        ServiceArtifactVerifier.recipeSets(actual.services);
         Check.require(CanonicalJson.stringify({ services, volumes, secrets }) === CanonicalJson.stringify(actual), 'SERVICE_RECIPE_MISMATCH');
     }
+    private static recipeSets(services: DeploymentRecipe['services']): void { for (const service of Object.values(services)) { service.depends_on?.sort(); service.secrets?.sort(); service.volumes?.sort(ServiceArtifactVerifier.canonicalOrder); service.ports?.sort(ServiceArtifactVerifier.canonicalOrder); } }
+    private static canonicalOrder(a: unknown, b: unknown): number { const left = CanonicalJson.stringify(a), right = CanonicalJson.stringify(b); return left < right ? -1 : left > right ? 1 : 0; }
     private static matchesImage(id: string, image: ServiceRelease['images'][number]): boolean { return image.id === id; }
     private static published(port: ServiceInstance['definition']['ports'][number]): boolean { return port.publication !== undefined; }
     private assets(inventory: ServiceRelease, descriptors: Map<string, PluginPackageDescriptor>, packages: Map<string, PackageData>): void {
