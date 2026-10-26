@@ -38,6 +38,7 @@ export class ServiceJournal {
         installationDirectory: string;
     }): void { const plan = this.reference(); Check.require(value.installationId === plan.configuration.installationId && value.installationDirectory === plan.configuration.installationDirectory, 'FOREIGN_INSTALLATION'); }
     static resourceName(value: ResourceReceipt): string { return value.resourceId + '.' + CanonicalJson.digest(value) + '.json'; }
+    private static snapshotKey(generation:string,resourceSetDigest:string,acknowledgements:ServiceApplicationRecord['acknowledgements']):string{return CanonicalJson.digest({generation,resourceSetDigest,acknowledgements});}
     static snapshotName(value: CompositionSnapshot): string { return value.compositionGeneration + '.' + CanonicalJson.digest(value) + '.json'; }
     private static eventName(record: ServiceApplicationRecord, order: number): string { return String(order).padStart(12, '0') + '.' + record.id + '.' + String(record.sequence).padStart(8, '0') + '.' + CanonicalJson.digest(record) + '.json'; }
     static requestDigest(plan: ServicePlan, request: Extract<ServiceWorkerRequest, {
@@ -102,9 +103,9 @@ export class ServiceJournal {
                 Check.require(receipt && receipt.resourceId === binding.resourceId && receipt.kind === binding.kind && receipt.serviceId === binding.serviceId && receipt.creatingGeneration === binding.creatingGeneration && receipt.references.includes(snapshot.compositionGeneration) && !ids.has(binding.resourceId), 'RESOURCE_BINDING');
                 ids.add(binding.resourceId);
             }
-            const previous = snapshots.get(snapshot.compositionGeneration);
+            const key=ServiceJournal.snapshotKey(snapshot.compositionGeneration,CanonicalJson.digest(snapshot.resources),snapshot.acknowledgements),previous = snapshots.get(key);
             Check.require(!previous || CanonicalJson.stringify(previous) === CanonicalJson.stringify(snapshot), 'SNAPSHOT_CONFLICT');
-            snapshots.set(snapshot.compositionGeneration, snapshot);
+            snapshots.set(key, snapshot);
         }
         const events: ServiceApplicationRecord[] = [];
         for (const file of this.files('applications', 1024 * 1024)) {
@@ -139,7 +140,7 @@ export class ServiceJournal {
                 Check.require(record.recovery === null, 'APPLICATION_RECOVERY');
                 Check.require(previous?.phase === 'commit', 'APPLICATION_PHASE');
                 if (record.result === 'ready') {
-                    const snapshot = snapshots.get(plan.compositionGeneration);
+                    const snapshot = snapshots.get(ServiceJournal.snapshotKey(plan.compositionGeneration,record.resourceSetDigest!,record.acknowledgements));
                     Check.require(snapshot && record.activeComposition === plan.compositionGeneration && record.resourceSetDigest === CanonicalJson.digest(snapshot.resources) && CanonicalJson.stringify(record.acknowledgements) === CanonicalJson.stringify(snapshot.acknowledgements), 'UNVERIFIED_COMPLETION');
                     current = snapshot;
                 }

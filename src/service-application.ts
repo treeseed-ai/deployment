@@ -7,7 +7,7 @@ import { ServiceNativeScope, type PreparedServiceScope } from './service-native.
 import { ServiceImages, LocalDockerCommands } from './service-images.js';
 import { HostSystem, TcpTableProbe } from './host-system.js';
 import { ServiceCredentials } from './service-credentials.js';
-import { ServiceRuntimeInspection } from './service-engine.js';
+import { RuntimeResources, ServiceRuntimeInspection } from './service-engine.js';
 import { ServiceArtifactResolver } from './service-artifacts.js';
 import { InstallationWriter } from './installed.js';
 import { InstallationAuthority, InstallationAuthorityPlugin, InstallationAuthorityToken } from './service-authority.js';
@@ -133,7 +133,7 @@ class ServiceApplications implements ServiceApplicationHost {
     private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
     private resources(plan:ServicePlan=this.acceptedPlan): ServiceResourceReceipt[] {
         const selected = new Map<string, ServiceResourceReceipt>();
-        for (const resource of this.store.resources())
+        for (const resource of RuntimeResources.selected(this.store,plan))
             if (resource.references.includes(plan.compositionGeneration)) {
                 const prior = selected.get(resource.resourceId);
                 if (!prior || prior.references.length < resource.references.length)
