@@ -1,5 +1,5 @@
 import * as Deployment from '@treeseed-cordis/deployment';
-import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type ServicePlan, type ServiceGraph, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
+import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type PluginInstallRequest, type PluginInstallResult, type ServicePlan, type ServiceGraph, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
 import { createServer, type Server } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, chmodSync, renameSync, symlinkSync, unlinkSync, lstatSync } from 'node:fs';
@@ -20,6 +20,11 @@ interface SourceRuntime {
     resolve(record: PluginRequestRecord): Promise<PluginRequestRecord>;
     close(): Promise<void>;
 }
+interface ManagerClient {
+    install?(request: PluginInstallRequest): Promise<PluginInstallResult>;
+    list?(scope?: 'installation' | 'client', target?: PluginInstallRequest['target']): Promise<PluginInstallResult[]>;
+    inspect?(requestId: string): Promise<PluginInstallResult>;
+}
 class RegistryFixture {
     private readonly server: Server;
     private closed = false;
@@ -33,8 +38,14 @@ class RegistryFixture {
     archiveRequests = 0;
     forbiddenRequests = 0;
     corruptArchive = false;
+    metadataDelayMs = 0;
+    private port = 0;
     constructor(private readonly root: string, private readonly installation: string) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.reply.bind(this)); }
     private reply(request: IncomingMessage, response: ServerResponse): void {
+        if (this.metadataDelayMs && !(request.url ?? '').endsWith('.tgz')) { setTimeout(this.serve.bind(this, request, response), this.metadataDelayMs); return; }
+        this.serve(request, response);
+    }
+    private serve(request: IncomingMessage, response: ServerResponse): void {
         const match = /^\/(source-(?:1\.0\.0|2\.0\.0|3\.0\.0|4\.0\.0)|runtime-1\.0\.0)\.tgz$/.exec(request.url ?? '');
         if (match) {
             this.archiveRequests++;
@@ -79,8 +90,8 @@ class RegistryFixture {
             throw new Error('Registry not listening');
         return 'https://127.0.0.1:' + address.port + '/';
     }
-    async listen(): Promise<void> { await new Promise<void>(this.start.bind(this)); }
-    private start(done: () => void, reject: (error: Error) => void): void { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', done); }
+    async listen(): Promise<void> { this.closed = false; await new Promise<void>(this.start.bind(this)); const address = this.server.address(); if (!address || typeof address === 'string') throw new Error('Registry not listening'); this.port = address.port; }
+    private start(done: () => void, reject: (error: Error) => void): void { this.server.once('error', reject); this.server.listen(this.port, '127.0.0.1', done); }
     async close(): Promise<void> {
         if (this.closed)
             return;
@@ -129,6 +140,7 @@ class NpmSourceProgram {
         const input = JSON.parse(readFileSync(file, 'utf8')), registry = new RegistryFixture(input.root, input.configuration.installationDirectory);
         await registry.listen();
         let runtime: SourceRuntime | undefined;
+        let managerHost: Deployment.ServiceHostRuntime | undefined;
         try {
             const configuration = input.configuration, releasePath = join(configuration.release.directory, 'release.json'), release = JSON.parse(readFileSync(releasePath, 'utf8'));
             release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers.releaseIdentity, npm: [{ registry: registry.origin(), packages: ['@fixture/npm-source', '@fixture/runtime'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: createHash('sha256').update(readFileSync(join(configuration.release.directory, 'source-ca.pem'))).digest('hex') } }], git: [], builds: [] };
@@ -375,14 +387,33 @@ class NpmSourceProgram {
             chmodSync(receiptPath, 0o600);
             writeFileSync(receiptPath, receiptBytes);
             chmodSync(receiptPath, 0o400);
+            await runtime.close(); runtime = undefined;
+            managerHost = await Deployment.ServiceHostRuntime.start(plan);
+            const client = new Deployment.ServiceWorkerOwnerClient({ installationDirectory: configuration.installationDirectory }) as ManagerClient;
+            if (typeof client.install !== 'function' || typeof client.list !== 'function' || typeof client.inspect !== 'function') throw new Error('NATIVE_PLUGIN_MANAGER_UNAVAILABLE');
+            await registry.listen(); registry.metadataDelayMs = 1200;
+            const managed: PluginInstallRequest = { source: '@fixture/npm-source@1.0.0', idempotencyKey: 'native-manager-registration', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', configuration: {} }, beforeManager = registry.requests, first = await client.install(managed);
+            if (first.state !== 'pending' || first.planId !== null || first.applicationId !== null || first.activeGeneration !== null || first.acknowledgements.length) throw new Error('Unfinished source request claimed activation');
+            let registered = first;
+            const deadline = Date.now() + 60000;
+            while (registered.state === 'pending' && Date.now() < deadline) { await new Promise(NpmSourceProgram.delay); registered = await client.inspect(managed.idempotencyKey); }
+            if (registered.state !== 'prepared' || registered.artifact?.package !== '@fixture/npm-source' || registered.activeGeneration !== null || registered.acknowledgements.length || registered.planId !== null || registered.applicationId !== null || registry.requests <= beforeManager) throw new Error('Native manager did not register exact non-active alternative');
+            await registry.close();
+            if (CanonicalJson.stringify(await client.install(managed)) !== CanonicalJson.stringify(registered) || !(await client.list('installation', 'deployment')).some(NpmSourceProgram.request.bind(null, managed.idempotencyKey))) throw new Error('Native registration retry/read-back reopened source');
+            let conflict = false;
+            try { await client.install({ ...managed, configuration: { conflicting: true } }); } catch (error) { conflict = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'IDEMPOTENCY_CONFLICT'; }
+            if (!conflict || new Deployment.ServicePlanStore(configuration.installationDirectory).records().length || new Deployment.ServicePlanStore(configuration.installationDirectory).resources().length) throw new Error('Manager conflict mutated runtime');
             if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(join(input.root, 'SCRIPT_CANARY')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
                 throw new Error('Credentials or lifecycle canary escaped');
             process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true, closure: true, joined: true, closureSourceFree: true, unapprovedDependencyRefused: true }) + '\n');
         }
         finally {
+            await managerHost?.close();
             await runtime?.close();
             await registry.close();
         }
     }
+    private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
+    private static request(id: string, result: PluginInstallResult): boolean { return result.requestId === id; }
 }
 await NpmSourceProgram.run(process.argv[2]!).catch(NpmSourceProgram.failed);
