@@ -3,6 +3,21 @@ import { PlanningFailure as Check } from './filesystem.js';
 
 /** Materializes package-owned data, without importing a provider or opening credentials. */
 export class ServiceProjection {
+    /** Only these declared sets are unordered. Commands and JSON payload arrays stay exact. */
+    static canonical(input: Pick<ServiceInstance, 'definition' | 'resources'>): Pick<ServiceInstance, 'definition' | 'resources'> {
+        const value = structuredClone(input);
+        value.definition.ports.sort(this.byId);
+        value.definition.volumes.sort(this.byTarget);
+        value.definition.secrets.sort(this.byTarget);
+        value.resources.volumes.sort();
+        value.resources.grants.sort(this.byGrant);
+        value.resources.authorities.sort(this.byId);
+        return value;
+    }
+    private static compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
+    private static byId(a: { id: string }, b: { id: string }): number { return ServiceProjection.compare(a.id, b.id); }
+    private static byTarget(a: { target: string }, b: { target: string }): number { return ServiceProjection.compare(a.target, b.target); }
+    private static byGrant(a: { serviceId: string; slot: string }, b: { serviceId: string; slot: string }): number { return ServiceProjection.compare(a.serviceId + ':' + a.slot, b.serviceId + ':' + b.slot); }
     private count = 0;
     private readonly references = new Map<string, Set<string>>();
     private slot: string | null = null;

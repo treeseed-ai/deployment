@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- Verify saved service declarations across canonical semantic-set ordering (#972).
 ### Added
 - Install qualified private container providers through typed selection and the existing additive application path (#910).
 - Register acquired plugin alternatives through native owner-only management RPCs with durable pending/read-back results (#910).
