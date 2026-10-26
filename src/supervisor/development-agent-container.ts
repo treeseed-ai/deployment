@@ -9,7 +9,7 @@ import { componentStateRoot } from './component.js';
 import { componentComposeArguments, type CommandRunner } from './compose-runtime.js';
 import { copyDevelopmentRuntime, developmentRuntimeStatus, assertDevelopmentRuntimeMounts } from './development-runtime-copy.js';
 import { bindExistingSandboxGuestTrust, configuredSandboxGuestDigest, importSandboxGuestArchive } from './sandbox-guest-import.js';
-import { recordHostDevelopmentGuestImage } from './host-development.js';
+import { hostDevelopmentStatus, recordHostDevelopmentGuestImage } from './host-development.js';
 import { loadSandboxBrokerConfiguration } from '../sandbox/configuration.js';
 import { inspectVmProcesses } from '../sandbox/doctor.js';
 
@@ -265,7 +265,7 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 	if (record.session.status !== 'active') throw new Error('Development session is not active.');
 	const stateRoot = componentStateRoot(loadHostConfiguration(), 'agent');
 	const active = activeAgentClaims(stateRoot);
-	if (active.length) throw new Error(`Managed sandbox development cannot replace guest trust while ${active.length} assignment claim(s) are active or recoverable.`);
+	if (active.some(claim => !expiredRecoveryClaim(claim))) throw new Error(`Managed sandbox development cannot replace guest trust while ${active.length} assignment claim(s) are active or recoverable.`);
 	const source = sourceFor(record).worktree;
 	for (const path of ['Dockerfile', 'Dockerfile.sandbox-codex', 'dist/sandbox/guest.js', '.treeseed/docker/runtime/shared/node_modules']) {
 		if (!existsSync(resolve(source, path))) throw new Error(`Managed sandbox development input ${path} is unavailable.`);
@@ -276,20 +276,33 @@ function executeSandboxDevelopment(input: AgentDevelopmentInput, record: Managed
 	try { lock = openSync(lockPath, 'wx', 0o600); }
 	catch { throw new Error('Managed sandbox development rebuild is already active.'); }
 	try {
-		const priorDigest = receipt?.priorDigest ?? configuredSandboxGuestDigest();
+		const priorDigest = receipt?.priorDigest ?? hostDevelopmentStatus().guestImageDigest ?? configuredSandboxGuestDigest();
+		if (!/^sha256:[a-f0-9]{64}$/u.test(priorDigest)) throw new Error('Managed sandbox prior guest trust is invalid.');
 		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile'), '--target', 'sandbox-base', '--tag', 'treeseed/sandbox-base:local', source]);
 		command('/usr/bin/docker', ['build', '--file', resolve(source, 'Dockerfile.sandbox-codex'), '--build-arg', 'SANDBOX_BASE=treeseed/sandbox-base:local', '--tag', 'treeseed/sandbox-codex:local', source]);
 		command('/usr/bin/docker', ['image', 'save', '--output', archive, 'treeseed/sandbox-codex:local']);
 		const metadata = lstatSync(archive);
 		if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1_024 || metadata.size > 4_294_967_296 || (metadata.mode & 0o022) !== 0)
 			throw new Error('Managed sandbox archive failed bounded supervisor custody validation.');
-		const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command);
-		const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
-		atomicJson(receiptPath, next, 0o600);
-		recordHostDevelopmentGuestImage(next.digest);
-		if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
-			executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start' }, command);
-		return { started: true, ...next };
+		const heldDigest = configuredSandboxGuestDigest();
+		const running = new Set(services.filter(service => containerState(command, service).running));
+		stopForHandoff(command, stateRoot, () => startService(command, 'manager'));
+		try {
+			const imported = importSandboxGuestArchive(archive, 'treeseed/sandbox-codex:local', command);
+			const next: SandboxDevelopmentReceipt = { schemaVersion: 1, sessionId: input.sessionId, priorDigest, digest: imported.digest, image: imported.image };
+			atomicJson(receiptPath, next, 0o600);
+			recordHostDevelopmentGuestImage(next.digest);
+			if (record.session.targets.some((target) => target.projectId === 'agent' && target.targetId === 'provider' && target.mode !== 'released'))
+				executeAgentDevelopmentContainer({ ...input, targetId: 'provider', action: 'start' }, command);
+			else for (const service of ['runner', 'manager'] as const) if (running.has(service)) startService(command, service);
+			return { started: true, ...next };
+		} catch (error) {
+			// An unchanged trust binding can safely resume the prior processes.
+			// A partially changed binding stays held for supported recovery.
+			if (configuredSandboxGuestDigest() === heldDigest)
+				for (const service of ['runner', 'manager'] as const) if (running.has(service)) startService(command, service);
+			throw error;
+		}
 	} finally {
 		closeSync(lock!);
 		rmSync(lockPath, { force: true });

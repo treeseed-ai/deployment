@@ -35,7 +35,7 @@ make('/etc/treeseed/sandbox/broker.json', JSON.stringify({socketPath:'/run/trees
   guestImages:[{image:sandbox?'treeseed/sandbox-codex':'fixture',digest:`sha256:${'a'.repeat(64)}`,profiles:['fixture']}]}));
 if (sandbox) make('/var/lib/treeseed/manager/host-development/state.json', JSON.stringify({schemaVersion:'treeseed.host-development-generation/v1',
   generationId:'dev-1788100000000-deadbeef',status:'active',worktree:source,manifestDigest:`sha256:${'a'.repeat(64)}`,
-  guestImageDigest:`sha256:${'a'.repeat(64)}`,message:null,updatedAt:new Date().toISOString()}));
+  guestImageDigest:shape==='sandbox-invalid-prior'?'invalid':`sha256:${'a'.repeat(64)}`,message:null,updatedAt:new Date().toISOString()}));
 make('/var/lib/treeseed/manager/active-components.json', JSON.stringify([component('agent', 'development', 'a')]));
 const now = new Date().toISOString();
 new DevelopmentSessionStore().save({
@@ -57,8 +57,8 @@ make(claims, shape==='malformed' ? 'not-json' : JSON.stringify({schemaVersion:1,
         completedAt:shape==='invalid-recovery'?'invalid':shape==='future-recovery'?'2999-01-01T00:00:00.000Z':shape==='early-recovery'?'2000-01-01T00:00:00.000Z':now}}}: {})}]}));
 const originalClaims=readFileSync(claims);
 if (sandbox) make(claims, JSON.stringify({schemaVersion:1,usage:{unknown:true},claims:[{id:'retained',assignmentId:'original-assignment',status:'recovery',
-  activeStartedAt:new Date(Date.parse(now)-120_000).toISOString(),leaseExpiresAt:new Date(Date.parse(now)-60_000).toISOString(),
-  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline:new Date(Date.parse(now)-60_000).toISOString()}}}}]}));
+  activeStartedAt:new Date(Date.parse(now)-120_000).toISOString(),leaseExpiresAt:new Date(Date.parse(now)+(shape==='sandbox-live-recovery'?60_000:-60_000)).toISOString(),
+  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline:new Date(Date.parse(now)+(shape==='sandbox-live-recovery'?60_000:-60_000)).toISOString()}}}}]}));
 const sandboxClaims = sandbox ? readFileSync(claims) : null;
 if(shape!=='first-start') {
 make(`${directory}/runtime/dist/main.js`, 'old-runtime');
@@ -68,11 +68,19 @@ make(`${directory}/compose.json`, 'original-compose');
 const before = shape==='first-start'?[]:['runtime/dist/main.js','runtime-receipt.json','compose.json'].map(name=>readFileSync(`${directory}/${name}`));
 const states:Record<string,boolean>={manager:true,runner:true};
 const commands:string[][]=[];
+let partialFailure=false;
 const transport=(_executable:string,args:readonly string[])=>{
   commands.push([...args]);
-  if(sandbox && _executable.endsWith('systemctl')) return args[0]==='show'?'inactive\n':'';
-  if(sandbox && _executable.endsWith('ctr')) return args.includes('inspect')?`sha256:${'b'.repeat(64)}`:'';
-  if(sandbox && args[0]==='build') return '';
+  if(sandbox && _executable.endsWith('systemctl')) {
+    if(shape==='sandbox-partial-import-retry'&&args[0]==='restart'&&!partialFailure){partialFailure=true;throw new Error('fixture restart interruption');}
+    return args[0]==='show'?'inactive\n':'';
+  }
+  if(sandbox && _executable.endsWith('ctr')) {
+    if(shape==='sandbox-import-failure'&&args.includes('images')&&args.includes('import')) throw new Error('fixture import failure');
+    if(shape==='sandbox-physical-work'&&args.includes('tasks')) return 'retained-physical-work\n';
+    return args.includes('inspect')?`sha256:${'b'.repeat(64)}`:'';
+  }
+  if(sandbox && args[0]==='build') {if(shape==='sandbox-build-failure')throw new Error('fixture build failure');return '';}
   if(sandbox && args[0]==='image' && args[1]==='save') { writeFileSync(args[args.indexOf('--output')+1]!, Buffer.alloc(1024)); return ''; }
   const service=args[1]?.includes('manager')?'manager':'runner';
   if(args[0]==='inspect') return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},running:states[service],environment:[]});
@@ -96,12 +104,38 @@ try { result=executeAgentDevelopmentContainer({sessionId,projectId:'agent',targe
 catch(error) { rejected=true; failure=String(error); }
 assert.deepEqual(readFileSync(claims),sandboxClaims??originalClaims,'handoff must preserve complete provider recovery bytes');
 if(sandbox) {
+  if(shape==='sandbox-partial-import-retry') {
+    assert.equal(rejected,true);assert.match(failure,/fixture restart interruption/);
+    assert.deepEqual(states,{manager:false,runner:false},'partial trust changes cannot resume old admissions');
+    assert.equal(existsSync(resolve(directory,'../sandbox/receipt.json')),false);
+    result=executeAgentDevelopmentContainer({sessionId,projectId:'agent',targetId:'sandbox',action:'start'},transport);
+    rejected=false;assert.deepEqual(readFileSync(claims),sandboxClaims);
+  } else if(shape!=='sandbox-expired-recovery') {
+    assert.equal(rejected,true,failure);
+    const expected:Record<string,RegExp>={'sandbox-live-recovery':/cannot replace guest trust/,'sandbox-physical-work':/no remaining sandbox tasks/,
+      'sandbox-build-failure':/fixture build failure/,'sandbox-import-failure':/fixture import failure/,'sandbox-invalid-prior':/prior guest trust is invalid/};
+    assert.match(failure,expected[shape]!);
+    assert.deepEqual(states,{manager:true,runner:true});
+    assert.equal(existsSync(resolve(directory,'../sandbox/receipt.json')),false);
+    assert.equal(JSON.parse(readFileSync('/etc/treeseed/sandbox/broker.json','utf8')).guestImages[0].digest,`sha256:${'a'.repeat(64)}`);
+    if(shape==='sandbox-live-recovery')assert.equal(commands.some(args=>args[0]==='build'),false);
+    assert.equal(existsSync(resolve(directory,'../sandbox/rebuild.lock')),false);
+    assert.equal(existsSync(resolve(directory,'../sandbox/sandbox-codex.tar')),false);
+    console.log(JSON.stringify({shape,rejected:true,originalRecoveryUnchanged:true,priorTrustPreserved:true,executionRestored:true}));
+    process.exit(0);
+  }
   assert.equal(rejected,false,failure);
   assert.deepEqual(states,{manager:true,runner:true});
   assert.deepEqual(result,{started:true,schemaVersion:1,sessionId,priorDigest:`sha256:${'a'.repeat(64)}`,digest:`sha256:${'b'.repeat(64)}`,image:'treeseed/sandbox-codex:local'});
+  const override=JSON.parse(readFileSync(`${directory}/compose.json`,'utf8'));
+  for(const service of ['manager','runner']) assert.equal(override.services[service].environment.TREESEED_DEVELOPMENT_SANDBOX_GUEST_DIGEST,`sha256:${'b'.repeat(64)}`);
+  assert.equal(JSON.parse(readFileSync('/var/lib/treeseed/manager/host-development/state.json','utf8')).guestImageDigest,`sha256:${'b'.repeat(64)}`);
   const imported=commands.findIndex(args=>args.includes('images')&&args.includes('import'));
   assert.ok(imported>=0);
-  for(const name of ['manager','runner']) assert.ok(commands.findIndex(args=>args[0]==='stop'&&args.at(-1)===`treeseed-agent-${name}-1`)<imported);
+  for(const name of ['manager','runner']) {
+    const stopped=commands.findIndex(args=>args[0]==='stop'&&args.at(-1)===`treeseed-agent-${name}-1`);
+    assert.ok(stopped>=0&&stopped<imported);
+  }
   assert.deepEqual(readdirSync(resolve(directory,'../sandbox')),['receipt.json']);
   console.log(JSON.stringify({shape,started:true,guestTrustUpdated:true,providerRebound:true,originalRecoveryUnchanged:true}));
 } else

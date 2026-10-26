@@ -52,3 +52,10 @@ it.each(['polling','empty','first-start','closed-recovery','native-closed-recove
 it('updates the managed guest and rebinds the provider after physically fencing expired unknown recovery without changing its bytes',()=>{
     expect(run('sandbox-expired-recovery')).toEqual({shape:'sandbox-expired-recovery',started:true,guestTrustUpdated:true,providerRebound:true,originalRecoveryUnchanged:true});
 },240_000);
+it('retries interrupted guest import using the original host trust and unchanged recovery authority',()=>{
+    expect(run('sandbox-partial-import-retry')).toEqual({shape:'sandbox-partial-import-retry',started:true,guestTrustUpdated:true,providerRebound:true,originalRecoveryUnchanged:true});
+},240_000);
+it.each(['sandbox-live-recovery','sandbox-physical-work','sandbox-build-failure','sandbox-import-failure','sandbox-invalid-prior'])(
+  'preserves guest trust and recovery authority after %s rejection through the original boundary',shape=>{
+    expect(run(shape)).toEqual({shape,rejected:true,originalRecoveryUnchanged:true,priorTrustPreserved:true,executionRestored:true});
+  },240_000);
