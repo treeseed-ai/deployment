@@ -857,3 +857,39 @@ first must work in both Bun and built Node consumers. Internal implementation im
 route through the public composition barrel. The default Docker command class belongs in one
 leaf module and remains publicly re-exported; the host's token initialization cannot depend on
 a previous unrelated import warming the module graph.
+
+### Explicit scoped container replacement
+
+An active format-3 host may execute a saved replacement/reconfiguration plan only when its
+caller supplies `restartServices` equal to the exact set of restart-bearing service changes.
+Missing, extra, stale or initial-install scope is refused before intent. Migration, retirement,
+state-version changes, resource/secret ownership changes and worker replacement stay blocked.
+The owner independently derives the transition from its accepted plan and freshly validates all
+artifacts and previous physical identities before admitting effects. The accepted application
+record binds the scope before any old container is stopped or removed.
+
+Only explicitly authorized changed containers may be replaced. Every retained container, named
+volume, credential slot and CA remains physically identical; historical receipts are immutable.
+A running replacement uses its actual new container identity and protocol observations before
+committing the new snapshot. Historical container receipts remain evidence rather than being
+reinterpreted as current resources. A failed/interrupted replacement preserves its accepted
+intent and partial receipts and fences further writes for explicit repair. There is no automatic
+restart, rollback, resource deletion beyond exact authorized old containers, or second host.
+
+The outside-in programme must run through the real compiled durable worker, change one selected
+fixture container provider, verify an observable new response and physical ID, preserve all
+unaffected IDs/private bytes, reject missing/extra scope and migration, and read back/replay after
+original source removal. Final API-image/UI-only restart qualification remains an assembled gate.
+
+Returning to a previously selected container definition is a fresh physical replacement, even
+when its bytes and metadata match historical inputs. Allocate a fresh resource identity for
+the new container while preserving the earlier immutable receipt; never overwrite the earlier
+actual Docker identity. Unchanged current definitions continue to retain their current identity.
+The compiled programme must replace and then revert one service under exact explicit scopes
+and read back all three accepted requests after removing source. Interrupted scoped restarts
+must leave the prior committed snapshot and private bytes intact and refuse further writes.
+
+A composition digest describes desired inputs, rather than a unique running incarnation.
+Returning to exact earlier release bytes may repeat that digest with different physical
+resources. Journal read-back must bind the completed record's resource set and target
+acknowledgements to its exact immutable snapshot, preserving every earlier snapshot.
