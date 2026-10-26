@@ -1410,3 +1410,7 @@ held descriptors with linked identity/content checks before and after execution.
 installation directory is mounted. Cleanup verifies the created container's exact ID, image and
 owned-build label independently of execution admission, so a refused isolation configuration
 still removes only that created resource. See [Docker read-only bind mounts](https://docs.docker.com/engine/storage/bind-mounts/).
+
+The isolated-build slice exposes `PluginBuildRuntime` and its typed native `PluginBuildAdapter`
+for host qualification. Installed Git routing and source-build closure adoption are a following
+slice; this prefix alone does not claim a successful installed source-only plugin.
