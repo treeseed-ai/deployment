@@ -996,3 +996,9 @@ The selected standard package manager supports registry metadata via [bun info](
 and script suppression through [--ignore-scripts](https://bun.sh/docs/pm/lifecycle).
 These documented APIs guide qualification of Bun 1.4.4; they do not replace the executable tests.
 Git configuration isolation follows the [Git environment contract](https://git-scm.com/docs/git).
+
+Helper processes run in a separate process group. Deadline/output failure kills that group and
+waits for direct-child close. A helper that exits while retaining a live group member is refused;
+its known group is killed and never reported as a successful operation. Qualification includes a
+trusted child-process canary. This is lifecycle custody of approved tooling, not a sandbox for
+untrusted package code; source-only builds require the separate approved isolated build adapter.
