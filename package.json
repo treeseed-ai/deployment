@@ -21,6 +21,10 @@
     "./testing/plugins": {
       "types": "./dist/tests/plugin-installation-fixture.d.ts",
       "default": "./dist/tests/plugin-installation-fixture.js"
+    },
+    "./testing/live": {
+      "types": "./dist/tests/live-probe-fixture.d.ts",
+      "default": "./dist/tests/live-probe-fixture.js"
     }
   },
   "files": [
@@ -33,7 +37,9 @@
     "dist/tests/service-runtime-fixture.*",
     "dist/tests/plugin-installation-fixture.*",
     "dist/tests/source-registry-fixture.*",
-    "dist/tests/git-source-fixture.*"
+    "dist/tests/git-source-fixture.*",
+    "dist/tests/live-probe-fixture.*",
+    "dist/tests/live-probe-plugins.*"
   ],
   "scripts": {
     "check": "bun scripts/tooling.ts check",

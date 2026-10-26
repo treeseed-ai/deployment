@@ -32,6 +32,7 @@ export class PluginFixtureTools {
     fixture.release.helpers.releaseIdentity = CanonicalJson.digest({ formatVersion: 1, helpers: fixture.release.helpers.helpers });
         return helper;
     }
+    static compiledWorker(fixture:ServiceReleaseFixture):void{const output=join(fixture.root,'fresh-worker');mkdirSync(output,{mode:0o700});const worker=ServiceWorkerBuild.produce(output);copyFileSync(join(output,worker.path),join(fixture.bundle,'fresh-compiled-worker'));fixture.release.composition.worker={...worker,path:'fresh-compiled-worker'};}
     static certificates(fixture: ServiceReleaseFixture): void {
     PluginFixtureTools.command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-days', '1', '-subj', '/CN=Cordis registry fixture', '-addext', 'basicConstraints=critical,CA:TRUE', '-keyout', join(fixture.root, 'ca-key.pem'), '-out', join(fixture.bundle, 'source-ca.pem')]);
     PluginFixtureTools.command('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-noenc', '-subj', '/CN=127.0.0.1', '-keyout', join(fixture.root, 'key.pem'), '-out', join(fixture.root, 'server.csr')]);
@@ -84,7 +85,7 @@ export class PluginInstallationFixture {
                 PluginFixtureTools.calibrate(fixture, helper, directory, false);
                 await create({ cwd: directory, file: join(fixture.root, 'source-' + version + '.tgz'), gzip: true, portable: true, prefix: 'package/' }, ['package.json', 'index.js', 'postinstall.ts']);
             }
-            { const output = join(fixture.root, 'fresh-worker'); mkdirSync(output, { mode: 0o700 }); const worker = ServiceWorkerBuild.produce(output); copyFileSync(join(output, worker.path), join(fixture.bundle, 'fresh-compiled-worker')); fixture.release.composition.worker = { ...worker, path: 'fresh-compiled-worker' }; }
+            PluginFixtureTools.compiledWorker(fixture);
             fixture.refreshService();
         return this;
     }
