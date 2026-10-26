@@ -53,3 +53,10 @@ listener is a failing delta. Docker host publications are checked separately aga
 service ports (private additions have none). Original container/resource identities, private
 credential bytes, direct protocol and TLS authority remain exact retention assertions. No port
 ignore list or bypass flag is allowed. Issue #995 records the prior host-wide false failures.
+
+The genuine installed-Git suite (fresh owner, retained two-instance installation and approved
+source build) has its own required `git-installed` smoke partition. Its observed local duration
+exceeds ten minutes; sharing that work with native host and registered-selection programmes
+would exhaust the existing fifteen-minute job budget. All other installed-provider suites remain
+in `runtime`; both groups and every source/transition/foundation group are mandatory. No case is
+skipped and the deadline is unchanged.
