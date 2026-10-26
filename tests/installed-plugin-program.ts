@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import * as Deployment from '@treeseed-cordis/deployment';
 import { CanonicalJson, PlanningBlockedError, ServiceSchemas, type PluginInstallRequest, type PluginInstallResult } from '@treeseed-cordis/sdk';
-import { RegistryFixture } from './source-registry-fixture.js';
+import {InstallationSources} from './git-source-fixture.js';
 class InstalledPluginProgram {
     private static phase = "plan";
     private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
@@ -11,16 +11,16 @@ class InstalledPluginProgram {
     static async run(file: string): Promise<void> {
         const Manager = Reflect.get(Deployment, 'InstalledPluginManager') as (new (path: string) => Deployment.PluginManager) | undefined;
         if (typeof Manager !== 'function') throw new Error('INSTALLED_PLUGIN_MANAGER_UNAVAILABLE');
-        const input = JSON.parse(readFileSync(file, 'utf8')), configuration = ServiceSchemas.configuration.parse(input.configuration), registry = new RegistryFixture(input.root, configuration.installationDirectory, '@fixture/extension', ['1.0.0', '2.0.0']);
+        const input = JSON.parse(readFileSync(file, 'utf8')), configuration = ServiceSchemas.configuration.parse(input.configuration), registry = new InstallationSources(input,configuration.installationDirectory);
         await registry.listen(); let pid: number | undefined;
         try {
             const path = join(configuration.release.directory, 'release.json'), release = JSON.parse(readFileSync(path, 'utf8'));
-            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers.releaseIdentity, npm: [{ registry: registry.origin(), packages: ['@fixture/extension'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: this.hash(readFileSync(join(configuration.release.directory, 'source-ca.pem'))) } }], git: [], builds: [] };
+            release.acquisitionPolicy=registry.policy(release.helpers.releaseIdentity,{path:'source-ca.pem',sha256:this.hash(readFileSync(join(configuration.release.directory,'source-ca.pem')))});
             const bytes = CanonicalJson.stringify(release) + '\n'; writeFileSync(path, bytes); configuration.release.manifestDigest = this.hash(bytes);
             await new Deployment.ComposeDeploymentHost().plan(configuration);
             const manager = new Manager(configuration.installationDirectory);
             if ((await manager.list()).length || existsSync(join(configuration.installationDirectory, '.cordis/control')) || existsSync(join(configuration.installationDirectory, '.cordis/credentials'))) throw new Error('Cold read launched an owner or application');
-            const request: PluginInstallRequest = { source: '@fixture/extension@1.0.0', serviceId: 'fresh-addon', idempotencyKey: 'fresh-install', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', configuration: {} };
+            const request: PluginInstallRequest = { source: registry.source('1.0.0'), serviceId: 'fresh-addon', idempotencyKey: 'fresh-install', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', configuration: {} };
             const alternate = await new Deployment.ComposeDeploymentHost().plan({ ...configuration, runtimeState: 'stopped' });
             if (alternate.formatVersion !== 3) throw new Error('Wrong alternate plan format');
             let ambiguous = false;

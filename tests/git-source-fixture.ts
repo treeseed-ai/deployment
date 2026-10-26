@@ -5,20 +5,13 @@ import { readFileSync, writeFileSync, mkdirSync, copyFileSync, realpathSync, chm
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { create } from 'tar';
-import { CanonicalJson, PackageDefinition, type SourceToolDefinition } from '@treeseed-cordis/sdk';
+import { CanonicalJson, PackageDefinition, type SourceAcquisitionPolicy, type SourceToolDefinition } from '@treeseed-cordis/sdk';
 import type { ServiceReleaseFixture } from './release-fixture.js';
 import { PluginFixtureTools } from './plugin-installation-fixture.js';
-import { ExtensionContainerFixture, ExtensionProbeFixture } from './source-registry-fixture.js';
+import { RegistryFixture, ExtensionContainerFixture, ExtensionProbeFixture } from './source-registry-fixture.js';
 import { fileURLToPath } from 'node:url';
-export interface GitFixtureIdentity {
-    first: string;
-    second: string;
-    refsFirst: string;
-    refsSecond: string;
-    symlink: string;
-    attributes: string;
-    oversized: string;
-}
+export interface GitRepositoryIdentity {first:string;second:string;refsFirst:string;refsSecond:string;}
+export interface GitFixtureIdentity extends GitRepositoryIdentity {symlink:string;attributes:string;oversized:string;}
 /** Actual Git/HTTPS bytes and commits; no fake source executable or credentials. */
 export class GitFixtureTools {
     static command(program: string, args: string[], cwd?: string): string { const result = spawnSync(program, args, { cwd, encoding: 'utf8', timeout: 120000, env: { PATH: process.env.PATH, HOME: cwd ?? process.cwd(), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', LANG: 'C.UTF-8' } }); if (result.status !== 0)
@@ -61,6 +54,7 @@ export class GitFixtureTools {
         fixture.release.helpers.releaseIdentity = CanonicalJson.digest({ formatVersion: 1, helpers: fixture.release.helpers.helpers });
     }
     static async runtime(fixture:ServiceReleaseFixture):Promise<void>{const directory=join(fixture.root,'git-runtime');mkdirSync(directory);writeFileSync(join(directory,'runtime.ts'),'export class GitRuntimeDependency {static readonly value=1;}\n');PluginFixtureTools.command(process.execPath,['build',join(directory,'runtime.ts'),'--target=node','--outfile',join(directory,'index.js')]);writeFileSync(join(directory,'package.json'),JSON.stringify({name:'@fixture/runtime',version:'1.0.0',type:'module',exports:'./index.js',scripts:{postinstall:'bun postinstall.ts'}}));writeFileSync(join(directory,'postinstall.ts'),"import{writeFileSync}from'node:fs';class Canary{static run():void{writeFileSync("+JSON.stringify(join(fixture.root,'MUST_NOT_RUN'))+",'executed');}}Canary.run();\n");PluginFixtureTools.calibrate(fixture,join(fixture.root,'helper'),directory,false);await create({cwd:directory,file:join(fixture.root,'runtime-1.0.0.tgz'),gzip:true,portable:true,prefix:'package/'},['package.json','index.js','postinstall.ts']);}
+    static installationRepository(fixture:ServiceReleaseFixture):GitRepositoryIdentity{const root=fixture.root,source=join(root,'git-work'),bare=join(root,'repository.git');mkdirSync(source);this.command('git',['init','--initial-branch=main','--template=',source]);const commits:string[]=[];for(const version of ['1.0.0','2.0.0']){for(const name of ['package.json','index.js','postinstall.ts'])copyFileSync(join(root,'pkg-'+version,name),join(source,name));this.command('git',['add','.'],source);this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','commit','-m','Native installation fixture '+version],source);commits.push(this.command('git',['rev-parse','HEAD'],source));if(version==='1.0.0')this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','tag','-a','release','-m','Native fixture release'],source);}const first=commits[0]!,second=commits[1]!;this.command('git',['clone','--bare','--no-hardlinks',source,bare]);this.command('git',['--git-dir='+bare,'update-ref','refs/heads/main',first]);this.command('git',['--git-dir='+bare,'update-server-info']);const refsFirst=readFileSync(join(bare,'info/refs'),'utf8');this.command('git',['--git-dir='+bare,'update-ref','refs/heads/main',second]);this.command('git',['--git-dir='+bare,'update-server-info']);const refsSecond=readFileSync(join(bare,'info/refs'),'utf8');writeFileSync(join(bare,'refs/heads/main'),first+'\n');this.command('git',['init','--template=',root]);this.command('git',['config','url.https://never-inherit.invalid/.insteadOf','https://'],root);return{first,second,refsFirst,refsSecond};}
     static buildRepository(fixture:ServiceReleaseFixture):{commit:string;entryDigest:string}{const root=fixture.root,source=join(root,'git-work');this.command('git',['switch','--detach',this.command('git',['rev-parse','release^{commit}'],source)],source);renameSync(join(source,'index.js'),join(source,'provider-source.ts'));writeFileSync(join(source,'provider-source.ts'),readFileSync(join(source,'provider-source.ts'),'utf8')+'\nexport class GitBuildProof {static readonly value:number=42;}\n');const metadata=JSON.parse(readFileSync(join(source,'package.json'),'utf8')) as {scripts:Record<string,string>;dependencies?:unknown};delete metadata.dependencies;metadata.scripts.prepack=metadata.scripts.postinstall!;writeFileSync(join(source,'package.json'),JSON.stringify(metadata));
         const code="import{mkdirSync,readFileSync,writeFileSync,copyFileSync,existsSync}from'node:fs';class ApprovedBuild {static async run():Promise<void>{if(process.env.BUILD_SECRET_CANARY||process.env.NPM_TOKEN||existsSync("+JSON.stringify(join(root,'MUST_NOT_RUN'))+"))throw new Error('build isolation leaked');let reached=false;try{await fetch('https://1.1.1.1',{signal:AbortSignal.timeout(250)});reached=true;}catch{}if(reached)throw new Error('build network enabled');const output='/work/out/package';mkdirSync(output,{recursive:true});const result=await Bun.build({entrypoints:['/input/provider-source.ts'],target:'node',outdir:output,naming:'index.js'});if(!result.success)throw new Error('fixture compilation failed');copyFileSync('/input/package.json',output+'/package.json');copyFileSync('/input/postinstall.ts',output+'/postinstall.ts');writeFileSync(output+'/built.txt','genuine isolated TypeScript build');}}await ApprovedBuild.run();\n";writeFileSync(join(source,'build.ts'),code);this.command('git',['add','-A'],source);this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','commit','-m','Source-only build fixture'],source);const commit=this.command('git',['rev-parse','HEAD'],source);this.command('git',['push',join(root,'repository.git'),'HEAD:refs/heads/source-only'],source);return{commit,entryDigest:this.sha(Buffer.from(code))};}
     static repository(fixture: ServiceReleaseFixture): GitFixtureIdentity {
@@ -172,7 +166,7 @@ export class GitRegistryFixture {
     authorization = false;
     fail = false;
     tamperDirectory: string | null = null;
-    constructor(private readonly root: string, private readonly identity: GitFixtureIdentity) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.serve.bind(this)); }
+    constructor(private readonly root: string, private readonly identity: GitRepositoryIdentity) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.serve.bind(this)); }
     private serve(request: IncomingMessage, response: ServerResponse): void {
         this.requests++;
         this.authorization ||= request.headers.authorization !== undefined;
@@ -229,4 +223,17 @@ export class GitRegistryFixture {
         reject(error);
     else
         done(); }
+}
+
+export interface InstallationSourceInput {root:string;gitIdentity?:GitRepositoryIdentity;gitBuild?:{commit:string;entryDigest:string;image:string};}
+/** One outside-in installation contract runs against both genuine source transports. */
+export class InstallationSources {
+    private readonly registry:RegistryFixture|GitRegistryFixture;
+    constructor(private readonly input:InstallationSourceInput,installation:string){this.registry=input.gitIdentity?new GitRegistryFixture(input.root,input.gitIdentity):new RegistryFixture(input.root,installation,'@fixture/extension',['1.0.0','2.0.0']);}
+    get requests():number{return this.registry.requests;}
+    get authorization():boolean{return this.registry.authorization;}
+    listen():Promise<void>{return this.registry.listen();}
+    close():Promise<void>{return this.registry.close();}
+    source(version='1.0.0'):string{if(!this.input.gitIdentity)return'@fixture/extension@'+version;return(this.registry as GitRegistryFixture).locator()+'#'+(version==='2.0.0'?this.input.gitIdentity.second:this.input.gitBuild?.commit??'main');}
+    policy(helperReleaseIdentity:string,certificate:NonNullable<SourceAcquisitionPolicy['git'][number]['certificateAuthority']>):SourceAcquisitionPolicy{if(!this.input.gitIdentity)return{formatVersion:1,helperReleaseIdentity,npm:[{registry:(this.registry as RegistryFixture).origin(),packages:['@fixture/extension'],targets:['deployment'],certificateAuthority:certificate}],git:[],builds:[]};const origin=(this.registry as GitRegistryFixture).locator(),recipe=this.input.gitBuild?{origin,commit:this.input.gitBuild.commit,entry:'build.ts',entryDigest:this.input.gitBuild.entryDigest,packageDirectory:'out/package',image:this.input.gitBuild.image,helperReleaseIdentity,network:'none' as const,timeoutMs:30000}:null,build=recipe?{id:CanonicalJson.digest(recipe),...recipe}:null;return{formatVersion:1,helperReleaseIdentity,npm:[],git:[{origin,packages:['@fixture/extension'],targets:['deployment'],certificateAuthority:certificate,...(build?{buildPolicyDigest:build.id}:{})}],builds:build?[build]:[]};}
 }

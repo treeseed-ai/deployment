@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { CanonicalJson, PlanningBlockedError, ServiceSchemas, type PluginInstallRequest, type PluginInstallResult, type ServiceResourceReceipt } from '@treeseed-cordis/sdk';
 import { ComposeDeploymentHost, ServiceHostRuntime, ServicePlanStore, ServiceWorkerOwnerClient } from '@treeseed-cordis/deployment';
-import { RegistryFixture } from './source-registry-fixture.js';
+import {InstallationSources} from './git-source-fixture.js';
 
 interface RetainedFixture {
     receipts: Map<string, ServiceResourceReceipt>;
@@ -63,11 +63,11 @@ class PluginInstallProgram {
         throw new Error('Installed fixture container missing');
     }
     static async run(file: string): Promise<void> {
-        const input = JSON.parse(readFileSync(file, 'utf8')), configuration = ServiceSchemas.configuration.parse(input.configuration), registry = new RegistryFixture(input.root, configuration.installationDirectory, '@fixture/extension', ['1.0.0', '2.0.0']);
+        const input = JSON.parse(readFileSync(file, 'utf8')), configuration = ServiceSchemas.configuration.parse(input.configuration), registry = new InstallationSources(input,configuration.installationDirectory);
         await registry.listen(); let host: ServiceHostRuntime | undefined;
         try {
             const path = join(configuration.release.directory, 'release.json'), release = JSON.parse(readFileSync(path, 'utf8'));
-            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers.releaseIdentity, npm: [{ registry: registry.origin(), packages: ['@fixture/extension'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: this.hash(readFileSync(join(configuration.release.directory, 'source-ca.pem'))) } }], git: [], builds: [] };
+            release.acquisitionPolicy=registry.policy(release.helpers.releaseIdentity,{path:'source-ca.pem',sha256:this.hash(readFileSync(join(configuration.release.directory,'source-ca.pem')))});
             const bytes = CanonicalJson.stringify(release) + '\n'; writeFileSync(path, bytes); configuration.release.manifestDigest = this.hash(bytes);
             const plan = await new ComposeDeploymentHost().plan(configuration); if (plan.formatVersion !== 3) throw new Error('Wrong format');
             host = await ServiceHostRuntime.start(plan);
@@ -75,12 +75,12 @@ class PluginInstallProgram {
             const initial = await owner.submit({ protocol: 3, operation: 'submit', planId: plan.id, digest: plan.digest, idempotencyKey: 'initial-four' }); await this.application(owner, initial.id);
             if ((await owner.status()).services.length !== 4) throw new Error('Fixture did not start at four services');
             if (!existsSync(join(input.root, 'SCRIPT_CANARY'))) throw new Error('Initial fixture provider was not genuinely imported');
-            const before = this.retained(store), request: PluginInstallRequest = { source: '@fixture/extension@1.0.0', serviceId: 'private-addon-one', idempotencyKey: 'install-private-one', installationDirectory: store.path, scope: 'installation', target: 'deployment', configuration: {} }, first = await this.install(owner, request);
+            const before = this.retained(store), request: PluginInstallRequest = { source: registry.source('1.0.0'), serviceId: 'private-addon-one', idempotencyKey: 'install-private-one', installationDirectory: store.path, scope: 'installation', target: 'deployment', configuration: {} }, first = await this.install(owner, request);
             if (first.state !== 'active' || !first.planId || !first.applicationId || !first.activeGeneration || !first.acknowledgements.length || first.activeGeneration !== store.current()?.compositionGeneration) throw new Error('SAFE_CONTAINER_INSTALL_NOT_ACTIVE:' + first.state + ':' + first.blockers.map(this.code).join(','));
             this.same(store, before); await this.direct(store, 'private-addon-one');
             const current = this.retained(store), repeated = await this.install(owner, { ...request, idempotencyKey: 'already-private-one' });
             if (repeated.state !== 'already-active' || repeated.applicationId !== first.applicationId || repeated.activeGeneration !== first.activeGeneration) throw new Error('Exact selected provider was not already-active');
-            const applications = store.records().length, unsafe = await this.install(owner, { ...request, source: '@fixture/extension@2.0.0', idempotencyKey: 'unsafe-state-change' });
+            const applications = store.records().length, unsafe = await this.install(owner, { ...request, source: registry.source('2.0.0'), idempotencyKey: 'unsafe-state-change' });
             if (unsafe.state !== 'prepared' || unsafe.applicationId !== null || unsafe.activeGeneration !== null || !unsafe.nextActions.includes('review-migration') || store.records().length !== applications) throw new Error('Unsafe stateful replacement was activated or hidden');
             this.same(store, current);
             const second = await this.install(owner, { ...request, serviceId: 'private-addon-two', idempotencyKey: 'install-private-two' });
