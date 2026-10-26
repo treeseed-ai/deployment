@@ -118,3 +118,6 @@
 
 
 - Add read-only Compose host diagnostics (#900).
+
+### Changed
+- Qualify the packed test-fixture consumer from an empty dependency cache (#910).
