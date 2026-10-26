@@ -5,6 +5,9 @@
 ### Added
 - Install exact Git and approved built-source providers through the durable native host (#910).
 
+### Changed
+- Balance exhaustive owner smoke jobs within the existing verification deadline (#992).
+
 ### Fixed
 - Preserve cold compiled-worker initialization after source-build adoption (#991).
 
