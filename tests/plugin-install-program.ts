@@ -1,3 +1,4 @@
+import{FixtureListeners,FixturePublications}from'./fixture-listeners.js';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -16,7 +17,7 @@ class PluginInstallProgram {
     private static hash(bytes: Buffer | string): string { return createHash('sha256').update(bytes).digest('hex'); }
     private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
     private static docker(args: string[]): string { const result = spawnSync('docker', args, { encoding: 'utf8', timeout: 30000 }); if (result.status !== 0) throw new Error('Fixture Docker read-back failed'); return result.stdout.trim(); }
-    private static listeners(): string[] { const entries: string[] = []; for (const path of ['/proc/net/tcp', '/proc/net/tcp6']) for (const line of readFileSync(path, 'utf8').split('\n').slice(1)) { const fields = line.trim().split(/\s+/); if (fields[3] === '0A') entries.push(path + ':' + fields[1]); } return entries.sort(); }
+    private static listeners(): string[] { return FixtureListeners.sample(); }
     private static receipts(store: ServicePlanStore): Map<string, ServiceResourceReceipt> {
         const result = new Map<string, ServiceResourceReceipt>(), snapshot = store.current();
         if (!snapshot) throw new Error('Missing active fixture snapshot');
@@ -31,12 +32,13 @@ class PluginInstallProgram {
         return { receipts, files, listeners: this.listeners(), authority: this.authority(receipts) };
     }
     private static same(store: ServicePlanStore, prior: RetainedFixture): void {
-        const current = this.receipts(store);
+        const current = this.receipts(store), application = store.records().filter(this.completed).at(-1)!, accepted = store.read(application.planId,application.digest);
         for (const [id, old] of prior.receipts) {
             const next = current.get(id); if (!next) throw new Error('Prior resource retired');
             const { references: before, ...left } = old, { references: after, ...right } = next;
             if (CanonicalJson.stringify(left) !== CanonicalJson.stringify(right) || after.length < before.length) throw new Error('Prior physical resource identity changed');
             if (old.kind === 'container' && old.actualId && this.docker(['container', 'inspect', '--format', '{{.State.Running}}', old.actualId]) !== 'true') throw new Error('Prior container stopped');
+            if (next.kind === 'container' && next.actualId) { const service=accepted.composition.services.find(this.named.bind(null,next.serviceId!))!;FixturePublications.assert(service.definition.ports,JSON.parse(this.docker(['container','inspect','--format','{{json .HostConfig.PortBindings}}',next.actualId]))); }
         }
         for (const [path, digest] of prior.files) if (this.hash(readFileSync(join(store.path, path))) !== digest) throw new Error('Prior credential or authority bytes changed');
         if (this.authority(current) !== prior.authority) throw new Error('Prior authority changed');
@@ -55,6 +57,7 @@ class PluginInstallProgram {
     }
     private static async direct(store: ServicePlanStore, id: string): Promise<void> {
         for (const receipt of this.receipts(store).values()) if (receipt.kind === 'container' && receipt.serviceId === id && receipt.actualId) {
+            FixturePublications.assert([],JSON.parse(this.docker(['container','inspect','--format','{{json .HostConfig.PortBindings}}',receipt.actualId])));
             const networks = JSON.parse(this.docker(['container', 'inspect', '--format', '{{json .NetworkSettings.Networks}}', receipt.actualId])) as Record<string, { IPAddress: string }>;
             let address: string | undefined; for (const network of Object.values(networks)) address = network.IPAddress;
             if (!address) throw new Error('Private fixture endpoint missing');
@@ -96,6 +99,8 @@ class PluginInstallProgram {
             process.stdout.write(JSON.stringify({ fixtureOnly: true, services: 6, active: true, alreadyActive: true, unsafePrepared: true, retained: true, sourceFree: true, noScripts: true }) + '\n');
         } finally { await host?.close(120000); await registry.close(); }
     }
+    private static completed(value:{phase:string}):boolean{return value.phase==='completed';}
+    private static named(id:string,value:{serviceId:string}):boolean{return id===value.serviceId;}
     private static code(blocker: { code: string }): string { return blocker.code; }
     static failed(error: unknown): never { if (error instanceof PlanningBlockedError) throw new Error(error.blockers.map(this.code).join(',')); throw error; }
 }
