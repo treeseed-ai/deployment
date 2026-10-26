@@ -970,7 +970,9 @@ continuations; this persistence slice itself imports no package and starts no co
 
 Ordinary source acquisition uses exact release-pinned Bun/Git helper bundles, never ambient
 Node/Bun/NPM/Git or a global tool installation. A trusted release identity must match the
-plan's verified helper inventory before any helper can execute. Selected helpers bind native
+plan's verified helper inventory before any helper can execute. The helper release identity
+is SHA-256 of canonical `{formatVersion: 1, helpers}`; the CLI release pins that identity,
+so repeating its label with a changed helper table is insufficient. Selected helpers bind native
 Linux/amd64, exact version/archive size/hash, complete regular-file hashes/modes, entrypoint
 and approved library/executable directories. Symlinks, extra/missing files, changed modes and
 incomplete caches refuse safely. Hashes identify a helper; its approved release remains the
