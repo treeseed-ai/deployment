@@ -12,6 +12,7 @@ interface FetchedArchive {
     descriptor: PluginPackageDescriptor;
 }
 interface SourceRuntime {
+    plan?(configuration: ServicePlan['configuration']): Promise<ServicePlan>;
     prepare?(record: PluginRequestRecord, composition: ServiceGraph): Promise<ServicePlan['configuration']>;
     acquire?(record: PluginRequestRecord): Promise<PluginRequestRecord>;
     fetch?(record: PluginRequestRecord): Promise<FetchedArchive>;
@@ -94,6 +95,7 @@ class RegistryFixture {
     }
 }
 class NpmSourceProgram {
+    private static notAddition(change: ServicePlan['changes'][number]): boolean { return change.kind !== 'add'; }
     static failed(error: unknown): never {
         if (error instanceof PlanningBlockedError)
             throw new Error(error.blockers.map(NpmSourceProgram.code).join(","));
@@ -294,6 +296,13 @@ class NpmSourceProgram {
             }
             if (CanonicalJson.stringify(await runtime.prepare(acquired, graph)) !== CanonicalJson.stringify(prepared) || registry.requests !== stoppedCount)
                 throw new Error('Prepared custody repair changed source identity');
+            let outsideOwner = false;
+            try { await new Deployment.ComposeDeploymentHost().plan(prepared); } catch (error) { outsideOwner = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'OVERLAPPING_STORAGE'; }
+            if (!outsideOwner) throw new Error('Public planner admitted private overlapping storage');
+            if (typeof runtime.plan !== 'function') throw new Error('OWNER_PREPARED_PLANNING_UNAVAILABLE');
+            const privatePlan = await runtime.plan(prepared);
+            if (privatePlan.expectedComposition !== null || privatePlan.configuration.release.manifestDigest !== prepared.release.manifestDigest || privatePlan.changes.some(NpmSourceProgram.notAddition))
+                throw new Error('Fresh owner plan claimed an active or retained composition');
             const closureRoot = join(plan.configuration.installationDirectory, '.cordis', 'artifacts', 'closures', acquired.sourceReceipt!.closureDigest);
             for (const name of ['receipt.json', 'bun.lock']) {
                 const path = join(closureRoot, name), original = readFileSync(path);
