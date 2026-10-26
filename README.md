@@ -1477,3 +1477,12 @@ foreign scopes and stale generations cannot activate. A select request has its o
 idempotency record and preserves the original source provenance. No download or lifecycle script
 is allowed merely to discover a registered candidate. Qualified live-probe admission is a
 separate verified transition; metadata alone never grants it.
+
+A new registered selection after another accepted composition must prepare a complete lock
+against the current retained release. Reuse the exact accepted root/archive provenance, reverify
+the current package closure and use the privately managed offline helper; never reopen a mutable
+locator or download a missing dependency. If retained packages cannot satisfy the selection,
+return an explicit blocker rather than acquiring new bytes. The new selection receipt binds its
+new closure while preserving source resolution, root integrity and helper/policy identity.
+Accepted idempotent retries reuse that exact result. Selecting another instance of a registered
+provider remains an explicit new generation and requires actual target/resource read-back.
