@@ -949,7 +949,9 @@ intent, caller-visible idempotency key, pinned expected composition and approved
 The same key recovers the exact accepted request and source resolution; changed intent or
 policy conflicts before network/build work. A new bare CLI invocation generates a new key.
 
-Private append-only request records live at `.cordis/plugins/requests`. Each event binds the
+Private append-only request records live at `.cordis/plugins/requests`; an atomically replaced
+private `head.json` commits the exact event count and final digest. A missing tail or an event
+published without its matching head is uncertain state requiring repair. Each event binds the
 prior event digest and a monotonic sequence; the original request identity and policy never
 change. Resolution is persisted before archive acquisition; acquired source identity is
 persisted before registration/activation. Existing accepted resolution/artifact/result values
