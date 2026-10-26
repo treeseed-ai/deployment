@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Resolve approved NPM selectors through a native Cordis provider and exact managed Bun, with durable source identity before archive acquisition (#910).
+
+### Added
 - Retain exact accepted release artifacts for source-free successor assembly (#910).
 
 ### Added

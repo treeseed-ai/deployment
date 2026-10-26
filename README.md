@@ -1043,3 +1043,29 @@ between files and chunks so pending owner/observer status remains responsive; co
 or image must not monopolize the durable host's event loop. The built custody test observes
 partial progress through a large inspection-only worker fixture before publication, alongside
 the existing concurrent-status compiled application tests.
+
+### Exact NPM resolution (Task 3C bounded source prefix)
+
+`NpmSourcePlugin` is a native Cordis provider for `source.npm`, injected with the existing
+host-private installation authority. Its typed `PackageSourceResolver.resolve(record)` accepts
+a previously persisted install intent and returns its durable exact resolution. It never imports
+a plugin, runs package lifecycle scripts, downloads a package archive or activates a service.
+The public `NpmSourceRuntime.start(plan)` exercises the same default native construction;
+production host adoption uses that provider in the existing host authority scope.
+
+The accepted release must grant the package and target at one unambiguous HTTPS registry,
+bind a prepared Bun helper and optionally pin public CA bytes. The provider preserves the
+exact release in installation-private custody, checks the real managed helper version and runs
+`bun info <locator> --json --registry=... --no-cache --ignore-scripts --no-env-file` with its
+private environment and optional pinned `--cafile`. Bun owns normal package/range/tag selection;
+the adapter checks the returned name, exact version, SRI and same-registry HTTPS tarball edge.
+It commits the canonical metadata digest and helper identity before any archive acquisition.
+See [Bun info](https://bun.com/docs/pm/cli/info) for upstream selector semantics; the installed
+Bun 1.4.4 fixture qualifies these exact flags rather than relying on documentation alone.
+
+Repeated resolved requests return the saved version even after a registry tag moves or the
+source disappears. A request left resolving without a committed resolution refuses another
+mutable lookup and requires explicit repair; it never guesses which version an earlier reply
+would have selected. The future host coordinator must join an in-flight request and report
+bounded pending progress. Publisher/source approval remains separate from archive integrity.
+This prefix provides no complete source acquisition, dependency closure or activation claim.
