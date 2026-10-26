@@ -1525,3 +1525,11 @@ these public artifacts, not copy provider code or import a sibling checkout. The
 programme must verify an independent owner PID, actual new probe observations, retained physical
 resources, exact replay and public apply read-back. This fixture grants no Keycloak/session or
 production installation authority.
+
+`install` also activates a readiness provider when an existing service is explicitly identified
+and its provider selection is unambiguous. An explicit provider ID determines its capability from
+the verified descriptor. A probe-only package with one compatible provider may infer that
+provider; a package advertising containers retains container selection by default. Probe
+installation uses the same exact accepted qualification, native drain and target read-back as
+registered `select`. It never invents a service scope or ignores container-binding arguments.
+Ambiguous or unqualified choices remain prepared/action-required.
