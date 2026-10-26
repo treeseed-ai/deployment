@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 jobs:
-  verify:
+  checks:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -19,4 +19,32 @@ jobs:
         with:
           node-version: 24.19.0
       - run: bun install --frozen-lockfile --ignore-scripts
-      - run: bun run verify
+      - run: bun run check && bun run build && bun run test:unit && bun run test:integration
+  smoke:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [foundation, transitions]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.19.0
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run build
+      - run: bun scripts/verification.ts smoke ${{ matrix.partition }}
+  verify:
+    if: always()
+    needs: [checks, smoke]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every qualification job
+        env:
+          QUALIFIED: ${{ needs.checks.result == 'success' && needs.smoke.result == 'success' }}
+        run: test "$QUALIFIED" = true
