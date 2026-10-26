@@ -1547,12 +1547,12 @@ before publication. No caller-supplied quiescence assertion substitutes for obse
 The format-3 custody receipt records exact legacy service/resource identities, private slot
 paths and authority digest. Old plans/applications/artifacts are retained byte-for-byte and
 never appended to by format-3 operations. Legacy provider classes do not acquire fabricated
-format-4 contracts or active acknowledgements. Custody read-back reports non-serving state;
+format-4 contracts or active acknowledgements. Custody read-back reports migrated custody and unverified current runtime;
 provider/runtime upgrade still requires an independently qualified explicit migration/restart
 plan. Normal install/plan/apply cannot silently adopt these resources.
 
 Publication seals a private intent, resource inventory and source-file manifest, retains the
-original receipt by rename, then publishes the format-3 receipt atomically. Any interrupted
+original receipt with an exclusive hard-link publication and unlink handoff, then publishes the format-3 receipt atomically. Any interrupted
 publication fences the installation for explicit repair. Readers verify stored evidence
 without reopening the source bundle; live migration admission separately rechecks daemon and
 physical non-serving state. All migration issues remain open until release.

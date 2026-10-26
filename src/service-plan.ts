@@ -1,3 +1,4 @@
+import{MigrationCustody}from'./migration-custody.js';
 import {PluginRequestJournal} from './plugin-registry.js';
 import { PreparedServiceRelease } from './prepared-release.js';
 import type { InstallationAuthority } from './service-authority.js';
@@ -275,11 +276,13 @@ export class ServicePlanStore {
             try {
                 const entries = state.entries();
                 if (!entries.includes('installation.json')) {
+                    Check.require(!entries.includes(MigrationCustody.directory),'MIGRATION_REPAIR_REQUIRED');
                     new PlanStore(this.path).inspect();
                     Check.block('MIGRATION_REQUIRED');
                 }
                 const value = StrictJson.parse(state.file('installation.json', undefined, 4 * 1024 * 1024, true)), object = StrictJson.object(value);
                 if (object.formatVersion === 2) {
+                    Check.require(!entries.includes(MigrationCustody.directory),'MIGRATION_REPAIR_REQUIRED');
                     new InstallationStore(this.path).inspect();
                     Check.block('MIGRATION_REQUIRED');
                 }
@@ -287,7 +290,7 @@ export class ServicePlanStore {
                 Check.require(parsed.success, 'INVALID_JOURNAL');
                 const receipt = parsed.data;
                 Check.require(receipt.ownerUid === process.getuid?.() && receipt.installationDirectory === this.path, 'FOREIGN_INSTALLATION');
-                Check.require(receipt.migration === null, 'MIGRATION_NOT_QUALIFIED');
+                if(receipt.migration!==null){MigrationCustody.read(this.path);if(configuration)Check.require(configuration.installationId===receipt.installationId,'FOREIGN_INSTALLATION');if(engine)Check.require(CanonicalJson.stringify(engine)===CanonicalJson.stringify(receipt.expectedEngine),'ENGINE_IDENTITY_CHANGED');return true;}
                 if (configuration)
                     Check.require(configuration.installationId === receipt.installationId, 'FOREIGN_INSTALLATION');
                 if (engine)
@@ -368,7 +371,7 @@ export class ServicePlanStore {
                 const receipt = ServiceSchemas.receipt.safeParse(StrictJson.parse(state.file('installation.json', undefined, 4 * 1024 * 1024, true)));
                 Check.require(receipt.success, 'INVALID_JOURNAL');
                 Check.require(receipt.data.ownerUid === process.getuid?.() && receipt.data.installationDirectory === this.path, 'FOREIGN_INSTALLATION');
-                Check.require(receipt.data.migration === null, 'MIGRATION_NOT_QUALIFIED');
+                Check.require(receipt.data.migration === null, 'MIGRATION_ACTIVATION_REQUIRED');
                 const plans = state.directory('plans', true);
                 try {
                     const plan = this.parse(plans.file(id + '.json', undefined, 4 * 1024 * 1024, true));
@@ -456,6 +459,7 @@ export class ServicePlanStore {
         let state: SafeDirectory | undefined;
         try {
             state = root.directory('.cordis', true);
+            Check.require(ServiceSchemas.receipt.parse(StrictJson.parse(state.file('installation.json',undefined,4*1024*1024,true))).migration===null,'MIGRATION_ACTIVATION_REQUIRED');
             const plansDirectory = state.directory('plans', true), plans = new Map<string, ServicePlan>();
             try {
                 for (const name of plansDirectory.entries()) {

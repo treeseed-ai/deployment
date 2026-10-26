@@ -163,3 +163,6 @@ export type {ResolvedPackageArchive} from './source-archive.js';
 export { InstalledPluginManager } from './installed-plugins.js';
 export { GitSourcePlugin, GitSourceRuntime, GitSourceToken } from './git-source.js';
 export {PluginBuildRuntime,PluginBuildPlugin,PluginBuildToken,type PluginBuildAdapter,type BuiltPluginArchive} from './source-build.js';
+
+export{Format2Migration}from'./format2-migration.js';
+export type{Format2MigrationRequest,Format2MigrationResult}from'./migration-custody.js';

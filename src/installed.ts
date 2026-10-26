@@ -1,3 +1,4 @@
+import type{Format2MigrationRequest,Format2MigrationResult}from'./migration-custody.js';
 import {constants,openSync,closeSync,writeFileSync,fsyncSync,mkdirSync,linkSync,unlinkSync,lstatSync,fstatSync,rmdirSync,chmodSync,renameSync,readdirSync,rmSync,readFileSync} from 'node:fs';
 import {resolve,dirname,basename,join} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
@@ -43,9 +44,13 @@ export class InstallationStore {
   const installation=this.installation(true);try{let state:SafeDirectory;if(current==='absent'){Check.require(installation.entries().length===0,'INITIALIZATION_CONFLICT');state=InstallationStore.mkdir(installation,'.cordis');try{const plans=InstallationStore.mkdir(state,'plans');try{InstallationStore.publish(plans,plan.id+'.json',plan);}finally{plans.close();}InstallationStore.publish(state,'installation.json',{formatVersion:2,installationId:plan.configuration.installationId,installationDirectory:this.path,ownerUid:process.getuid!(),expectedEngine:plan.expectedEngine,migration:null});}finally{state.close();}}else{state=installation.directory('.cordis',true);try{const plans=state.directory('plans',true);try{InstallationStore.publish(plans,plan.id+'.json',plan);}finally{plans.close();}}finally{state.close();}}}finally{installation.close();}return this.read(plan.id,plan.digest);
  }
  /** Explicit owner-local migration; never silently called by plan or apply. */
- migrate():void {
+ migrate():void;
+ migrate(options:Format2MigrationRequest):Promise<Format2MigrationResult>;
+ migrate(options?:Format2MigrationRequest):void|Promise<Format2MigrationResult> {
+  if(options!==undefined)return import('./format2-migration.js').then(InstallationStore.migrateFormat2.bind(null,this.path,options));
   Check.require(this.inspect()==='legacy','MIGRATION_NOT_REQUIRED');const state=this.state();try{const originalBytes=state.file('receipt.json',undefined,1024*1024,true),original=StrictJson.object(StrictJson.parse(originalBytes)),migration={from:1,receiptSha256:createHash('sha256').update(originalBytes).digest('hex')};const lock=InstallationStore.mkdir(state,'writer.lock');try{state.verify();Check.require(state.file('receipt.json',migration.receiptSha256,1024*1024,true).equals(originalBytes),'MIGRATION_CONFLICT');InstallationStore.publish(state,'migration.json',migration);InstallationStore.publish(state,'installation.json',{formatVersion:2,installationId:original.installationId,installationDirectory:this.path,ownerUid:process.getuid!(),expectedEngine:original.expectedEngine,migration});}finally{lock.close();rmdirSync(state.childPath('writer.lock'));fsyncSync(state.fd);}}finally{state.close();}this.inspect();
  }
+ private static migrateFormat2(path:string,options:Format2MigrationRequest,module:typeof import('./format2-migration.js')):Promise<Format2MigrationResult>{return module.Format2Migration.run(path,options);}
  read(id:string,digest:string):InstalledPlan {Check.require(/^plan-[a-f0-9]{64}$/.test(id)&&id==='plan-'+digest,'PLAN_IDENTITY');Check.require(this.inspect()==='installed','MIGRATION_REQUIRED');const state=this.state();try{const plans=state.directory('plans',true);try{const plan=InstallationStore.schema(InstalledSchemas.plan,StrictJson.parse(plans.file(id+'.json',undefined,4*1024*1024,true)));InstallationStore.scope(plan,this.path);Check.require(plan.id===id&&plan.digest===digest,'PLAN_IDENTITY');return plan;}finally{plans.close();}}finally{state.close();}}
  directory(name:'applications'|'credentials'|'run'|'artifacts',create=false):SafeDirectory {const state=this.state();try{if(!state.entries().includes(name)){Check.require(create,'MISSING_JOURNAL');return InstallationStore.mkdir(state,name);}return state.directory(name,true);}finally{state.close();}}
  writer():InstallationWriter {Check.require(this.inspect()==='installed','INVALID_JOURNAL');return new InstallationWriter(this.state());}
