@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- Prepare complete installation-private releases from verified source closures and typed service graphs (#910).
 
 ### Added
 - Verify and retain complete locked runtime source closures before acquired receipts (#910).
