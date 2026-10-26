@@ -1,7 +1,7 @@
 import addFormats from 'ajv-formats';
 import { ServiceProjection } from './service-projection.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { PlatformSchemas, ServiceSchemas, PluginManagementSchemas, CanonicalJson, PlanningBlockedError, type ServiceRelease, type ServiceInstance, type PluginPackageDescriptor, type ServiceRuntimeBinding, type PluginExportDescriptor, type DeploymentRecipe, type DeploymentPlan } from '@treeseed-cordis/sdk';
+import { PlatformSchemas, ServiceSchemas, SourceAcquisitionSchemas, PluginManagementSchemas, CanonicalJson, PlanningBlockedError, type SourceAcquisitionPolicy,type SourceBuildPolicy,type ServiceRelease, type ServiceInstance, type PluginPackageDescriptor, type ServiceRuntimeBinding, type PluginExportDescriptor, type DeploymentRecipe, type DeploymentPlan } from '@treeseed-cordis/sdk';
 import { ArtifactResolver, ArchiveMetadata, type PackageData } from './artifacts.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 export interface ServiceArtifactResolution {
@@ -74,6 +74,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 artifacts.push(this.image(directory, image, true));
             const runtimeBindings = this.runtimeImages(directory, inventory, artifacts, packages, descriptors);
             await this.helpers(directory, inventory);
+            SourcePolicyAcceptance.validate(directory,inventory);
             directory.verify();
             return { inventory, recipe, runtimeBindings, pluginBindings: bindings, artifacts, releaseDigest: configuration.release.manifestDigest, lockDigest: inventory.lockfile.sha256, recipeDigest: inventory.recipe.sha256 };
         }
@@ -308,4 +309,27 @@ class ServiceArtifactVerifier extends ArtifactResolver {
 }
 export class ServiceArtifactResolver {
     resolve(input: unknown): Promise<ServiceArtifactResolution> { return new ServiceArtifactVerifier().resolveService(input); }
+}
+
+/** Planning validates accepted policy data and bytes; no grant lookup or execution here. */
+export class SourcePolicyAcceptance {
+    static buildIdentity(build:SourceBuildPolicy):string{const {id,...definition}=build;return CanonicalJson.digest(definition);}
+    static normalize(value:SourceAcquisitionPolicy):SourceAcquisitionPolicy {
+        const policy=SourceAcquisitionSchemas.policy.parse(value);
+        for(const grant of [...policy.npm,...policy.git]){grant.packages.sort();grant.targets.sort();}
+        policy.npm.sort(this.order);policy.git.sort(this.order);policy.builds.sort(this.order);
+        policy.liveTransitions?.sort(this.order);
+        return policy;
+    }
+    private static order(a:unknown,b:unknown):number{const first=CanonicalJson.stringify(a),second=CanonicalJson.stringify(b);return first<second?-1:first>second?1:0;}
+    static validate(directory:SafeDirectory,release:ServiceRelease):void {
+        if(!release.acquisitionPolicy)return;
+        const policy=this.normalize(release.acquisitionPolicy);
+        Check.require(release.helpers&&release.helpers.releaseIdentity===policy.helperReleaseIdentity&&CanonicalJson.digest({formatVersion:1,helpers:release.helpers.helpers})===policy.helperReleaseIdentity,'HELPER_POLICY_MISMATCH');
+        for(const build of policy.builds)Check.require(build.id===this.buildIdentity(build),'BUILD_POLICY_IDENTITY');
+        const files=new Map<string,string>();
+        for(const grant of [...policy.npm,...policy.git])if(grant.certificateAuthority)files.set(grant.certificateAuthority.path,grant.certificateAuthority.sha256);
+        for(const [path,digest] of files)directory.file(path,digest,1024*1024);
+        directory.verify();release.acquisitionPolicy=policy;
+    }
 }
