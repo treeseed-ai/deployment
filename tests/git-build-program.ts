@@ -52,6 +52,7 @@ class GitBuildProgram {
             throw new Error('Wrong plan format');
         source = await Deployment.GitSourceRuntime.start(plan);
         const locator = registry.locator() + '#' + input.build.commit, record = await source.resolve(source.begin(locator, 'source-build'));
+        if(mode==='closure'){const before=this.resources(),acquired=await source.acquire(record),receipt=acquired.sourceReceipt;if(acquired.stage!=='acquired'||receipt?.kind!=='git'||receipt.commit!==input.build.commit||receipt.buildPolicyDigest!==policy.id)throw new Error('BUILT_GIT_CLOSURE_NOT_ADMITTED');if(this.resources()!==before)throw new Error('BUILD_CLOSURE_RETAINED_CONTAINER');await registry.close();await source.close();source=await Deployment.GitSourceRuntime.start(plan);const offline=await source.acquire(await source.resolve(source.begin(locator,'source-build')));if(CanonicalJson.stringify(offline)!==CanonicalJson.stringify(acquired)||this.resources()!==before)throw new Error('BUILD_CLOSURE_REBUILT_OR_CHANGED');process.stdout.write(JSON.stringify({fixtureOnly:true,native:true,buildClosure:true,sourceFree:true,noActivation:true})+'\n');return;}
         await source.close();
         source = undefined;
         const before = this.resources();

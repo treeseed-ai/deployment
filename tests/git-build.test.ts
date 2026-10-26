@@ -7,7 +7,7 @@ import { ServiceRuntimeFixture } from './service-runtime-fixture.js';
 import { PluginFixtureTools } from './plugin-installation-fixture.js';
 import { GitFixtureTools } from './git-source-fixture.js';
 class GitBuildTests {
-    async program(mode: 'approved' | 'missing' | 'entry' | 'timeout' | 'isolation' = 'approved'): Promise<void> { const fixture = await new ServiceReleaseFixture().services(); try {
+    async program(mode: 'approved' | 'missing' | 'entry' | 'timeout' | 'isolation' | 'closure' = 'approved'): Promise<void> { const fixture = await new ServiceReleaseFixture().services(); try {
         await PluginFixtureTools.tools(fixture);
         PluginFixtureTools.certificates(fixture);
         await GitFixtureTools.helper(fixture);
@@ -28,7 +28,7 @@ class GitBuildTests {
         const result = spawnSync(executable, [input, mode], { encoding: 'utf8', timeout: 240000, env: { PATH: path, HOME: fixture.root, DOCKER_CONFIG: process.env.DOCKER_CONFIG, BUILD_SECRET_CANARY: 'NEVER_INHERIT', NPM_TOKEN: 'NEVER_INHERIT' } });
         if (result.status !== 0)
             throw new Error(result.stderr);
-        if (mode === 'approved')
+        if(mode==='closure')expect(JSON.parse(result.stdout)).toEqual({fixtureOnly:true,native:true,buildClosure:true,sourceFree:true,noActivation:true});else if (mode === 'approved')
             expect(JSON.parse(result.stdout)).toEqual({ fixtureOnly: true, native: true, isolated: true, built: true, sourceFree: true, tamperRefused: true, noActivation: true });
         else
             expect(JSON.parse(result.stdout)).toEqual({ fixtureOnly: true, mode, refused: true, cleaned: true, noActivation: true });
@@ -65,3 +65,5 @@ test('smoke: native Git build refuses missing build policy and leaves no owned c
 test('smoke: native Git build refuses changed approved entry and leaves no owned container', suite.program.bind(suite, 'entry'), 300000);
 test('smoke: native Git build refuses deadline expiry and leaves no owned container', suite.program.bind(suite, 'timeout'), 300000);
 test('smoke: native Git build refuses altered container isolation and still removes its exact owned container', suite.program.bind(suite, 'isolation'), 300000);
+
+test('smoke: native Git source acquisition adopts approved build output and verifies source-free closure',suite.program.bind(suite,'closure'),300000);
