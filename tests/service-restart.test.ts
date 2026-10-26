@@ -12,3 +12,8 @@ const restart=new RestartTests();
 test('smoke: compiled durable host replaces only explicitly scoped container and retains private state and unrelated resources',restart.program.bind(restart),300000);
 
 test('smoke: failed explicit restart preserves prior snapshot and private bytes and fences implicit repair',restart.failed.bind(restart),300000);
+class ReplacementFixtureTests {
+    node():void{const source="import {PackageDefinition,CanonicalJson} from '@treeseed-cordis/sdk';import {RestartAuthorityFixture,RestartUnreadyProbeFixture,AuthorityContainerFixture} from './dist/tests/service-fixture-plugins.js';class Program{static run(){const container=PackageDefinition.export(RestartAuthorityFixture,'index.js','RestartAuthorityFixture'),probe=PackageDefinition.export(RestartUnreadyProbeFixture,'index.js','RestartUnreadyProbeFixture');if(container.declaration.id!=='fixture.restart-authority'||probe.declaration.id!=='fixture.restart-unready-probe'||CanonicalJson.stringify(container.container.resources)!==CanonicalJson.stringify(AuthorityContainerFixture.container.resources)||container.container.definition.environment.FIXTURE_REVISION!=='replacement'||probe.probe.observationContracts[0]!=='fixture.echo')throw new Error('Native replacement fixture mismatch');process.stdout.write('native-restart-fixtures-ok\\n');}}Program.run();";const result=spawnSync('node',['--input-type=module','-e',source],{encoding:'utf8'});expect(result.status).toBe(0);expect(result.stderr).toBe('');expect(result.stdout).toBe('native-restart-fixtures-ok\n');}
+}
+const replacementFixtures=new ReplacementFixtureTests();
+test('smoke: built Node replacement fixture classes project their native typed contracts',replacementFixtures.node.bind(replacementFixtures));

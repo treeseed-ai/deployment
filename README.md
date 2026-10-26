@@ -900,3 +900,13 @@ IDs and labels before effects, while generation-aware selection reads the curren
 and receipts to identify actual resources. Avoid repeated whole-journal reads for immutable
 identity computation or for services with no restart action; keep physical inspection and
 accepted-intent checks at every existing effect boundary.
+
+### Shared service-intent contract alignment
+
+The replacement fixture preparation selects SDK `.14`, source
+`597a9abd79b76fb292a80cd86e4ea83042fbec62`, archive SHA-256
+`c92fb068064a6db4823b29c31602b47e01c21200af759a770480a1a0cc4240a2`.
+Use forced fresh installation and read back installed identity, vendor bytes and lock SRI.
+This aligns future explicit instance/binding intent with UI/Identity/Admin candidates while
+preserving the existing restart contract and seven operation IDs. Schema adoption and fixture
+preparation alone do not grant replacement or source-install activation.

@@ -3,7 +3,12 @@
 ## [Unreleased]
 
 ### Added
-- Require exact explicit service scope for verified container replacement (#910).
+- Qualify scoped container replacement and immutable physical history (#910).
+### Changed
+- Prepare native replacement fixtures with exact service-intent contracts and authority ownership (#910).
+
+### Changed
+- Prepare exact optional restart-intent contracts for bounded additive activation (#910).
 
 ### Fixed
 - Coalesce identical direct and routed runtime evidence while rejecting conflicts (#910).
