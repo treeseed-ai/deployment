@@ -888,3 +888,8 @@ actual Docker identity. Unchanged current definitions continue to retain their c
 The compiled programme must replace and then revert one service under exact explicit scopes
 and read back all three accepted requests after removing source. Interrupted scoped restarts
 must leave the prior committed snapshot and private bytes intact and refuse further writes.
+
+A composition digest describes desired inputs, rather than a unique running incarnation.
+Returning to exact earlier release bytes may repeat that digest with different physical
+resources. Journal read-back must bind the completed record's resource set and target
+acknowledgements to its exact immutable snapshot, preserving every earlier snapshot.
