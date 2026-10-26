@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Calibrate source acquisition lifecycle and import canaries at their exact observable fixture paths (#964).
+
+### Fixed
 - Preserve concurrent foreign cache directories through exclusive no-overwrite reservation (#962).
 
 ### Added

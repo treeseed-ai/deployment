@@ -1111,3 +1111,13 @@ See [rename(2)](https://man7.org/linux/man-pages/man2/rename.2.html). A disposab
 filesystem probe confirmed the replacement behavior; the built custody regressions inject that
 specific destination race at the filesystem boundary. Ordinary default tests still exercise real
 publication without injection. Private incomplete state needs explicit repair, not automatic adoption.
+
+### Acquisition canary qualification
+
+The owner-created NPM fixtures use `bun postinstall.ts` with a strict TypeScript class that
+writes an absolute fixture-only lifecycle marker. Before acquisition tests, execute that exact
+fixture script with the genuine pinned helper on an otherwise empty PATH, assert the marker,
+then remove only that known marker. Similarly calibrate the archived native module's import
+marker. The compiled production acquisition scenario must leave both absolute markers absent.
+A relative `touch` marker checked in another directory cannot establish nonexecution. These
+counterfactuals concern only disposable owner fixtures; fetched plugin scripts remain unexecuted.
