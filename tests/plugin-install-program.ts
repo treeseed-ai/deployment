@@ -80,6 +80,17 @@ class PluginInstallProgram {
             const before = this.retained(store), request: PluginInstallRequest = { source: registry.source('1.0.0'), serviceId: 'private-addon-one', idempotencyKey: 'install-private-one', installationDirectory: store.path, scope: 'installation', target: 'deployment', configuration: {} }, first = await this.install(owner, request);
             if (first.state !== 'active' || !first.planId || !first.applicationId || !first.activeGeneration || !first.acknowledgements.length || first.activeGeneration !== store.current()?.compositionGeneration) throw new Error('SAFE_CONTAINER_INSTALL_NOT_ACTIVE:' + first.state + ':' + first.blockers.map(this.code).join(','));
             this.same(store, before); await this.direct(store, 'private-addon-one');
+            if(input.selection){
+                const selected=await owner.select({capability:'container.service',providerId:'fixture.extension',serviceId:'private-addon-one',idempotencyKey:'select-registered-one',installationDirectory:store.path,scope:'installation',target:'deployment',expectedGeneration:first.activeGeneration,configuration:{}});
+                let result=selected;const deadline=Date.now()+150000;while(result.state==='pending'&&Date.now()<deadline){await new Promise(this.delay);result=await owner.inspect('select-registered-one');}
+                if(result.state!=='already-active'||result.applicationId!==first.applicationId||result.activeGeneration!==first.activeGeneration)throw new Error('REGISTERED_PROVIDER_SELECTION_NOT_ACTIVE:'+result.state+':'+result.blockers.map(this.code).join(','));
+                const repeated=await owner.select({capability:'container.service',providerId:'fixture.extension',serviceId:'private-addon-one',idempotencyKey:'select-registered-one',installationDirectory:store.path,scope:'installation',target:'deployment',expectedGeneration:first.activeGeneration,configuration:{}});
+                if(CanonicalJson.stringify(repeated)!==CanonicalJson.stringify(result))throw new Error('Registered selection retry changed accepted result');
+                const missing=await owner.select({capability:'container.service',providerId:'fixture.unregistered',serviceId:'private-addon-one',idempotencyKey:'select-unregistered',installationDirectory:store.path,scope:'installation',target:'deployment',configuration:{}});
+                let denied=missing;while(denied.state==='pending'&&Date.now()<deadline){await new Promise(this.delay);denied=await owner.inspect('select-unregistered');}
+                if(denied.state!=='blocked'||!denied.blockers.some(this.unregistered))throw new Error('Unregistered provider was not refused');
+                this.same(store,before);
+            }
             const current = this.retained(store), repeated = await this.install(owner, { ...request, idempotencyKey: 'already-private-one' });
             if (repeated.state !== 'already-active' || repeated.applicationId !== first.applicationId || repeated.activeGeneration !== first.activeGeneration) throw new Error('Exact selected provider was not already-active');
             const applications = store.records().length, unsafe = await this.install(owner, { ...request, source: registry.source('2.0.0'), idempotencyKey: 'unsafe-state-change' });
@@ -96,6 +107,7 @@ class PluginInstallProgram {
             process.stdout.write(JSON.stringify({ fixtureOnly: true, services: 6, active: true, alreadyActive: true, unsafePrepared: true, retained: true, sourceFree: true, noScripts: true }) + '\n');
         } finally { await host?.close(120000); await registry.close(); }
     }
+    private static unregistered(blocker:{code:string}):boolean{return blocker.code==='REGISTERED_PROVIDER_NOT_FOUND';}
     private static code(blocker: { code: string }): string { return blocker.code; }
     static failed(error: unknown): never { if (error instanceof PlanningBlockedError) throw new Error(error.blockers.map(this.code).join(',')); throw error; }
 }
