@@ -1,3 +1,5 @@
+import{GitSourcePlugin,GitSourceToken}from'./git-source.js';
+import{PluginBuildPlugin,PluginBuildToken}from'./source-build.js';
 import { createServer, type Server, Socket } from 'node:net';
 import { lstatSync, chmodSync, fstatSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
@@ -290,7 +292,7 @@ export class ServiceHostRuntime extends ServiceApplicationRuntime {
     private transportStopped = false;
     static override async start(input: ServicePlan, bootstrap?: {
         nonce: string;
-    }): Promise<ServiceHostRuntime> { const plan = ServiceSchemas.plan.parse(input), artifact = { kind: 'bundled' as const, identity: 'deployment-private-unix-protocol.1:' + plan.composition.worker.sha256 }, registrations: ProviderRegistration[] = [{ token: PackageSourceTokens.npm, plugin: NpmSourcePlugin, declaration: NpmSourcePlugin.declaration, configuration: plan, artifact }, { token: PluginManagerToken.instance, plugin: PluginManagerPlugin, declaration: PluginManagerPlugin.declaration, configuration: plan, artifact }, { token: HostTransportToken.instance, plugin: HostSocketPlugin, declaration: HostSocketPlugin.declaration, configuration: plan, artifact }], scope = await this.mount(plan, registrations, bootstrap); return new ServiceHostRuntime(scope.handle, scope.context); }
+    }): Promise<ServiceHostRuntime> { const plan = ServiceSchemas.plan.parse(input), artifact = { kind: 'bundled' as const, identity: 'deployment-private-unix-protocol.1:' + plan.composition.worker.sha256 }, registrations: ProviderRegistration[] = [{token:PluginBuildToken.instance,plugin:PluginBuildPlugin,declaration:PluginBuildPlugin.declaration,configuration:plan,artifact},{token:GitSourceToken.instance,plugin:GitSourcePlugin,declaration:GitSourcePlugin.declaration,configuration:plan,artifact},{ token: PackageSourceTokens.npm, plugin: NpmSourcePlugin, declaration: NpmSourcePlugin.declaration, configuration: plan, artifact }, { token: PluginManagerToken.instance, plugin: PluginManagerPlugin, declaration: PluginManagerPlugin.declaration, configuration: plan, artifact }, { token: HostTransportToken.instance, plugin: HostSocketPlugin, declaration: HostSocketPlugin.declaration, configuration: plan, artifact }], scope = await this.mount(plan, registrations, bootstrap); return new ServiceHostRuntime(scope.handle, scope.context); }
     override async close(timeoutMs = 10000): Promise<void> {
         if (!this.transportStopped) {
             const lease = await CordisServiceLocator.from(this.context).acquire(HostTransportToken.instance);

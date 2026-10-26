@@ -1,5 +1,6 @@
+import{GitSourceToken}from'./git-source.js';
 import { join } from 'node:path';
-import { CanonicalJson, CapabilityToken, PluginManagementSchemas, PlanningBlockedError, ProviderV4Schemas, ServiceSchemas, type PluginInstallRequest, type PluginSelectRequest, type PluginInstallResult, type PluginRequestRecord, type ServicePlan, type ServiceStatus, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
+import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, PlanningBlockedError, ProviderV4Schemas, ServiceSchemas, type PluginInstallRequest, type PluginSelectRequest, type PluginInstallResult, type PluginRequestRecord, type ServicePlan, type ServiceStatus, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
 import { Context, CordisServiceLocator } from '@treeseed-cordis/sdk/runtime';
 import { InstallationAuthority, InstallationAuthorityToken } from './service-authority.js';
 import { PackageSourceTokens } from './npm-source.js';
@@ -75,7 +76,7 @@ class NativePluginManager implements PluginManager {
             let record = initial;
             Check.require(record.expectedGeneration === (this.authority.store.current()?.compositionGeneration ?? null), 'STALE_GENERATION');
             if (record.stage !== 'acquired') {
-                const source = await this.locator.acquire(PackageSourceTokens.npm);
+                const source = await this.locator.acquire(PluginSource.parse((record.intent as PluginInstallRequest).source).kind==='git'?GitSourceToken.instance:PackageSourceTokens.npm);
                 try { record = await source.value.resolve(record); record = await source.value.acquire(record); }
                 finally { await source.release(); }
             }
@@ -149,7 +150,7 @@ class NativePluginManager implements PluginManager {
 /** Host-private invariant provider; never installed inside acquired service scopes. */
 export class PluginManagerPlugin {
     static readonly provide = [PluginManagerToken.instance.id];
-    static readonly inject = ['cordis.composition', InstallationAuthorityToken.instance.id, PackageSourceTokens.npm.id, ServiceApplicationToken.host.id];
+    static readonly inject = ['cordis.composition', InstallationAuthorityToken.instance.id, PackageSourceTokens.npm.id, GitSourceToken.instance.id, ServiceApplicationToken.host.id];
     static readonly Config = ServiceSchemas.plan;
     static readonly declaration = ProviderV4Schemas.declaration.parse({ id: 'deployment.plugin-manager', pluginId: 'deployment', capability: PluginManagerToken.instance.id, contractVersion: ProviderV4Schemas.version, target: 'deployment', provide: this.provide, inject: this.inject });
     private readonly manager: NativePluginManager;
