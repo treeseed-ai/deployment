@@ -1414,3 +1414,18 @@ still removes only that created resource. See [Docker read-only bind mounts](htt
 The isolated-build slice exposes `PluginBuildRuntime` and its typed native `PluginBuildAdapter`
 for host qualification. Installed Git routing and source-build closure adoption are a following
 slice; this prefix alone does not claim a successful installed source-only plugin.
+
+### Git build and closure adoption
+
+The native Git source provider first admits exact committed distributable exports. Source-only
+packages require the selected native build provider and the accepted exact build policy; missing
+policy returns `BUILD_REQUIRED`. Both paths enter the same complete locked closure verifier.
+Git source receipts bind the original commit/tree and either a null build identity for committed
+exports or the exact approved build policy and produced archive. Original source custody, built
+artifact and complete runtime closure remain separate immutable evidence. Source-free read-back
+checks each receipt and its bytes without reacquiring, rebuilding or launching containers.
+
+The Git runtime's default construction registers the same native build provider used by the
+installed host. A build receipt alone does not grant activation: registration, selection, coherent
+planning, application completion and actual target-generation/resource acknowledgements remain
+required. Keycloak identity and existing installation ownership are preserved.

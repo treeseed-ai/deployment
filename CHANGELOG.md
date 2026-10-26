@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Admit approved Git source builds into the shared verified runtime closure (#910).
+
+### Added
 - Build explicitly approved source-only Git plugins in bounded disposable isolation (#910).
 
 ### Added
