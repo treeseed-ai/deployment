@@ -99,6 +99,7 @@ class PluginInstallProgram {
             const applications = store.records().length, unsafe = await this.install(owner, { ...request, source: registry.source('2.0.0'), idempotencyKey: 'unsafe-state-change' });
             if (unsafe.state !== 'prepared' || unsafe.applicationId !== null || unsafe.activeGeneration !== null || !unsafe.nextActions.includes('review-migration') || store.records().length !== applications) throw new Error('Unsafe stateful replacement was activated or hidden');
             this.same(store, current);
+            if(input.selection){const count=registry.requests,ambiguous={capability:'container.service',providerId:'extension.container',serviceId:'private-addon-one',idempotencyKey:'ambiguous-selection',installationDirectory:store.path,scope:'installation' as const,target:'deployment' as const,configuration:{}};let result=await owner.select(ambiguous);const deadline=Date.now()+150000;while(result.state==='pending'&&Date.now()<deadline){await new Promise(this.delay);result=await owner.inspect(ambiguous.idempotencyKey);}if(result.state!=='blocked'||!result.blockers.some(this.ambiguous)||registry.requests!==count||store.records().length!==applications)throw new Error('Ambiguous registered selection resolved a source or activated');let refused=false;try{await owner.select({...ambiguous,idempotencyKey:'stale-selection',expectedGeneration:'e'.repeat(64)});}catch(error){if(error instanceof PlanningBlockedError)refused=error.blockers.some(this.stale);else throw error;}if(!refused)throw new Error('Stale registered selection was accepted');}
             const second = await this.install(owner, { ...request, serviceId: 'private-addon-two', idempotencyKey: 'install-private-two' });
             if (second.state !== 'active' || (await owner.status()).services.length !== 6) throw new Error('Second typed instance did not activate');
             this.same(store, current); await this.direct(store, 'private-addon-two');
@@ -110,6 +111,8 @@ class PluginInstallProgram {
             process.stdout.write(JSON.stringify({ fixtureOnly: true, services: 6, active: true, alreadyActive: true, unsafePrepared: true, retained: true, sourceFree: true, noScripts: true }) + '\n');
         } finally { await host?.close(120000); await registry.close(); }
     }
+    private static ambiguous(value:{code:string}):boolean{return value.code==='AMBIGUOUS_REGISTERED_PROVIDER';}
+    private static stale(value:{code:string}):boolean{return value.code==='STALE_GENERATION';}
     private static unregistered(blocker:{code:string}):boolean{return blocker.code==='REGISTERED_PROVIDER_NOT_FOUND';}
     private static completed(value:{phase:string}):boolean{return value.phase==='completed';}
     private static named(id:string,value:{serviceId:string}):boolean{return id===value.serviceId;}
