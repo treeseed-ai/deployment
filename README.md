@@ -1295,3 +1295,7 @@ they use verified cold registry read-back without launching a worker or claiming
 They never turn a socket failure into a silent cold fallback. Install validates the release's
 source policy before first launch; it does not install global tools or create credentials outside
 the admitted application. Explicit container restarts remain a separate plan/apply action.
+
+Provider staging yields to the host event loop between independently verified provider
+preparations. Owner inspection remains responsive while the durable application stages the
+complete closure; the existing RPC deadlines and artifact checks remain in force.
