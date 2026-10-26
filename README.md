@@ -894,6 +894,13 @@ Returning to exact earlier release bytes may repeat that digest with different p
 resources. Journal read-back must bind the completed record's resource set and target
 acknowledgements to its exact immutable snapshot, preserving every earlier snapshot.
 
+Retained container identity comes from the verified saved plan's retained resource binding.
+Fresh container identity binds its creating plan. Runtime inspection freshly checks physical
+IDs and labels before effects, while generation-aware selection reads the current snapshot
+and receipts to identify actual resources. Avoid repeated whole-journal reads for immutable
+identity computation or for services with no restart action; keep physical inspection and
+accepted-intent checks at every existing effect boundary.
+
 ### Shared service-intent contract alignment
 
 The replacement fixture preparation selects SDK `.14`, source
