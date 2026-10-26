@@ -1,31 +1,114 @@
 import * as Deployment from '@treeseed-cordis/deployment';
-import {CanonicalJson, type PluginRequestRecord, type ServicePlan} from '@treeseed-cordis/sdk';
-import {createServer,type Server} from 'node:https';
-import type {IncomingMessage,ServerResponse} from 'node:http';
-import {readFileSync,writeFileSync,existsSync,rmSync} from 'node:fs';
-import {join} from 'node:path';
-import {createHash} from 'node:crypto';
+import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type ServicePlan } from '@treeseed-cordis/sdk';
+import { createServer, type Server } from 'node:https';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, chmodSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 interface SourceRuntime {
-    begin(source:string,key:string,target?:'deployment'|'cli'):PluginRequestRecord;
-    resolve(record:PluginRequestRecord):Promise<PluginRequestRecord>;
-    close():Promise<void>;
+    begin(source: string, key: string, target?: 'deployment' | 'cli'): PluginRequestRecord;
+    resolve(record: PluginRequestRecord): Promise<PluginRequestRecord>;
+    close(): Promise<void>;
 }
 class RegistryFixture {
-    private readonly server:Server;version='1.0.0';requests=0;authorization=false;
-    constructor(private readonly root:string){this.server=createServer({key:readFileSync(join(root,'key.pem')),cert:readFileSync(join(root,'cert.pem'))},this.reply.bind(this));}
-    private reply(request:IncomingMessage,response:ServerResponse):void{this.requests++;this.authorization ||= request.headers.authorization!==undefined;const versions:Record<string,unknown>={};for(const version of ['1.0.0','2.0.0']){const archive=readFileSync(join(this.root,'source-'+version+'.tgz'));versions[version]={name:'@fixture/npm-source',version,dist:{tarball:this.origin()+'source-'+version+'.tgz',integrity:'sha512-'+createHash('sha512').update(archive).digest('base64')},scripts:{postinstall:'touch MUST_NOT_RUN'}};}response.setHeader('content-type','application/json');response.end(JSON.stringify({name:'@fixture/npm-source','dist-tags':{latest:this.version},versions}));}
-    origin():string{const address=this.server.address();if(!address||typeof address==='string')throw new Error('Registry not listening');return 'https://127.0.0.1:'+address.port+'/';}
-    async listen():Promise<void>{await new Promise<void>(this.start.bind(this));}
-    private start(done:()=>void,reject:(error:Error)=>void):void{this.server.once('error',reject);this.server.listen(0,'127.0.0.1',done);}
-    async close():Promise<void>{await new Promise<void>(this.stop.bind(this));}
-    private stop(done:()=>void):void{this.server.closeAllConnections();this.server.close(this.stopped.bind(this,done));}
-    private stopped(done:()=>void,error?:Error):void{if(error)throw error;done();}
+    private readonly server: Server;
+    private closed = false;
+    version = '1.0.0';
+    requests = 0;
+    authorization = false;
+    tamperTrust=false;crossOrigin=false;invalidIntegrity=false;trustChanges=0;
+    constructor(private readonly root: string,private readonly installation:string) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.reply.bind(this)); }
+    private reply(request: IncomingMessage, response: ServerResponse): void { this.requests++; this.changeTrust(); this.authorization ||= request.headers.authorization !== undefined; const versions: Record<string, unknown> = {}; for (const version of ['1.0.0', '2.0.0']) {
+        const archive = readFileSync(join(this.root, 'source-' + version + '.tgz'));
+        versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin?'https://unapproved.invalid/':this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity?'sha512-AAAA':'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'touch MUST_NOT_RUN' } };
+    } response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ name: '@fixture/npm-source', 'dist-tags': { latest: this.version }, versions })); }
+    private changeTrust():void{if(!this.tamperTrust)return;const artifacts=join(this.installation,'.cordis/artifacts');for(const name of readdirSync(artifacts))if(name.startsWith('source-resolution-')){const path=join(artifacts,name,'source-ca.pem');if(existsSync(path)){const bytes=readFileSync(path);chmodSync(path,0o600);writeFileSync(path,bytes);chmodSync(path,0o400);this.trustChanges++;}}}
+    origin(): string { const address = this.server.address(); if (!address || typeof address === 'string')
+        throw new Error('Registry not listening'); return 'https://127.0.0.1:' + address.port + '/'; }
+    async listen(): Promise<void> { await new Promise<void>(this.start.bind(this)); }
+    private start(done: () => void, reject: (error: Error) => void): void { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', done); }
+    async close(): Promise<void> { if (this.closed)
+        return; this.closed = true; await new Promise<void>(this.stop.bind(this)); }
+    private stop(done: () => void): void { this.server.closeAllConnections(); this.server.close(this.stopped.bind(this, done)); }
+    private stopped(done: () => void, error?: Error): void { if (error)
+        throw error; done(); }
 }
 class NpmSourceProgram {
-    static async run(file:string):Promise<void>{const constructor=Reflect.get(Deployment,'NpmSourceRuntime') as {start(plan:ServicePlan):Promise<SourceRuntime>};if(!constructor?.start)throw new Error('NATIVE_NPM_SOURCE_UNAVAILABLE');const input=JSON.parse(readFileSync(file,'utf8')),registry=new RegistryFixture(input.root);await registry.listen();let runtime:SourceRuntime|undefined;
-        try{const configuration=input.configuration,releasePath=join(configuration.release.directory,'release.json'),release=JSON.parse(readFileSync(releasePath,'utf8'));release.acquisitionPolicy={formatVersion:1,helperReleaseIdentity:release.helpers.releaseIdentity,npm:[{registry:registry.origin(),packages:['@fixture/npm-source'],targets:['deployment'],certificateAuthority:{path:'source-ca.pem',sha256:createHash('sha256').update(readFileSync(join(configuration.release.directory,'source-ca.pem'))).digest('hex')}}],git:[],builds:[]};const bytes=CanonicalJson.stringify(release)+'\n';writeFileSync(releasePath,bytes);configuration.release.manifestDigest=createHash('sha256').update(bytes).digest('hex');const plan=await new Deployment.ComposeDeploymentHost().plan(configuration);if(plan.formatVersion!==3)throw new Error('Wrong plan');runtime=await constructor.start(plan);
-            const record=runtime.begin('@fixture/npm-source','exact-npm-request'),resolved=await runtime.resolve(record);if(resolved.stage!=='resolved'||resolved.resolution?.kind!=='npm'||resolved.resolution.version!=='1.0.0'||resolved.sourceReceipt!==null)throw new Error('Missing exact resolution before acquisition');const count=registry.requests;registry.version='2.0.0';rmSync(configuration.release.directory,{recursive:true});const replay=await runtime.resolve(record);if(CanonicalJson.stringify(replay)!==CanonicalJson.stringify(resolved)||registry.requests!==count)throw new Error('Retry re-resolved mutable source');const next=await runtime.resolve(runtime.begin('@fixture/npm-source','new-npm-request'));if(next.resolution?.kind!=='npm'||next.resolution.version!=='2.0.0')throw new Error('New key did not resolve moved tag');let denied=false;try{await runtime.resolve(runtime.begin('@fixture/npm-source','denied-target','cli'));}catch{denied=true;}if(!denied||registry.requests!==count+1)throw new Error('Unapproved target performed network lookup');const uncertain=runtime.begin('@fixture/npm-source@missing','interrupted-npm-request');let failed=false;try{await runtime.resolve(uncertain);}catch{failed=true;}if(!failed)throw new Error('Missing tag was resolved');const failedCount=registry.requests;try{await runtime.resolve(uncertain);}catch{}if(registry.requests!==failedCount)throw new Error('Uncertain lookup silently retried');
-            if(registry.authorization||existsSync(join(input.root,'MUST_NOT_RUN'))||existsSync(configuration.installationDirectory+'/.cordis/credentials'))throw new Error('Credentials or lifecycle canary escaped');process.stdout.write(JSON.stringify({fixture:true,native:true,exact:true,pinnedRetry:true,movedNewKey:true,sourceFree:true,grantRefused:true,noCredentialsOrScripts:true})+'\n');
-        }finally{await runtime?.close();await registry.close();}}
+    static failed(error:unknown):never{if(error instanceof PlanningBlockedError)throw new Error(error.blockers.map(NpmSourceProgram.code).join(","));throw error;}
+    private static code(blocker:{code:string}):string{return blocker.code;}
+    static async run(file: string): Promise<void> {
+        const constructor = Reflect.get(Deployment, 'NpmSourceRuntime') as {
+            start(plan: ServicePlan): Promise<SourceRuntime>;
+        };
+        if (!constructor?.start)
+            throw new Error('NATIVE_NPM_SOURCE_UNAVAILABLE');
+        const input = JSON.parse(readFileSync(file, 'utf8')), registry = new RegistryFixture(input.root,input.configuration.installationDirectory);
+        await registry.listen();
+        let runtime: SourceRuntime | undefined;
+        try {
+            const configuration = input.configuration, releasePath = join(configuration.release.directory, 'release.json'), release = JSON.parse(readFileSync(releasePath, 'utf8'));
+            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers.releaseIdentity, npm: [{ registry: registry.origin(), packages: ['@fixture/npm-source'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: createHash('sha256').update(readFileSync(join(configuration.release.directory, 'source-ca.pem'))).digest('hex') } }], git: [], builds: [] };
+            const bytes = CanonicalJson.stringify(release) + '\n';
+            writeFileSync(releasePath, bytes);
+            configuration.release.manifestDigest = createHash('sha256').update(bytes).digest('hex');
+            const plan = await new Deployment.ComposeDeploymentHost().plan(configuration);
+            if (plan.formatVersion !== 3)
+                throw new Error('Wrong plan');
+            runtime = await constructor.start(plan);
+            const record = runtime.begin('@fixture/npm-source', 'exact-npm-request'), resolved = await runtime.resolve(record);
+            if (resolved.stage !== 'resolved' || resolved.resolution?.kind !== 'npm' || resolved.resolution.version !== '1.0.0' || resolved.sourceReceipt !== null)
+                throw new Error('Missing exact resolution before acquisition');
+            const count = registry.requests;
+            let conflicted=false;try{runtime.begin('@fixture/npm-source@2.0.0','exact-npm-request');}catch{conflicted=true;}if(!conflicted||registry.requests!==count)throw new Error('Conflicting source intent admitted');
+            registry.version = '2.0.0';
+            rmSync(configuration.release.directory, { recursive: true });
+            const replay = await runtime.resolve(record);
+            if (CanonicalJson.stringify(replay) !== CanonicalJson.stringify(resolved) || registry.requests !== count)
+                throw new Error('Retry re-resolved mutable source');
+            const next = await runtime.resolve(runtime.begin('@fixture/npm-source', 'new-npm-request'));
+            if (next.resolution?.kind !== 'npm' || next.resolution.version !== '2.0.0')
+                throw new Error('New key did not resolve moved tag');
+            let denied = false;
+            try {
+                await runtime.resolve(runtime.begin('@fixture/npm-source', 'denied-target', 'cli'));
+            }
+            catch {
+                denied = true;
+            }
+            if (!denied || registry.requests !== count + 1)
+                throw new Error('Unapproved target performed network lookup');
+            for(const mode of ['cross-origin','integrity','ca-race']){registry.crossOrigin=mode==='cross-origin';registry.invalidIntegrity=mode==='integrity';registry.tamperTrust=mode==='ca-race';let rejected=false;try{await runtime.resolve(runtime.begin('@fixture/npm-source','unsafe-'+mode));}catch{rejected=true;}if(mode==='ca-race'&&registry.trustChanges===0)throw new Error('Trust-race fixture did not perturb a real CA file');if(!rejected)throw new Error('Unapproved npm metadata or changed trust admitted: '+mode);}registry.crossOrigin=false;registry.invalidIntegrity=false;registry.tamperTrust=false;
+            const uncertain = runtime.begin('@fixture/npm-source@missing', 'interrupted-npm-request');
+            let failed = false;
+            try {
+                await runtime.resolve(uncertain);
+            }
+            catch {
+                failed = true;
+            }
+            if (!failed)
+                throw new Error('Missing tag was resolved');
+            const failedCount = registry.requests;
+            try {
+                await runtime.resolve(uncertain);
+            }
+            catch { }
+            if (registry.requests !== failedCount)
+                throw new Error('Uncertain lookup silently retried');
+            await runtime.close();
+            runtime = undefined;
+            await registry.close();
+            runtime = await constructor.start(plan);
+            if (CanonicalJson.stringify(await runtime.resolve(record)) !== CanonicalJson.stringify(resolved) || registry.requests !== failedCount)
+                throw new Error('Stopped-owner retry lost pinned resolution');
+            if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
+                throw new Error('Credentials or lifecycle canary escaped');
+            process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true }) + '\n');
+        }
+        finally {
+            await runtime?.close();
+            await registry.close();
+        }
+    }
 }
-await NpmSourceProgram.run(process.argv[2]!);
+await NpmSourceProgram.run(process.argv[2]!).catch(NpmSourceProgram.failed);
