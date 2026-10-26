@@ -25,6 +25,9 @@ class PublicPluginFixtureTests {
             expect(JSON.parse(result)).toEqual({ fixtureOnly: true, publicArchive: true, prepared: true, noActivation: true, sourceKind:mode });
         } finally { rmSync(root, { recursive: true, force: true }); }
     }
+    program():Promise<void>{return this.consumer('npm');}
+    git():Promise<void>{return this.consumer('git');}
+    built():Promise<void>{return this.consumer('built');}
 }
 const suite = new PublicPluginFixtureTests();
 test('smoke: packed public plugin fixture constructs a genuine prepared bundle in an independent consumer', suite.program.bind(suite), 180000);
