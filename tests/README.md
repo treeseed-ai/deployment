@@ -27,22 +27,15 @@ The same assertions and production command deadlines remain unchanged.
 
 ## Complete smoke partition gate
 
-The scoped replacement qualification recorded 882.48 seconds of smoke and 23.16 seconds
-of unit/integration work before compiler/source checks. A single 15-minute CI job cannot
-reliably run that complete gate. CI keeps Ubuntu 26.04 and the same assertions, splitting
-smoke into `transitions` (retained planning/application and scoped restart programmes)
-and `foundation` (every other test file, including future additions). Each runner owns
-its disposable Docker resources. Local `bun run verify` remains complete and sequential.
+CI retains the existing 15-minute deadline and Ubuntu 26.04 prerequisite gate. Every test file
+belongs to exactly one of four nonempty jobs: `foundation`, `transitions`, `sources`, `runtime`.
+`transitions` owns explicit restart/retained-plan tests; `sources` owns NPM/Git/build tests;
+`runtime` owns native application/authority tests and `*-install.test.ts` programmes. Other new
+files remain in `foundation`. Each file's complete smoke selection runs in its assigned job.
+No suite is skipped, duplicated or made optional to fit the budget.
 
-`bun scripts/verification.ts smoke transitions|foundation` runs its exact sorted file set.
-`bun scripts/verification.ts inventory` reports both sets for read-back. Partition validation
-requires nonempty disjoint sets, every discovered `tests/*.test.ts` exactly once, and all
-explicit transition files present. Unknown commands/partitions fail with exit 2 before tests.
-The final `verify` CI job requires static/unit/integration and both smoke jobs to succeed;
-a skipped, failed or cancelled prerequisite cannot produce a green aggregate gate.
-
-The packed plugin-fixture consumer uses an empty dedicated Bun cache. Its build-time package
-installation may resolve exact declared dependencies from the registry, with lifecycle scripts
-and dotenv loading disabled. Root lockfile installation does not imply cached registry manifests
-for another project. Runtime source-free retry is tested separately against accepted private
-artifacts and helpers; the consumer setup must not claim offline capability from a warm cache.
+`bun scripts/verification.ts smoke <partition>` runs the exact sorted set. `inventory` reports
+all four sets for read-back. Validation requires known suites, disjoint/exhaustive membership,
+valid paths, nonempty groups and a workflow matrix matching the inventory. Unknown partitions
+fail with exit 2 before execution. The existing aggregate `verify` gate requires checks and the
+complete smoke matrix to succeed. This change affects development verification only.

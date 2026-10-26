@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Balance exhaustive owner smoke jobs within the existing verification deadline (#992).
+
 ### Fixed
 - Preserve cold compiled-worker initialization after source-build adoption (#991).
 
