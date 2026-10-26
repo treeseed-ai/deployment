@@ -1069,3 +1069,8 @@ mutable lookup and requires explicit repair; it never guesses which version an e
 would have selected. The future host coordinator must join an in-flight request and report
 bounded pending progress. Publisher/source approval remains separate from archive integrity.
 This prefix provides no complete source acquisition, dependency closure or activation claim.
+
+For custom source trust, hold the exact private CA file descriptor for the managed lookup and
+verify its identity and bytes before committing resolution. A file modified and restored during
+an otherwise valid TLS response is a trust race and must leave the request unresolved. Passing
+a path to a certificate file is not sufficient evidence of which trust bytes the helper used.
