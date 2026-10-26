@@ -1,6 +1,9 @@
 # Changelog
 
 ## [Unreleased]
+
+### Added
+- Expose the default installed plugin manager with exact fresh-worker bootstrap and cold read-back (#910).
 ### Added
 - Share exact static image selections across independent container provider packages (#974).
 ### Fixed

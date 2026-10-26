@@ -1278,3 +1278,20 @@ provider/package ownership, service identity, resource grants or private state b
 Runtime images bound to package closure, entry and asset labels retain one unambiguous owner.
 Duplicate runtime ownership or mixed static/runtime ownership of an image ID remains blocked.
 No image download, mutable reference or unselected inventory is introduced by static sharing.
+
+### Default installed plugin-management adapter
+
+`InstalledPluginManager(installationDirectory)` implements the public `PluginManager` contract.
+It forwards install/select to the same durable owner worker. On a fresh plan-only installation,
+install may launch the exact release-pinned worker from the single saved format-3 plan, without
+applying that plan separately. Source resolution and safe activation still happen inside that
+worker through the native manager and existing plan/apply admission. A missing or ambiguous
+initial plan, unexpected application/resource history, uncertain launch state or foreign worker
+fails rather than selecting a baseline or adopting a process. A started worker is durable after
+the requesting process exits.
+
+List/inspect use the live owner when its private control endpoint exists. With no owner endpoint,
+they use verified cold registry read-back without launching a worker or claiming active health.
+They never turn a socket failure into a silent cold fallback. Install validates the release's
+source policy before first launch; it does not install global tools or create credentials outside
+the admitted application. Explicit container restarts remain a separate plan/apply action.
