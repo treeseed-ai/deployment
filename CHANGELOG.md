@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Export a genuine prepared plugin-installation fixture for built CLI and assembled acceptance (#910).
+
+### Added
 - Expose the default installed plugin manager with exact fresh-worker bootstrap and cold read-back (#910).
 ### Added
 - Share exact static image selections across independent container provider packages (#974).

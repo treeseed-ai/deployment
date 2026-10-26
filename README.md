@@ -1299,3 +1299,17 @@ the admitted application. Explicit container restarts remain a separate plan/app
 Provider staging yields to the host event loop between independently verified provider
 preparations. Owner inspection remains responsive while the durable application stages the
 complete closure; the existing RPC deadlines and artifact checks remain in force.
+
+### Public assembled-test fixture
+
+`@treeseed-cordis/deployment/testing/plugins` exports `PluginInstallationFixture` for isolated
+owner/Platform acceptance. `prepare()` creates a genuine four-service bundle, two versions of an
+independent native container/probe package, a pinned compiled worker and managed Bun helper,
+calibrated lifecycle markers and a disposable HTTPS registry with an explicit fixture CA.
+The fixture returns the exact configuration, source locator and paths through public methods.
+`startRegistry()` makes source access available; `stopRegistry()` supports source-free retry
+checks. `close()` awaits registry disposal and removes only fixture-owned runtime resources.
+Preparation starts no service containers and is never an installer implementation or production
+plugin source. Consumers spawn their own built CLI and assert actual plans/applications/readiness,
+retained resources and credential/TLS bytes through public contracts. No cross-checkout source
+imports or copied Deployment host implementation are needed for assembled verification.
