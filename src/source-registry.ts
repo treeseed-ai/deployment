@@ -12,7 +12,7 @@ export type NpmResolution = Extract<NonNullable<PluginRequestRecord['resolution'
 }>;
 export type RegistryGrant = SourceAcquisitionPolicy['npm'][number];
 /** The helper opens this held descriptor; path replacement cannot change its trust source. */
-class SourceTrust {
+export class SourceTrust {
     private readonly fd: number;
     private readonly identity: Stats;
     constructor(private readonly directory: SafeDirectory, bytes: Buffer, private readonly digest: string) {

@@ -1340,3 +1340,9 @@ Source trust comes from the pinned policy CA or normal verified HTTPS trust, wit
 identity/hash checks around access. No Git checkout, imports, lifecycle hooks, dependency install,
 container activation or source build occurs during resolution. Prepared archive/closure admission
 and isolated build qualification follow through the same native source contract.
+
+The bounded resolution prefix exposes `GitSourceRuntime` with genuine default native construction.
+Archive/closure acquisition remains explicitly unqualified in this prefix; the durable installation
+manager adopts the same provider once those gates pass. Git commands use a held installation-private bare repository with empty templates and owner-only
+permissions. The explicit repository and held configuration checks exclude a containing development
+checkout; the source lookup does not check out files. See the [Git repository option](https://git-scm.com/docs/git#Documentation/git.txt---git-dirpath) and [Git initialization documentation](https://git-scm.com/docs/git-init).

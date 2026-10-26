@@ -31,6 +31,7 @@ export class GitFixtureTools {
         this.command('git',['branch','future',second],source);this.command('git',['branch','twin',first],source);this.command('git',['tag','twin',first],source);this.command('git',['clone','--bare','--no-hardlinks',source,bare]);
         this.command('git',['--git-dir='+bare,'update-ref','refs/heads/main',first]);this.command('git',['--git-dir='+bare,'update-server-info']);const refsFirst=readFileSync(join(bare,'info/refs'),'utf8');
         this.command('git',['--git-dir='+bare,'update-ref','refs/heads/main',second]);this.command('git',['--git-dir='+bare,'update-server-info']);const refsSecond=readFileSync(join(bare,'info/refs'),'utf8');
+        this.command('git',['init','--template=',root]);this.command('git',['config','url.https://never-inherit.invalid/.insteadOf','https://'],root);
         const identity={first,second,refsFirst,refsSecond};writeFileSync(join(root,'git-identity.json'),JSON.stringify(identity));return identity;
     }
 }
@@ -42,9 +43,11 @@ export class GitRegistryFixture {
     requests=0;
     authorization=false;
     fail=false;
+    tamperDirectory:string|null=null;
     constructor(private readonly root:string,private readonly identity:GitFixtureIdentity){this.server=createServer({key:readFileSync(join(root,'key.pem')),cert:readFileSync(join(root,'cert.pem'))},this.serve.bind(this));}
     private serve(request:IncomingMessage,response:ServerResponse):void {
         this.requests++;this.authorization||=request.headers.authorization!==undefined;
+        if(this.tamperDirectory){const file=join(this.root,'installation/.cordis/artifacts','git-resolution-'+this.tamperDirectory,'source-ca.pem');if(existsSync(file)){const original=readFileSync(file);chmodSync(file,0o600);writeFileSync(file,'changed trust fixture');writeFileSync(file,original);chmodSync(file,0o400);this.tamperDirectory=null;}}
         if(this.fail){response.writeHead(503);response.end();return;}
         const path=new URL(request.url??'/',this.origin()).pathname;
         if(path==='/repository.git/info/refs'){response.setHeader('content-type','text/plain');response.end(this.moved?this.identity.refsSecond:this.identity.refsFirst);return;}
