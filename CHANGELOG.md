@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Share the approved managed registry lookup invariant for source and dependency acquisition (#910).
+
 ### Fixed
 - Calibrate source acquisition lifecycle and import canaries at their exact observable fixture paths (#964).
 

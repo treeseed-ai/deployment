@@ -1121,3 +1121,13 @@ then remove only that known marker. Similarly calibrate the archived native modu
 marker. The compiled production acquisition scenario must leave both absolute markers absent.
 A relative `touch` marker checked in another directory cannot establish nonexecution. These
 counterfactuals concern only disposable owner fixtures; fetched plugin scripts remain unexecuted.
+
+### Shared approved registry lookup
+
+Root package and forthcoming runtime-dependency acquisition use one private `NpmRegistryLookup`
+class for approved package/target selection, exact managed Bun identity, metadata parsing,
+SRI/tarball identity and held-descriptor CA verification. It remains part of the native `source.npm`
+provider and the same installation writer. This helper is an invariant of source acquisition,
+not a second provider resolver or an additional authority grant. Its extraction preserves the
+existing public source contract and durable request stages; complete dependency closure is still
+implemented and qualified separately.
