@@ -96,6 +96,22 @@ class RegistryFixture {
 }
 class NpmSourceProgram {
     private static notAddition(change: ServicePlan['changes'][number]): boolean { return change.kind !== 'add'; }
+    private static fixtureBytes(path: string, bytes: Buffer): void { chmodSync(path, 0o600); writeFileSync(path, bytes); chmodSync(path, 0o400); }
+    private static async rewrittenPrepared(runtime: SourceRuntime, record: PluginRequestRecord, graph: ServiceGraph, configuration: ServicePlan['configuration']): Promise<void> {
+        if (typeof runtime.prepare !== 'function') throw new Error('PRIVATE_PREPARED_RELEASE_UNAVAILABLE');
+        const rootPath = join(configuration.release.directory, 'package.json'), releasePath = join(configuration.release.directory, 'release.json'), receiptPath = join(dirname(configuration.release.directory), 'receipt.json'), original = [{ path: rootPath, bytes: readFileSync(rootPath) }, { path: releasePath, bytes: readFileSync(releasePath) }, { path: receiptPath, bytes: readFileSync(receiptPath) }];
+        const root = JSON.parse(original[0]!.bytes.toString()) as Record<string, unknown>, release = JSON.parse(original[1]!.bytes.toString()) as { packageJson: { sha256: string } }, receipt = JSON.parse(original[2]!.bytes.toString()) as { configuration: ServicePlan['configuration']; files: { path: string; sha256: string; size: number }[] };
+        root.name = 'coherently-rewritten-fixture';
+        const rootBytes = Buffer.from(CanonicalJson.stringify(root) + '\n'); release.packageJson.sha256 = createHash('sha256').update(rootBytes).digest('hex');
+        const releaseBytes = Buffer.from(CanonicalJson.stringify(release) + '\n'); receipt.configuration.release.manifestDigest = createHash('sha256').update(releaseBytes).digest('hex');
+        for (const file of receipt.files) { const bytes = file.path === 'package.json' ? rootBytes : file.path === 'release.json' ? releaseBytes : null; if (bytes) { file.sha256 = createHash('sha256').update(bytes).digest('hex'); file.size = bytes.length; } }
+        let refused = false;
+        try {
+            this.fixtureBytes(rootPath, rootBytes); this.fixtureBytes(releasePath, releaseBytes); this.fixtureBytes(receiptPath, Buffer.from(CanonicalJson.stringify(receipt) + '\n'));
+            try { await runtime.prepare(record, graph); } catch (error) { refused = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'PREPARED_SOURCE_BINDING'; }
+        } finally { for (const file of original) this.fixtureBytes(file.path, file.bytes); }
+        if (!refused) throw new Error('Coherently rewritten prepared custody escaped exact acquired source binding');
+    }
     static failed(error: unknown): never {
         if (error instanceof PlanningBlockedError)
             throw new Error(error.blockers.map(NpmSourceProgram.code).join(","));
@@ -296,6 +312,7 @@ class NpmSourceProgram {
             }
             if (CanonicalJson.stringify(await runtime.prepare(acquired, graph)) !== CanonicalJson.stringify(prepared) || registry.requests !== stoppedCount)
                 throw new Error('Prepared custody repair changed source identity');
+            await this.rewrittenPrepared(runtime, acquired, graph, prepared);
             let outsideOwner = false;
             try { await new Deployment.ComposeDeploymentHost().plan(prepared); } catch (error) { outsideOwner = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'OVERLAPPING_STORAGE'; }
             if (!outsideOwner) throw new Error('Public planner admitted private overlapping storage');

@@ -18,6 +18,7 @@ interface ApplicationReport {
     downReady?: boolean;
 }
 class ApplicationTests {
+    async freshReplan(): Promise<void> { const fixture = new ServiceRuntimeFixture(); try { await fixture.running(); const report = this.program(fixture, 'fresh-replan'); expect(report.ready).toBe(true); expect(report.application.result).toBe('ready'); expect(report.resourceCount).toBe(26); } finally { fixture.close(); } }
     async duringApply(): Promise<void> { const fixture = new ServiceRuntimeFixture(); try {
         await fixture.running();
         const report = this.program(fixture, 'close-during-apply');
@@ -111,6 +112,7 @@ class ApplicationTests {
 }
 const suite = new ApplicationTests();
 test('smoke: host disposal drains its accepted application before releasing the single native writer', suite.duringApply.bind(suite), 240000);
+test('smoke: fresh owner replans without effects then applies the new exact candidate under the same writer', suite.freshReplan.bind(suite), 240000);
 test('smoke: built default application root durably commits five native protocol-qualified services and reports subsequent failure', suite.running.bind(suite), 240000);
 test('smoke: built default application root preserves a stopped non-serving composition', suite.stopped.bind(suite), 120000);
 test('smoke: unready partial application retains evidence and refuses implicit repair', suite.failed.bind(suite), 240000);

@@ -1,15 +1,25 @@
 import { createServer, type Server } from 'node:net';
-import { readFileSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, rmSync, existsSync, cpSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { CanonicalJson, ServiceSchemas, PlanningBlockedError } from '@treeseed-cordis/sdk';
 import { ComposeDeploymentHost, ServiceApplicationRuntime, ServicePlanStore } from '@treeseed-cordis/deployment';
 class ApplicationProgram {
     private static listener: Server | null = null;
     static async run(file: string, expected = 'completed'): Promise<void> {
-        const configuration = ServiceSchemas.configuration.parse(JSON.parse(readFileSync(file, 'utf8'))), plan = await new ComposeDeploymentHost().plan(configuration);
+        const configuration = ServiceSchemas.configuration.parse(JSON.parse(readFileSync(file, 'utf8')));
+        let plan = await new ComposeDeploymentHost().plan(configuration);
         if (plan.formatVersion !== 3)
             throw new Error('Wrong format');
         const runtime = await ServiceApplicationRuntime.start(plan);
+        if (expected === 'fresh-replan') {
+            const before = readFileSync(configuration.installationDirectory + '/.cordis/writer.lock/owner.json'), next = structuredClone(configuration);
+            next.release.directory += '-candidate'; cpSync(configuration.release.directory, next.release.directory, { recursive: true });
+            const initial = plan; plan = await runtime.plan(next);
+            const store = new ServicePlanStore(configuration.installationDirectory);
+            if (plan.id === initial.id || plan.expectedComposition !== null || store.records().length || store.resources().length || !before.equals(readFileSync(configuration.installationDirectory + '/.cordis/writer.lock/owner.json')) || CanonicalJson.stringify(await runtime.plan(next)) !== CanonicalJson.stringify(plan))
+                throw new Error('Fresh planning activated or changed owner custody');
+            rmSync(configuration.release.directory, { recursive: true }); configuration.release = plan.configuration.release;
+        }
         const providers = runtime.describe();
         if (!providers.some(ApplicationProgram.authority) || !providers.some(ApplicationProgram.applicationHost))
             throw new Error('Missing selected native host providers');

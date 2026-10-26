@@ -57,7 +57,7 @@ class ServiceApplications implements ServiceApplicationHost {
     private closed = false;
     private faulted = false;
     private planning = false;
-    constructor(private acceptedPlan: ServicePlan, authority: InstallationAuthority, private readonly locator: CordisServiceLocator) { Check.require(CanonicalJson.stringify(authority.plan) === CanonicalJson.stringify(acceptedPlan), 'PLAN_BINDING'); this.store = authority.store; this.writer = authority.writer; }
+    constructor(private acceptedPlan: ServicePlan, private readonly authority: InstallationAuthority, private readonly locator: CordisServiceLocator) { Check.require(CanonicalJson.stringify(authority.plan) === CanonicalJson.stringify(acceptedPlan), 'PLAN_BINDING'); this.store = authority.store; this.writer = authority.writer; }
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>): Promise<{
@@ -68,7 +68,7 @@ class ServiceApplications implements ServiceApplicationHost {
         for(const record of this.store.records())if(record.idempotencyKey===request.idempotencyKey){const repeated=this.store.accept(request,this.writer);return {id:repeated.record.id,accepted:true};}
         Check.require(!this.faulted,'HOST_RECOVERY_REQUIRED');Check.require(!this.planning&&this.job===null,'APPLICATION_BUSY');
         const candidate=this.store.read(request.planId,request.digest),current=this.store.current();ServiceTransitions.activation(candidate,request.restartServices,this.acceptedPlan);
-        if(current)Check.require(candidate.expectedComposition===current.compositionGeneration&&candidate.expectedResourceSet===CanonicalJson.digest(current.resources),'STALE_GENERATION');else Check.require(candidate.id===this.acceptedPlan.id&&candidate.digest===this.acceptedPlan.digest,'PLAN_BINDING');
+        if(current)Check.require(candidate.expectedComposition===current.compositionGeneration&&candidate.expectedResourceSet===CanonicalJson.digest(current.resources),'STALE_GENERATION');else this.initial(candidate);
         const accepted=this.store.accept(request,this.writer);
         if(accepted.fresh)this.job=this.execute(accepted.record,candidate).catch(this.backgroundFailed.bind(this)).finally(this.finished.bind(this));
         return { id: accepted.record.id, accepted: true };
@@ -76,8 +76,9 @@ class ServiceApplications implements ServiceApplicationHost {
     async plan(input:ServicePlan['configuration']):Promise<ServicePlan>{
         Check.require(!this.closed&&!this.faulted,'HOST_RECOVERY_REQUIRED');Check.require(!this.planning&&this.job===null,'APPLICATION_BUSY');this.writer.assert(this.store.path);input=ServiceSchemas.configuration.parse(input);Check.require(input.installationId===this.acceptedPlan.configuration.installationId&&input.installationDirectory===this.store.path&&input.engineContext===this.acceptedPlan.expectedEngine.context&&new URL(input.origin).origin===this.acceptedPlan.configuration.origin,'TRANSITION_SCOPE');
         Check.require(input.runtimeState===this.acceptedPlan.configuration.runtimeState,'RUNTIME_STATE_TRANSITION_UNSUPPORTED');
-        this.planning=true;try{const current=this.store.current();Check.require(current&&current.compositionGeneration===this.acceptedPlan.compositionGeneration,'ACTIVE_COMPOSITION_REQUIRED');Check.require((await this.status()).ready,'SERVICE_NOT_READY');return await new ServicePlanningHost(new DockerCommands(),new HostSystem(),{previous:this.acceptedPlan,writer:this.writer}).plan(input);}finally{this.planning=false;}
+        this.planning=true;try{const current=this.store.current();if(current){Check.require(current.compositionGeneration===this.acceptedPlan.compositionGeneration,'ACTIVE_COMPOSITION_REQUIRED');Check.require((await this.status()).ready,'SERVICE_NOT_READY');}else{Check.require(this.store.records().length===0&&this.store.resources().length===0,'WORKER_REPAIR_REQUIRED');}const planned=await new ServicePlanningHost(new DockerCommands(),new HostSystem(),{previous:this.acceptedPlan,writer:this.writer,authority:this.authority}).plan(input);if(!current)this.initial(planned);return planned;}finally{this.planning=false;}
     }
+    private initial(candidate: ServicePlan): void { Check.require(this.store.records().length===0&&this.store.resources().length===0&&candidate.expectedComposition===null&&candidate.expectedResourceSet===null,'WORKER_REPAIR_REQUIRED'); ServiceTransitions.initial(this.acceptedPlan,candidate); }
     private finished(): void { this.job = null; }
     private backgroundFailed(_error: unknown): void { this.faulted = true; }
     async application(id: string): Promise<ServiceApplicationRecord> {
@@ -287,7 +288,7 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
         context: Context;
     }> {
         const plan = ServiceSchemas.plan.parse(input), scopeId = 'installation:' + plan.configuration.installationId + ':host', artifact = { kind: 'bundled' as const, identity: 'deployment-native-host.1:' + plan.composition.worker.sha256 };
-        const registrations: ProviderRegistration[] = [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: { plan, ...(bootstrap ? { bootstrap } : {}) }, artifact }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact }, ...extras], selections = [], inject = ['cordis.composition', ServiceApplicationToken.host.id];
+        const registrations: ProviderRegistration[] = [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: { plan, ...(bootstrap ? { bootstrap } : {}) }, artifact }, { token: ServiceApplicationToken.host, plugin: ServiceApplicationPlugin, declaration: ServiceApplicationPlugin.declaration, configuration: plan, artifact }, ...extras], selections = [], inject = ['cordis.composition', InstallationAuthorityToken.instance.id, ServiceApplicationToken.host.id];
         for (const registration of registrations)
             selections.push({ scopeId, capability: registration.token.id, providerId: ProviderV4Schemas.declaration.parse(registration.declaration).id });
         for (const registration of extras)
@@ -322,14 +323,14 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
                 result.push({ capability: token.id, id: item.id, selected: item.selected, ready: item.ready });
         return result;
     }
-    private acquire() { Check.require(!this.closed && !this.closing, 'HOST_CLOSED'); return CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host); }
+    private applicationLease() { Check.require(!this.closed && !this.closing, 'HOST_CLOSED'); return CordisServiceLocator.from(this.context).acquire(ServiceApplicationToken.host); }
     async submit(request: Extract<ServiceWorkerRequest, {
         operation: 'submit';
     }>): Promise<{
         id: string;
         accepted: true;
     }> {
-        const lease = await this.acquire();
+        const lease = await this.applicationLease();
         try {
             return await lease.value.submit(request);
         }
@@ -337,10 +338,10 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
             await lease.release();
         }
     }
-    async plan(configuration:ServicePlan['configuration']):Promise<ServicePlan>{const lease=await this.acquire();try{return await lease.value.plan(configuration);}finally{await lease.release();}}
-    async observationContext(serviceId: string): Promise<ServiceObservationContext> { const lease = await this.acquire(); try { return await lease.value.observationContext(serviceId); } finally { await lease.release(); } }
+    async plan(configuration:ServicePlan['configuration']):Promise<ServicePlan>{const lease=await this.applicationLease();try{return await lease.value.plan(configuration);}finally{await lease.release();}}
+    async observationContext(serviceId: string): Promise<ServiceObservationContext> { const lease = await this.applicationLease(); try { return await lease.value.observationContext(serviceId); } finally { await lease.release(); } }
     async status(): Promise<ServiceStatus> {
-        const lease = await this.acquire();
+        const lease = await this.applicationLease();
         try {
             return await lease.value.status();
         }
@@ -349,7 +350,7 @@ export class ServiceApplicationRuntime implements ServiceApplicationHost {
         }
     }
     async application(id: string): Promise<ServiceApplicationRecord> {
-        const lease = await this.acquire();
+        const lease = await this.applicationLease();
         try {
             return await lease.value.application(id);
         }

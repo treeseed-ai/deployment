@@ -1,9 +1,10 @@
 import {PackageClosureAcquirer} from './source-closure.js';
 import { PreparedServiceRelease } from './prepared-release.js';
+import { ServiceApplicationRuntime } from './service-application.js';
 import { SourceArchiveCache, type ResolvedPackageArchive } from './source-archive.js';
 import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, ProviderV4Schemas, ServiceSchemas, type ServicePlan, type PluginRequestRecord, type PluginInstallRequest } from '@treeseed-cordis/sdk';
-import { Context, CordisComposition, CordisServiceLocator, type CompositionHandle } from '@treeseed-cordis/sdk/runtime';
-import { InstallationAuthority, InstallationAuthorityPlugin, InstallationAuthorityToken } from './service-authority.js';
+import { Context, CordisServiceLocator, type CompositionHandle } from '@treeseed-cordis/sdk/runtime';
+import { InstallationAuthority, InstallationAuthorityToken } from './service-authority.js';
 import { PluginRequestStore } from './plugin-registry.js';
 import {NpmRegistryLookup} from './source-registry.js';
 import { ManagedReleaseCache } from './release-cache.js';
@@ -88,34 +89,17 @@ export class NpmSourcePlugin {
     constructor(context: Context, plan: ServicePlan) { const authority = InstallationAuthorityToken.instance.parse(Reflect.get(context, InstallationAuthorityToken.instance.id)); Check.require(CanonicalJson.stringify(authority.plan) === CanonicalJson.stringify(ServiceSchemas.plan.parse(plan)), 'PLAN_BINDING'); context.provide(PackageSourceTokens.npm.id, new NpmPackageSource(authority)); }
 }
 /** Default standalone composition for source qualification; host adopts the same plugin. */
-export class NpmSourceRuntime implements PackageSourceResolver {
-    private closed = false;
-    private constructor(private readonly handle: CompositionHandle, private readonly context: Context, private readonly authority: InstallationAuthority) { }
+export class NpmSourceRuntime extends ServiceApplicationRuntime implements PackageSourceResolver {
+    private sourceClosed = false;
+    private constructor(handle: CompositionHandle, context: Context, private readonly authority: InstallationAuthority) { super(handle, context); }
     static async start(input: ServicePlan): Promise<NpmSourceRuntime> {
-        const plan = ServiceSchemas.plan.parse(input), artifact = { kind: 'bundled' as const, identity: 'deployment-source.1:' + plan.composition.worker.sha256 }, scopeId = 'installation:' + plan.configuration.installationId + ':source', registrations = [{ token: InstallationAuthorityToken.instance, plugin: InstallationAuthorityPlugin, declaration: InstallationAuthorityPlugin.declaration, configuration: { plan }, artifact }, { token: PackageSourceTokens.npm, plugin: NpmSourcePlugin, declaration: NpmSourcePlugin.declaration, configuration: plan, artifact }], selections = [];
-        for (const registration of registrations)
-            selections.push({ scopeId, capability: registration.token.id, providerId: registration.declaration.id });
-        const handle = await CordisComposition.start({ registrations, selections }, { scopeId, target: 'deployment', principalId: 'uid:' + process.getuid!(), resourceScope: plan.configuration.installationDirectory }), receiver: {
-            context?: Context;
-        } = {};
-        class Consumer {
-            static readonly inject = ['cordis.composition', InstallationAuthorityToken.instance.id, PackageSourceTokens.npm.id];
-            constructor(context: Context) { receiver.context = context; }
-        }
-        try {
-            await handle.mount(Consumer, undefined);
-            Check.require(receiver.context, 'NATIVE_SOURCE_SCOPE');
-            const authority = InstallationAuthorityToken.instance.parse(Reflect.get(receiver.context, InstallationAuthorityToken.instance.id));
-            return new NpmSourceRuntime(handle, receiver.context, authority);
-        }
-        catch (error) {
-            await handle.dispose();
-            throw error;
-        }
+        const plan = ServiceSchemas.plan.parse(input), artifact = { kind: 'bundled' as const, identity: 'deployment-source.1:' + plan.composition.worker.sha256 }, scope = await this.mount(plan, [{ token: PackageSourceTokens.npm, plugin: NpmSourcePlugin, declaration: NpmSourcePlugin.declaration, configuration: plan, artifact }]);
+        const authority = InstallationAuthorityToken.instance.parse(Reflect.get(scope.context, InstallationAuthorityToken.instance.id));
+        return new NpmSourceRuntime(scope.handle, scope.context, authority);
     }
-    begin(source: string, key: string, target: PluginInstallRequest['target'] = 'deployment'): PluginRequestRecord { Check.require(!this.closed && this.authority.plan.acquisitionPolicy, 'SOURCE_POLICY_REQUIRED'); const intent: PluginInstallRequest = { source, idempotencyKey: key, installationDirectory: this.authority.plan.configuration.installationDirectory, scope: 'installation', target, configuration: {} }; return new PluginRequestStore(this.authority.plan, this.authority.writer).begin(intent, CanonicalJson.digest(this.authority.plan.acquisitionPolicy), this.authority.store.current()?.compositionGeneration ?? null).record; }
+    begin(source: string, key: string, target: PluginInstallRequest['target'] = 'deployment'): PluginRequestRecord { Check.require(!this.sourceClosed && this.authority.plan.acquisitionPolicy, 'SOURCE_POLICY_REQUIRED'); const intent: PluginInstallRequest = { source, idempotencyKey: key, installationDirectory: this.authority.plan.configuration.installationDirectory, scope: 'installation', target, configuration: {} }; return new PluginRequestStore(this.authority.plan, this.authority.writer).begin(intent, CanonicalJson.digest(this.authority.plan.acquisitionPolicy), this.authority.store.current()?.compositionGeneration ?? null).record; }
     async resolve(record: PluginRequestRecord): Promise<PluginRequestRecord> {
-        Check.require(!this.closed, 'HOST_CLOSED');
+        Check.require(!this.sourceClosed, 'HOST_CLOSED');
         const lease = await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm);
         try {
             return await lease.value.resolve(record);
@@ -124,18 +108,13 @@ export class NpmSourceRuntime implements PackageSourceResolver {
             await lease.release();
         }
     }
-    async fetch(record: PluginRequestRecord): Promise<ResolvedPackageArchive> { Check.require(!this.closed, 'HOST_CLOSED'); const lease = await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm); try {
+    async fetch(record: PluginRequestRecord): Promise<ResolvedPackageArchive> { Check.require(!this.sourceClosed, 'HOST_CLOSED'); const lease = await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm); try {
         return await lease.value.fetch(record);
     }
     finally {
         await lease.release();
     } }
-    async acquire(record:PluginRequestRecord):Promise<PluginRequestRecord>{Check.require(!this.closed,'HOST_CLOSED');const lease=await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm);try{return await lease.value.acquire(record);}finally{await lease.release();}}
-    async prepare(record: PluginRequestRecord, composition: ServicePlan['composition']): Promise<ServicePlan['configuration']> { Check.require(!this.closed, 'HOST_CLOSED'); return new PreparedServiceRelease(this.authority).prepare(record, composition); }
-    async close(): Promise<void> {
-        if (this.closed)
-            return;
-        this.closed = true;
-        await this.handle.dispose();
-    }
+    async acquire(record:PluginRequestRecord):Promise<PluginRequestRecord>{Check.require(!this.sourceClosed,'HOST_CLOSED');const lease=await CordisServiceLocator.from(this.context).acquire(PackageSourceTokens.npm);try{return await lease.value.acquire(record);}finally{await lease.release();}}
+    async prepare(record: PluginRequestRecord, composition: ServicePlan['composition']): Promise<ServicePlan['configuration']> { Check.require(!this.sourceClosed, 'HOST_CLOSED'); const lease = await CordisServiceLocator.from(this.context).acquire(InstallationAuthorityToken.instance); try { return await new PreparedServiceRelease(lease.value).prepare(record, composition); } finally { await lease.release(); } }
+    async close(timeoutMs = 10000): Promise<void> { this.sourceClosed = true; await super.close(timeoutMs); }
 }

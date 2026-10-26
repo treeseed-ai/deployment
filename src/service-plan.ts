@@ -1,4 +1,6 @@
 import {PluginRequestJournal} from './plugin-registry.js';
+import { PreparedServiceRelease } from './prepared-release.js';
+import type { InstallationAuthority } from './service-authority.js';
 import { ServiceJournal } from './service-journal.js';
 import { BootstrapRecords, BootstrapPermit } from './service-bootstrap.js';
 import { type ServiceApplicationRecord, type ServiceResourceReceipt, type ServiceSnapshot, type ServiceWorkerRequest } from '@treeseed-cordis/sdk';
@@ -64,6 +66,7 @@ export class ServicePlanIdentity {
 }
 /** Data-only classification; artifact validity and actual resources remain independently verified. */
 export class ServiceTransitions {
+    static initial(base: ServicePlan, candidate: Pick<ServicePlan, 'configuration' | 'expectedEngine' | 'composition' | 'helpers' | 'acquisitionPolicy'>): void { Check.require(candidate.configuration.installationId===base.configuration.installationId&&candidate.configuration.installationDirectory===base.configuration.installationDirectory&&candidate.configuration.origin===base.configuration.origin&&candidate.configuration.runtimeState===base.configuration.runtimeState&&CanonicalJson.stringify(candidate.expectedEngine)===CanonicalJson.stringify(base.expectedEngine),'PLAN_BINDING'); Check.require(CanonicalJson.stringify(candidate.composition.profile)===CanonicalJson.stringify(base.composition.profile)&&CanonicalJson.stringify(candidate.composition.worker)===CanonicalJson.stringify(base.composition.worker)&&CanonicalJson.stringify(candidate.helpers??null)===CanonicalJson.stringify(base.helpers??null)&&CanonicalJson.stringify(candidate.acquisitionPolicy??null)===CanonicalJson.stringify(base.acquisitionPolicy??null),'ROOT_TRANSITION_REQUIRED'); }
     static additive(plan:ServicePlan,restartServices?:string[]):void{Check.require(restartServices===undefined,'RESTART_SCOPE_NOT_QUALIFIED');for(const change of plan.changes)Check.require((change.kind==='add'||change.kind==='retain')&&change.requiredActions.length===0,'TRANSITION_ACTION_REQUIRED');}
     static activation(plan:ServicePlan,restartServices?:string[],previous?:ServicePlan):void{
         const required:string[]=[];for(const change of plan.changes){if((change.kind==='add'||change.kind==='retain')&&change.requiredActions.length===0)continue;Check.require((change.kind==='replace'||change.kind==='reconfigure')&&CanonicalJson.stringify(change.requiredActions)==='["restart"]','TRANSITION_ACTION_REQUIRED');required.push(change.serviceId);}
@@ -93,7 +96,7 @@ export class ServiceTransitions {
 }
 /** First format-3 plan-only slice; all activation remains behind the durable worker. */
 export class ServicePlanningHost {
-    constructor(private readonly commands: DiagnosticCommands, private readonly system: DiagnosticSystem, private readonly custody?: {previous:ServicePlan;writer:InstallationWriter}) { }
+    constructor(private readonly commands: DiagnosticCommands, private readonly system: DiagnosticSystem, private readonly custody?: {previous:ServicePlan;writer:InstallationWriter;authority?:InstallationAuthority}) { }
     static isRelease(configuration: {
         release: {
             directory: string;
@@ -117,7 +120,8 @@ export class ServicePlanningHost {
         configuration.plugins.sort(ServicePlanningHost.byPlugin);
         configuration.credentialReferences.sort();
         const path = configuration.installationDirectory, bundle = configuration.release.directory;
-        Check.require(path !== bundle && !path.startsWith(bundle + '/') && !bundle.startsWith(path + '/'), 'OVERLAPPING_STORAGE');
+        const overlaps = path === bundle || path.startsWith(bundle + '/') || bundle.startsWith(path + '/');
+        if (overlaps) { Check.require(this.custody?.authority && this.custody.authority.writer === this.custody.writer, 'OVERLAPPING_STORAGE'); await PreparedServiceRelease.authorize(configuration, this.custody.previous, this.custody.authority); }
         const host = this.system.host();
         Check.require(host.os === 'linux' && host.architecture === 'x64' && host.distribution === 'ubuntu' && host.release === '26.04', 'UNSUPPORTED_HOST');
         const storage = this.system.storage(path);
@@ -133,7 +137,9 @@ export class ServicePlanningHost {
         if(exists)for(const record of store.records()){Check.require(!record.recovery,'APPLICATION_RECOVERY_REQUIRED');Check.require(['completed','failed','cancelled'].includes(record.phase),'APPLICATION_BUSY');}
         const resolved = await new ServiceArtifactResolver().resolve(configuration), composition = ServicePlanIdentity.graph(resolved.inventory.composition), origin = new URL(configuration.origin), port = Number(origin.port || (origin.protocol === 'https:' ? 443 : 80));
         const current=exists?store.current():null;
-        if(current){Check.require(this.custody&&this.custody.previous.compositionGeneration===current.compositionGeneration,'OWNER_HOST_REQUIRED');this.custody.writer.assert(path);await new ServiceRuntimeInspection(this.custody.previous).audit();}else Check.require(!this.custody,'STALE_GENERATION');
+        if(this.custody){this.custody.writer.assert(path);Check.require(CanonicalJson.stringify(store.read(this.custody.previous.id,this.custody.previous.digest))===CanonicalJson.stringify(this.custody.previous),'PLAN_BINDING');}
+        if(current){Check.require(this.custody&&this.custody.previous.compositionGeneration===current.compositionGeneration,'OWNER_HOST_REQUIRED');await new ServiceRuntimeInspection(this.custody.previous).audit();}else if(this.custody){Check.require(store.records().length===0&&store.resources().length===0,'WORKER_REPAIR_REQUIRED');}
+        if(!current&&this.custody) ServiceTransitions.initial(this.custody.previous,{configuration,expectedEngine,composition,helpers:resolved.inventory.helpers,acquisitionPolicy:resolved.inventory.acquisitionPolicy});
         if(!current)Check.require(await new TcpTableProbe().available(port), 'PORT_UNAVAILABLE');
         const projectName = 'cordis-' + CanonicalJson.digest({ installationId: configuration.installationId, installationDirectory: path }).slice(0, 16);
         if(!current)this.empty(context, projectName);
@@ -175,7 +181,7 @@ export class ServicePlanningHost {
             const nextEffects:ServicePlan['effects']=[];for(const effect of effects){if(effect.kind==='create-network')continue;if(effect.kind==='create-volume'&&(!wantedVolumes.has(effect.target)||existingVolumes.has(effect.target)))continue;if(effect.kind==='prepare-credential'&&!physical.has(effect.target.slice('secret://'.length).split('/')[0]!))continue;if(effect.kind==='start-service'&&!physical.has(effect.target))continue;if(effect.kind==='configure-service'&&!changed.has(effect.target))continue;nextEffects.push(effect);}
             const nextPayload={...payload,changes:transitions,retainedResources,effects:nextEffects},nextDigest=CanonicalJson.digest(nextPayload);return store.publish(ServiceSchemas.plan.parse({...nextPayload,id:'plan-'+nextDigest,digest:nextDigest}),this.custody.writer);
         }
-        return store.publish(plan);
+        return store.publish(plan,this.custody?.writer);
     }
     private empty(context: string, project: string): void {
         for (const args of [['ps', '--all', '--format', '{{json .}}'], ['network', 'ls', '--format', '{{json .}}'], ['volume', 'ls', '--format', '{{json .}}']]) {
