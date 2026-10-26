@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Retain verified original NPM archives through bounded HTTPS acquisition without imports or activation (#910).
+
+### Added
 - Resolve approved NPM selectors through a native Cordis provider and exact managed Bun, with durable source identity before archive acquisition (#910).
 
 ### Added

@@ -1074,3 +1074,25 @@ For custom source trust, hold the exact private CA file descriptor for the manag
 verify its identity and bytes before committing resolution. A file modified and restored during
 an otherwise valid TLS response is a trust race and must leave the request unresolved. Passing
 a path to a certificate file is not sufficient evidence of which trust bytes the helper used.
+
+### Verified NPM archive custody (Task 3C bounded acquisition prefix)
+
+`PackageSourceResolver.fetch(record)` and the default `NpmSourceRuntime.fetch(record)` consume
+an already committed exact NPM resolution. They fetch its same-registry HTTPS tarball with
+certificate/hostname verification, no ambient proxy/credentials, no redirects, a deadline and
+a 64 MiB compressed limit. SRI is verified before read-only archive inspection. Package name,
+version, native Cordis package declaration, declared entries and asset bytes must match the
+resolution and inspected archive. No extraction, imports, package manager or lifecycle execution
+occurs during this fetch.
+
+The exact original archive and its resolution receipt are published atomically inside the selected
+installation's private artifact cache, with immutable files/directories and descriptor-anchored
+read-back. Same bytes may be reused offline after fresh custody validation. Changed bytes,
+wrong ownership/modes, symlinks, extra files or interrupted publication refuse adoption and never
+overwrite the existing record. Fetch keeps the request at `resolved`: complete locked dependency
+closure and the durable `acquired` receipt remain a later step. A single fetched archive must
+never be described as a verified complete closure or active plugin.
+
+This prefix also adopts exact SDK `.16`, source `4c0ecd2a0fc28545dbf677cc988ce69f0cf2f15d`,
+archive SHA-256 `4084aa8dbe9767984fac9fef7f5cea30a0bec93ed416138d32c804e6389fdba5`.
+Keep one exact SDK peer across the eventual owner closure; preserve all prior frozen artifacts.
