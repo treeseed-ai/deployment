@@ -1,3 +1,4 @@
+import {PackageClosureAcquirer} from './source-closure.js';
 import { GitArchiveCache, GitRepositoryGuard } from './git-archive.js';
 import { createHash } from 'node:crypto';
 import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, ProviderV4Schemas, ServiceSchemas, type PluginInstallRequest, type PluginRequestRecord, type ServicePlan } from '@treeseed-cordis/sdk';
@@ -18,6 +19,7 @@ class GitSourceAdapter {
 export class GitSourceToken { static readonly instance=new CapabilityToken<PackageSourceResolver>('source.git',ProviderV4Schemas.version,new GitSourceAdapter()); }
 class GitPackageSource implements PackageSourceResolver {
     private readonly requests:PluginRequestStore;
+    private readonly jobs=new Map<string,Promise<PluginRequestRecord>>();
     constructor(private readonly authority:InstallationAuthority){this.requests=new PluginRequestStore(authority.plan,authority.writer);}
     private current(input:PluginRequestRecord):PluginRequestRecord{const intent=PluginManagementSchemas.install.parse(input.intent);for(const record of this.requests.records())if(record.requestId===input.requestId){Check.require(CanonicalJson.stringify(record.intent)===CanonicalJson.stringify(intent)&&record.intentDigest===input.intentDigest&&record.policyDigest===input.policyDigest&&record.expectedGeneration===input.expectedGeneration,'IDEMPOTENCY_CONFLICT');return record;}return Check.block('PLUGIN_REQUEST_NOT_FOUND');}
     private static patterns(ref:string|null):string[]{if(ref===null||ref==='HEAD')return ['HEAD'];if(ref.startsWith('refs/'))return [ref,ref+'^{}'];return ['refs/heads/'+ref,'refs/tags/'+ref,'refs/tags/'+ref+'^{}'];}
@@ -50,7 +52,8 @@ class GitPackageSource implements PackageSourceResolver {
         }finally{repository?.close();trust?.close();work?.close();artifacts?.close();release.close();}
     }
     async fetch(input:PluginRequestRecord):Promise<ResolvedPackageArchive>{return new GitArchiveCache(this.authority,this.current(input)).fetch();}
-    async acquire(_record:PluginRequestRecord):Promise<PluginRequestRecord>{return Check.block('GIT_ACQUISITION_NOT_QUALIFIED');}
+    acquire(input:PluginRequestRecord):Promise<PluginRequestRecord>{const record=this.current(input),existing=this.jobs.get(record.requestId);if(existing)return existing;const job=new PackageClosureAcquirer(this.authority,this).acquire(record).finally(this.finished.bind(this,record.requestId));this.jobs.set(record.requestId,job);return job;}
+    private finished(id:string):void{this.jobs.delete(id);}
 }
 /** The host adopts this same native provider when Git archive/closure admission is qualified. */
 export class GitSourcePlugin {

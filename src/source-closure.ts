@@ -1,9 +1,10 @@
+import { GitArchiveCache } from './git-archive.js';
 import { createHash } from 'node:crypto';
 import { fstatSync, lstatSync, fchmodSync, fsyncSync } from 'node:fs';
 import { join } from 'node:path';
 import { validRange, satisfies } from 'semver';
 import { z } from 'zod';
-import { CanonicalJson, PlatformSchemas, ServiceSchemas, PluginManagementSchemas, type PluginRequestRecord, type ServicePlan } from '@treeseed-cordis/sdk';
+import { CanonicalJson, PlatformSchemas, ServiceSchemas, PluginManagementSchemas, type PluginRequestRecord, type ServicePlan, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
 import { ArtifactResolver, type PackageData } from './artifacts.js';
 import { PackageArchiveInspector, type PackageArchiveIndex } from './package-archive.js';
 import { InstallationAuthority } from './service-authority.js';
@@ -15,6 +16,7 @@ import { SourceArchiveCache } from './source-archive.js';
 import { PluginRequestStore } from './plugin-registry.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
 interface RootArchive {
+    descriptor:PluginPackageDescriptor;
     path: string;
     sha256: string;
     size: number;
@@ -87,7 +89,9 @@ export class SourceClosureStore {
             Check.require(parsed.success, 'SOURCE_CLOSURE_INCOMPLETE');
             const receipt = parsed.data, manifest = receipt.manifest;
             Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && receipt.digest === digest && CanonicalJson.digest(manifest) === digest, 'SOURCE_CLOSURE_SCOPE');
-            Check.require(record.resolution?.kind === 'npm' && manifest.root.name === record.resolution.name && manifest.root.version === record.resolution.version && manifest.root.sri === record.resolution.sri, 'SOURCE_CLOSURE_IDENTITY');
+            Check.require(record.resolution,'SOURCE_CLOSURE_IDENTITY');
+            if(record.resolution.kind==='npm')Check.require(manifest.root.name===record.resolution.name&&manifest.root.version===record.resolution.version&&manifest.root.sri===record.resolution.sri,'SOURCE_CLOSURE_IDENTITY');
+            else{const archive=await new GitArchiveCache(this.authority,record).fetch();Check.require(manifest.root.name===archive.descriptor.package.name&&manifest.root.version===archive.descriptor.package.version&&manifest.root.sha256===archive.sha256&&manifest.root.sri==='sha256-'+Buffer.from(archive.sha256,'hex').toString('base64'),'SOURCE_CLOSURE_IDENTITY');if(record.sourceReceipt?.kind==='git')Check.require(record.sourceReceipt.tree===archive.tree&&record.sourceReceipt.buildPolicyDigest===null,'SOURCE_CLOSURE_IDENTITY');}
             if (record.sourceReceipt)
                 Check.require(record.sourceReceipt.closureDigest === digest && record.sourceReceipt.archiveDigest === manifest.root.sha256, 'SOURCE_CLOSURE_IDENTITY');
             for (const file of [manifest.packageJson, manifest.lockfile])
@@ -189,7 +193,7 @@ export class PackageClosureAcquirer {
     async acquire(record: PluginRequestRecord): Promise<PluginRequestRecord> { this.current(record); if (record.sourceReceipt) {
         await this.store.read(record, record.sourceReceipt.closureDigest);
         return record;
-    } Check.require(record.stage === 'resolved' && record.resolution?.kind === 'npm', 'SOURCE_RESOLUTION_REQUIRED'); const base = this.base(), snapshot = this.authority.store.current(); Check.require(record.expectedGeneration === (snapshot?.compositionGeneration ?? null), 'STALE_GENERATION'); Check.require(CanonicalJson.stringify(base.helpers ?? null) === CanonicalJson.stringify(this.authority.plan.helpers ?? null) && CanonicalJson.stringify(base.acquisitionPolicy ?? null) === CanonicalJson.stringify(this.authority.plan.acquisitionPolicy ?? null), 'SOURCE_POLICY_RESTART_REQUIRED'); const fetched = await this.source.fetch(record), attempt = this.store.attempt(record); let work: SafeDirectory | undefined, release: ManagedReleaseReader | undefined, initial: ManagedReleaseReader | undefined; try {
+    } Check.require(record.stage === 'resolved' && record.resolution!==null, 'SOURCE_RESOLUTION_REQUIRED'); const base = this.base(), snapshot = this.authority.store.current(); Check.require(record.expectedGeneration === (snapshot?.compositionGeneration ?? null), 'STALE_GENERATION'); Check.require(CanonicalJson.stringify(base.helpers ?? null) === CanonicalJson.stringify(this.authority.plan.helpers ?? null) && CanonicalJson.stringify(base.acquisitionPolicy ?? null) === CanonicalJson.stringify(this.authority.plan.acquisitionPolicy ?? null), 'SOURCE_POLICY_RESTART_REQUIRED'); const fetched = await this.source.fetch(record), attempt = this.store.attempt(record); let work: SafeDirectory | undefined, release: ManagedReleaseReader | undefined, initial: ManagedReleaseReader | undefined; try {
         work = InstallationStore.mkdir(attempt, 'work');
         const archives = InstallationStore.mkdir(work, 'archives'), packages = new Map<string, PackageData>();
         try {
@@ -209,7 +213,7 @@ export class PackageClosureAcquirer {
                 Check.require(retainedSize <= 512 * 1024 * 1024, 'SOURCE_CLOSURE_LIMIT');
                 packages.set(file.name, await this.data(join(release.path, file.path), file.sha256, release.read(file.path), file.name, file.version));
             }
-            const rootBytes = this.file(fetched.path, fetched.sha256), rootData = await this.data(fetched.path, fetched.sha256, rootBytes, record.resolution.name, record.resolution.version);
+            const rootBytes = this.file(fetched.path, fetched.sha256),rootIdentity=fetched.descriptor.package,rootSri=record.resolution.kind==='npm'?record.resolution.sri:'sha256-'+Buffer.from(fetched.sha256,'hex').toString('base64'), rootData = await this.data(fetched.path, fetched.sha256, rootBytes, rootIdentity.name, rootIdentity.version);
             Check.require(packages.has(rootData.entry.name) || packages.size < 1024, 'SOURCE_CLOSURE_LIMIT');
             packages.set(rootData.entry.name, rootData);
             const queue = [...packages.keys()], visited = new Set<string>(), lookup = new NpmRegistryLookup(this.authority), verifier = new ClosureVerifier();
@@ -272,11 +276,12 @@ export class PackageClosureAcquirer {
             const entries = [];
             for (const data of sorted)
                 entries.push(data.entry);
-            const manifest = ClosureSchemas.manifest.parse({ formatVersion: 1, baseReleaseDigest: base.releaseDigest, root: { name: record.resolution.name, version: record.resolution.version, sha256: fetched.sha256, sri: record.resolution.sri }, packageJson: { path: 'package.json', sha256: PackageClosureAcquirer.hash(rootFile) }, lockfile: { path: 'bun.lock', sha256: PackageClosureAcquirer.hash(lockFile) }, packages: entries }), digest = await this.store.publish(record, manifest, work, packages);
+            const manifest = ClosureSchemas.manifest.parse({ formatVersion: 1, baseReleaseDigest: base.releaseDigest, root: { name: rootIdentity.name, version: rootIdentity.version, sha256: fetched.sha256, sri: rootSri }, packageJson: { path: 'package.json', sha256: PackageClosureAcquirer.hash(rootFile) }, lockfile: { path: 'bun.lock', sha256: PackageClosureAcquirer.hash(lockFile) }, packages: entries }), digest = await this.store.publish(record, manifest, work, packages);
             this.current(record);
-            const sourceReceipt = PluginManagementSchemas.sourceReceipt.parse({ kind: 'npm', locator: (record.intent as {
-                    source: string;
-                }).source, registry: record.resolution.registry, name: record.resolution.name, version: record.resolution.version, archiveDigest: fetched.sha256, sri: record.resolution.sri, closureDigest: digest, helperDigests: record.resolution.helperDigests });
+            const common={locator:(record.intent as {source:string}).source,name:rootIdentity.name,version:rootIdentity.version,archiveDigest:fetched.sha256,sri:rootSri,closureDigest:digest,helperDigests:record.resolution.helperDigests};
+            let sourceReceipt;
+            if(record.resolution.kind==='npm')sourceReceipt=PluginManagementSchemas.sourceReceipt.parse({...common,kind:'npm',registry:record.resolution.registry});
+            else{const archive=await new GitArchiveCache(this.authority,record).fetch();Check.require(archive.sha256===fetched.sha256,'SOURCE_CLOSURE_IDENTITY');sourceReceipt=PluginManagementSchemas.sourceReceipt.parse({...common,kind:'git',origin:record.resolution.origin,commit:record.resolution.commit,tree:archive.tree,buildPolicyDigest:null});}
             return this.requests.append({ ...record, sequence: record.sequence + 1, stage: 'acquired', sourceReceipt });
         }
         finally {

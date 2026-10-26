@@ -12,6 +12,7 @@ import { SourceTrust } from './source-registry.js';
 import { PackageArchiveInspector, type PackageArchiveIndex } from './package-archive.js';
 import type { ResolvedPackageArchive } from './source-archive.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
+export interface ResolvedGitArchive extends ResolvedPackageArchive {readonly tree:string;}
 type GitResolution = Extract<NonNullable<PluginRequestRecord['resolution']>, {
     kind: 'git';
 }>;
@@ -55,7 +56,7 @@ export class GitArchiveCache {
         Check.require(file && file.sha256 === asset.sha256 && file.size === asset.size, 'INVALID_PLUGIN_PACKAGE');
     } return parsed.data; }
     private static immutableFile(directory: SafeDirectory, name: string): void { const stat = lstatSync(directory.childPath(name)); Check.require(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && stat.nlink === 1 && (stat.mode & 0o777) === 0o400, 'GIT_ARCHIVE_PERMISSIONS'); }
-    private async read(directory: SafeDirectory, resolution: GitResolution, packages: readonly string[]): Promise<ResolvedPackageArchive> { Check.require((fstatSync(directory.fd).mode & 0o777) === 0o500 && directory.entries().join(',') === 'archive.tgz,receipt.json', 'GIT_ARCHIVE_INCOMPLETE'); GitArchiveCache.immutableFile(directory, 'receipt.json'); const bytes = directory.file('receipt.json', undefined, 4 * 1024 * 1024), parsed = GitArchiveReceipt.schema.safeParse(StrictJson.parse(bytes)); Check.require(parsed.success, 'GIT_ARCHIVE_INCOMPLETE'); const receipt = parsed.data; Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && receipt.policyDigest === this.record.policyDigest && CanonicalJson.stringify(receipt.resolution) === CanonicalJson.stringify(resolution), 'GIT_ARCHIVE_SCOPE'); GitArchiveCache.immutableFile(directory, 'archive.tgz'); const archive = directory.file('archive.tgz', receipt.sha256, 64 * 1024 * 1024); Check.require(archive.length === receipt.size, 'GIT_ARCHIVE_INTEGRITY'); const index = await PackageArchiveInspector.inspect(directory.path + '/archive.tgz', receipt.sha256), descriptor = this.descriptor(index, packages); Check.require(CanonicalJson.digest(descriptor) === receipt.descriptorDigest, 'GIT_ARCHIVE_INTEGRITY'); directory.verify(); this.authorize(); return Object.freeze({ path: directory.path + '/archive.tgz', sha256: receipt.sha256, size: receipt.size, descriptor }); }
+    private async read(directory: SafeDirectory, resolution: GitResolution, packages: readonly string[]): Promise<ResolvedGitArchive> { Check.require((fstatSync(directory.fd).mode & 0o777) === 0o500 && directory.entries().join(',') === 'archive.tgz,receipt.json', 'GIT_ARCHIVE_INCOMPLETE'); GitArchiveCache.immutableFile(directory, 'receipt.json'); const bytes = directory.file('receipt.json', undefined, 4 * 1024 * 1024), parsed = GitArchiveReceipt.schema.safeParse(StrictJson.parse(bytes)); Check.require(parsed.success, 'GIT_ARCHIVE_INCOMPLETE'); const receipt = parsed.data; Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && receipt.policyDigest === this.record.policyDigest && CanonicalJson.stringify(receipt.resolution) === CanonicalJson.stringify(resolution), 'GIT_ARCHIVE_SCOPE'); GitArchiveCache.immutableFile(directory, 'archive.tgz'); const archive = directory.file('archive.tgz', receipt.sha256, 64 * 1024 * 1024); Check.require(archive.length === receipt.size, 'GIT_ARCHIVE_INTEGRITY'); const index = await PackageArchiveInspector.inspect(directory.path + '/archive.tgz', receipt.sha256), descriptor = this.descriptor(index, packages); Check.require(CanonicalJson.digest(descriptor) === receipt.descriptorDigest, 'GIT_ARCHIVE_INTEGRITY'); directory.verify(); this.authorize(); return Object.freeze({ path: directory.path + '/archive.tgz', sha256: receipt.sha256, size: receipt.size, descriptor,tree:receipt.tree }); }
     private static tree(bytes: Buffer): Map<string, {
         size: number;
         mode: number;
@@ -75,7 +76,7 @@ export class GitArchiveCache {
         Check.require(size <= 64 * 1024 * 1024, 'GIT_TREE_BUDGET');
         files.set(path, { size: length, mode: match[1] === '100755' ? 0o755 : 0o644 });
     } Check.require(files.size > 0, 'INVALID_GIT_TREE'); return files; }
-    async fetch(): Promise<ResolvedPackageArchive> {
+    async fetch(): Promise<ResolvedGitArchive> {
         const resolution = this.authorize(), policy = this.authority.plan.acquisitionPolicy, intent = PluginManagementSchemas.install.parse(this.record.intent);
         Check.require(policy && this.record.policyDigest === CanonicalJson.digest(policy), 'SOURCE_POLICY_REQUIRED');
         const grants = [];
