@@ -1572,3 +1572,8 @@ package was present and development import worked. The exact-archive compiled sp
 genuine default API assembly are required evidence, alongside the cold worker prelude. See
 [the official executable configuration documentation](https://bun.sh/docs/bundler/executables)
 and open issue #1004. This correction makes no claim that arbitrary unverified plugins are safe.
+
+The combined Deployment76 candidate retains the migration and compiled-worker corrections
+without changing repository ownership or runtime authority. Direct migration admission also
+requires an absolute canonical installation path before any filesystem access; callers cannot
+commit a migration through an ambiguous path and then fail its scoped read-back.
