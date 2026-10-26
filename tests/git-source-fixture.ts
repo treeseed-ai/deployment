@@ -1,12 +1,15 @@
 import { createServer, type Server } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, realpathSync, chmodSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { create } from 'tar';
-import { CanonicalJson, type SourceToolDefinition } from '@treeseed-cordis/sdk';
+import { CanonicalJson, PackageDefinition, type SourceToolDefinition } from '@treeseed-cordis/sdk';
 import type { ServiceReleaseFixture } from './release-fixture.js';
+import { PluginFixtureTools } from './plugin-installation-fixture.js';
+import { ExtensionContainerFixture, ExtensionProbeFixture } from './source-registry-fixture.js';
+import { fileURLToPath } from 'node:url';
 export interface GitFixtureIdentity { first: string; second: string; refsFirst: string; refsSecond: string; }
 /** Actual Git/HTTPS bytes and commits; no fake source executable or credentials. */
 export class GitFixtureTools {
@@ -21,21 +24,45 @@ export class GitFixtureTools {
         const archive=join(fixture.bundle,'git.tgz');await create({cwd:root,file:archive,gzip:true,portable:false},['bin','libexec','lib']);const bytes=readFileSync(archive),version=/^git version (\d+\.\d+\.\d+)/.exec(this.command(git,['--version']));if(!version||!fixture.release.helpers)throw new Error('Git helper prerequisite missing');
         fixture.release.helpers.helpers.push({id:'git',version:version[1]!,platform:'linux-amd64',path:'git.tgz',sha256:this.sha(bytes),size:bytes.length,entry:'bin/git',files,libraryDirectories:['lib'],executableDirectory:'libexec'});fixture.release.helpers.releaseIdentity=CanonicalJson.digest({formatVersion:1,helpers:fixture.release.helpers.helpers});
     }
-    static repository(root:string):GitFixtureIdentity {
+    static repository(fixture:ServiceReleaseFixture):GitFixtureIdentity {
+        const root=fixture.root;
         const source=join(root,'git-work'),bare=join(root,'repository.git');mkdirSync(source);
         this.command('git',['init','--initial-branch=main','--template=',source]);
-        writeFileSync(join(source,'package.json'),JSON.stringify({name:'@fixture/git-source',version:'1.0.0',scripts:{postinstall:'MUST_NOT_RUN'}}));writeFileSync(join(source,'provider.ts'),'export class GitFixtureProvider {static readonly revision=1;}\n');
+        const implementation=fileURLToPath(new URL(import.meta.url.endsWith('.ts')?'./source-registry-fixture.ts':'./source-registry-fixture.js',import.meta.url)),image=fixture.release.images[0]!;
+        writeFileSync(join(source,'provider.ts'),'export{ExtensionContainerFixture,ExtensionProbeFixture}from'+JSON.stringify(implementation)+';\n');
+        PluginFixtureTools.command(process.execPath,['build',join(source,'provider.ts'),'--target=node','--outfile',join(source,'index.js')]);
+        const descriptor=PackageDefinition.define('@fixture/git-source','1.0.0','extension',[PackageDefinition.export(ExtensionContainerFixture,'index.js','ExtensionContainerFixture'),PackageDefinition.export(ExtensionProbeFixture,'index.js','ExtensionProbeFixture')],[],[{id:image.id,reference:image.reference,indexSha256:image.indexSha256,manifestDigest:image.manifestDigest,source:{kind:'prepared'}}]);
+        writeFileSync(join(source,'package.json'),JSON.stringify({name:'@fixture/git-source',version:'1.0.0',type:'module',exports:'./index.js',cordisPackage:descriptor,scripts:{postinstall:'bun postinstall.ts'}}));
+        writeFileSync(join(source,'postinstall.ts'),"import{writeFileSync}from'node:fs';class Canary{static run():void{writeFileSync("+JSON.stringify(join(root,'MUST_NOT_RUN'))+",'executed');}}Canary.run();\n");
+        PluginFixtureTools.calibrate(fixture,join(root,'helper'),source,false);
+        writeFileSync(join(source,'revision.txt'),'first exact commit\n');
         this.command('git',['add','.'],source);this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','commit','-m','Fixture one'],source);const first=this.command('git',['rev-parse','HEAD'],source);
         this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','tag','-a','release','-m','Fixture annotated release'],source);
-        writeFileSync(join(source,'provider.ts'),'export class GitFixtureProvider {static readonly revision=2;}\n');this.command('git',['add','.'],source);this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','commit','-m','Fixture two'],source);const second=this.command('git',['rev-parse','HEAD'],source);
+        writeFileSync(join(source,'revision.txt'),'second exact commit\n');this.command('git',['add','.'],source);this.command('git',['-c','user.name=Cordis fixture','-c','user.email=fixture@example.invalid','commit','-m','Fixture two'],source);const second=this.command('git',['rev-parse','HEAD'],source);
         this.command('git',['branch','future',second],source);this.command('git',['branch','twin',first],source);this.command('git',['tag','twin',first],source);this.command('git',['clone','--bare','--no-hardlinks',source,bare]);
         this.command('git',['--git-dir='+bare,'update-ref','refs/heads/main',first]);this.command('git',['--git-dir='+bare,'update-server-info']);const refsFirst=readFileSync(join(bare,'info/refs'),'utf8');
         this.command('git',['--git-dir='+bare,'update-ref','refs/heads/main',second]);this.command('git',['--git-dir='+bare,'update-server-info']);const refsSecond=readFileSync(join(bare,'info/refs'),'utf8');
+        writeFileSync(join(bare,'refs/heads/main'),first+'\n');
         this.command('git',['init','--template=',root]);this.command('git',['config','url.https://never-inherit.invalid/.insteadOf','https://'],root);
         const identity={first,second,refsFirst,refsSecond};writeFileSync(join(root,'git-identity.json'),JSON.stringify(identity));return identity;
     }
 }
-/** A genuine bare repository over Git's static HTTPS transport, with deterministic ref movement. */
+/** Genuine smart and static HTTPS Git transports; the source never runs provider code. */
+class GitHttpExchange {
+    private readonly child:ChildProcess;
+    private readonly timer:ReturnType<typeof setTimeout>;
+    private headers=Buffer.alloc(0);
+    private started=false;
+    constructor(root:string,request:IncomingMessage,private readonly response:ServerResponse){
+        const url=new URL(request.url??'/', 'https://fixture.invalid');
+        this.child=spawn(join(root,'git-helper/libexec/git-http-backend'),[],{env:{PATH:join(root,'git-helper/libexec'),LD_LIBRARY_PATH:join(root,'git-helper/lib'),GIT_EXEC_PATH:join(root,'git-helper/libexec'),GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_PROJECT_ROOT:root,GIT_HTTP_EXPORT_ALL:'1',PATH_INFO:url.pathname,QUERY_STRING:url.search.slice(1),REQUEST_METHOD:request.method??'GET',CONTENT_TYPE:request.headers['content-type']??'',HTTP_GIT_PROTOCOL:String(request.headers['git-protocol']??''),REMOTE_ADDR:'127.0.0.1'},stdio:['pipe','pipe','ignore']});
+        this.timer=setTimeout(this.abort.bind(this),30000);this.child.stdout!.on('data',this.data.bind(this));this.child.once('error',this.abort.bind(this));this.child.once('close',this.end.bind(this));this.child.stdin!.on('error',this.abort.bind(this));request.pipe(this.child.stdin!);response.once('close',this.abort.bind(this));
+    }
+    private data(bytes:Buffer):void{if(this.started){this.response.write(bytes);return;}this.headers=Buffer.concat([this.headers,bytes]);const offset=this.headers.indexOf('\r\n\r\n');if(offset<0){if(this.headers.length>16384)this.abort();return;}for(const line of this.headers.subarray(0,offset).toString('utf8').split('\r\n')){const split=line.indexOf(':');if(split<0){this.abort();return;}const name=line.slice(0,split),value=line.slice(split+1).trim();if(name.toLowerCase()==='status')this.response.statusCode=Number(value.slice(0,3));else this.response.setHeader(name,value);}this.started=true;this.response.write(this.headers.subarray(offset+4));this.headers=Buffer.alloc(0);}
+    private end(code:number|null):void{clearTimeout(this.timer);if(code!==0||!this.started){if(!this.response.headersSent)this.response.statusCode=502;}this.response.end();}
+    private abort():void{clearTimeout(this.timer);this.child.kill('SIGKILL');if(!this.response.writableEnded)this.response.destroy();}
+}
+/** A genuine bare repository over HTTPS, with deterministic ref movement. */
 export class GitRegistryFixture {
     private readonly server:Server;
     private moved=false;
@@ -50,12 +77,13 @@ export class GitRegistryFixture {
         if(this.tamperDirectory){const file=join(this.root,'installation/.cordis/artifacts','git-resolution-'+this.tamperDirectory,'source-ca.pem');if(existsSync(file)){const original=readFileSync(file);chmodSync(file,0o600);writeFileSync(file,'changed trust fixture');writeFileSync(file,original);chmodSync(file,0o400);this.tamperDirectory=null;}}
         if(this.fail){response.writeHead(503);response.end();return;}
         const path=new URL(request.url??'/',this.origin()).pathname;
+        if((path==='/repository.git/info/refs'&&new URL(request.url??'/',this.origin()).searchParams.get('service')==='git-upload-pack')||(path==='/repository.git/git-upload-pack'&&request.method==='POST')){new GitHttpExchange(this.root,request,response);return;}
         if(path==='/repository.git/info/refs'){response.setHeader('content-type','text/plain');response.end(this.moved?this.identity.refsSecond:this.identity.refsFirst);return;}
         if(path==='/repository.git/HEAD'){response.end('ref: refs/heads/main\n');return;}
         if(/^\/repository\.git\/objects\/(?:[a-f0-9]{2}\/[a-f0-9]{38}|info\/packs)$/.test(path)){const file=join(this.root,path.slice(1));if(existsSync(file)){response.end(readFileSync(file));return;}}
         response.writeHead(404);response.end();
     }
-    move():void{this.moved=true;}
+    move():void{this.moved=true;writeFileSync(join(this.root,'repository.git/refs/heads/main'),this.identity.second+'\n');}
     origin():string{const address=this.server.address();if(!address||typeof address==='string')throw new Error('Git fixture not listening');return 'https://127.0.0.1:'+address.port;}
     locator():string{return this.origin()+'/repository.git';}
     listen():Promise<void>{return new Promise(this.start.bind(this));}
