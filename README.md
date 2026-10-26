@@ -1313,3 +1313,21 @@ Preparation starts no service containers and is never an installer implementatio
 plugin source. Consumers spawn their own built CLI and assert actual plans/applications/readiness,
 retained resources and credential/TLS bytes through public contracts. No cross-checkout source
 imports or copied Deployment host implementation are needed for assembled verification.
+
+### Exact approved Git source resolution
+
+Native `source.git` implements the same typed source-resolver seam as NPM. Resolution accepts only
+SDK HTTPS Git locators under an exact installation source grant, with one unambiguous target.
+It uses the release-pinned managed Git helper with ambient credentials/configuration/proxies and
+hooks excluded. Explicit commit IDs stay exact; bare repositories resolve HEAD and named branches
+or tags resolve to a single advertised commit. A branch/tag name collision is rejected rather
+than choosing one. Annotated tags bind their peeled commit. Credential-bearing locators,
+redirects and unapproved origins/targets fail.
+
+The accepted request intent precedes lookup; the immutable resolved commit and exact helper
+identities are saved before archive acquisition or build. An interrupted lookup requires repair;
+a same-key resolved retry performs no network lookup, and a new key may resolve a moved ref.
+Source trust comes from the pinned policy CA or normal verified HTTPS trust, with held-file
+identity/hash checks around access. No Git checkout, imports, lifecycle hooks, dependency install,
+container activation or source build occurs during resolution. Prepared archive/closure admission
+and isolated build qualification follow through the same native source contract.

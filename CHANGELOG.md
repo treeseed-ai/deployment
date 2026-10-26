@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Resolve approved HTTPS Git locators to durable exact commits using a managed native source provider (#910).
+
+### Added
 - Export a genuine prepared plugin-installation fixture for built CLI and assembled acceptance (#910).
 
 ### Added
