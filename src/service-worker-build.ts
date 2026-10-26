@@ -18,8 +18,8 @@ export class ServiceWorkerBuild {
             Check.require(version.status === 0 && version.stdout.trim() === '1.4.4', 'WORKER_BUILD_COMPILER');
             const temporary = 'building-' + randomUUID();
             building = InstallationStore.mkdir(directory, temporary);
-            const result = spawnSync('bun', ['build', fileURLToPath(new URL('./service-worker.js', import.meta.url)), '--compile', '--target=bun-linux-x64', '--outfile', join(building.path, 'worker')], { env: environment, encoding: 'utf8', timeout: 120000, maxBuffer: 1024 * 1024 });
-            Check.require(result.status === 0 && building.entries().join(',') === 'worker', 'WORKER_BUILD_FAILED');
+            WorkerCompiler.compile(fileURLToPath(new URL('./service-worker.js', import.meta.url)),join(building.path,'worker'));
+            Check.require(building.entries().join(',') === 'worker', 'WORKER_BUILD_FAILED');
             const bytes = building.file('worker', undefined, 512 * 1024 * 1024);
             Check.require(bytes.length > 0, 'WORKER_BUILD_FAILED');
             const descriptor = { path: 'worker', sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length };
@@ -38,4 +38,9 @@ export class ServiceWorkerBuild {
             return descriptor;
         } finally { building?.close(); directory.close(); }
     }
+}
+
+/** Trusted release-time compiler policy; not an installed acquisition/build provider. */
+export class WorkerCompiler {
+ static compile(entry:string,output:string):void {Check.require(entry.startsWith('/')&&resolve(entry)===entry&&output.startsWith('/')&&resolve(output)===output,'WORKER_BUILD_TARGET');const result=spawnSync('bun',['build',entry,'--compile','--target=bun-linux-x64','--compile-autoload-package-json','--no-compile-autoload-dotenv','--no-compile-autoload-bunfig','--no-compile-autoload-tsconfig','--outfile',output],{env:{PATH:process.env.PATH,HOME:process.env.HOME},encoding:'utf8',timeout:120000,maxBuffer:1024*1024});Check.require(result.status===0,'WORKER_BUILD_FAILED');}
 }

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Resolve verified installed packages in the compiled worker without ambient configuration autoloading (#1004).
+
 ### Added
 - Preserve verified legacy resources and private custody through explicit non-serving format-2 migration (#910).
 
