@@ -12,6 +12,7 @@ import { SourceTrust } from './source-registry.js';
 import { PackageArchiveInspector, type PackageArchiveIndex } from './package-archive.js';
 import type { ResolvedPackageArchive } from './source-archive.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
+export interface RawGitArchive {readonly path:string;readonly sha256:string;readonly size:number;readonly tree:string;readonly descriptor:PluginPackageDescriptor|null;readonly metadata:Readonly<Record<string,unknown>>;}
 export interface ResolvedGitArchive extends ResolvedPackageArchive {readonly tree:string;}
 type GitResolution = Extract<NonNullable<PluginRequestRecord['resolution']>, {
     kind: 'git';
@@ -38,7 +39,7 @@ export class GitRepositoryGuard {
     close(): void { closeSync(this.fd); this.directory.close(); }
 }
 class GitArchiveReceipt {
-    static readonly schema = z.strictObject({ formatVersion: z.literal(1), installationId: PlatformSchemas.text, installationDirectory: PlatformSchemas.absolute, policyDigest: PlatformSchemas.digest, resolution: PluginManagementSchemas.resolution, tree: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/), sha256: PlatformSchemas.digest, size: z.number().int().positive().max(64 * 1024 * 1024), descriptorDigest: PlatformSchemas.digest });
+    static readonly schema = z.strictObject({ formatVersion: z.literal(1), installationId: PlatformSchemas.text, installationDirectory: PlatformSchemas.absolute, policyDigest: PlatformSchemas.digest, resolution: PluginManagementSchemas.resolution, tree: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/), sha256: PlatformSchemas.digest, size: z.number().int().positive().max(64 * 1024 * 1024), descriptorDigest: PlatformSchemas.digest.nullable() });
 }
 /** Exact committed bytes only; closure, source builds and activation are separate admission gates. */
 export class GitArchiveCache {
@@ -49,14 +50,14 @@ export class GitArchiveCache {
             return current.resolution;
         } return Check.block('PLUGIN_REQUEST_NOT_FOUND'); }
     private key(resolution: GitResolution): string { return CanonicalJson.digest({ formatVersion: 1, installationId: this.authority.plan.configuration.installationId, installationDirectory: this.authority.store.path, policyDigest: this.record.policyDigest, resolution }); }
-    private descriptor(index: PackageArchiveIndex, packages: readonly string[]): PluginPackageDescriptor { const parsed = PluginManagementSchemas.packageDescriptor.safeParse(index.metadata.cordisPackage); Check.require(parsed.success && packages.includes(parsed.data.package.name) && index.metadata.name === parsed.data.package.name && index.metadata.version === parsed.data.package.version, 'INVALID_PLUGIN_PACKAGE'); const files = new Map<string, PackageArchiveIndex['files'][number]>(); for (const file of index.files)
+    private descriptor(index: PackageArchiveIndex, packages: readonly string[]): PluginPackageDescriptor|null { Check.require(typeof index.metadata.name==='string'&&packages.includes(index.metadata.name),'GIT_PACKAGE_NOT_APPROVED');const parsed = PluginManagementSchemas.packageDescriptor.safeParse(index.metadata.cordisPackage); if(!parsed.success)return null;Check.require(packages.includes(parsed.data.package.name)&&index.metadata.name===parsed.data.package.name&&index.metadata.version===parsed.data.package.version,'INVALID_PLUGIN_PACKAGE'); const files = new Map<string, PackageArchiveIndex['files'][number]>(); for (const file of index.files)
         files.set(file.path, file); for (const provider of parsed.data.providers)
-        Check.require(files.has(provider.entry), 'INVALID_PLUGIN_PACKAGE'); for (const asset of parsed.data.assets) {
+        if(!files.has(provider.entry))return null; for (const asset of parsed.data.assets) {
         const file = files.get(asset.path);
-        Check.require(file && file.sha256 === asset.sha256 && file.size === asset.size, 'INVALID_PLUGIN_PACKAGE');
+        if(!file)return null;Check.require(file.sha256===asset.sha256&&file.size===asset.size,'INVALID_PLUGIN_PACKAGE');
     } return parsed.data; }
     private static immutableFile(directory: SafeDirectory, name: string): void { const stat = lstatSync(directory.childPath(name)); Check.require(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && stat.nlink === 1 && (stat.mode & 0o777) === 0o400, 'GIT_ARCHIVE_PERMISSIONS'); }
-    private async read(directory: SafeDirectory, resolution: GitResolution, packages: readonly string[]): Promise<ResolvedGitArchive> { Check.require((fstatSync(directory.fd).mode & 0o777) === 0o500 && directory.entries().join(',') === 'archive.tgz,receipt.json', 'GIT_ARCHIVE_INCOMPLETE'); GitArchiveCache.immutableFile(directory, 'receipt.json'); const bytes = directory.file('receipt.json', undefined, 4 * 1024 * 1024), parsed = GitArchiveReceipt.schema.safeParse(StrictJson.parse(bytes)); Check.require(parsed.success, 'GIT_ARCHIVE_INCOMPLETE'); const receipt = parsed.data; Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && receipt.policyDigest === this.record.policyDigest && CanonicalJson.stringify(receipt.resolution) === CanonicalJson.stringify(resolution), 'GIT_ARCHIVE_SCOPE'); GitArchiveCache.immutableFile(directory, 'archive.tgz'); const archive = directory.file('archive.tgz', receipt.sha256, 64 * 1024 * 1024); Check.require(archive.length === receipt.size, 'GIT_ARCHIVE_INTEGRITY'); const index = await PackageArchiveInspector.inspect(directory.path + '/archive.tgz', receipt.sha256), descriptor = this.descriptor(index, packages); Check.require(CanonicalJson.digest(descriptor) === receipt.descriptorDigest, 'GIT_ARCHIVE_INTEGRITY'); directory.verify(); this.authorize(); return Object.freeze({ path: directory.path + '/archive.tgz', sha256: receipt.sha256, size: receipt.size, descriptor,tree:receipt.tree }); }
+    private async read(directory: SafeDirectory, resolution: GitResolution, packages: readonly string[]): Promise<RawGitArchive> { Check.require((fstatSync(directory.fd).mode & 0o777) === 0o500 && directory.entries().join(',') === 'archive.tgz,receipt.json', 'GIT_ARCHIVE_INCOMPLETE'); GitArchiveCache.immutableFile(directory, 'receipt.json'); const bytes = directory.file('receipt.json', undefined, 4 * 1024 * 1024), parsed = GitArchiveReceipt.schema.safeParse(StrictJson.parse(bytes)); Check.require(parsed.success, 'GIT_ARCHIVE_INCOMPLETE'); const receipt = parsed.data; Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.authority.plan.configuration.installationId && receipt.installationDirectory === this.authority.store.path && receipt.policyDigest === this.record.policyDigest && CanonicalJson.stringify(receipt.resolution) === CanonicalJson.stringify(resolution), 'GIT_ARCHIVE_SCOPE'); GitArchiveCache.immutableFile(directory, 'archive.tgz'); const archive = directory.file('archive.tgz', receipt.sha256, 64 * 1024 * 1024); Check.require(archive.length === receipt.size, 'GIT_ARCHIVE_INTEGRITY'); const index = await PackageArchiveInspector.inspect(directory.path + '/archive.tgz', receipt.sha256), descriptor = this.descriptor(index, packages); Check.require((descriptor?CanonicalJson.digest(descriptor):null) === receipt.descriptorDigest, 'GIT_ARCHIVE_INTEGRITY'); directory.verify(); this.authorize(); return Object.freeze({ path: directory.path + '/archive.tgz', sha256: receipt.sha256, size: receipt.size, descriptor,tree:receipt.tree,metadata:index.metadata }); }
     private static tree(bytes: Buffer): Map<string, {
         size: number;
         mode: number;
@@ -76,7 +77,8 @@ export class GitArchiveCache {
         Check.require(size <= 64 * 1024 * 1024, 'GIT_TREE_BUDGET');
         files.set(path, { size: length, mode: match[1] === '100755' ? 0o755 : 0o644 });
     } Check.require(files.size > 0, 'INVALID_GIT_TREE'); return files; }
-    async fetch(): Promise<ResolvedGitArchive> {
+    async fetch():Promise<ResolvedGitArchive>{const raw=await this.source();Check.require(raw.descriptor,'BUILD_REQUIRED');return Object.freeze({path:raw.path,sha256:raw.sha256,size:raw.size,tree:raw.tree,descriptor:raw.descriptor});}
+    async source(): Promise<RawGitArchive> {
         const resolution = this.authorize(), policy = this.authority.plan.acquisitionPolicy, intent = PluginManagementSchemas.install.parse(this.record.intent);
         Check.require(policy && this.record.policyDigest === CanonicalJson.digest(policy), 'SOURCE_POLICY_REQUIRED');
         const grants = [];
@@ -151,7 +153,7 @@ export class GitArchiveCache {
                 }
                 const descriptor = this.descriptor(index, grant.packages);
                 this.authorize();
-                InstallationStore.publish(saved, 'receipt.json', { formatVersion: 1, installationId: this.authority.plan.configuration.installationId, installationDirectory: this.authority.store.path, policyDigest: this.record.policyDigest, resolution, tree, sha256, size: bytes.length, descriptorDigest: CanonicalJson.digest(descriptor) }, 0o400);
+                InstallationStore.publish(saved, 'receipt.json', { formatVersion: 1, installationId: this.authority.plan.configuration.installationId, installationDirectory: this.authority.store.path, policyDigest: this.record.policyDigest, resolution, tree, sha256, size: bytes.length, descriptorDigest: descriptor?CanonicalJson.digest(descriptor):null }, 0o400);
                 fchmodSync(saved.fd, 0o500);
                 fsyncSync(saved.fd);
                 cache.verify();

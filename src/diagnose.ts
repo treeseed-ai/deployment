@@ -162,3 +162,4 @@ export {NpmSourcePlugin,NpmSourceRuntime,PackageSourceTokens,type PackageSourceR
 export type {ResolvedPackageArchive} from './source-archive.js';
 export { InstalledPluginManager } from './installed-plugins.js';
 export { GitSourcePlugin, GitSourceRuntime, GitSourceToken } from './git-source.js';
+export {PluginBuildRuntime,PluginBuildPlugin,PluginBuildToken,type PluginBuildAdapter,type BuiltPluginArchive} from './source-build.js';
