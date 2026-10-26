@@ -63,15 +63,16 @@ export function kataGuestMemoryMiB(memoryBytes: number) {
 	return Math.ceil(memoryBytes / 1_048_576);
 }
 export function kataWarmOperations(configuration: SandboxBrokerConfiguration, onFailure: WarmOperations['onFailure']): WarmOperations {
-	const ctr = async (args: string[]) => (await exec('/usr/bin/ctr', ['--address', configuration.containerdAddress,
-		'--namespace', configuration.namespace, ...args], { encoding: 'utf8', timeout: 120_000, maxBuffer: 65_536,
+	const ctr = async (args: string[], timeout = 120_000) => (await exec('/usr/bin/ctr', ['--address', configuration.containerdAddress,
+		'--namespace', configuration.namespace, ...args], { encoding: 'utf8', timeout, maxBuffer: 65_536,
 			env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' } })).stdout;
 	const destroy = async (id: string) => {
 		if (!/^sandbox-warm-[a-f0-9-]{36}(?:-ready)?$/u.test(id)) throw new Error('Invalid warm sandbox ownership.');
-		await ctr(['tasks', 'kill', '--signal', 'SIGKILL', id]).catch(() => undefined);
-		await ctr(['tasks', 'delete', '--force', id]).catch(() => undefined);
-		await ctr(['containers', 'delete', id]).catch(() => undefined);
-		if ((await ctr(['containers', 'list', '--quiet'])).split(/\s+/u).includes(id)) throw new Error('Warm sandbox teardown was not verified.');
+		await ctr(['tasks', 'kill', '--signal', 'SIGKILL', id], 10_000).catch(() => undefined);
+		await ctr(['tasks', 'delete', '--force', id], 10_000).catch(() => undefined);
+		await ctr(['containers', 'delete', id], 10_000).catch(() => undefined);
+		const [tasks, containers] = await Promise.all([ctr(['tasks', 'list', '--quiet'], 10_000), ctr(['containers', 'list', '--quiet'], 10_000)]);
+		if ([tasks, containers].some(value => value.split(/\s+/u).includes(id))) throw new Error('Warm sandbox task and container teardown was not verified.');
 	};
 	return { destroy, onFailure, create: async shape => {
 		const id = `sandbox-warm-${randomUUID()}`;

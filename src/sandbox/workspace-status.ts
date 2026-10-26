@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { sandboxResultSchema, sourceWorkspaceKeySchema, sourceWorkspaceAuthorizationSchema } from '@treeseed/sdk/capacity-provider/sandbox';
 import { assignmentReferenceSchema } from '@treeseed/sdk/agent-capacity';
-import { closeSync, constants, fstatSync, openSync, readlinkSync, readSync, realpathSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readlinkSync, readSync, realpathSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspaceStorageRoot } from './workspace-block-store.js';
 import { inspectManagedDirectory, owningHostStat } from './directory-inspection.js';
@@ -225,6 +225,15 @@ export function workspaceStatus() {
   rootVerified = realpathSync(workspaceStorageRoot) === workspaceStorageRoot && owningHostStat(workspaceStorageRoot).isDirectory();
   if (!rootVerified) throw new Error();
  } catch { errors.add('workspace_lease_inventory_unavailable'); }
+ let storage: { totalBytes: number; availableBytes: number } | null = null;
+ try {
+  if (!rootVerified) throw new Error();
+  const capacity = statfsSync(workspaceStorageRoot);
+  const totalBytes = capacity.blocks * capacity.bsize, availableBytes = capacity.bavail * capacity.bsize;
+  if (![totalBytes, availableBytes].every(value => Number.isSafeInteger(value) && value >= 0)
+   || availableBytes > totalBytes) throw new Error();
+  storage = { totalBytes, availableBytes };
+ } catch { errors.add('workspace_storage_capacity_unavailable'); }
  const observe = () => {
   const directory = { rootPresent: null as boolean | null,
    entries: [] as Array<{ name: string; type: Disk['type'] }> };
@@ -257,7 +266,7 @@ export function workspaceStatus() {
   try {
    db.exec('BEGIN');
    const heldImages = db.prepare('SELECT id,state,job_id,bytes,parent_id FROM workspace_images ORDER BY id').all();
-   const heldLeases = db.prepare('SELECT id,image_id,provider_id,assignment_id,attempt,mode,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
+   const heldLeases = db.prepare('SELECT id,image_id,provider_id,assignment_id,attempt,mode,acquisition,publication,expires_at,state,result_artifact_id FROM workspace_leases ORDER BY id').all();
    db.exec('COMMIT'); images = heldImages; leases = heldLeases;
   } finally { db.close(); }
  } catch { errors.add('workspace_catalog_unavailable'); }
@@ -269,6 +278,6 @@ export function workspaceStatus() {
   if (confirmedNamespace !== mountNamespace) errors.add('workspace_inventory_changed');
  } catch { errors.add('workspace_lease_inventory_unavailable'); }
  return { startedAt, completedAt: new Date().toISOString(), complete: errors.size === 0,
-  scope: { storageRoot: workspaceStorageRoot, mountNamespace }, initialized, images, leases,
+  scope: { storageRoot: workspaceStorageRoot, mountNamespace }, storage, initialized, images, leases,
   ...observed, confirmation: { ...confirmation, mountNamespace: confirmedNamespace }, errors: [...errors] };
 }

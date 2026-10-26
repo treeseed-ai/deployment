@@ -864,3 +864,6 @@ workflow:
   - id: source-export-denials-unit
     action: { verifier: deployment.golden.source-export-denials-unit }
     expect: { status: passed }
+  - id: guest-replacement-retained-claims
+    action: { verifier: deployment.golden.guest-replacement-retained-claims }
+    expect: { status: passed }

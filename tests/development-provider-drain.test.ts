@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { stopForHandoff } from '../src/supervisor/development-agent-container.js';
+import { assertSandboxGuestHandoffClaims, stopForHandoff } from '../src/supervisor/development-agent-container.js';
 import * as doctor from '../src/sandbox/doctor.js';
 import * as configuration from '../src/sandbox/configuration.js';
 const temporary:string[]=[];
@@ -22,6 +22,21 @@ function fixture(value:string,failedStop='',manager=true,owned=true) {
   return {root,states,effects,run:(restore=()=>command('/usr/bin/docker',['start','treeseed-agent-manager-1']))=>stopForHandoff(command,root,restore)};
 }
 const inventory=(status:string)=>JSON.stringify({schemaVersion:1,claims:[{id:'arbitrary-configured-agent',status}]});
+it('allows only an expired matching recovery through sandbox selection and preserves its original claim bytes',()=>{
+ const deadline=new Date(Date.now()-60_000).toISOString(),started=new Date(Date.now()-120_000).toISOString();
+ const claim={id:'retained',assignmentId:'original-assignment',status:'recovery',leaseExpiresAt:deadline,activeStartedAt:started,
+  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline}}},
+  usage:{unknown:99},sourceLease:'retained',diskBytes:394788864};
+ const value=JSON.stringify({schemaVersion:1,claims:[claim],usage:{reserved:1234}}),f=fixture(value);
+ expect(()=>assertSandboxGuestHandoffClaims(f.root)).not.toThrow();
+ expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);
+ for(const unsafe of [{...claim,status:'running'},{...claim,leaseExpiresAt:new Date(Date.now()+60_000).toISOString()},
+  {...claim,dispatchEnvelope:{assignment:{assignmentAttempt:{...claim.dispatchEnvelope.assignment.assignmentAttempt,id:'foreign'}}}},
+  {...claim,dispatchEnvelope:undefined}]) {
+  writeFileSync(resolve(f.root,'runtime/capacity-state.json'),JSON.stringify({schemaVersion:1,claims:[unsafe]}));
+  expect(()=>assertSandboxGuestHandoffClaims(f.root)).toThrow('active or recoverable');
+ }
+});
 it('rejects active claims before draining execution and restores admissions',()=>{
   for(const status of ['ready','running','recovery']) {
     const f=fixture(inventory(status));expect(()=>f.run()).toThrow('cannot interrupt');
@@ -112,6 +127,52 @@ it('requires original bounded productive authority and an expired lease before a
   expect(()=>f.run()).toThrow('cannot interrupt');expect(f.states).toEqual({manager:true,runner:true});
   expect(f.effects).toEqual(['stop:manager','start:manager']);
   expect(readFileSync(resolve(f.root,'runtime/capacity-state.json'),'utf8')).toBe(value);}
+});
+
+it('denies a raced replacement even when the replacement is another valid expired recovery',()=>{
+ const deadline=new Date(Date.now()-60_000).toISOString(),started=new Date(Date.now()-120_000).toISOString();
+ const claim={id:'retained',assignmentId:'original-assignment',status:'recovery',leaseExpiresAt:deadline,activeStartedAt:started,
+  dispatchEnvelope:{assignment:{assignmentAttempt:{schemaVersion:'treeseed.assignment-attempt/v1',id:'original-assignment',deadline}}},usage:{unknown:99}};
+ const replacement={...claim,usage:{unknown:100}},value=JSON.stringify({schemaVersion:1,claims:[claim]}),f=fixture(value),effects:string[]=[];
+ vi.spyOn(configuration,'loadSandboxBrokerConfiguration').mockReturnValue({containerdAddress:'/run/containerd/containerd.sock',namespace:'treeseed-sandboxes'} as ReturnType<typeof configuration.loadSandboxBrokerConfiguration>);
+ vi.spyOn(doctor,'inspectVmProcesses').mockReturnValue({processes:[],pidNamespace:'pid:[1]',complete:true});
+ const transport=(executable:string,args:readonly string[])=>{
+  effects.push(`${executable}:${args.join(' ')}`);
+  if(executable.endsWith('docker')) {
+   const service=(args[0]==='inspect'?args[1]:args.at(-1))!.includes('manager')?'manager':'runner';
+   if(args[0]==='inspect')return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},running:f.states[service],environment:[]});
+   f.states[service]=args[0]==='start';return '';
+  }
+  if(executable.endsWith('systemctl')&&args[0]==='show')return 'inactive\n';
+  if(executable.endsWith('ctr')&&args[4]==='tasks')writeFileSync(resolve(f.root,'runtime/capacity-state.json'),JSON.stringify({schemaVersion:1,claims:[replacement]}));
+  return '';
+ };
+ expect(()=>stopForHandoff(transport,f.root,()=>transport('/usr/bin/docker',['start','treeseed-agent-manager-1']))).toThrow('authority changed');
+ expect(effects.some(effect=>effect.includes('stop treeseed-sandbox-broker.service'))).toBe(true);
+ expect(effects.some(effect=>effect.includes('start treeseed-sandbox-broker.service'))).toBe(true);
+ expect(f.states).toEqual({manager:true,runner:true});
+});
+
+it('keeps provider roles stopped when rollback cannot reconfirm physical absence',()=>{
+ const f=fixture(inventory('polling')),effects:string[]=[];
+ vi.spyOn(configuration,'loadSandboxBrokerConfiguration').mockReturnValue({containerdAddress:'/run/containerd/containerd.sock',namespace:'treeseed-sandboxes'} as ReturnType<typeof configuration.loadSandboxBrokerConfiguration>);
+ vi.spyOn(doctor,'inspectVmProcesses').mockReturnValue({processes:[],pidNamespace:'pid:[1]',complete:true});
+ const transport=(executable:string,args:readonly string[])=>{
+  if(executable.endsWith('docker')) {
+   const service=(args[0]==='inspect'?args[1]:args.at(-1))!.includes('manager')?'manager':'runner';
+   if(args[0]==='inspect')return JSON.stringify({labels:{'com.docker.compose.project':'treeseed-agent','com.docker.compose.service':service},running:f.states[service],environment:[]});
+   effects.push(`${args[0]}:${service}`);f.states[service]=args[0]==='start';return '';
+  }
+  effects.push(`${executable}:${args.join(' ')}`);
+  if(executable.endsWith('systemctl')&&args[0]==='show')return 'inactive\n';
+  if(executable.endsWith('ctr')&&args[4]==='tasks')return 'unexpected-task\n';
+  return '';
+ };
+ expect(()=>stopForHandoff(transport,f.root,()=>transport('/usr/bin/docker',['start','treeseed-agent-manager-1']),
+  {keepBrokerStopped:true,brokerAlreadyStopped:true,leaveBrokerStoppedOnFailure:true,leaveRolesStoppedOnFailure:true})).toThrow('remaining sandbox tasks');
+ expect(f.states).toEqual({manager:false,runner:false});
+ expect(effects.some(effect=>effect==='start:manager'||effect==='start:runner')).toBe(false);
+ expect(effects.some(effect=>effect.includes('start treeseed-sandbox-broker.service'))).toBe(false);
 });
 
 it('restores broker runner and admissions when expired recovery still has physical work or an incomplete observation',()=>{

@@ -38,7 +38,8 @@ export async function acquireSourceBundle(input: {
   authorization: SourceWorkspaceAuthorization; repository: Repository; credential?: SourceGitCredential;
   maxBundleBytes: number;
 }, dependencies: SourceGitCacheDependencies = production) {
-  const authorization = sourceWorkspaceAuthorizationSchema.parse(input.authorization), repository = input.repository;
+  const authorization = sourceWorkspaceAuthorizationSchema.parse(input.authorization);
+  const { owner, name, cloneUrl } = input.repository, repository = { owner, name, cloneUrl };
   current(authorization, dependencies.now());
 	if (authorization.acquisition === 'upstream-authorized' && !input.credential) throw new Error('Authorized source acquisition requires its sealed credential.');
 	if (authorization.acquisition !== 'upstream-authorized' && input.credential) throw new Error('Credential supplied to a credential-free source acquisition.');

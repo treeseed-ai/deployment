@@ -1,3 +1,5 @@
+export const collectionFencePath = '/run/treeseed/sandbox/workspace-cache-collection.lock';
+
 export const paths = {
 	configuration: '/etc/treeseed/platform.json',
 	managerConfiguration: '/etc/treeseed/manager',

@@ -49,3 +49,15 @@ it.each(['polling','empty','first-start','closed-recovery','native-closed-recove
   'selects the prepared provider snapshot after %s admission through the original boundary',shape=>{
     expect(run(shape)).toEqual({shape,started:true,runtimeCustodyVerified:true});
   },240_000);
+
+it('resumes stopped selected provider with retained recovery claims without replacing code or trust',()=>{
+ expect(run('stopped-recovery')).toEqual({shape:'stopped-recovery',resumed:true,selectedBytesUnchanged:true,claimsUnchanged:true});
+},240_000);
+
+it.each(['stopped-foreign','stopped-runtime','stopped-trust'])('refuses stopped recovery with %s without starting or changing custody',shape=>{
+ expect(run(shape)).toEqual({shape,rejected:true,selectedBytesUnchanged:true,claimsUnchanged:true});
+},240_000);
+
+it('applies daily allowance to the selected running provider without replacement or interruption',()=>{
+ expect(run('running-limit-reload')).toEqual({shape:'running-limit-reload',resumed:true,selectedBytesUnchanged:true,claimsUnchanged:true});
+},240_000);
