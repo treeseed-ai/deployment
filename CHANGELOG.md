@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Retain exact accepted release artifacts for source-free successor assembly (#910).
+
+### Added
 - Bind exact accepted source policy to deterministic deployment plans (#910).
 
 ### Added

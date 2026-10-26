@@ -1018,3 +1018,22 @@ symlinks, traversal, changed bytes, wrong helper roots and ambiguous grants bloc
 publication. Plan read-back requires no original bundle, credentials, network or helper execution.
 Policy changes use an exact reviewed bundle and plan/apply; they do not implicitly restart
 unchanged services or create a source/build/activation authority.
+
+### Retained exact release artifacts
+
+Accepted staging preserves an allowlisted, exact copy of release metadata, package archives,
+selected OCI index/manifest/configuration/layers, worker bytes, prepared helper archives and
+public source-trust files under private `.cordis/artifacts/releases/<release-digest>`. It copies
+no unrelated bundle files and executes nothing. This custody allows later source installation
+to assemble a successor from original accepted archives after the external bundle is removed;
+repacking unchanged packages would change archive hashes and break runtime-image identity.
+
+The existing writer and an exact current stage or acquisition request authorize preparation.
+Files publish atomically as one complete immutable cache entry; existing entries are verified,
+never overwritten or silently repaired. Directories are private, retained bundle directories
+are 0500 and files 0400 (worker bytes 0500). A receipt binds scope, exact file identities and
+modes. Cache opening checks receipt/scope and exhaustive inventory; every consumed file checks
+its pinned bytes, and full verification streams every retained file. Links, wrong ownership,
+changed modes, extra/missing files or interrupted entries refuse. No active/healthy claim or
+resource reservation follows from cache custody. Read-back and exact reuse need no original
+bundle, package manager, imports, scripts or new runtime resources.
