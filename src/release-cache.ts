@@ -254,7 +254,7 @@ export class ManagedReleaseCache {
                             const stat = fstatSync(entry.fd);
                             Check.require(stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o500 && entry.entries().join(',') === 'bundle,receipt.json', 'RELEASE_CACHE_INVENTORY');
                             const receiptStat = lstatSync(entry.childPath('receipt.json'));
-                            Check.require((receiptStat.mode & 0o777) === 0o400, 'RELEASE_CACHE_PERMISSIONS');
+                            Check.require(receiptStat.isFile() && !receiptStat.isSymbolicLink() && receiptStat.nlink === 1 && receiptStat.uid === process.getuid?.() && (receiptStat.mode & 0o777) === 0o400, 'RELEASE_CACHE_PERMISSIONS');
                             const bytes = entry.file('receipt.json', undefined, 4 * 1024 * 1024), receipt = ReleaseCacheSchema.receipt.parse(StrictJson.parse(bytes));
                             Check.require(bytes.toString('utf8') === CanonicalJson.stringify(receipt) + '\n' && receipt.installationId === this.plan.configuration.installationId && receipt.installationDirectory === this.plan.configuration.installationDirectory && receipt.releaseDigest === this.plan.releaseDigest, 'RELEASE_CACHE_SCOPE');
                             const bundle = entry.directory('bundle');
