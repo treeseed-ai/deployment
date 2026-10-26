@@ -71,3 +71,8 @@ class InterruptedMigrationTests {
 }
 const interrupted = new InterruptedMigrationTests();
 test('integration: interrupted migration fences readers without adopting or overwriting uncertain state', interrupted.interrupted.bind(interrupted));
+
+class CanonicalMigrationTests {
+ async scope():Promise<void>{const root=mkdtempSync(join(tmpdir(),'cordis-migration-scope-'));try{let code='';try{await Format2Migration.run(root+'/unused/../missing',{from:2,authorization:'non-serving',expectedComposition:'a'.repeat(64)});}catch(error){if(error instanceof PlanningBlockedError)code=error.blockers[0]!.code;else throw error;}expect(code).toBe('MIGRATION_SCOPE');expect(existsSync(join(root,'missing'))).toBe(false);}finally{rmSync(root,{recursive:true,force:true});}}
+}
+const canonical=new CanonicalMigrationTests();test('integration: direct migration rejects ambiguous paths before scope publication',canonical.scope.bind(canonical));
