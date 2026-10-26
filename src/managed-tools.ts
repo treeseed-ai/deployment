@@ -50,12 +50,12 @@ class HelperArchiveFile {
 }
 /** A private helper work tree has a hard postcondition and a monitored in-flight disk budget. */
 class SourceWorkBudget {
-    static verify(directory:SafeDirectory):void{const counts={bytes:0,entries:0};this.walk(directory,counts);directory.verify();}
-    private static walk(directory:SafeDirectory,counts:{bytes:number;entries:number}):void{for(const name of directory.entries()){
+    static verify(directory:SafeDirectory,inFlight=false):void{const counts={bytes:0,entries:0};this.walk(directory,counts,inFlight);directory.verify();}
+    private static walk(directory:SafeDirectory,counts:{bytes:number;entries:number},inFlight:boolean):void{for(const name of directory.entries()){
         let stat;try{stat=lstatSync(directory.childPath(name));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')continue;throw error;}
         Check.require(++counts.entries<=8192&&!stat.isSymbolicLink()&&stat.uid===process.getuid?.(),'SOURCE_WORK_BUDGET');
-        if(stat.isDirectory()){let child;try{child=directory.directory(name);}catch(error){if(!directory.entries().includes(name))continue;throw error;}try{this.walk(child,counts);}finally{child.close();}}
-        else{Check.require(stat.isFile()&&stat.nlink===1&&stat.size<=64*1024*1024,'SOURCE_WORK_BUDGET');counts.bytes+=stat.size;Check.require(counts.bytes<=128*1024*1024,'SOURCE_WORK_BUDGET');}
+        if(stat.isDirectory()){let child;try{child=directory.directory(name);}catch(error){if(!directory.entries().includes(name))continue;throw error;}try{this.walk(child,counts,inFlight);}finally{child.close();}}
+        else{Check.require(stat.isFile()&&(inFlight||stat.nlink===1)&&stat.size<=64*1024*1024,'SOURCE_WORK_BUDGET');counts.bytes+=stat.size;Check.require(counts.bytes<=128*1024*1024,'SOURCE_WORK_BUDGET');}
     }}
 }
 class ManagedToolProcess {
@@ -71,7 +71,7 @@ class ManagedToolProcess {
     constructor(private readonly executable: string, private readonly args: string[], private readonly cwd: string, private readonly environment: Record<string, string>,private readonly budget?:SafeDirectory) { }
     run(): Promise<Buffer> { return new Promise(this.start.bind(this)); }
     private start(accept: (bytes: Buffer) => void, reject: (error: Error) => void): void { this.accept = accept; this.reject = reject; this.child = spawn(this.executable, this.args, { cwd: this.cwd, env: this.environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); this.child.stdout?.on('data', this.output.bind(this)); this.child.stderr?.on('data', this.stderr.bind(this)); this.child.once('error', this.fail.bind(this)); this.child.once('close', this.closed.bind(this)); this.timer = setTimeout(this.fail.bind(this), 120000);if(this.budget)this.monitor=setInterval(this.inspect.bind(this),25); }
-    private inspect():void{try{SourceWorkBudget.verify(this.budget!);}catch(error){this.budgetFailure=error as Error;this.fail();}}
+    private inspect():void{try{SourceWorkBudget.verify(this.budget!,true);}catch(error){this.budgetFailure=error as Error;this.fail();}}
     private output(bytes: Buffer): void { this.count += bytes.length; if (this.count > 8 * 1024 * 1024) {
         this.fail();
         return;
