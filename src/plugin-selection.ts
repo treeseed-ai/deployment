@@ -9,7 +9,7 @@ export type ContainerSelection = { kind: 'selected'; graph: ServiceGraph; servic
 /** Pure selection/projection data. Native Cordis still owns all provider construction/lifecycle. */
 export class ContainerPluginSelection {
     private static action(action: string): ContainerSelection { return { kind: 'prepared', actions: [action] }; }
-    private static configuration(provider: PluginExportDescriptor, input: Record<string, unknown>): Record<string, unknown> {
+    static configuration(provider: PluginExportDescriptor, input: Record<string, unknown>): Record<string, unknown> {
         const value = structuredClone(input);
         try { const compiler = new Ajv2020({ strict: true, allErrors: false, useDefaults: true, coerceTypes: false, removeAdditional: false }); addFormats(compiler); const validate = compiler.compile(provider.configurationSchema); Check.require(Reflect.get(validate, '$async') !== true && validate(value) === true, 'INVALID_PROVIDER_CONFIGURATION'); return value; }
         catch { return Check.block('INVALID_PROVIDER_CONFIGURATION'); }

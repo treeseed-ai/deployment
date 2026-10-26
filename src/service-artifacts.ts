@@ -41,6 +41,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
                 const container = this.provider(service.provider, descriptors, packages, 'container.service'), probe = this.provider(service.readiness.provider, descriptors, packages, 'probe.service');
                 this.configuration(container, service.configuration);
                 this.configuration(probe, service.readiness.configuration);
+                this.liveMetadata(service,probe,inventory);
                 this.service(service, container, probe, inventory, configuration);
                 const owner = descriptors.get(service.provider.package.name)!;
                 const ownerData = packages.get(service.provider.package.name)!;
@@ -142,6 +143,7 @@ class ServiceArtifactVerifier extends ArtifactResolver {
             Check.block('UNSUPPORTED_CONFIGURATION_SCHEMA');
         }
     }
+    private liveMetadata(service:ServiceInstance,probe:PluginExportDescriptor,inventory:ServiceRelease):void{const reference=service.readiness.provider;for(const grant of inventory.acquisitionPolicy?.liveTransitions??[]){if(grant.capability!=='probe.service'||grant.target!==reference.target)continue;for(const[providerId,artifact]of[[grant.previousProviderId,grant.previous],[grant.nextProviderId,grant.next]]as const)if(providerId===reference.providerId&&artifact.package===reference.package.name&&artifact.version===reference.package.version&&artifact.integrity===reference.package.sha256)Check.require(probe.replacement.kind==='live'&&probe.replacement.stateVersion===grant.stateVersion&&probe.replacement.qualificationDigest===grant.qualificationDigest,'LIVE_QUALIFICATION_METADATA');}}
     private service(service: ServiceInstance, container: PluginExportDescriptor, probe: PluginExportDescriptor, inventory: ServiceRelease, configuration: ReturnType<typeof ServiceSchemas.configuration.parse>): void {
         Check.require(container.container && probe.probe, 'MISSING_PROVIDER_PROJECTION');
         const projected = ServiceProjection.canonical(ServiceProjection.resolve(service, container.container, inventory.composition, configuration));

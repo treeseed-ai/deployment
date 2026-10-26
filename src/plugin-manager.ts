@@ -1,3 +1,4 @@
+import{ProbePluginSelection}from'./probe-selection.js';
 import{RegisteredProviderSelection}from'./registered-selection.js';
 import{GitSourceToken}from'./git-source.js';
 import { join } from 'node:path';
@@ -103,12 +104,12 @@ class NativePluginManager implements PluginManager {
         for (const ack of status.acknowledgements) if (ack.ready && ack.target === 'deployment' && ack.generation === plan.compositionGeneration && ack.scopeId === scope) result.push({ target: 'deployment', scopeId: scope, generation: ack.generation, ready: true });
         Check.require(result.length, 'TARGET_ACKNOWLEDGEMENT_REQUIRED'); return result;
     }
-    private static actions(plan: ServicePlan): string[] { const result = new Set<string>(); for (const change of plan.changes) { for (const action of change.requiredActions) result.add(action === 'migration' ? 'review-migration' : action === 'restart' ? 'review-restart' : 'review-removal'); if (!['add', 'retain'].includes(change.kind) && !change.requiredActions.length) result.add('qualify-transition'); } if (plan.configuration.runtimeState !== 'running') result.add('start-runtime'); return [...result].sort(); }
+    private static actions(plan: ServicePlan): string[] { const result = new Set<string>(); for (const change of plan.changes) { for (const action of change.requiredActions) result.add(action === 'migration' ? 'review-migration' : action === 'restart' ? 'review-restart' : 'review-removal'); if (!['add', 'retain', 'reconfigure'].includes(change.kind) && !change.requiredActions.length) result.add('qualify-transition'); } if (plan.configuration.runtimeState !== 'running') result.add('start-runtime'); return [...result].sort(); }
     private installIntent(record:PluginRequestRecord,base:ServicePlan):PluginInstallRequest{if(record.operation==='install')return PluginManagementSchemas.install.parse(record.intent);const request=PluginManagementSchemas.select.parse(record.intent),{capability,...common}=request,bindings:Record<string,string>={};const prior=base.composition.services.find(NativePluginManager.named.bind(null,request.serviceId??''));if(prior)for(const binding of [...prior.bindings,...prior.dependencies])bindings[binding.port]=binding.bindingId;return PluginManagementSchemas.install.parse({...common,source:record.sourceReceipt!.locator,bindings:Object.keys(bindings).length?bindings:undefined});}
     private static named(id:string,value:{serviceId:string}):boolean{return id===value.serviceId;}
     private async activate(initial: PluginRequestRecord, descriptor: PluginPackageDescriptor, target: PluginInstallResult['target']): Promise<PluginInstallResult> {
-        let record = initial; const base = this.base(), request = this.installIntent(record,base), template = NativePluginManager.prepared(record, descriptor, target, []), selection = ContainerPluginSelection.resolve(base, request, descriptor, record.sourceReceipt!, target);
-        if(record.operation==='select'&&PluginManagementSchemas.select.parse(record.intent).capability!=='container.service')return this.save(record,{...template,nextActions:['qualify-transition']});
+        let record = initial; const base = this.base(), request = this.installIntent(record,base), template = NativePluginManager.prepared(record, descriptor, target, []), selection = record.operation==='select'&&PluginManagementSchemas.select.parse(record.intent).capability==='probe.service'?ProbePluginSelection.resolve(base,PluginManagementSchemas.select.parse(record.intent),descriptor,record.sourceReceipt!):ContainerPluginSelection.resolve(base, request, descriptor, record.sourceReceipt!, target);
+        if(record.operation==='select'&&PluginManagementSchemas.select.parse(record.intent).capability!=='container.service'&&PluginManagementSchemas.select.parse(record.intent).capability!=='probe.service')return this.save(record,{...template,nextActions:['qualify-transition']});
         if (selection.kind === 'prepared') return this.save(record, { ...template, nextActions: selection.actions });
         const lease = await this.locator.acquire(ServiceApplicationToken.host);
         try {

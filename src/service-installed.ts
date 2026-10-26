@@ -10,9 +10,11 @@ import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesyste
 export class ServiceInstalledHost {
     async apply(planId: string, digest: string, input: ApplyOptions): Promise<{ id: string; accepted: true }> {
         const options = ServiceSchemas.applyOptions.parse(input), store = new ServicePlanStore(options.installationDirectory), plan = store.readPublished(planId, digest), request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: options.idempotencyKey,...(options.restartServices?{restartServices:[...options.restartServices].sort()}:{}) };
-        ServiceTransitions.activation(plan,options.restartServices);
+        // Only the live owner can compare a saved observer transition against its current generation.
+        if(!plan.changes.some(ServiceInstalledHost.observerTransition))ServiceTransitions.activation(plan,options.restartServices);
         return (await this.owner(plan.id, plan.digest, options.installationDirectory)).submit(request);
     }
+    private static observerTransition(change:ServicePlan['changes'][number]):boolean{return change.kind==='reconfigure'&&change.requiredActions.length===0;}
     async owner(planId: string, digest: string, directory: string): Promise<ServiceWorkerOwnerClient> {
         const store = new ServicePlanStore(directory), plan = store.readPublished(planId, digest), client = new ServiceWorkerOwnerClient({ installationDirectory: directory });
         if (this.control(plan)) { this.running(plan); return client; }

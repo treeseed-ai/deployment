@@ -158,6 +158,7 @@ class NativeEngine implements ServiceEngine {
 /** Actual native root per accepted service. Holds framework handles, never provider instances. */
 export class ServiceNativeScope {
     private closed = false;
+    private closing = false;
     private fenced = false;
     private constructor(private readonly handle: CompositionHandle, private readonly consumer: Context, private readonly serviceId: string) { }
     get generation(): string { return this.handle.generation; }
@@ -205,7 +206,7 @@ export class ServiceNativeScope {
             throw error;
         }
     }
-    acquire(): Promise<ProviderLease<import('@treeseed-cordis/sdk').ContainerService>> { Check.require(!this.closed && !this.fenced, 'SERVICE_SCOPE_CLOSED'); return CordisServiceLocator.from(this.consumer).acquire(ServiceTokens.container()); }
+    acquire(): Promise<ProviderLease<import('@treeseed-cordis/sdk').ContainerService>> { Check.require(!this.closed && !this.fenced, 'SERVICE_SCOPE_CLOSED'); Check.require(!this.closing,'SERVICE_SCOPE_DRAINING'); return CordisServiceLocator.from(this.consumer).acquire(ServiceTokens.container()); }
     async ready(): Promise<ServiceReadiness> {
         const lease = await this.acquire();
         try {
@@ -227,6 +228,7 @@ export class ServiceNativeScope {
     async close(timeoutMs = 10000): Promise<void> {
         if (this.closed)
             return;
+        this.closing = true;
         if (!await this.handle.drain(timeoutMs)) {
             this.fenced = true;
             this.handle.fence();
