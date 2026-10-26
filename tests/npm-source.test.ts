@@ -91,7 +91,9 @@ class NpmSourceTests {
             fixture.close();
         }
     }
-    async activation(): Promise<void> {
+    async activation(): Promise<void> { return this.runActivation(false); }
+    async freshActivation(): Promise<void> { return this.runActivation(true); }
+    private async runActivation(fresh: boolean): Promise<void> {
         const fixture = new ServiceRuntimeFixture();
         try {
             await fixture.running(false, true);
@@ -117,14 +119,14 @@ class NpmSourceTests {
                 await create({ cwd: directory, file: join(fixture.root, 'source-' + version + '.tgz'), gzip: true, portable: true, prefix: 'package/' }, ['package.json', 'index.js', 'postinstall.ts']);
             }
             fixture.refreshService();
-            const input = join(fixture.root, 'plugin-install.json'), executable = join(fixture.root, 'plugin-install-program');
+            const program = fresh ? 'installed-plugin-program' : 'plugin-install-program', input = join(fixture.root, 'plugin-install.json'), executable = join(fixture.root, program);
             writeFileSync(input, JSON.stringify({ root: fixture.root, configuration: fixture.configuration }));
-            NpmSourceTests.command(process.execPath, ['build', 'dist/tests/plugin-install-program.js', '--compile', '--target=bun-linux-x64', '--outfile', executable]);
+            NpmSourceTests.command(process.execPath, ['build', 'dist/tests/' + program + '.js', '--compile', '--target=bun-linux-x64', '--outfile', executable]);
             const docker = spawnSync('which', ['docker'], { encoding: 'utf8' }); if (docker.status !== 0) throw new Error('Docker missing');
             const path = join(fixture.root, 'docker-only'); mkdirSync(path); symlinkSync(docker.stdout.trim(), join(path, 'docker'));
             const result = spawnSync(executable, [input], { encoding: 'utf8', timeout: 360000, env: { PATH: path, HOME: process.env.HOME, DOCKER_CONFIG: process.env.DOCKER_CONFIG, NPM_TOKEN: 'NEVER_INHERIT', HTTPS_PROXY: 'http://127.0.0.1:1' } });
             if (result.status !== 0) throw new Error(result.stderr);
-            expect(JSON.parse(result.stdout)).toEqual({ fixtureOnly: true, services: 6, active: true, alreadyActive: true, unsafePrepared: true, retained: true, sourceFree: true, noScripts: true });
+            expect(JSON.parse(result.stdout)).toEqual(fresh ? { fixtureOnly: true, freshOwner: true, active: true, sourceFree: true, noScripts: true } : { fixtureOnly: true, services: 6, active: true, alreadyActive: true, unsafePrepared: true, retained: true, sourceFree: true, noScripts: true });
         } finally { this.writable(fixture.root); fixture.close(); }
     }
     private writable(path: string): void {
@@ -143,3 +145,5 @@ class NpmSourceTests {
 const suite = new NpmSourceTests();
 test('smoke: native managed Bun resolves approved HTTPS npm identity once and replays source-free after tag movement', suite.program.bind(suite), 240000);
 test('smoke: built native plugin install adds two private instances while retaining original resources and prepares unsafe state changes', suite.activation.bind(suite), 420000);
+
+test('smoke: default installed plugin manager launches an exact fresh durable worker and reads cold records without activation', suite.freshActivation.bind(suite), 420000);
