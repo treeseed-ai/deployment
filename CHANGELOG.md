@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Keep live plugin transport preflight independent of mutable owner journal publication (#980).
+
 ### Added
 - Export a genuine prepared plugin-installation fixture for built CLI and assembled acceptance (#910).
 
