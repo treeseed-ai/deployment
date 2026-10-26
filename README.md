@@ -1227,3 +1227,9 @@ actions and no active generation. List/inspect read private accepted custody wit
 They never import a candidate or infer readiness from acquisition. Typed selection, plan/apply
 activation and non-NPM sources follow in subsequent owner slices; unsupported operations return
 structured blockers. Existing credentials, resources and Keycloak authority stay unchanged.
+
+`PluginRegistryReader` provides read-only cold list/inspect through the same result contracts.
+It validates the installation and request journal, creates no store state and acquires no writer.
+Prepared registration reads back exactly with the owner stopped and source unavailable. Historical
+active results become recovery-required with no active generation/acknowledgements; stored data
+cannot establish runtime health. Reading a closed root does not restart or adopt its endpoints.
