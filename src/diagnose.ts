@@ -148,3 +148,5 @@ export {ServiceHttpClient,type ServiceHttpRequest,type ServiceHttpRequests} from
 export {CaddyServicePlugin} from './service-caddy.js';
 export {PackageArchiveInspector,type PackageArchiveIndex,type PackageArchiveFile} from './package-archive.js';
 export {ServiceProjection} from './service-projection.js';
+
+export {PluginRequestStore} from './plugin-registry.js';

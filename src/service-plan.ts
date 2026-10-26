@@ -1,3 +1,4 @@
+import {PluginRequestJournal} from './plugin-registry.js';
 import { ServiceJournal } from './service-journal.js';
 import { BootstrapRecords, BootstrapPermit } from './service-bootstrap.js';
 import { type ServiceApplicationRecord, type ServiceResourceReceipt, type ServiceSnapshot, type ServiceWorkerRequest } from '@treeseed-cordis/sdk';
@@ -284,7 +285,7 @@ export class ServicePlanStore {
                 if (engine)
                     Check.require(CanonicalJson.stringify(engine) === CanonicalJson.stringify(receipt.expectedEngine), 'ENGINE_IDENTITY_CHANGED');
                 for (const name of entries)
-                    Check.require(['installation.json', 'plans', 'writer.lock', 'applications', 'resources', 'snapshots', 'artifacts', 'credentials', 'run', 'control', 'launch', 'worker'].includes(name), 'INCOMPLETE_JOURNAL');
+                    Check.require(['installation.json', 'plans', 'writer.lock', 'applications', 'resources', 'snapshots', 'artifacts', 'credentials', 'run', 'control', 'launch', 'worker', 'plugins'].includes(name), 'INCOMPLETE_JOURNAL');
                 for (const name of ['artifacts', 'credentials', 'run', 'control'])
                     if (entries.includes(name)) {
                         const directory = state.directory(name, true);
@@ -324,6 +325,7 @@ export class ServicePlanStore {
                         Check.require(name === plan.id + '.json' && plan.configuration.installationId === receipt.installationId && CanonicalJson.stringify(plan.expectedEngine) === CanonicalJson.stringify(receipt.expectedEngine), 'FOREIGN_INSTALLATION');
                         allPlans.set(plan.id, plan);
                     }
+                    PluginRequestJournal.read(state, receipt);
                     BootstrapRecords.read(state, allPlans);
                     new ServiceJournal(state, allPlans).read();
                     plans.verify();
