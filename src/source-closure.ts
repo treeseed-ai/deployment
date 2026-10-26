@@ -43,7 +43,7 @@ class ClosureVerifier extends ArtifactResolver {
 }
 /** One verified immutable artifact closure, separate from source lookup evidence. */
 export class SourceClosureStore {
-    static async gitArchive(authority:InstallationAuthority,record:PluginRequestRecord):Promise<{path:string;sha256:string;size:number;descriptor:PluginPackageDescriptor;tree:string;buildPolicyDigest:string|null}>{const raw=await new GitArchiveCache(authority,record).stored();if(raw.descriptor)return{path:raw.path,sha256:raw.sha256,size:raw.size,descriptor:raw.descriptor,tree:raw.tree,buildPolicyDigest:null};const{PluginBuildArtifacts}=await import('./source-build.js');return new PluginBuildArtifacts(authority).read(record);}
+    static async gitArchive(authority:InstallationAuthority,record:PluginRequestRecord):Promise<{path:string;sha256:string;size:number;descriptor:PluginPackageDescriptor;tree:string;buildPolicyDigest:string|null}>{if(record.operation==='select'){const{RegisteredProviderSelection}=await import('./registered-selection.js');record=RegisteredProviderSelection.origin(authority,record);}const raw=await new GitArchiveCache(authority,record).stored();if(raw.descriptor)return{path:raw.path,sha256:raw.sha256,size:raw.size,descriptor:raw.descriptor,tree:raw.tree,buildPolicyDigest:null};const{PluginBuildArtifacts}=await import('./source-build.js');return new PluginBuildArtifacts(authority).read(record);}
 
     constructor(private readonly authority: InstallationAuthority) { }
     static yield(done: (value: void) => void): void { setImmediate(done); }

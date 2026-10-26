@@ -1,0 +1,17 @@
+import {join} from 'node:path';
+import {CanonicalJson,PluginManagementSchemas,type PluginRequestRecord} from '@treeseed-cordis/sdk';
+import {InstallationAuthority} from './service-authority.js';
+import {PluginRequestStore} from './plugin-registry.js';
+import {SourceClosureStore} from './source-closure.js';
+import {PackageArchiveInspector} from './package-archive.js';
+import {PlanningFailure as Check} from './filesystem.js';
+/** Verified registry data only; selection cannot resolve a locator, download or execute a package. */
+export class RegisteredProviderSelection{
+    constructor(private readonly authority:InstallationAuthority){}
+    async acquire(input:PluginRequestRecord):Promise<PluginRequestRecord>{const request=PluginManagementSchemas.select.parse(input.intent),store=new PluginRequestStore(this.authority.plan,this.authority.writer);if(input.stage==='acquired')return input;Check.require(input.stage==='received','REGISTERED_SELECTION_UNCERTAIN');const candidates=new Map<string,PluginRequestRecord>();for(const record of store.records()){if(record.operation!=='install'||!record.sourceReceipt||!record.resolution||record.policyDigest!==input.policyDigest||!record.result||record.result.target!==request.target||!['prepared','active','already-active'].includes(record.result.state))continue;const closure=await new SourceClosureStore(this.authority).read(record,record.sourceReceipt.closureDigest),root=closure.packages.find(RegisteredProviderSelection.named.bind(null,closure.root.name));Check.require(root,'SOURCE_CLOSURE_IDENTITY');const path=join(this.authority.store.path,'.cordis/artifacts/closures',record.sourceReceipt.closureDigest,root.path),descriptor=PluginManagementSchemas.packageDescriptor.parse((await PackageArchiveInspector.inspect(path,root.sha256)).metadata.cordisPackage);for(const provider of descriptor.providers)if(provider.declaration.id===request.providerId&&provider.declaration.capability===request.capability&&provider.declaration.target===request.target)candidates.set(record.sourceReceipt.archiveDigest,record);}
+        Check.require(candidates.size>0,'REGISTERED_PROVIDER_NOT_FOUND');Check.require(candidates.size===1,'AMBIGUOUS_REGISTERED_PROVIDER');const selected=[...candidates.values()][0]!;this.authority.writer.assert(this.authority.store.path);Check.require(input.expectedGeneration===(this.authority.store.current()?.compositionGeneration??null),'STALE_GENERATION');let record=store.append({...input,sequence:input.sequence+1,stage:'resolving'});record=store.append({...record,sequence:record.sequence+1,stage:'resolved',resolution:selected.resolution});record=store.append({...record,sequence:record.sequence+1,stage:'acquired',sourceReceipt:selected.sourceReceipt});return record;
+    }
+    private static named(name:string,value:{name:string}):boolean{return value.name===name;}
+    /** Recover original acquisition custody rather than treating a select intent as an install. */
+    static origin(authority:InstallationAuthority,input:PluginRequestRecord):PluginRequestRecord{if(input.operation==='install')return input;for(const record of new PluginRequestStore(authority.plan,authority.writer).records())if(record.operation==='install'&&record.sourceReceipt&&record.policyDigest===input.policyDigest&&CanonicalJson.stringify(record.sourceReceipt)===CanonicalJson.stringify(input.sourceReceipt)&&CanonicalJson.stringify(record.resolution)===CanonicalJson.stringify(input.resolution))return record;return Check.block('REGISTERED_SOURCE_PROVENANCE_REQUIRED');}
+}

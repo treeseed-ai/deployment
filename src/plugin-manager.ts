@@ -1,3 +1,4 @@
+import{RegisteredProviderSelection}from'./registered-selection.js';
 import{GitSourceToken}from'./git-source.js';
 import { join } from 'node:path';
 import { CanonicalJson, CapabilityToken, PluginSource, PluginManagementSchemas, PlanningBlockedError, ProviderV4Schemas, ServiceSchemas, type PluginInstallRequest, type PluginSelectRequest, type PluginInstallResult, type PluginRequestRecord, type ServicePlan, type ServiceStatus, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
@@ -67,7 +68,7 @@ class NativePluginManager implements PluginManager {
         if (!job) { Check.require(!this.faulted, 'PLUGIN_MANAGER_REPAIR_REQUIRED'); job = this.execute(record).catch(this.failure.bind(this, record.requestId)).finally(this.finished.bind(this, record.requestId)); this.jobs.set(record.requestId, job); void job.catch(this.backgroundFailure.bind(this)); }
         return new PendingPluginReply(job, this.pending.bind(this, record.requestId)).run();
     }
-    async select(input: PluginSelectRequest): Promise<PluginInstallResult> { this.open(); PluginManagementSchemas.select.parse(input); return Check.block('PLUGIN_SELECTION_NOT_QUALIFIED'); }
+    async select(input: PluginSelectRequest): Promise<PluginInstallResult> { this.open();const request=PluginManagementSchemas.select.parse(input),policy=this.authority.plan.acquisitionPolicy;Check.require(policy,'SOURCE_POLICY_REQUIRED');Check.require(request.scope==='installation','PLUGIN_SCOPE_NOT_SUPPORTED');const record=this.requests.begin(request,CanonicalJson.digest(policy),this.authority.store.current()?.compositionGeneration??null).record;if(record.result)return this.checked(record);let job=this.jobs.get(record.requestId);if(!job){Check.require(!this.faulted,'PLUGIN_MANAGER_REPAIR_REQUIRED');job=this.execute(record).catch(this.failure.bind(this,record.requestId)).finally(this.finished.bind(this,record.requestId));this.jobs.set(record.requestId,job);void job.catch(this.backgroundFailure.bind(this));}return new PendingPluginReply(job,this.pending.bind(this,record.requestId)).run(); }
     async list(scope: PluginInstallRequest['scope'] = 'installation', target?: PluginInstallRequest['target']): Promise<PluginInstallResult[]> { this.open(); Check.require(scope === 'installation', 'PLUGIN_SCOPE_NOT_SUPPORTED'); if (target !== undefined) PluginManagementSchemas.target.parse(target); const results: PluginInstallResult[] = [], records: PluginRequestRecord[] = []; for (const record of this.requests.records()) if (record.intent.scope === scope && (target === undefined || record.intent.target === target || record.result?.target === target)) records.push(record); const status = records.some(NativePluginManager.activeRecord) ? await this.status() : undefined; for (const record of records) results.push(this.project(record, status)); return results; }
     async inspect(requestId: string): Promise<PluginInstallResult> { this.open(); return this.checked(this.record(PluginManagementSchemas.key.parse(requestId))); }
     private async execute(initial: PluginRequestRecord): Promise<PluginInstallResult> {
@@ -75,7 +76,8 @@ class NativePluginManager implements PluginManager {
         try {
             let record = initial;
             Check.require(record.expectedGeneration === (this.authority.store.current()?.compositionGeneration ?? null), 'STALE_GENERATION');
-            if (record.stage !== 'acquired') {
+            if(record.operation==='select')record=await new RegisteredProviderSelection(this.authority).acquire(record);
+            else if (record.stage !== 'acquired') {
                 const source = await this.locator.acquire(PluginSource.parse((record.intent as PluginInstallRequest).source).kind==='git'?GitSourceToken.instance:PackageSourceTokens.npm);
                 try { record = await source.value.resolve(record); record = await source.value.acquire(record); }
                 finally { await source.release(); }
@@ -102,8 +104,11 @@ class NativePluginManager implements PluginManager {
         Check.require(result.length, 'TARGET_ACKNOWLEDGEMENT_REQUIRED'); return result;
     }
     private static actions(plan: ServicePlan): string[] { const result = new Set<string>(); for (const change of plan.changes) { for (const action of change.requiredActions) result.add(action === 'migration' ? 'review-migration' : action === 'restart' ? 'review-restart' : 'review-removal'); if (!['add', 'retain'].includes(change.kind) && !change.requiredActions.length) result.add('qualify-transition'); } if (plan.configuration.runtimeState !== 'running') result.add('start-runtime'); return [...result].sort(); }
+    private installIntent(record:PluginRequestRecord,base:ServicePlan):PluginInstallRequest{if(record.operation==='install')return PluginManagementSchemas.install.parse(record.intent);const request=PluginManagementSchemas.select.parse(record.intent),{capability,...common}=request,bindings:Record<string,string>={};const prior=base.composition.services.find(NativePluginManager.named.bind(null,request.serviceId??''));if(prior)for(const binding of [...prior.bindings,...prior.dependencies])bindings[binding.port]=binding.bindingId;return PluginManagementSchemas.install.parse({...common,source:record.sourceReceipt!.locator,bindings:Object.keys(bindings).length?bindings:undefined});}
+    private static named(id:string,value:{serviceId:string}):boolean{return id===value.serviceId;}
     private async activate(initial: PluginRequestRecord, descriptor: PluginPackageDescriptor, target: PluginInstallResult['target']): Promise<PluginInstallResult> {
-        let record = initial; const base = this.base(), request = PluginManagementSchemas.install.parse(record.intent), template = NativePluginManager.prepared(record, descriptor, target, []), selection = ContainerPluginSelection.resolve(base, request, descriptor, record.sourceReceipt!, target);
+        let record = initial; const base = this.base(), request = this.installIntent(record,base), template = NativePluginManager.prepared(record, descriptor, target, []), selection = ContainerPluginSelection.resolve(base, request, descriptor, record.sourceReceipt!, target);
+        if(record.operation==='select'&&PluginManagementSchemas.select.parse(record.intent).capability!=='container.service')return this.save(record,{...template,nextActions:['qualify-transition']});
         if (selection.kind === 'prepared') return this.save(record, { ...template, nextActions: selection.actions });
         const lease = await this.locator.acquire(ServiceApplicationToken.host);
         try {
