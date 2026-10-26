@@ -394,15 +394,24 @@ class NpmSourceProgram {
             await registry.listen(); registry.metadataDelayMs = 1200;
             const managed: PluginInstallRequest = { source: '@fixture/npm-source@1.0.0', idempotencyKey: 'native-manager-registration', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', configuration: {} }, beforeManager = registry.requests, first = await client.install(managed);
             if (first.state !== 'pending' || first.planId !== null || first.applicationId !== null || first.activeGeneration !== null || first.acknowledgements.length) throw new Error('Unfinished source request claimed activation');
+            const joined = await client.install(managed);
+            if (joined.requestId !== first.requestId || joined.state !== 'pending') throw new Error('In-flight manager retry did not join pending request');
             let registered = first;
             const deadline = Date.now() + 60000;
             while (registered.state === 'pending' && Date.now() < deadline) { await new Promise(NpmSourceProgram.delay); registered = await client.inspect(managed.idempotencyKey); }
             if (registered.state !== 'prepared' || registered.artifact?.package !== '@fixture/npm-source' || registered.activeGeneration !== null || registered.acknowledgements.length || registered.planId !== null || registered.applicationId !== null || registry.requests <= beforeManager) throw new Error('Native manager did not register exact non-active alternative');
-            await registry.close();
             if (CanonicalJson.stringify(await client.install(managed)) !== CanonicalJson.stringify(registered) || !(await client.list('installation', 'deployment')).some(NpmSourceProgram.request.bind(null, managed.idempotencyKey))) throw new Error('Native registration retry/read-back reopened source');
             let conflict = false;
             try { await client.install({ ...managed, configuration: { conflicting: true } }); } catch (error) { conflict = error instanceof PlanningBlockedError && error.blockers[0]?.code === 'IDEMPOTENCY_CONFLICT'; }
             if (!conflict || new Deployment.ServicePlanStore(configuration.installationDirectory).records().length || new Deployment.ServicePlanStore(configuration.installationDirectory).resources().length) throw new Error('Manager conflict mutated runtime');
+            const drainRequest = { ...managed, idempotencyKey: 'manager-drain-registration' }, draining = await client.install(drainRequest);
+            if (draining.state !== 'pending') throw new Error('Drain fixture did not hold accepted source work');
+            await managerHost.close(60000); managerHost = undefined;
+            await registry.close();
+            const Reader = Reflect.get(Deployment, 'PluginRegistryReader') as { new(path: string): { inspect(id: string): Promise<PluginInstallResult>; list(scope?: 'installation' | 'client', target?: PluginInstallRequest['target']): Promise<PluginInstallResult[]> } };
+            if (typeof Reader !== 'function') throw new Error('COLD_PLUGIN_REGISTRY_UNAVAILABLE');
+            const cold = new Reader(configuration.installationDirectory), drained = await cold.inspect(drainRequest.idempotencyKey);
+            if (drained.state !== 'prepared' || CanonicalJson.stringify(await cold.inspect(managed.idempotencyKey)) !== CanonicalJson.stringify(registered) || !(await cold.list('installation', 'deployment')).some(NpmSourceProgram.request.bind(null, drainRequest.idempotencyKey)) || existsSync(configuration.installationDirectory + '/.cordis/writer.lock')) throw new Error('Host released writer before accepted registration drained or cold reader adopted an owner');
             if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(join(input.root, 'SCRIPT_CANARY')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
                 throw new Error('Credentials or lifecycle canary escaped');
             process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true, closure: true, joined: true, closureSourceFree: true, unapprovedDependencyRefused: true }) + '\n');

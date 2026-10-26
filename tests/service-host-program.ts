@@ -135,6 +135,12 @@ class HostProgram {
             if (before.ready || before.activeComposition !== null)
                 throw new Error('Unapplied host claimed ready');
             const request = { protocol: 3 as const, operation: 'submit' as const, planId: plan.id, digest: plan.digest, idempotencyKey: 'host-socket-fixture' }, denied = ServiceWorkerSchemas.response.parse(await new RawRequest(observerPath, request).run());
+            for (const request of [
+                { protocol: 3, operation: 'plugin.install', request: { source: '@fixture/plugin@1.0.0', idempotencyKey: 'observer-plugin-install', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', configuration: {} } },
+                { protocol: 3, operation: 'plugin.select', request: { capability: 'probe.service', providerId: 'fixture.probe', idempotencyKey: 'observer-plugin-select', installationDirectory: configuration.installationDirectory, scope: 'installation', target: 'deployment', configuration: {} } },
+                { protocol: 3, operation: 'plugin.list', scope: 'installation' },
+                { protocol: 3, operation: 'plugin.inspect', requestId: 'observer-plugin-inspect' }
+            ]) { const response = ServiceWorkerSchemas.response.parse(await new RawRequest(observerPath, request).run()); if (response.success || response.blockers[0]?.code !== 'OBSERVER_OPERATION_REFUSED') throw new Error('Observer admitted plugin management'); }
             if (denied.success || new ServicePlanStore(configuration.installationDirectory).records().length)
                 throw new Error('Observer admitted mutation');
             for (const raw of ['{\"protocol\":3,\"operation\":\"status\",\"operation\":\"submit\",\"secret\":\"SECRET_CANARY\"}\n', '{\"protocol\":3,\"operation\":\"status\"}\n{}\n']) {
