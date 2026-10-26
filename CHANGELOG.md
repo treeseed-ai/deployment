@@ -9,6 +9,9 @@
 - Export genuine HTTPS Git and approved-build fixtures for independent public-package consumers (#910).
 
 ### Fixed
+- Prepare registered selections against the current retained closure without reacquisition (#910).
+
+### Fixed
 - Attribute retained listener evidence to the actual fixture owner and verify Docker publications (#995).
 
 ### Added
