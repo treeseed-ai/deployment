@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Bind exact accepted source policy to deterministic deployment plans (#910).
+
+### Added
 - Prepare exact private source-tool bundles independently of ambient tools (#910).
 
 ### Changed

@@ -1002,3 +1002,19 @@ waits for direct-child close. A helper that exits while retaining a live group m
 its known group is killed and never reported as a successful operation. Qualification includes a
 trusted child-process canary. This is lifecycle custody of approved tooling, not a sandbox for
 untrusted package code; source-only builds require the separate approved isolated build adapter.
+
+### Exact source-policy planning custody
+
+A format-3 release may carry the SDK's versioned `acquisitionPolicy`. The default planner
+validates its exact helper-release binding, canonical build-policy identities and every
+hash-pinned public CA file before saving the plan. Policy semantic sets and object keys
+normalize deterministically. The plan carries the accepted policy as data; missing policy
+stays absent and authorizes no source acquisition. It is never inferred from package metadata.
+
+Source access must match an explicit registry/origin, package and selected target grant.
+Build/live qualification records remain exact owner-approved inputs, not a provider's permission
+to replace itself or read credentials. Source CA references are confined to the prepared bundle;
+symlinks, traversal, changed bytes, wrong helper roots and ambiguous grants block before plan
+publication. Plan read-back requires no original bundle, credentials, network or helper execution.
+Policy changes use an exact reviewed bundle and plan/apply; they do not implicitly restart
+unchanged services or create a source/build/activation authority.
