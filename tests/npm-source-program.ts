@@ -12,6 +12,7 @@ interface FetchedArchive {
     descriptor: PluginPackageDescriptor;
 }
 interface SourceRuntime {
+    acquire?(record:PluginRequestRecord):Promise<PluginRequestRecord>;
     fetch?(record: PluginRequestRecord): Promise<FetchedArchive>;
     begin(source: string, key: string, target?: 'deployment' | 'cli'): PluginRequestRecord;
     resolve(record: PluginRequestRecord): Promise<PluginRequestRecord>;
@@ -28,26 +29,28 @@ class RegistryFixture {
     invalidIntegrity = false;
     trustChanges = 0;
     archiveRequests = 0;
+    forbiddenRequests=0;
     corruptArchive = false;
     constructor(private readonly root: string, private readonly installation: string) { this.server = createServer({ key: readFileSync(join(root, 'key.pem')), cert: readFileSync(join(root, 'cert.pem')) }, this.reply.bind(this)); }
     private reply(request: IncomingMessage, response: ServerResponse): void {
-        const match = /^\/source-(1\.0\.0|2\.0\.0|3\.0\.0)\.tgz$/.exec(request.url ?? '');
+        const match=/^\/(source-(?:1\.0\.0|2\.0\.0|3\.0\.0|4\.0\.0)|runtime-1\.0\.0)\.tgz$/.exec(request.url??'');
         if (match) {
             this.archiveRequests++;
-            const bytes = readFileSync(join(this.root, 'source-' + match[1] + '.tgz'));
+            const bytes = readFileSync(join(this.root, match[1]+'.tgz'));
             response.end(this.corruptArchive ? Buffer.alloc(bytes.length, 0x41) : bytes);
             return;
         }
+        const decoded=decodeURIComponent((request.url??'').split('?')[0]!);if(decoded==='/@fixture/forbidden')this.forbiddenRequests++;const ordinary=decoded==='/@fixture/runtime',name=ordinary?'@fixture/runtime':'@fixture/npm-source';
         this.requests++;
         this.changeTrust();
         this.authorization ||= request.headers.authorization !== undefined;
         const versions: Record<string, unknown> = {};
-        for (const version of ['1.0.0', '2.0.0', '3.0.0']) {
-            const archive = readFileSync(join(this.root, 'source-' + version + '.tgz'));
-            versions[version] = { name: '@fixture/npm-source', version, dist: { tarball: (this.crossOrigin ? 'https://unapproved.invalid/' : this.origin()) + 'source-' + version + '.tgz', integrity: this.invalidIntegrity ? 'sha512-AAAA' : 'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'bun postinstall.ts' } };
+        for (const version of ordinary?['1.0.0']:['1.0.0', '2.0.0', '3.0.0','4.0.0']) {
+            const archive = readFileSync(join(this.root, ordinary?'runtime-1.0.0.tgz':'source-'+version+'.tgz'));
+            versions[version] = { name, version, dist: { tarball: (this.crossOrigin ? 'https://unapproved.invalid/' : this.origin()) + (ordinary?'runtime-1.0.0.tgz':'source-'+version+'.tgz'), integrity: this.invalidIntegrity ? 'sha512-AAAA' : 'sha512-' + createHash('sha512').update(archive).digest('base64') }, scripts: { postinstall: 'bun postinstall.ts' } };
         }
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ name: '@fixture/npm-source', 'dist-tags': { latest: this.version }, versions }));
+        response.end(JSON.stringify({ name, 'dist-tags': { latest: ordinary?'1.0.0':this.version }, versions }));
     }
     private changeTrust(): void {
         if (!this.tamperTrust)
@@ -106,7 +109,7 @@ class NpmSourceProgram {
         let runtime: SourceRuntime | undefined;
         try {
             const configuration = input.configuration, releasePath = join(configuration.release.directory, 'release.json'), release = JSON.parse(readFileSync(releasePath, 'utf8'));
-            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers.releaseIdentity, npm: [{ registry: registry.origin(), packages: ['@fixture/npm-source'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: createHash('sha256').update(readFileSync(join(configuration.release.directory, 'source-ca.pem'))).digest('hex') } }], git: [], builds: [] };
+            release.acquisitionPolicy = { formatVersion: 1, helperReleaseIdentity: release.helpers.releaseIdentity, npm: [{ registry: registry.origin(), packages: ['@fixture/npm-source','@fixture/runtime'], targets: ['deployment'], certificateAuthority: { path: 'source-ca.pem', sha256: createHash('sha256').update(readFileSync(join(configuration.release.directory, 'source-ca.pem'))).digest('hex') } }], git: [], builds: [] };
             const bytes = CanonicalJson.stringify(release) + '\n';
             writeFileSync(releasePath, bytes);
             configuration.release.manifestDigest = createHash('sha256').update(bytes).digest('hex');
@@ -213,13 +216,15 @@ class NpmSourceProgram {
             }
             if (!malformedDenied)
                 throw new Error('Undeclared plugin archive admitted');
+            if(typeof runtime.acquire!=='function')throw new Error('COMPLETE_SOURCE_CLOSURE_UNAVAILABLE');const acquiredPair=await Promise.all([runtime.acquire(resolved),runtime.acquire(resolved)]),acquired=acquiredPair[0]!;if(CanonicalJson.stringify(acquiredPair[1])!==CanonicalJson.stringify(acquired)||acquired.stage!=='acquired'||acquired.sourceReceipt?.kind!=='npm'||acquired.sourceReceipt.archiveDigest!==fetched.sha256||!acquired.sourceReceipt.closureDigest)throw new Error('Acquired receipt lacks complete joined closure');const deniedRecord=await runtime.resolve(runtime.begin('@fixture/npm-source@4.0.0','unapproved-closure-request'));let dependencyDenied=false;try{await runtime.acquire(deniedRecord);}catch(error){dependencyDenied=error instanceof PlanningBlockedError&&error.blockers[0]?.code==='NPM_SOURCE_NOT_APPROVED';}if(!dependencyDenied||registry.forbiddenRequests!==0)throw new Error('Unapproved dependency performed source lookup');const denialLookups=registry.requests;let incomplete=false;try{await runtime.acquire(deniedRecord);}catch(error){incomplete=error instanceof PlanningBlockedError&&error.blockers[0]?.code==='SOURCE_CLOSURE_UNCERTAIN';}if(!incomplete||registry.requests!==denialLookups)throw new Error('Incomplete closure silently re-resolved dependencies');
             const stoppedCount=registry.requests;
             await runtime.close();
             runtime = undefined;
             await registry.close();
             runtime = await constructor.start(plan);
-            if (CanonicalJson.stringify(await runtime.resolve(record)) !== CanonicalJson.stringify(resolved) || registry.requests !== stoppedCount)
+            if (CanonicalJson.stringify(await runtime.resolve(record)) !== CanonicalJson.stringify(acquired) || registry.requests !== stoppedCount)
                 throw new Error('Stopped-owner retry lost pinned resolution');
+            if(typeof runtime.acquire!=='function'||CanonicalJson.stringify(await runtime.acquire(resolved))!==CanonicalJson.stringify(acquired))throw new Error('Completed closure did not read source-free after owner restart');
             if (typeof runtime.fetch !== 'function' || CanonicalJson.stringify(await runtime.fetch(resolved)) !== CanonicalJson.stringify(fetched))
                 throw new Error('Offline exact archive custody changed');
             const savedBytes = readFileSync(fetched.path);
@@ -241,7 +246,7 @@ class NpmSourceProgram {
             const receiptPath=join(dirname(fetched.path),'receipt.json'),receiptBytes=readFileSync(receiptPath);chmodSync(receiptPath,0o600);writeFileSync(receiptPath,'{}\n');chmodSync(receiptPath,0o400);let malformedReceipt=false;try{await runtime.fetch(resolved);}catch(error){malformedReceipt=error instanceof PlanningBlockedError;}if(!malformedReceipt)throw new Error('Malformed archive receipt did not produce a safe typed blocker');chmodSync(receiptPath,0o600);writeFileSync(receiptPath,receiptBytes);chmodSync(receiptPath,0o400);
             if (registry.authorization || existsSync(join(input.root, 'MUST_NOT_RUN')) || existsSync(join(input.root,'SCRIPT_CANARY')) || existsSync(configuration.installationDirectory + '/.cordis/credentials'))
                 throw new Error('Credentials or lifecycle canary escaped');
-            process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true }) + '\n');
+            process.stdout.write(JSON.stringify({ fixture: true, native: true, exact: true, pinnedRetry: true, movedNewKey: true, sourceFree: true, grantRefused: true, noCredentialsOrScripts: true, exactArchive: true, offlineArchive: true, tamperRefused: true,closure:true,joined:true,closureSourceFree:true,unapprovedDependencyRefused:true }) + '\n');
         }
         finally {
             await runtime?.close();
