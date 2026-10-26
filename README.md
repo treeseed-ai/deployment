@@ -1370,3 +1370,14 @@ Git work is checked during execution and after each helper command (8,192 entrie
 per file, 128 MiB total) with the existing 120-second helper deadline and process-group cleanup.
 The archive explicitly uses `tar.umask=0022` to retain Git's executable/non-executable distinction
 without group-write permissions. See [Git archive configuration and attributes](https://git-scm.com/docs/git-archive).
+
+### Exact Git dependency closure
+
+A prepared native Git package uses the same complete locked runtime-closure verifier as NPM.
+The root archive is bound to its accepted origin, commit and tree; each missing registry dependency
+needs its own approved package/target/origin grant. Retained exact packages may satisfy compatible
+dependencies, and only one version per package is admitted. The managed Bun helper generates the
+ordinary lock offline from verified archives, with lifecycle scripts disabled. No Git package code
+runs on the host. The acquired receipt binds root archive, complete closure and helper identities;
+source-free repeated acquisition revalidates these bytes. Missing/tampered or uncertain closure
+state is refused. Source-only packages still require the separate approved isolated-build path.

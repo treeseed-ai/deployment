@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Verify complete locked dependency closure for exact prepared Git plugin archives (#910).
+
+### Added
 - Retain bounded exact Git package archives with private immutable custody and source-free read-back (#910).
 
 ### Fixed
