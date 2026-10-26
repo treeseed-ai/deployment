@@ -965,3 +965,32 @@ incomplete requests; it never exposes source credentials, configuration values o
 Only exact target observations may produce active/already-active. Prepared/pending/blocked
 remain non-success activation outcomes. Acquisition/build and activation are separate bounded
 continuations; this persistence slice itself imports no package and starts no container.
+
+### Privately managed acquisition tools
+
+Ordinary source acquisition uses exact release-pinned Bun/Git helper bundles, never ambient
+Node/Bun/NPM/Git or a global tool installation. A trusted release identity must match the
+plan's verified helper inventory before any helper can execute. Selected helpers bind native
+Linux/amd64, exact version/archive size/hash, complete regular-file hashes/modes, entrypoint
+and approved library/executable directories. Symlinks, extra/missing files, changed modes and
+incomplete caches refuse safely. Hashes identify a helper; its approved release remains the
+trust boundary. Installed service plugins receive neither this custody nor the owner writer.
+
+Preparation follows a durable plugin request in resolving/resolved state, using that request's
+actual owner writer. Helpers stage in owner-private artifact storage; publication follows full
+archive/file verification. Complete accepted helper bytes are immutable and reused only after
+fresh file/directory/entry checks. Reuse is independent of the original source bundle/network.
+Invocations use exact verified executable descriptors, bounded arguments/output/deadlines and
+a private working directory, with a minimal controlled environment and no inherited production
+credentials or user tool configuration. Private helpers do not change global PATH or packages.
+A Docker-only ambient PATH must still run genuine helper version/package operations.
+
+The initial custody qualification uses the genuine pinned Bun binary as an explicitly identified
+helper fixture. NPM/Git source resolution, trust decisions, lifecycle suppression, normalized
+closure production and isolated approved builds remain source-adapter continuations. No container
+or installed provider is activated by helper preparation.
+
+The selected standard package manager supports registry metadata via [bun info](https://bun.com/docs/pm/cli/info)
+and script suppression through [--ignore-scripts](https://bun.sh/docs/pm/lifecycle).
+These documented APIs guide qualification of Bun 1.4.4; they do not replace the executable tests.
+Git configuration isolation follows the [Git environment contract](https://git-scm.com/docs/git).

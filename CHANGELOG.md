@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Prepare exact private source-tool bundles independently of ambient tools (#910).
+
 ### Changed
 - Partition complete smoke qualification within CI job budgets (#954).
 
