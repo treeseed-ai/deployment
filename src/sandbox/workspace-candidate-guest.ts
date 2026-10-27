@@ -9,7 +9,7 @@ const exact = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const environment = { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
 
 /** Stream the contribution with a strict write ceiling instead of filling the output volume first. */
-async function writeBoundedBundle(args: string[], path: string, maximum: number) {
+export async function writeBoundedBundle(args: string[], path: string, maximum: number) {
   const file = await open(path, 'wx', 0o600), child = spawn('/usr/bin/git', args, { env: environment, stdio: ['ignore', 'pipe', 'ignore'] });
   const exited = new Promise<number | null>((resolveExit, reject) => { child.once('error', reject); child.once('close', resolveExit); });
   void exited.catch(() => undefined);
