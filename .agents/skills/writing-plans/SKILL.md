@@ -102,7 +102,7 @@ owns the code, in that task's own step style.]
 **Files:**
 - Create: `packages/cli/src/commands.ts` (inside the independent CLI repo)
 - Modify: that owner's documented composition class and command contract
-- Test: `packages/cli/tests/smoke/cli-program.test.ts`
+- Test: `packages/cli/tests/acceptance/cli-program.test.ts`
 
 **Interfaces:**
 - Consumes: [what this task uses from earlier tasks — exact signatures]
@@ -146,7 +146,7 @@ Expected: all applicable gates pass; record unavailable environments separately.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/smoke/cli-program.test.ts src/commands.ts
+git add tests/acceptance/cli-program.test.ts src/commands.ts
 git commit -m "feat: add specific feature (#N)"
 ```
 ````
