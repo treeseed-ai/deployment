@@ -960,3 +960,6 @@ workflow:
   - id: scene-report-malformed-success-unit
     action: { verifier: deployment.golden.scene-report-malformed-success-unit }
     expect: { status: passed }
+  - id: sdk-cli-runtime-native
+    action: { verifier: deployment.golden.sdk-cli-runtime-native }
+    expect: { status: passed }

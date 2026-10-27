@@ -51,8 +51,9 @@ describe('Debian and systemd contracts', () => {
 	it('ships and imports the manager SDK runtime closure', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8');
 		const verification = readFileSync('scripts/verify-deb.ts', 'utf8');
-		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod']");
-		expect(packaging).toContain("['libsodium-sumo', 'libsodium-wrappers-sumo']");
+		expect(packaging).toContain("['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod', 'zod-to-json-schema']");
+		expect(packaging).toContain('for (const dependency of sdkOwnedCliRuntimePaths)');
+		expect(packaging).toContain('if (existsSync(resolve(modules, dependency))) continue');
 		for (const entry of ['operator-contracts/operation-builder.js', 'secrets-capability/secret-contracts.js', 'secrets-capability/github-actions-encryption.js', 'standards/typescript/extract.js']) expect(verification).toContain(entry);
 	});
 	it('extracted SDK and CLI packages load the selected SDK schema dependency without host modules', () => {
