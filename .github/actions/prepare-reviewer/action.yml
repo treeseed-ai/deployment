@@ -1,0 +1,39 @@
+name: Prepare the exact native Reviewer
+description: Share the original pinned Reviewer prerequisites between verification and publication.
+runs:
+  using: composite
+  steps:
+    - name: Fetch exact existing Reviewer runner
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        repository: treeseed-ai/reviewer
+        ref: 001329f305c79beb6c1c8dfb9b85a36c6360e3eb
+        path: .treeseed/tools/reviewer
+    - name: Install the executing Reviewer suite dependencies
+      shell: bash
+      run: npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund
+    - name: Measure the executing Reviewer prerequisite custody
+      id: reviewer-prerequisites
+      shell: bash
+      run: node --import ./.treeseed/tools/reviewer/node_modules/tsx/dist/loader.mjs .treeseed/tools/reviewer/scripts/scene-action-prerequisites.ts
+    - name: Install Reviewer native prerequisite toolchain
+      if: steps.reviewer-prerequisites.outputs.toolchain-ready != 'true'
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: "27.3.4.18"
+        elixir-version: "1.17.3"
+    - name: Install the executing Reviewer exact SDK artifact
+      uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1
+      env:
+        NODE_ENV: production
+      with:
+        github-token: ${{ github.token }}
+        commit: ${{ steps.reviewer-prerequisites.outputs.sdk-commit }}
+        paths: .treeseed/tools/reviewer/node_modules/@treeseed/sdk
+    - name: Build the executing Reviewer archive assets
+      shell: bash
+      run: npm run --prefix .treeseed/tools/reviewer build:dist
+    - name: Reproduce executing Reviewer installed archives before full suites
+      working-directory: .treeseed/tools/reviewer
+      shell: bash
+      run: sudo --preserve-env=GITHUB_WORKSPACE,NPM_CONFIG_CACHE,PATH "$(command -v node)" node_modules/vitest/vitest.mjs run --config ./vitest.config.ts tests/integration/guarantees/installed-custody.test.ts -t '^executes actual production-installed Reviewer and owner archives and retains denied checkout imports and missing-helper failures before exact retry$'

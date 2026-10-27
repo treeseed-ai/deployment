@@ -69,7 +69,7 @@ jobs:
         run: test -n "$APT_SIGNING_KEY"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: "24.12.0"
           cache: npm
       - run: npm ci
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
@@ -77,6 +77,11 @@ jobs:
           NODE_ENV: production
         with:
           github-token: ${{ github.token }}
+      - run: npm prune --ignore-scripts --no-audit --no-fund --workspaces=false
+        if: ${{ !inputs.resume_apt_only }}
+      - name: Prepare the exact executing Reviewer
+        if: ${{ !inputs.resume_apt_only }}
+        uses: ./.github/actions/prepare-reviewer
       - name: Restore exact release assets for APT-only resume
         if: inputs.resume_apt_only
         env:

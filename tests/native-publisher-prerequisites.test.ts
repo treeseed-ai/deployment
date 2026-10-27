@@ -47,6 +47,10 @@ it('keeps native installation and the complete suite out of an exact APT-only re
 		expect(selected).toBeDefined();
 		expect(selected?.if).toBe('${{ !inputs.resume_apt_only }}');
 	}
+	for (const selected of steps.filter(step => step.uses === './.github/actions/prepare-reviewer'
+		|| step.run === 'npm prune --ignore-scripts --no-audit --no-fund --workspaces=false')) {
+		expect(selected.if).toBe('${{ !inputs.resume_apt_only }}');
+	}
 });
 
 it.each([{ exit: 0, report: true, malformed: false }, { exit: 13, report: true, malformed: false },
