@@ -17,9 +17,12 @@ function fixture() {
   const git = (args: string[]) => execFileSync('/usr/bin/git', ['-C', root, ...args], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin',
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }).trim();
   git(['init', '--quiet']); writeFileSync(join(root, 'code.ts'), 'export const value = 1;\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'base']);
-  const baseCommit = git(['rev-parse', 'HEAD']); writeFileSync(join(root, 'code.ts'), 'export const value = 2;\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'candidate']);
+  const baseCommit = git(['rev-parse', 'HEAD']), baseBundlePath = join(directory, 'authorized-source.bundle');
+  git(['update-ref', 'refs/heads/treeseed-source', baseCommit]); git(['bundle', 'create', baseBundlePath, 'refs/heads/treeseed-source']);
+  git(['update-ref', '-d', 'refs/heads/treeseed-source', baseCommit]);
+  writeFileSync(join(root, 'code.ts'), 'export const value = 2;\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'candidate']);
   const commit = git(['rev-parse', 'HEAD']);
-  return { directory, root, git, input: { root, baseCommit, commit, output: join(directory, 'source.bundle'), maxBytes: 1_048_576, scratch: join(directory, 'scratch') }, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+  return { directory, root, git, baseBundlePath, input: { root, baseCommit, commit, output: join(directory, 'source.bundle'), maxBytes: 1_048_576, scratch: join(directory, 'scratch') }, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
 }
 describe('independent source candidate verifier', () => {
   it('native original source image builder and isolated verifier retain exact VM identities for independent task and container absence without changing Git or published image bytes', async ({signal}) => {
@@ -146,7 +149,8 @@ describe('independent source candidate verifier', () => {
     const f = fixture(); try {
       const result = await verifySourceCandidate(f.input); expect(result).toMatchObject({ commit: f.input.commit, baseCommit: f.input.baseCommit, objectClosure: true, ancestry: true, clean: true });
       expect(f.git(['bundle', 'list-heads', f.input.output])).toBe(`${f.input.commit} refs/heads/treeseed-source`);
-      const rebuilt = await buildSourceWorkspace({ root: join(f.directory, 'review'), bundle: f.input.output, commit: f.input.commit, parentCommit: null });
+      await buildSourceWorkspace({ root: join(f.directory, 'review'), bundle: f.baseBundlePath, commit: f.input.baseCommit, parentCommit: null });
+      const rebuilt = await buildSourceWorkspace({ root: join(f.directory, 'review'), bundle: f.input.output, commit: f.input.commit, parentCommit: f.input.baseCommit });
       expect(rebuilt).toMatchObject({ commit: f.input.commit, clean: true, objectClosure: true });
     } finally { f.cleanup(); }
   });
@@ -216,7 +220,7 @@ describe('independent source candidate verifier', () => {
       const candidateBytes = readFileSync(join(f.root, 'code.ts'));
       phase = 'VERIFY';
       await verifySourceCandidate(f.input);
-      const bundle = readFileSync(f.input.output), input = { assignmentId: 'assignment', attempt: 1, commit: f.input.commit, bundlePath: f.input.output, response };
+      const bundle = readFileSync(f.input.output), input = { assignmentId: 'assignment', attempt: 1, commit: f.input.commit, bundlePath: f.input.output, baseBundlePath: f.baseBundlePath, response };
       const expected = { kind: 'git', repository: 'treeseed-ai/sdk', commit: f.input.commit, branch: response.authorization.publicationRef };
       phase = 'PUBLISH';
       expect(await Promise.allSettled([publishVerifiedSourceBranch(input), publishVerifiedSourceBranch(input)]))
@@ -242,7 +246,8 @@ describe('independent source candidate verifier', () => {
       expect(readFileSync(join(repository, 'config.lock'))).toEqual(lock);
       rmSync(join(repository, 'config.lock'));
       phase = 'REBUILD';
-      const rebuilt = await buildSourceWorkspace({ root: join(f.directory, 'independent-review'), bundle: f.input.output, commit: f.input.commit, parentCommit: null });
+      await buildSourceWorkspace({ root: join(f.directory, 'independent-review'), bundle: f.baseBundlePath, commit: f.input.baseCommit, parentCommit: null });
+      const rebuilt = await buildSourceWorkspace({ root: join(f.directory, 'independent-review'), bundle: f.input.output, commit: f.input.commit, parentCommit: f.input.baseCommit });
       expect(rebuilt).toMatchObject({ commit: f.input.commit, clean: true, objectClosure: true });
       expect(readFileSync(join(f.directory, 'independent-review/code.ts'))).toEqual(candidateBytes);
       expect(readFileSync(f.input.output)).toEqual(bundle);
@@ -263,7 +268,7 @@ describe('independent source candidate verifier', () => {
         issuedAt: now.toISOString(), expiresAt: new Date(+now + 30_000).toISOString(),
       }, repository: { provider: 'github', owner: 'treeseed-ai', name: 'sdk', cloneUrl: 'https://github.com/treeseed-ai/sdk.git', ref: 'staging' }, credential: null };
       const before = structuredClone(response); await verifySourceCandidate(f.input);
-      const bundle = readFileSync(f.input.output), input = { assignmentId: 'assignment', attempt: 1, commit: f.input.commit, bundlePath: f.input.output, response };
+      const bundle = readFileSync(f.input.output), input = { assignmentId: 'assignment', attempt: 1, commit: f.input.commit, bundlePath: f.input.output, baseBundlePath: f.baseBundlePath, response };
       const expected = await publishVerifiedSourceBranch(input), repository = simulationSourceRepository(storage, response.authorization.source);
       const git = (args: string[]) => execFileSync('/usr/bin/git', ['--git-dir', repository, ...args],
         { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });

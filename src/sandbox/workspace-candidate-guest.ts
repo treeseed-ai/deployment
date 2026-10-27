@@ -8,7 +8,7 @@ const exec = promisify(execFile);
 const exact = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const environment = { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
 
-/** Stream a full bundle with a strict write ceiling instead of letting Git fill the output volume first. */
+/** Stream the contribution with a strict write ceiling instead of filling the output volume first. */
 async function writeBoundedBundle(args: string[], path: string, maximum: number) {
   const file = await open(path, 'wx', 0o600), child = spawn('/usr/bin/git', args, { env: environment, stdio: ['ignore', 'pipe', 'ignore'] });
   const exited = new Promise<number | null>((resolveExit, reject) => { child.once('error', reject); child.once('close', resolveExit); });
@@ -73,8 +73,10 @@ export async function verifySourceCandidate(input: { root: string; baseCommit: s
         : '';
       throw new Error(`Candidate workspace has uncommitted changes: ${paths}${detail ? `; ${detail}` : ''}`);
     }
-    // One named commit history only: never export guest branches, refs, hooks, configuration or credentials.
-    await writeBoundedBundle(gitArgs(['bundle', 'create', '-', 'refs/heads/treeseed-source']), input.output, input.maxBytes);
+    // The manager already owns the authorized base and predecessors. Export only
+    // new objects; repository history is source input, not agent output.
+    await writeBoundedBundle(gitArgs(['bundle', 'create', '-', 'refs/heads/treeseed-source',
+      ...[input.baseCommit, ...predecessors].map(commit => `^${commit}`)]), input.output, input.maxBytes);
     const file = await lstat(input.output);
     if (!file.isFile() || file.size < 1 || file.size > input.maxBytes) throw new Error('Candidate bundle exceeds its authorized output limit.');
     await git(['bundle', 'verify', input.output]);

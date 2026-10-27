@@ -909,3 +909,15 @@ workflow:
   - id: source-export-denials-unit
     action: { verifier: deployment.golden.source-export-denials-unit }
     expect: { status: passed }
+  - id: candidate-delta-history-native
+    action: { verifier: deployment.golden.candidate-delta-history-native }
+    expect: { status: passed }
+  - id: candidate-delta-ceiling-native
+    action: { verifier: deployment.golden.candidate-delta-ceiling-native }
+    expect: { status: passed }
+  - id: candidate-delta-prerequisite-native
+    action: { verifier: deployment.golden.candidate-delta-prerequisite-native }
+    expect: { status: passed }
+  - id: candidate-delta-upstream-native
+    action: { verifier: deployment.golden.candidate-delta-upstream-native }
+    expect: { status: passed }
