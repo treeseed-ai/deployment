@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.4",
+  "version": "0.0.0-cordis.76",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -13,6 +13,18 @@
     "./testing": {
       "types": "./dist/tests/release-fixture.d.ts",
       "default": "./dist/tests/release-fixture.js"
+    },
+    "./testing/runtime": {
+      "types": "./dist/tests/service-runtime-fixture.d.ts",
+      "default": "./dist/tests/service-runtime-fixture.js"
+    },
+    "./testing/plugins": {
+      "types": "./dist/tests/plugin-installation-fixture.d.ts",
+      "default": "./dist/tests/plugin-installation-fixture.js"
+    },
+    "./testing/live": {
+      "types": "./dist/tests/live-probe-fixture.d.ts",
+      "default": "./dist/tests/live-probe-fixture.js"
     }
   },
   "files": [
@@ -20,7 +32,14 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "dist/tests/release-fixture.*"
+    "dist/tests/release-fixture.*",
+    "dist/tests/service-fixture-plugins.*",
+    "dist/tests/service-runtime-fixture.*",
+    "dist/tests/plugin-installation-fixture.*",
+    "dist/tests/source-registry-fixture.*",
+    "dist/tests/git-source-fixture.*",
+    "dist/tests/live-probe-fixture.*",
+    "dist/tests/live-probe-plugins.*"
   ],
   "scripts": {
     "check": "bun scripts/tooling.ts check",
@@ -31,7 +50,7 @@
     "verify": "bun run check && bun run build && bun run test:unit && bun run test:integration && bun run test:smoke"
   },
   "peerDependencies": {
-    "@treeseed-cordis/sdk": "0.0.0-cordis.4"
+    "@treeseed-cordis/sdk": "0.0.0-cordis.16"
   },
   "devDependencies": {
     "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
@@ -43,14 +62,314 @@
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "f44ede394a58814b5d6e73146ba9ed7246b4f2ca",
-      "sha256": "16d3d7f699c55795b97972ca538bfeedeafdc6bfc4c32ed01708871ea02fe75c"
+      "commit": "4c0ecd2a0fc28545dbf677cc988ce69f0cf2f15d",
+      "sha256": "4084aa8dbe9767984fac9fef7f5cea30a0bec93ed416138d32c804e6389fdba5"
     }
   },
   "dependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "cordis": "4.0.0-rc.12",
     "jsonc-parser": "3.3.1",
-    "tar": "7.5.22",
     "semver": "7.8.5",
-    "cordis": "4.0.0-rc.12"
+    "tar": "7.5.22",
+    "zod": "4.6.7",
+    "postgres": "3.4.9"
+  },
+  "cordisPackage": {
+    "formatVersion": 4,
+    "contractVersion": "0.4.0-cordis.1",
+    "pluginId": "deployment",
+    "package": {
+      "name": "@treeseed-cordis/deployment",
+      "version": "0.0.0-cordis.76"
+    },
+    "providers": [
+      {
+        "declaration": {
+          "id": "deployment.postgres.service",
+          "pluginId": "deployment",
+          "capability": "container.service",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "container.service"
+          ],
+          "inject": [
+            "deployment.services",
+            "service.context"
+          ]
+        },
+        "entry": "dist/src/service-postgres.js",
+        "classExport": "PostgresServicePlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": [],
+        "container": {
+          "definition": {
+            "imageId": "postgres",
+            "user": "image-default",
+            "environment": {
+              "POSTGRES_DB": "cordis",
+              "POSTGRES_USER": "cordis",
+              "POSTGRES_PASSWORD_FILE": "/run/cordis/database-password"
+            },
+            "ports": [
+              {
+                "id": "postgres",
+                "target": 5432
+              }
+            ],
+            "volumes": [
+              {
+                "source": "data",
+                "target": "/var/lib/postgresql/data",
+                "readOnly": false
+              }
+            ],
+            "secrets": [
+              {
+                "slot": "database-password",
+                "target": "/run/cordis/database-password"
+              }
+            ],
+            "workerSocket": false
+          },
+          "resources": {
+            "volumes": [
+              "data"
+            ],
+            "slots": {
+              "database-password": {
+                "kind": "random"
+              }
+            },
+            "grants": [],
+            "authorities": []
+          },
+          "providedContracts": [
+            {
+              "port": "postgres",
+              "contractId": "storage.postgres",
+              "contractVersion": "1.0.0"
+            }
+          ],
+          "dependencies": [],
+          "observationContract": "storage.postgres",
+          "transitionPolicy": {
+            "kind": "restart-required",
+            "stateVersion": 1
+          }
+        }
+      },
+      {
+        "declaration": {
+          "id": "deployment.postgres.readiness",
+          "pluginId": "deployment",
+          "capability": "probe.service",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "probe.service"
+          ],
+          "inject": []
+        },
+        "entry": "dist/src/service-postgres.js",
+        "classExport": "PostgresReadinessPlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": [],
+        "probe": {
+          "observationContracts": [
+            "storage.postgres"
+          ],
+          "schemes": [
+            "tcp"
+          ],
+          "maximumDeadlineMs": 120000
+        }
+      },
+      {
+        "declaration": {
+          "id": "deployment.caddy.service",
+          "pluginId": "deployment",
+          "capability": "container.service",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "container.service"
+          ],
+          "inject": [
+            "deployment.services",
+            "service.context"
+          ]
+        },
+        "entry": "dist/src/service-caddy.js",
+        "classExport": "CaddyServicePlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": [],
+        "container": {
+          "definition": {
+            "imageId": "caddy",
+            "user": "image-default",
+            "environment": {},
+            "ports": [
+              {
+                "id": "https",
+                "target": 443
+              }
+            ],
+            "volumes": [
+              {
+                "source": "data",
+                "target": "/data",
+                "readOnly": false
+              },
+              {
+                "source": "config",
+                "target": "/config",
+                "readOnly": false
+              }
+            ],
+            "secrets": [
+              {
+                "slot": "edge-config",
+                "target": "/etc/caddy/Caddyfile"
+              }
+            ],
+            "workerSocket": false
+          },
+          "resources": {
+            "volumes": [
+              "data",
+              "config"
+            ],
+            "slots": {
+              "edge-config": {
+                "kind": "text",
+                "value": {
+                  "$template": [
+                    "{\n admin off\n auto_https disable_redirects\n skip_install_trust\n}\nhttps://",
+                    {
+                      "$context": "hostname"
+                    },
+                    ":443 {\n tls internal\n @identity path /identity/realms/cordis/* /identity/resources/*\n handle @identity {\n reverse_proxy ",
+                    {
+                      "$endpoint": {
+                        "dependencyPort": "identity",
+                        "portId": "http",
+                        "scheme": "http",
+                        "path": "/",
+                        "part": "authority"
+                      }
+                    },
+                    " {\n header_up -Forwarded\n header_up X-Forwarded-Proto https\n header_up X-Forwarded-Host ",
+                    {
+                      "$context": "originAuthority"
+                    },
+                    "\n header_up X-Forwarded-Port ",
+                    {
+                      "$context": "originPort"
+                    },
+                    "\n }\n }\n handle /identity/* {\n respond 404\n }\n handle {\n reverse_proxy ",
+                    {
+                      "$endpoint": {
+                        "dependencyPort": "api",
+                        "portId": "http",
+                        "scheme": "http",
+                        "path": "/",
+                        "part": "authority"
+                      }
+                    },
+                    "\n }\n}\n"
+                  ]
+                }
+              }
+            },
+            "grants": [],
+            "authorities": [
+              {
+                "id": "public-ca",
+                "volume": "data",
+                "path": "caddy/pki/authorities/local/root.crt"
+              }
+            ]
+          },
+          "providedContracts": [
+            {
+              "port": "https",
+              "contractId": "edge.https",
+              "contractVersion": "1.0.0"
+            }
+          ],
+          "dependencies": [
+            {
+              "port": "api",
+              "contractId": "platform.api",
+              "contractVersion": "1.0.0"
+            },
+            {
+              "port": "identity",
+              "contractId": "identity.oidc",
+              "contractVersion": "1.0.0"
+            }
+          ],
+          "observationContract": "edge.https",
+          "transitionPolicy": {
+            "kind": "restart-required",
+            "stateVersion": 1
+          }
+        }
+      }
+    ],
+    "assets": [],
+    "images": [
+      {
+        "id": "postgres",
+        "reference": "postgres@sha256:e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4",
+        "source": {
+          "kind": "prepared"
+        },
+        "indexSha256": "d538f74d92b3b72ecfd667bc56b81c48695a819ba0b74526a9580657cec26acd",
+        "manifestDigest": "e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4"
+      },
+      {
+        "id": "caddy",
+        "reference": "caddy@sha256:d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83",
+        "source": {
+          "kind": "prepared"
+        },
+        "indexSha256": "521bf209930956584e111b7e9cf9b8608f0015a52c3a70fa814cc01aaadaa5e8",
+        "manifestDigest": "d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83"
+      }
+    ]
   }
 }

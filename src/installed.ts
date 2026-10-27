@@ -1,3 +1,4 @@
+import type{Format2MigrationRequest,Format2MigrationResult}from'./migration-custody.js';
 import {constants,openSync,closeSync,writeFileSync,fsyncSync,mkdirSync,linkSync,unlinkSync,lstatSync,fstatSync,rmdirSync,chmodSync,renameSync,readdirSync,rmSync,readFileSync} from 'node:fs';
 import {resolve,dirname,basename,join} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
@@ -43,9 +44,13 @@ export class InstallationStore {
   const installation=this.installation(true);try{let state:SafeDirectory;if(current==='absent'){Check.require(installation.entries().length===0,'INITIALIZATION_CONFLICT');state=InstallationStore.mkdir(installation,'.cordis');try{const plans=InstallationStore.mkdir(state,'plans');try{InstallationStore.publish(plans,plan.id+'.json',plan);}finally{plans.close();}InstallationStore.publish(state,'installation.json',{formatVersion:2,installationId:plan.configuration.installationId,installationDirectory:this.path,ownerUid:process.getuid!(),expectedEngine:plan.expectedEngine,migration:null});}finally{state.close();}}else{state=installation.directory('.cordis',true);try{const plans=state.directory('plans',true);try{InstallationStore.publish(plans,plan.id+'.json',plan);}finally{plans.close();}}finally{state.close();}}}finally{installation.close();}return this.read(plan.id,plan.digest);
  }
  /** Explicit owner-local migration; never silently called by plan or apply. */
- migrate():void {
+ migrate():void;
+ migrate(options:Format2MigrationRequest):Promise<Format2MigrationResult>;
+ migrate(options?:Format2MigrationRequest):void|Promise<Format2MigrationResult> {
+  if(options!==undefined)return import('./format2-migration.js').then(InstallationStore.migrateFormat2.bind(null,this.path,options));
   Check.require(this.inspect()==='legacy','MIGRATION_NOT_REQUIRED');const state=this.state();try{const originalBytes=state.file('receipt.json',undefined,1024*1024,true),original=StrictJson.object(StrictJson.parse(originalBytes)),migration={from:1,receiptSha256:createHash('sha256').update(originalBytes).digest('hex')};const lock=InstallationStore.mkdir(state,'writer.lock');try{state.verify();Check.require(state.file('receipt.json',migration.receiptSha256,1024*1024,true).equals(originalBytes),'MIGRATION_CONFLICT');InstallationStore.publish(state,'migration.json',migration);InstallationStore.publish(state,'installation.json',{formatVersion:2,installationId:original.installationId,installationDirectory:this.path,ownerUid:process.getuid!(),expectedEngine:original.expectedEngine,migration});}finally{lock.close();rmdirSync(state.childPath('writer.lock'));fsyncSync(state.fd);}}finally{state.close();}this.inspect();
  }
+ private static migrateFormat2(path:string,options:Format2MigrationRequest,module:typeof import('./format2-migration.js')):Promise<Format2MigrationResult>{return module.Format2Migration.run(path,options);}
  read(id:string,digest:string):InstalledPlan {Check.require(/^plan-[a-f0-9]{64}$/.test(id)&&id==='plan-'+digest,'PLAN_IDENTITY');Check.require(this.inspect()==='installed','MIGRATION_REQUIRED');const state=this.state();try{const plans=state.directory('plans',true);try{const plan=InstallationStore.schema(InstalledSchemas.plan,StrictJson.parse(plans.file(id+'.json',undefined,4*1024*1024,true)));InstallationStore.scope(plan,this.path);Check.require(plan.id===id&&plan.digest===digest,'PLAN_IDENTITY');return plan;}finally{plans.close();}}finally{state.close();}}
  directory(name:'applications'|'credentials'|'run'|'artifacts',create=false):SafeDirectory {const state=this.state();try{if(!state.entries().includes(name)){Check.require(create,'MISSING_JOURNAL');return InstallationStore.mkdir(state,name);}return state.directory(name,true);}finally{state.close();}}
  writer():InstallationWriter {Check.require(this.inspect()==='installed','INVALID_JOURNAL');return new InstallationWriter(this.state());}
@@ -63,12 +68,13 @@ export class InstallationStore {
  }
 }
 export class InstallationWriter {
- private readonly lock:SafeDirectory;
- private closed=false;
- constructor(private readonly state:SafeDirectory){try{this.lock=InstallationStore.mkdir(state,'writer.lock');InstallationStore.publish(this.lock,'owner.json',{pid:process.pid,ownerUid:process.getuid!(),nonce:randomUUID()});}catch{state.close();Check.block('WRITER_CONFLICT');}}
- assert(path:string):void{Check.require(!this.closed&&this.state.path===resolve(path)+'/.cordis','WRITER_AUTHORITY');this.lock.verify();this.lock.file('owner.json',undefined,1024,true);}
- close():void{if(this.closed)return;this.closed=true;this.lock.verify();unlinkSync(this.lock.childPath('owner.json'));this.lock.close();rmdirSync(this.state.childPath('writer.lock'));fsyncSync(this.state.fd);this.state.close();}
+ private readonly lock:SafeDirectory;private readonly ownerDigest:string;private readonly identity:{dev:number;ino:number};
+ private closed=false;private fenced=false;
+ constructor(private readonly state:SafeDirectory){let lock:SafeDirectory|undefined;try{lock=InstallationStore.mkdir(state,'writer.lock');this.lock=lock;const owner={pid:process.pid,ownerUid:process.getuid!(),nonce:randomUUID()};InstallationStore.publish(lock,'owner.json',owner);this.ownerDigest=createHash('sha256').update(CanonicalJson.stringify(owner)+'\n').digest('hex');const stat=lstatSync(lock.childPath('owner.json'));this.identity={dev:stat.dev,ino:stat.ino};this.assert(dirname(state.path));}catch{lock?.close();state.close();Check.block('WRITER_CONFLICT');}}
+ assert(path:string):void{Check.require(!this.closed&&!this.fenced&&this.state.path===resolve(path)+'/.cordis','WRITER_AUTHORITY');try{this.state.verify();this.lock.verify();SafeDirectory.owner(fstatSync(this.state.fd),true);SafeDirectory.owner(fstatSync(this.lock.fd),true);const stat=lstatSync(this.lock.childPath('owner.json'));Check.require(stat.dev===this.identity.dev&&stat.ino===this.identity.ino,'WRITER_OWNER_CHANGED');this.lock.file('owner.json',this.ownerDigest,1024,true);}catch(error){this.fenced=true;throw error;}}
+ close():void{if(this.closed)return;try{this.assert(dirname(this.state.path));}catch(error){this.closed=true;this.lock.close();this.state.close();throw error;}this.closed=true;try{unlinkSync(this.lock.childPath('owner.json'));rmdirSync(this.state.childPath('writer.lock'));fsyncSync(this.state.fd);}finally{this.lock.close();this.state.close();}}
 }
+
 
 import {spawn,spawnSync} from 'node:child_process';
 import {createServer,createConnection,type Server,Socket} from 'node:net';
@@ -296,6 +302,7 @@ await DeploymentProgram.start();
 
 /** Build-time materialization of a verified public package archive; no imports or scripts. */
 export class PackageArchiveMaterializer {
+ static async materializePrivate(archivePath:string,sha256:string,targetDirectory:string):Promise<void>{Check.require(PlatformSchemas.digest.safeParse(sha256).success&&archivePath.startsWith('/')&&targetDirectory.startsWith('/'),'UNSAFE_PATH');const source=SafeDirectory.open(dirname(archivePath)),target=SafeDirectory.open(targetDirectory);try{SafeDirectory.owner(fstatSync(target.fd),true);Check.require(target.entries().length===0,'PACKAGE_DESTINATION_CONFLICT');await new ArchiveOutput(target,source.file(basename(archivePath),sha256)).run();target.verify();}finally{source.close();target.close();}}
  static async materialize(archivePath:string,sha256:string,targetDirectory:string):Promise<void>{Check.require(PlatformSchemas.digest.safeParse(sha256).success&&archivePath.startsWith('/')&&targetDirectory.startsWith('/'),'UNSAFE_PATH');const source=SafeDirectory.open(dirname(archivePath)),target=SafeDirectory.open(targetDirectory);try{SafeDirectory.owner(fstatSync(target.fd),true);Check.require(target.entries().length===0,'PACKAGE_DESTINATION_CONFLICT');await new ArchiveOutput(target,source.file(basename(archivePath),sha256)).run();this.readable(target);target.verify();}finally{source.close();target.close();}}
  private static readable(directory:SafeDirectory):void{for(const name of directory.entries()){const stat=lstatSync(directory.childPath(name));Check.require(!stat.isSymbolicLink(),'PACKAGE_SYMLINK');if(stat.isDirectory()){const child=directory.directory(name,true);try{this.readable(child);}finally{child.close();}}else chmodSync(directory.childPath(name),0o644);}chmodSync('/proc/self/fd/'+directory.fd,0o755);}
 }

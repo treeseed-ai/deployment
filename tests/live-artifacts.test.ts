@@ -1,0 +1,12 @@
+import{test,expect}from'bun:test';
+import{existsSync}from'node:fs';
+import{join}from'node:path';
+import{PlanningBlockedError}from'@treeseed-cordis/sdk';
+import{ServiceArtifactResolver}from'../src/service-artifacts.js';
+import{LiveProbeFixture}from'./live-probe-fixture.js';
+import{LiveProbeOld,LiveProbeNext}from'./live-probe-plugins.js';
+class LiveArtifactTests{
+    async contract():Promise<void>{const fixture=await new LiveProbeFixture().prepareLive();try{const service=fixture.release.composition.services[2]!,artifact={package:service.readiness.provider.package.name,version:service.readiness.provider.package.version,integrity:service.readiness.provider.package.sha256};fixture.release.acquisitionPolicy={formatVersion:1,helperReleaseIdentity:fixture.release.helpers!.releaseIdentity,npm:[],git:[],builds:[],liveTransitions:[{capability:'probe.service',target:'deployment',previousProviderId:LiveProbeOld.declaration.id,nextProviderId:LiveProbeNext.declaration.id,previous:artifact,next:artifact,qualificationDigest:LiveProbeNext.replacement.qualificationDigest,stateVersion:1}]};for(const next of[false,true]){service.readiness.provider.providerId=next?LiveProbeNext.declaration.id:LiveProbeOld.declaration.id;service.readiness.provider.classExport=next?'LiveProbeNext':'LiveProbeOld';fixture.refreshService();await new ServiceArtifactResolver().resolve(fixture.configuration);for(const mode of['digest','state']){const grant=fixture.release.acquisitionPolicy.liveTransitions![0]!,original={...grant};if(mode==='digest')grant.qualificationDigest='e'.repeat(64);else grant.stateVersion=2;fixture.refreshService();let refused=false;try{await new ServiceArtifactResolver().resolve(fixture.configuration);}catch(error){if(error instanceof PlanningBlockedError)refused=error.blockers.some(this.metadata);else throw error;}expect(refused).toBe(true);fixture.release.acquisitionPolicy.liveTransitions![0]=original;}}expect(existsSync(fixture.installation)).toBe(false);expect(existsSync(join(fixture.root,'old-disposed'))).toBe(false);expect(existsSync(join(fixture.root,'next-mounted'))).toBe(false);expect(existsSync(join(fixture.root,'SCRIPT_CANARY'))).toBe(false);}finally{fixture.close();}}
+    private metadata(value:{code:string}):boolean{return value.code==='LIVE_QUALIFICATION_METADATA';}
+}
+const suite=new LiveArtifactTests();test('smoke: genuine previous and next probe archives must advertise the exact accepted qualification before any import or state',suite.contract.bind(suite),120000);

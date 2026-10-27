@@ -1,0 +1,53 @@
+import { test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { writeFileSync, readFileSync, mkdirSync, copyFileSync, chmodSync, symlinkSync, realpathSync, lstatSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { create } from 'tar';
+import { CanonicalJson } from '@treeseed-cordis/sdk';
+import { ServiceReleaseFixture } from './release-fixture.js';
+class ManagedToolTests {
+    private static sha(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
+    async program(): Promise<void> { const fixture = await new ServiceReleaseFixture().services(); try {
+        const source = join(fixture.root, 'genuine-helper');
+        mkdirSync(source, { mode: 0o700 });
+        const binary = join(source, 'bun');
+        copyFileSync(realpathSync(process.execPath), binary);
+        chmodSync(binary, 0o500);
+        const archive = join(fixture.bundle, 'bun-helper.tgz');
+        await create({ cwd: source, file: archive, gzip: true, portable: false }, ['bun']);
+        const bytes = readFileSync(archive);
+        fixture.release.helpers = { formatVersion: 1, releaseIdentity: 'a'.repeat(64), helpers: [{ id: 'bun', version: '1.4.4', platform: 'linux-amd64', path: 'bun-helper.tgz', sha256: ManagedToolTests.sha(bytes), size: bytes.length, entry: 'bun', files: [{ path: 'bun', sha256: ManagedToolTests.sha(readFileSync(binary)), mode: 0o500 }], libraryDirectories: [] }] };
+        fixture.release.helpers.releaseIdentity = CanonicalJson.digest({ formatVersion: 1, helpers: fixture.release.helpers.helpers });
+        fixture.refreshService();
+        const input = join(fixture.root, 'managed-tools.json');
+        writeFileSync(input, JSON.stringify(fixture.configuration));
+        const executable = join(fixture.root, 'managed-tools-program'), built = spawnSync(process.execPath, ['build', 'dist/tests/managed-tools-program.js', '--compile', '--target=bun-linux-x64', '--outfile', executable], { encoding: 'utf8', timeout: 120000 });
+        if (built.status !== 0)
+            throw new Error(built.stderr);
+        const docker = spawnSync('which', ['docker'], { encoding: 'utf8' });
+        if (docker.status !== 0)
+            throw new Error('Docker prerequisite missing');
+        const only = join(fixture.root, 'docker-only');
+        mkdirSync(only, { mode: 0o700 });
+        symlinkSync(docker.stdout.trim(), join(only, 'docker'));
+        const result = spawnSync(executable, [input], { encoding: 'utf8', timeout: 120000, env: { PATH: only, HOME: process.env.HOME, DOCKER_CONFIG: process.env.DOCKER_CONFIG, SECRET_CANARY: 'MUST_NOT_INHERIT', NPM_TOKEN: 'MUST_NOT_INHERIT' } });
+        if (result.status !== 0)
+            throw new Error(result.stderr);
+        expect(JSON.parse(result.stdout)).toEqual({ fixture: true, genuineHelper: true, noAmbientTools: true, privateEnvironment: true, offlineReuse: true, tamperRefused: true });
+    }
+    finally {
+        this.writable(fixture.root);
+        fixture.close();
+    } }
+    private writable(path: string): void { const stat = lstatSync(path); if (stat.isSymbolicLink())
+        return; if (stat.isDirectory()) {
+        chmodSync(path, 0o700);
+        for (const name of readdirSync(path))
+            this.writable(join(path, name));
+    }
+    else
+        chmodSync(path, 0o600); }
+}
+const suite = new ManagedToolTests();
+test('smoke: standalone helper custody runs genuine pinned Bun without ambient developer tools and rejects tampering', suite.program.bind(suite), 240000);

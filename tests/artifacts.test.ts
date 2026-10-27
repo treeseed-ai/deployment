@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { PreparedReleaseFixture } from './release-fixture.js';
 import { ArtifactResolver } from '../src/artifacts.js';
 import { ComposeDeploymentHost, HostSystem, DockerCommands } from '../src/diagnose.js';
-import { PlanStore, SafeDirectory } from '../src/filesystem.js';
+import { PlanStore, SafeDirectory, StrictJson } from '../src/filesystem.js';
 import { PlatformSchemas, PlanningBlockedError, CanonicalJson, type DeploymentPlan } from '@treeseed-cordis/sdk';
 class ConcurrentWriter {
   readonly child:ChildProcess;
@@ -67,6 +67,7 @@ class ArtifactTests {
     try {const path=join(fixture.bundle,'bun.lock'),text=readFileSync(path,'utf8');writeFileSync(path,text.replace(/sha512-[a-zA-Z0-9+/]+=*/, 'sha512-'+Buffer.alloc(64).toString('base64')));fixture.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(path));fixture.refresh();try{await new ArtifactResolver().resolve(fixture.configuration);throw new Error('bad SRI accepted');}catch(error){expect(error).toBeInstanceOf(PlanningBlockedError);expect(JSON.stringify(error)).toContain('LOCK_INTEGRITY');}}
     finally{fixture.close();}
   }
+  async exactOverrides():Promise<void>{const fixture=await new PreparedReleaseFixture().prepare();try{const file=join(fixture.bundle,'package.json'),root=JSON.parse(readFileSync(file,'utf8'));root.overrides={...root.dependencies};writeFileSync(file,JSON.stringify(root));const generated=spawnSync('bun',['install','--lockfile-only','--offline','--ignore-scripts','--no-env-file'],{cwd:fixture.bundle,encoding:'utf8'});expect(generated.status).toBe(0);fixture.inventory.packageJson.sha256=PreparedReleaseFixture.sha(readFileSync(file));fixture.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(join(fixture.bundle,'bun.lock')));fixture.refresh();expect((await new ArtifactResolver().resolve(fixture.configuration)).artifacts).toHaveLength(2);const valid=JSON.stringify(root);root.overrides={'@fixture/plugin':'file:archives/unknown.tgz'};writeFileSync(file,JSON.stringify(root));fixture.inventory.packageJson.sha256=PreparedReleaseFixture.sha(readFileSync(file));fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);writeFileSync(file,valid);fixture.inventory.packageJson.sha256=PreparedReleaseFixture.sha(readFileSync(file));const path=join(fixture.bundle,'bun.lock'),lock=StrictJson.object(StrictJson.parse(readFileSync(path),true));lock.overrides={'@fixture/plugin':'file:archives/unknown.tgz'};writeFileSync(path,JSON.stringify(lock));fixture.inventory.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(path));fixture.refresh();await expect(new ArtifactResolver().resolve(fixture.configuration)).rejects.toBeInstanceOf(PlanningBlockedError);expect(existsSync(fixture.installation)).toBe(false);expect(existsSync(join(fixture.root,'SCRIPT_CANARY'))).toBe(false);}finally{fixture.close();}}
   async architecture():Promise<void> {
     const fixture=await new PreparedReleaseFixture().prepare();
     try {fixture.imageArchitecture('arm64');try{await new ArtifactResolver().resolve(fixture.configuration);throw new Error('wrong architecture accepted');}catch(error){expect(error).toBeInstanceOf(PlanningBlockedError);expect(JSON.stringify(error)).toContain('IMAGE_ARCHITECTURE');}}
@@ -160,7 +161,7 @@ test('integration: missing, duplicate and cyclic plugin declarations block',suit
 test('unit: image reference and secret-slot bindings fail closed',suite.bindings.bind(suite));
 
 test('integration: default real plan persists deterministic bytes and independent read-back',suite.plans.bind(suite));
-test('unit: malformed and incomplete journals block without writes',suite.journals.bind(suite));
+test('integration: malformed and incomplete journals block without writes',suite.journals.bind(suite),60000);
 test('integration: private modes, tampered plans and active/foreign receipts block',suite.privateState.bind(suite));
 test('unit: descriptor anchor rejects directory replacement without escape',suite.race.bind(suite));
 
@@ -174,3 +175,5 @@ test('unit: repinned lockfile cannot lie about package archive integrity',suite.
 
 test('integration: new owned installation paths allow spaces and Unicode',suite.hostPaths.bind(suite));
 test('unit: contained package resources allow spaces and Unicode',suite.archiveNames.bind(suite));
+
+const exactOverrides=new ArtifactTests();test('integration: exact-file root overrides preserve archive closure and reject divergent root or lock mappings',exactOverrides.exactOverrides.bind(exactOverrides));
