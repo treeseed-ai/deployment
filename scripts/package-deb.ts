@@ -50,14 +50,14 @@ function normalize(path: string) {
 	if (stat.isDirectory()) for (const name of readdirSync(path)) normalize(resolve(path, name));
 	if (!stat.isSymbolicLink()) chmodSync(path, stat.mode & ~0o022);
 }
-const sdkRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod'] as const;
+const sdkRuntimePaths = ['@treeseed/sdk', '@treeseed/treedx', 'libsodium-sumo', 'libsodium-wrappers-sumo', 'typescript', 'yaml', 'zod', 'zod-to-json-schema'] as const;
 function managerPayload(stage: string) {
 	install('deploy/capacity/writeback.conf', resolve(stage, 'usr/lib/sysctl.d/70-treeseed-capacity-writeback.conf'));
 	directory(resolve(stage, 'usr/lib/treeseed/manager'));
 	cpSync(resolve(root, 'dist/src'), resolve(stage, 'usr/lib/treeseed/manager/dist/src'), { recursive: true });
 	cpSync(resolve(root, 'infrastructure'), resolve(stage, 'usr/lib/treeseed/manager/infrastructure'), { recursive: true });
 	writeFileSync(resolve(stage, 'usr/lib/treeseed/manager/package.json'), '{"type":"module"}\n');
-	for (const dependency of [...sdkRuntimePaths, ...postgresRuntimePaths, 'zod-to-json-schema', '@treeseed/identity', 'jose', 'oauth4webapi']) {
+	for (const dependency of [...sdkRuntimePaths, ...postgresRuntimePaths, '@treeseed/identity', 'jose', 'oauth4webapi']) {
 		const source = resolve(root, 'node_modules', dependency);
 		if (!existsSync(source)) throw new Error(`Runtime dependency ${dependency} is not installed.`);
 		cpSync(source, resolve(stage, 'usr/lib/treeseed/manager/node_modules', dependency), { recursive: true });
@@ -119,7 +119,8 @@ const packages: Record<string, Definition> = {
 			const payload = hostPayload(id, packageIntegration!);
 			extractNpm(payload.archive, resolve(modules, target));
 		}
-		for (const dependency of ['libsodium-sumo', 'libsodium-wrappers-sumo'] as const) {
+		for (const dependency of sdkOwnedCliRuntimePaths) {
+			if (existsSync(resolve(modules, dependency))) continue;
 			const source = resolve(root, 'node_modules', dependency);
 			if (!existsSync(source)) throw new Error(`SDK runtime dependency ${dependency} is not installed.`);
 			cpSync(source, resolve(modules, dependency), { recursive: true });

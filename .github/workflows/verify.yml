@@ -99,7 +99,7 @@ jobs:
         run: npm run build:deb
         env:
           TREESEED_APT_SUITE: development
-          TREESEED_INTEGRATION_RELEASES: https://raw.githubusercontent.com/treeseed-ai/platform/be36cd24299c0381a4e1c81c420823f6340ca136/config/integrations/stable.release.json,https://raw.githubusercontent.com/treeseed-ai/platform/be36cd24299c0381a4e1c81c420823f6340ca136/config/integrations/development.release.json
+          TREESEED_INTEGRATION_RELEASES: https://raw.githubusercontent.com/treeseed-ai/platform/711a06d6ab0f24e22cb9fb270481f6b88d461403/config/integrations/stable.release.json,https://raw.githubusercontent.com/treeseed-ai/platform/711a06d6ab0f24e22cb9fb270481f6b88d461403/config/integrations/development.release.json
       - name: Initialize disposable native capacity host
         run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_WORKSPACE,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH "$(command -v node)" --import tsx scripts/verify-native-host.ts
         env:

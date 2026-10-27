@@ -1582,3 +1582,8 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/native-publisher-prerequisites.test.ts
     testName: "reports bounded scene metadata and preserves original failures: +0/true/true"
+  deployment.golden.sdk-cli-runtime-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/debian-contract.test.ts
+    testName: extracted SDK and CLI packages load the selected SDK schema dependency without host modules
