@@ -154,14 +154,22 @@ it('binds real Docker image identity to the native selected file and rejects dig
  }
 });
 
-it('native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue',async()=>{
+it('native managed writer reaches encrypted backup only after owning quiescence and resumes the same selected image without residue',async({signal})=>{
  const timings:{operation:string;milliseconds:number}[]=[],inspectionSizes:number[]=[];
- onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_BACKUP_FAILURE: ${JSON.stringify({operations:timings,inspectionSizes})}`);});
+ const started=performance.now();let phase='FIXTURE',recorded=false,cleanupComplete=false;
+ const observe=()=>{
+  const path=process.env.TREESEED_GUARANTEE_OBSERVATION_PATH;
+  if(!path||recorded)return;
+  writeFileSync(path,JSON.stringify({phase,aborted:signal.aborted,elapsedMs:Math.round(performance.now()-started),
+   operations:timings,inspectionSizes,cleanupComplete}),{flag:'wx',mode:0o600});recorded=true;
+ };
+ onTestFailed(()=>{observe();throw new Error(`ACCEPTANCE_NATIVE_BACKUP_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,inspectionSizes})}`);});
  const f=fixture(timings),key=randomBytes(32);try{
+  phase='PREPARE';
   const data=resolve(f.root,'data'),dir=resolve(f.root,f.input.sessionId,'treedx','service');mkdirSync(data);mkdirSync(dir,{recursive:true});
   const payload=Buffer.from('native managed state\n\0retained bytes'),file=resolve(data,'state');writeFileSync(file,payload);
   const path=resolve(dir,'compose.json'),spec=readFileSync(f.override);writeFileSync(path,spec,{mode:0o600});
-  const id=f.create('treedx',f.input.sessionId,data),installed=component('treedx','development','d');
+  phase='START';const id=f.create('treedx',f.input.sessionId,data),installed=component('treedx','development','d');
   installed.runtime.compose.projectName=f.project;installed.runtime.services[0]!.composeService='treedx';
   const session=developmentSessionSchema.parse({schemaVersion:'treeseed.development-session/v1',sessionId:f.input.sessionId,
    actor:'native-test',hostId:'native-host',createdAt:new Date().toISOString(),status:'active',repositories:[],
@@ -180,30 +188,32 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
   };
   const deps:DevelopmentBackupDependencies={command,records:()=>[record],components:()=>[installed],members:()=>[data.slice(1)],
    holdPath:resolve(f.root,'hold.json'),runtimeRoot:f.root,ownerUid:process.getuid!()};
-  expect(f.status()).toMatchObject({ready:true});expect(()=>assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args))).toThrow();
+  phase='ADMISSION';expect(f.status()).toMatchObject({ready:true});expect(()=>assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args))).toThrow();
   expect(planDevelopmentBackup(deps)).toEqual([]);
   expect(inspectionSizes).toHaveLength(1);expect(inspectionSizes[0]).toBeGreaterThan(0);
   const selection=JSON.stringify(record);
-  for(const mutate of [()=>{session.targets[0]!.mode='released';},()=>{writeFileSync(path,'not json');},
+  phase='DENIALS';for(const mutate of [()=>{session.targets[0]!.mode='released';},()=>{writeFileSync(path,'not json');},
    ()=>{writeFileSync(path,JSON.stringify(renderManagedComponentOverride(f.input,new Map([['treedx',`sha256:${'0'.repeat(64)}`]]))),{mode:0o600});}]){
    mutate();expect(()=>beginDevelopmentBackup(1,deps)).toThrow();expect(existsSync(deps.holdPath)).toBe(false);
    expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.State.Running}}']).trim()).toBe('true');
    session.targets[0]!.mode='live';writeFileSync(path,spec,{mode:0o600});
   }
-  await quiescedBackup([installed],[installed],{
+  phase='QUIESCE';await quiescedBackup([installed],[installed],{
    prepare:async()=>beginDevelopmentBackup(1,deps),
    stop:async()=>{f.docker('/usr/bin/docker',['stop','--time','1',id]);},
    start:async()=>{f.docker('/usr/bin/docker',['start',id]);},
    capture:async()=>{
+    phase='CAPTURE';
     assertNoBackupWriters(deps.members(),args=>f.docker('/usr/bin/docker',args));
     expect(()=>beginDevelopmentBackup(2,deps)).toThrow('interrupted');
     const encrypted=resolve(f.root,'state.enc'),chunks:Buffer[]=[];
-    await encryptBackupStream(createReadStream(file),encrypted,1,key);
-    await decryptBackupStream(encrypted,1,key,new Writable({write(chunk:Buffer,_encoding,next){chunks.push(Buffer.from(chunk));next();}}));
+    phase='ENCRYPT';await encryptBackupStream(createReadStream(file),encrypted,1,key);
+    phase='DECRYPT';await decryptBackupStream(encrypted,1,key,new Writable({write(chunk:Buffer,_encoding,next){chunks.push(Buffer.from(chunk));next();}}));
+    phase='READBACK';
     expect(Buffer.concat(chunks)).toEqual(payload);expect(readFileSync(file)).toEqual(payload);
    },
   });
-  expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.State.Running}}']).trim()).toBe('false');
+  phase='RESUME';expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.State.Running}}']).trim()).toBe('false');
   expect(finishDevelopmentBackup(1,deps)).toEqual({resumed:true,generation:1,targets:0});
   expect(f.status()).toMatchObject({ready:false});
   // The exact backup writer selection stayed immutable while fenced. Only
@@ -221,10 +231,13 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
   expect(readFileSync(file)).toEqual(payload);
   expect(f.docker('/usr/bin/docker',['inspect',id,'--format','{{.Image}}']).trim()).toBe(f.image);
   expect(readFileSync(path)).toEqual(spec);expect(JSON.stringify(record)).toBe(selection);expect(existsSync(deps.holdPath)).toBe(false);
+  phase='CLEANUP';
  }finally{
   key.fill(0);f.close();expect(existsSync(f.root)).toBe(false);
   for(const id of f.ids)expect(f.docker('/usr/bin/docker',['ps','--all','--quiet','--filter',`id=${id}`]).trim()).toBe('');
+  cleanupComplete=true;
  }
+ phase='COMPLETED';if(!signal.aborted)observe();
 });
 it('rejects real duplicate and incorrectly owned Docker instances without changing selection',()=>{
  const f=fixture();try{
