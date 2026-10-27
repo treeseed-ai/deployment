@@ -19,6 +19,7 @@ function fixture() {
   git(['init', '--quiet']); writeFileSync(join(root, 'code.ts'), 'export const value = 1;\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'base']);
   const baseCommit = git(['rev-parse', 'HEAD']), baseBundlePath = join(directory, 'authorized-source.bundle');
   git(['update-ref', 'refs/heads/treeseed-source', baseCommit]); git(['bundle', 'create', baseBundlePath, 'refs/heads/treeseed-source']);
+  git(['update-ref', '-d', 'refs/heads/treeseed-source', baseCommit]);
   writeFileSync(join(root, 'code.ts'), 'export const value = 2;\n'); git(['add', '.']); git(['commit', '--quiet', '-m', 'candidate']);
   const commit = git(['rev-parse', 'HEAD']);
   return { directory, root, git, baseBundlePath, input: { root, baseCommit, commit, output: join(directory, 'source.bundle'), maxBytes: 1_048_576, scratch: join(directory, 'scratch') }, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
