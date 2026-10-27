@@ -72,13 +72,13 @@ jobs:
           node-version: "24.12.0"
           cache: npm
       - run: npm ci
+      - run: npm prune --ignore-scripts --no-audit --no-fund --workspaces=false
+        if: ${{ !inputs.resume_apt_only }}
       - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
         env:
           NODE_ENV: production
         with:
           github-token: ${{ github.token }}
-      - run: npm prune --ignore-scripts --no-audit --no-fund --workspaces=false
-        if: ${{ !inputs.resume_apt_only }}
       - name: Prepare the exact executing Reviewer
         if: ${{ !inputs.resume_apt_only }}
         uses: ./.github/actions/prepare-reviewer

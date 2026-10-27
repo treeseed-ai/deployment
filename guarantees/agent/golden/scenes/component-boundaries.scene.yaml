@@ -1,4 +1,7 @@
 workflow:
+  - id: runtime-sdk-prune-order-unit
+    action: { verifier: deployment.golden.runtime-sdk-prune-order-unit }
+    expect: { status: passed }
   - id: runtime-sdk-bundle-unit
     action: { verifier: deployment.golden.runtime-sdk-bundle-unit }
     expect: { status: passed }
