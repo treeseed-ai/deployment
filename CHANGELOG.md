@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Organize permanent tests by tier and enforce the shared development/testing strategy (#1008).
+
 ### Fixed
 - Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
 
