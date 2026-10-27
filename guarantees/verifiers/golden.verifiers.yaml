@@ -1516,3 +1516,14 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox/architecture/publication-upstream-native.test.ts
     testName: "publishes and replays an exact incremental contribution through upstream Git transport with its sealed authority and unchanged ceiling"
+
+  deployment.golden.candidate-bundle-diagnostic-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/candidate-bundle-diagnostics.test.ts
+    testName: "retains the exit code and at most 512 stderr bytes from a real failing Git process"
+  deployment.golden.candidate-bundle-diagnostic-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox/architecture/candidate-delta.test.ts
+    testName: "retains real empty-bundle diagnostics and source custody through the publication job without inventing a commit"

@@ -10,7 +10,11 @@ const environment = { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFI
 
 /** Stream the contribution with a strict write ceiling instead of filling the output volume first. */
 export async function writeBoundedBundle(args: string[], path: string, maximum: number) {
-  const file = await open(path, 'wx', 0o600), child = spawn('/usr/bin/git', args, { env: environment, stdio: ['ignore', 'pipe', 'ignore'] });
+  const file = await open(path, 'wx', 0o600), child = spawn('/usr/bin/git', args, { env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+  let diagnostic = Buffer.alloc(0);
+  child.stderr.on('data', (chunk: Buffer) => {
+    if (diagnostic.length < 512) diagnostic = Buffer.concat([diagnostic, chunk.subarray(0, 512 - diagnostic.length)]);
+  });
   const exited = new Promise<number | null>((resolveExit, reject) => { child.once('error', reject); child.once('close', resolveExit); });
   void exited.catch(() => undefined);
   const timer = setTimeout(() => child.kill('SIGKILL'), 120000); let bytes = 0;
@@ -21,7 +25,12 @@ export async function writeBoundedBundle(args: string[], path: string, maximum: 
       let offset = 0;
       while (offset < chunk.length) { const result = await file.write(chunk, offset, chunk.length - offset); if (!result.bytesWritten) throw new Error('Candidate output write failed.'); offset += result.bytesWritten; }
     }
-    if (await exited !== 0) throw new Error('Candidate bundle creation failed.');
+    const code = await exited;
+    if (code !== 0) {
+      const detail = diagnostic.toString('utf8').split(/\r?\n/u, 1)[0]!.trim();
+      const disposition = code === null ? `signal ${child.signalCode ?? 'unknown'}` : `exit code ${code}`;
+      throw new Error(`Candidate bundle creation failed. Git ${disposition}${detail ? `: ${detail}` : '.'}`);
+    }
     await file.sync();
   } finally { child.kill('SIGKILL'); await exited.catch(() => undefined); clearTimeout(timer); await file.close(); }
 }

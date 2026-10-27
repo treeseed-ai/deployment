@@ -921,3 +921,9 @@ workflow:
   - id: candidate-delta-upstream-native
     action: { verifier: deployment.golden.candidate-delta-upstream-native }
     expect: { status: passed }
+  - id: candidate-bundle-diagnostic-unit
+    action: { verifier: deployment.golden.candidate-bundle-diagnostic-unit }
+    expect: { status: passed }
+  - id: candidate-bundle-diagnostic-native
+    action: { verifier: deployment.golden.candidate-bundle-diagnostic-native }
+    expect: { status: passed }
