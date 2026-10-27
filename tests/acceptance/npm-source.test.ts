@@ -97,7 +97,7 @@ class NpmSourceTests {
             fixture.refreshService();
             const program = fresh ? 'installed-plugin-program' : 'plugin-install-program', input = join(fixture.root, 'plugin-install.json'), executable = join(fixture.root, program);
             writeFileSync(input, JSON.stringify({ root: fixture.root, configuration: fixture.configuration }));
-            PluginFixtureTools.command(process.execPath, ['build', 'dist/tests/' + program + '.js', '--compile', '--target=bun-linux-x64', '--outfile', executable]);
+            PluginFixtureTools.command(process.execPath, ['build', 'dist/tests/support/' + program + '.js', '--compile', '--target=bun-linux-x64', '--outfile', executable]);
             const docker = spawnSync('which', ['docker'], { encoding: 'utf8' }); if (docker.status !== 0) throw new Error('Docker missing');
             const path = join(fixture.root, 'docker-only'); mkdirSync(path); symlinkSync(docker.stdout.trim(), join(path, 'docker'));
             const result = spawnSync(executable, [input], { encoding: 'utf8', timeout: 360000, env: { PATH: path, HOME: process.env.HOME, DOCKER_CONFIG: process.env.DOCKER_CONFIG, NPM_TOKEN: 'NEVER_INHERIT', HTTPS_PROXY: 'http://127.0.0.1:1' } });
