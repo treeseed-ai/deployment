@@ -101,3 +101,7 @@ accepted provenance, build the current complete offline lock and preserve every 
 The NPM/plain-Git cases have a required `registered` smoke job; approved-build reuse has a
 required `build-registered` job. These are disjoint exhaustive file groups alongside the existing
 five groups, with the same fifteen-minute budget and all-success aggregate. No case is skipped.
+
+Assertion-bearing reusable acceptance contracts live in `tests/acceptance/`; shared support
+contains fixture setup and program inputs. Moving a case must also move its shared behavioral
+assertions, rather than hiding the scenario in a support base class.
