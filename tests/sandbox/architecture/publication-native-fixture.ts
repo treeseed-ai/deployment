@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,7 +20,7 @@ vi.mock('../../../src/sandbox/workspace-block-store.js', async importOriginal =>
 }));
 
 /** Actual catalog/controller/job/verifier/publisher/Git; root path, disk and VM receipts are controlled inputs. */
-export async function nativePublicationFixture() {
+export async function nativePublicationFixture(historicalBytes = 0) {
 	const directory = await mkdtemp(join(tmpdir(), 'deployment-publication-'));
 	let source: Awaited<ReturnType<typeof publicationFixture>> | undefined, readback: DatabaseSync | undefined;
 	try {
@@ -28,7 +28,13 @@ export async function nativePublicationFixture() {
 		const git = (cwd: string, ...args: string[]) => execFileSync('/usr/bin/git', ['-C', cwd, ...args], { encoding: 'utf8',
 			stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
 				GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' } }).trim();
-		git(root, 'init', '--quiet', '-b', 'fixture-base'); await writeFile(join(root, 'code.ts'), 'export const value = 1;\n');
+		git(root, 'init', '--quiet', '-b', 'fixture-base');
+		if (historicalBytes) {
+			await writeFile(join(root, 'removed-asset.bin'), randomBytes(historicalBytes));
+			git(root, 'add', '.'); git(root, 'commit', '--quiet', '-m', 'historical project asset');
+			git(root, 'rm', '--quiet', 'removed-asset.bin');
+		}
+		await writeFile(join(root, 'code.ts'), 'export const value = 1;\n');
 		git(root, 'add', '.'); git(root, 'commit', '--quiet', '-m', 'base'); const base = git(root, 'rev-parse', 'HEAD');
 		await writeFile(join(root, 'code.ts'), 'export const value = 2;\n'); git(root, 'add', '.'); git(root, 'commit', '--quiet', '-m', 'candidate');
 		const commit = git(root, 'rev-parse', 'HEAD');
@@ -57,7 +63,7 @@ export async function nativePublicationFixture() {
 			} };
 		return { f, base, commit, remote, root, git, journals,
 			set(value: typeof response) { response = value; }, interrupt(value: boolean) { interrupted = value; },
-			counts: () => ({ verified, published }), start: (stopped = true) => new SourcePublicationJob(f.owner, commit, 1_048_576, stopped, operations),
+			counts: () => ({ verified, published }), start: (stopped = true, maximum = 1_048_576) => new SourcePublicationJob(f.owner, commit, maximum, stopped, operations),
 			snapshot: () => ({ images: db.prepare('SELECT * FROM workspace_images ORDER BY id').all(), leases: db.prepare('SELECT * FROM workspace_leases ORDER BY id').all() }),
 			refs: () => existsSync(remote) ? git(remote, 'for-each-ref', '--format=%(objectname) %(refname)') : '',
 			async close() { db.close(); f.close(); await rm(directory, { recursive: true, force: true }); } };
