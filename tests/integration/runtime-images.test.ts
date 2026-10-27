@@ -1,0 +1,20 @@
+import {test,expect} from 'bun:test';
+import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {create} from 'tar';
+import {CanonicalJson,ServiceSchemas,type PluginPackageDescriptor} from '@treeseed-cordis/sdk';
+import {ComposeDeploymentHost,ServicePlanStore,ServiceApplicationRuntime} from '@treeseed-cordis/deployment';
+import {ServiceArtifactResolver} from '../../src/service-artifacts.js';
+import {ServiceObservations} from '../../src/service-observation.js';
+import {ServiceReleaseFixture,PreparedReleaseFixture} from '../support/release-fixture.js';
+import {RuntimeImageTests} from '../support/runtime-images-test-support.js';
+class RuntimeImageTestsIntegration extends RuntimeImageTests {
+
+ async forged():Promise<void>{const fixture=await this.prepare();let runtime:ServiceApplicationRuntime|undefined;try{const plan=await new ComposeDeploymentHost().plan(fixture.configuration);if(plan.formatVersion!==3)throw new Error('Wrong plan format');const {id:_id,digest:_digest,...payload}=plan,bindings=structuredClone(plan.runtimeBindings!);bindings['instance-0']!.entryDigest='f'.repeat(64);const altered={...payload,runtimeBindings:bindings},digest=CanonicalJson.digest(altered),forged=ServiceSchemas.plan.parse({...altered,id:'plan-'+digest,digest}),store=new ServicePlanStore(fixture.installation);store.publish(forged);runtime=await ServiceApplicationRuntime.start(forged);const accepted=await runtime.submit({protocol:3,operation:'submit',planId:forged.id,digest:forged.digest,idempotencyKey:'forged-runtime-map'}),deadline=Date.now()+10000;let record=await runtime.application(accepted.id);while(!['completed','failed'].includes(record.phase)&&Date.now()<deadline){await new Promise(RuntimeImageTests.delay);record=await runtime.application(accepted.id);}expect(record.phase).toBe('failed');expect(record.recovery).toBe(null);expect(existsSync(join(fixture.installation,'.cordis/artifacts'))).toBe(false);expect(existsSync(join(fixture.installation,'.cordis/credentials'))).toBe(false);}finally{await runtime?.close();fixture.close();}}
+
+ async acyclic():Promise<void>{const fixture=await this.prepare();try{const resolved=await new ServiceArtifactResolver().resolve(fixture.configuration);expect(resolved.artifacts.length).toBe(2);const before=fixture.release.images[0]!.manifestDigest;const source=join(fixture.root,'additional');mkdirSync(join(source,'package'),{recursive:true});writeFileSync(join(source,'package/package.json'),JSON.stringify({name:'@fixture/additional',version:'1.0.0'}));writeFileSync(join(source,'package/index.js'),'export class Additional {}');await create({cwd:source,file:join(fixture.bundle,'archives/additional.tgz'),portable:true,gzip:true},['package']);fixture.release.packages.push({name:'@fixture/additional',version:'1.0.0',path:'archives/additional.tgz',sha256:PreparedReleaseFixture.sha(readFileSync(join(fixture.bundle,'archives/additional.tgz')))});fixture.release.packageJson.sha256=fixture.write('package.json',{name:'cordis-fixture',version:'1.0.0',private:true,dependencies:{'@fixture/plugin':'file:archives/plugin.tgz','@fixture/additional':'file:archives/additional.tgz'}});const lock=spawnSync('bun',['install','--lockfile-only','--force','--ignore-scripts'],{cwd:fixture.bundle,encoding:'utf8'});expect(lock.status).toBe(0);fixture.release.lockfile.sha256=PreparedReleaseFixture.sha(readFileSync(join(fixture.bundle,'bun.lock')));fixture.refreshService();expect((await new ServiceArtifactResolver().resolve(fixture.configuration)).artifacts.length).toBe(3);expect(fixture.release.images[0]!.manifestDigest).toBe(before);}finally{fixture.close();}}
+}
+const suite=new RuntimeImageTestsIntegration();
+test('integration: genuine archives and OCI fixtures assemble acyclically and unrelated packages preserve runtime image identity',suite.acyclic.bind(suite));
+test('integration: forged saved runtime content binding fails fresh validation before staging or credentials',suite.forged.bind(suite));

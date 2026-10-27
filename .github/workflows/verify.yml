@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 24.19.0
       - run: bun install --frozen-lockfile --ignore-scripts
-      - run: bun run check && bun run build && bun run test:unit && bun run test:integration
+      - run: bun run check && bun run build && bun run test:regression && bun run test:integration && bun run test:unit
   smoke:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
