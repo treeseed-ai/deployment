@@ -4,6 +4,18 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
+import { parse } from 'yaml';
+
+it('finishes dependency pruning before restoring the checked SDK in verification and publication', () => {
+	for (const [file, job] of [['verify', 'verify'], ['publish', 'publish']]) {
+		const workflow = parse(readFileSync(`.github/workflows/${file}.yml`, 'utf8'));
+		const steps = workflow.jobs[job].steps as Array<{ run?: string; uses?: string }>;
+		const prune = steps.findIndex(step => step.run === 'npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
+		const hydrate = steps.findIndex(step => step.uses === 'treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3');
+		expect(prune).toBeGreaterThanOrEqual(0);
+		expect(hydrate).toBeGreaterThan(prune);
+	}
+});
 
 it('declares the checked SDK as a bundled runtime dependency without replacing its source', () => {
 	const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
