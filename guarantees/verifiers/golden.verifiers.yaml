@@ -1527,3 +1527,13 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox/architecture/candidate-delta.test.ts
     testName: "retains real empty-bundle diagnostics and source custody through the publication job without inventing a commit"
+  deployment.golden.native-publisher-prerequisites-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "requires the existing native initializer before the complete owning suite in publish"
+  deployment.golden.native-publisher-resume-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "keeps native installation and the complete suite out of an exact APT-only resume"

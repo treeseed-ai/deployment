@@ -927,3 +927,9 @@ workflow:
   - id: candidate-bundle-diagnostic-native
     action: { verifier: deployment.golden.candidate-bundle-diagnostic-native }
     expect: { status: passed }
+  - id: native-publisher-prerequisites-unit
+    action: { verifier: deployment.golden.native-publisher-prerequisites-unit }
+    expect: { status: passed }
+  - id: native-publisher-resume-unit
+    action: { verifier: deployment.golden.native-publisher-resume-unit }
+    expect: { status: passed }
