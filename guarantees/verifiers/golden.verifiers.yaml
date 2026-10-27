@@ -1,16 +1,6 @@
 schemaVersion: treeseed.guarantee-verifiers/v1
 ownerPackage: "@treeseed/deployment"
 verifiers:
-  deployment.golden.runtime-sdk-bundle-unit:
-    kind: vitestCase
-    ownerPackage: '@treeseed/deployment'
-    testFile: tests/runtime-package.test.ts
-    testName: declares the checked SDK as a bundled runtime dependency without replacing its source
-  deployment.golden.runtime-sdk-install-native:
-    kind: vitestCase
-    ownerPackage: '@treeseed/deployment'
-    testFile: tests/runtime-package.test.ts
-    testName: fresh production archive installation loads the public runtime with its exact compiled SDK and scripts disabled
   deployment.golden.source-cache-pressure-unit:
     kind: vitestCase
     ownerPackage: '@treeseed/deployment'

@@ -1,8 +1,7 @@
 {
   "name": "@treeseed/deployment",
-  "version": "0.1.0-rc.327",
+  "version": "0.1.0-rc.326",
   "private": true,
-  "bundleDependencies": ["@treeseed/sdk"],
   "treeseed": {
     "hostRuntimeAssets": [
       "node_modules/@treeseed/identity/themes/treeseed/login/theme.properties",
