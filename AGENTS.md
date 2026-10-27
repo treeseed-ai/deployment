@@ -127,6 +127,30 @@ The first implementation slice must make the existing compiler/lint checks rejec
 JavaScript and function-based implementation paths, using semantic source checks rather than
 claiming that prose alone enforces architecture. Missing enforcement remains an explicit gap.
 
+## Critical Architecture Rule: Readable Capability Layers (MANDATORY)
+
+Organize implementation into small, cohesive TypeScript classes with short, normally formatted
+methods. Each layer must read as a clear sequence of named capabilities supplied through typed
+contracts and native Cordis composition. New or changed executable methods, constructors and
+accessors must contain at most **20 canonically formatted body lines**, excluding blank lines,
+comment-only lines and the outer method delimiters, unless an exact documented exception is
+reviewed. Declarative schemas and data are outside this behavioral limit; class cohesion and
+readability still require review. Do not compress statements, introduce trivial wrapper classes,
+or move complexity elsewhere merely to satisfy the limit.
+
+When changing existing behavior, refactor the affected methods and their immediate responsibility
+boundary to this style. When directed to refine or clean up a project or source area, audit and
+refactor the stated scope. Unrelated historical implementation is not permission for a sweeping
+rewrite; untouched violations may remain only under the immutable verified integration baseline.
+A changed method loses grandfathering. An exception identifies its exact symbol, source fingerprint,
+reason and owning issue and must be reviewed with the change; stale or unused exceptions fail.
+
+Run the shared development-only readability check in normal owner checks and CI. It uses pinned
+`prettier@3.6.2` for canonical measurement and rejects compressed behavioral statements and baseline
+manipulation. Neither shipped behavior nor target-project code may depend on these instructions
+or their development helpers. Future setup copies this rule and helper resources without installing
+dependencies or adding scaffolding; wire the gate during the first implementation.
+
 ## Workflow Gate (MANDATORY)
 
 **At the START of every new project or statement of work:** load the `release-workflow` skill,

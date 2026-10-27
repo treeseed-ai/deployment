@@ -33,6 +33,7 @@
 - Install exact Git and approved built-source providers through the durable native host (#910).
 
 ### Changed
+- Require readable capability layers and contextual refactoring with a twenty-line method gate (#1013).
 
 - Organize permanent tests by tier and enforce the shared development/testing strategy (#1008).
 - Balance exhaustive owner smoke jobs within the existing verification deadline (#992).
