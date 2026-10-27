@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { expect, it } from 'vitest';
+import { nativeWorkflow } from './support/native-workflow.js';
 
-interface Step { name?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; }
+interface Step { name?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; with?: Record<string, string>; }
 interface Job { 'runs-on': string; env?: Record<string, string>; steps: Step[]; }
 function job(workflow: string, name: string): Job {
 	const source = readFileSync(new URL(`../.github/workflows/${workflow}.yml`, import.meta.url), 'utf8');
@@ -13,7 +14,7 @@ function job(workflow: string, name: string): Job {
 }
 
 it.each([['verify', 'verify'], ['publish', 'publish']])('requires the existing native initializer before the complete owning suite in %s', (workflow, name) => {
-	const selected = job(workflow, name), steps = selected.steps;
+	const selected = job(workflow, name), steps = nativeWorkflow(readFileSync(new URL(`../.github/workflows/${workflow}.yml`, import.meta.url), 'utf8')).jobs[name].steps as Step[];
 	const build = steps.findIndex(step => step.run?.includes('npm run build:deb'));
 	const initialize = steps.findIndex(step => step.run?.includes('scripts/verify-native-host.ts'));
 	const suite = steps.findIndex(step => step.run?.includes('npm run verify:direct'));
@@ -21,6 +22,15 @@ it.each([['verify', 'verify'], ['publish', 'publish']])('requires the existing n
 	expect(build).toBeGreaterThanOrEqual(0);
 	expect(initialize).toBeGreaterThan(build);
 	expect(suite).toBeGreaterThan(initialize);
+	const prepare = steps.findIndex(step => step.with?.repository === 'treeseed-ai/reviewer');
+	expect(prepare).toBeGreaterThanOrEqual(0);
+	expect(prepare).toBeLessThan(build);
+	expect(steps.find(step => step.uses?.startsWith('actions/setup-node@'))?.with?.['node-version']).toBe('24.12.0');
+	const prune = steps.findIndex(step => step.run === 'npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
+	expect(prune).toBeGreaterThan(steps.findIndex(step => step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@')));
+	expect(prune).toBeLessThan(prepare);
+	expect(steps[prepare]?.with?.ref).toMatch(/^[a-f0-9]{40}$/u);
+	expect(steps.slice(prepare, suite).some(step => step.run === 'npm run --prefix .treeseed/tools/reviewer build:dist')).toBe(true);
 	expect(steps.slice(0, build).some(step => step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))).toBe(true);
 	for (const index of [initialize, suite]) {
 		expect(steps[index]?.run).toContain('sudo --preserve-env=');
