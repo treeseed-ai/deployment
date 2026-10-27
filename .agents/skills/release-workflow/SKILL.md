@@ -173,6 +173,14 @@ program needs a built-program acceptance test. Completion requires applicable ti
 checks, build, CI and assembled-artifact smoke evidence. Report missing prerequisites or gates
 explicitly. A green unit suite or policy prose alone is never sufficient.
 
+The copied development-only checker is `scripts/test-layout.ts` inside this skill. After
+installing the owner's declared development dependencies, wire `bun .agents/skills/release-workflow/scripts/test-layout.ts`
+into the normal check command and CI. It rejects misplaced or undiscoverable registrations and
+phase-based specification paths, and verifies complete tier commands. Platform checks each
+assembled specification is explicitly assigned to a script or CI closure because historical
+exact artifact selections run in separate jobs. Reusable test contracts with assertions belong
+in their actual tier; support holds fixture setup and executable fixture programs.
+
 ## ⚠️ MANDATORY: Testing Tiers and the Composition Root
 
 Outside-in testing only works if the **outer** rung exists. Unit tests of injected, isolated
@@ -441,7 +449,8 @@ gh pr create --base cordis \
 - [ ] CI green (<typecheck> + <build> + <tests>)
 - [ ] Manual verification: <describe, if user-facing>
 - [ ] New tests added for new behavior
-- [ ] Existing tests pass unmodified (for refactors)
+- [ ] Acceptance, regression, integration and unit tiers are verified; any empty tier or missing prerequisite is explicitly recorded
+- [ ] Test layout/discovery check passes; reorganization preserves cases, assertions, arguments and timeouts
 
 ## Related
 Part of #<issue>

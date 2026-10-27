@@ -1,0 +1,25 @@
+import {test,expect} from 'bun:test';
+import {spawnSync} from 'node:child_process';
+import {ServiceProjectionSchemas,ServiceSchemas,type ServiceInstance,type ServiceGraph} from '@treeseed-cordis/sdk';
+import {chmodSync,mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {create} from 'tar';
+import {CanonicalJson} from '@treeseed-cordis/sdk';
+import {ServiceArtifactResolver} from '../../src/service-artifacts.js';
+import {ServiceReleaseFixture,PreparedReleaseFixture} from '../support/release-fixture.js';
+import {ProjectionTests} from '../support/service-projection-test-support.js';
+class ProjectionTestsIntegration extends ProjectionTests {
+
+ async renamed():Promise<void>{const {fixture,graph,source,consumer,projection}=await this.setup();try{const module=await import('../../src/service-projection.js') as unknown as {ServiceProjection:{resolve(service:ServiceInstance,declaration:unknown,graph:ServiceGraph,configuration:unknown):{definition:ServiceInstance['definition'];resources:ServiceInstance['resources']}}};const result=module.ServiceProjection.resolve(consumer,projection,graph,fixture.configuration);expect(result.definition.environment).toEqual({DATABASE:source.serviceId+':8080',INSTANCE:consumer.serviceId,PREFIX:'selected'});expect(result.resources.grants).toEqual([{serviceId:source.serviceId,slot:'password'}]);expect(result.resources.slots.config!.value).toEqual({origin:fixture.configuration.origin,password:{$secret:'secret://'+source.serviceId+'/password'}});}finally{fixture.close();}}
+}
+class ProjectionArtifactTestsIntegration {
+
+ async formats():Promise<void>{const fixture=await new ServiceReleaseFixture().services();try{const metadata=JSON.parse(readFileSync(join(fixture.root,'plugin/package/package.json'),'utf8')) as {cordisPackage:{providers:Array<{configurationSchema:unknown}>}};metadata.cordisPackage.providers[0]!.configurationSchema={type:'object',additionalProperties:false,properties:{endpoint:{type:'string',format:'uri'}},required:['endpoint']};for(const service of fixture.release.composition.services)service.configuration={endpoint:'https://fixture.invalid'};await fixture.saveMetadata(metadata);expect((await new ServiceArtifactResolver().resolve(fixture.configuration)).inventory.composition.services.length).toBe(5);fixture.release.composition.services[4]!.configuration={endpoint:'invalid uri'};fixture.refreshService();await expect(new ServiceArtifactResolver().resolve(fixture.configuration)).rejects.toThrow();}finally{fixture.close();}}
+
+ async helper():Promise<void>{const fixture=await new ServiceReleaseFixture().services();try{const path=join(fixture.root,'helper');mkdirSync(path);const executable=join(path,'tool');writeFileSync(executable,'#!/bin/sh\ntouch NEVER_EXECUTE_HELPER\n');chmodSync(executable,0o500);const archive=join(fixture.bundle,'helper.tgz');await create({cwd:path,file:archive,gzip:true,portable:false},['tool']);const bytes=readFileSync(archive),file=readFileSync(executable);fixture.release.helpers={formatVersion:1,releaseIdentity:'b'.repeat(64),helpers:[{id:'fixture',version:'1.0.0',platform:'linux-amd64',path:'helper.tgz',sha256:PreparedReleaseFixture.sha(bytes),size:bytes.length,entry:'tool',files:[{path:'tool',sha256:PreparedReleaseFixture.sha(file),mode:0o500}],libraryDirectories:[]}]};fixture.refreshService();expect((await new ServiceArtifactResolver().resolve(fixture.configuration)).inventory.helpers).toEqual(fixture.release.helpers);expect(existsSync(join(fixture.bundle,'NEVER_EXECUTE_HELPER'))).toBe(false);fixture.release.helpers.helpers[0]!.files[0]!.sha256="c".repeat(64);fixture.refreshService();await expect(new ServiceArtifactResolver().resolve(fixture.configuration)).rejects.toThrow();}finally{fixture.close();}}
+}
+const suite=new ProjectionTestsIntegration();
+const artifacts=new ProjectionArtifactTestsIntegration();
+test('integration: owner projection resolves renamed dependencies scoped grants and validated configuration without credentials',suite.renamed.bind(suite));
+test('integration: real archive configuration accepts standard formats and rejects invalid input',artifacts.formats.bind(artifacts));
+test('integration: prepared helper complete inventory is inspected without execution and tampering fails',artifacts.helper.bind(artifacts));

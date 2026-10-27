@@ -1,8 +1,0 @@
-import{expect}from'bun:test';
-import{GitFixtureTools}from'./git-source-fixture.js';
-import{ServiceRuntimeFixture}from'./service-runtime-fixture.js';
-import{writeFileSync}from'node:fs';
-import{join}from'node:path';
-import{spawnSync}from'node:child_process';
-import{PluginInstallationFixture,PluginFixtureTools}from'@treeseed-cordis/deployment/testing/plugins';
-export class RegisteredInstallTests{async program(mode:'npm'|'git'|'built'='npm'):Promise<void>{const fixture=await new PluginInstallationFixture().prepare();try{let gitIdentity:ReturnType<typeof GitFixtureTools.installationRepository>|undefined,gitBuild:{commit:string;entryDigest:string;image:string}|undefined;if(mode!=='npm'){await GitFixtureTools.helper(fixture.runtime);gitIdentity=GitFixtureTools.installationRepository(fixture.runtime);if(mode==='built')gitBuild={...GitFixtureTools.buildRepository(fixture.runtime),image:ServiceRuntimeFixture.base};fixture.runtime.refreshService();}const input=join(fixture.root,'registered.json'),executable=join(fixture.root,'registered-install');writeFileSync(input,JSON.stringify({root:fixture.root,configuration:fixture.configuration,rebase:true,gitIdentity,gitBuild}));PluginFixtureTools.command(process.execPath,['build','dist/tests/plugin-install-program.js','--compile','--target=bun-linux-x64','--outfile',executable]);const result=spawnSync(executable,[input],{encoding:'utf8',timeout:420000});if(result.status!==0)throw new Error(result.stderr);expect(JSON.parse(result.stdout)).toEqual({fixtureOnly:true,registered:true,services:7,sourceFree:true,retained:true});}finally{await fixture.close();}}}

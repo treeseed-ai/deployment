@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Changed
-
-- Organize permanent tests by tier and enforce the shared development/testing strategy (#1008).
-
 ### Fixed
 - Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
 
@@ -37,6 +33,8 @@
 - Install exact Git and approved built-source providers through the durable native host (#910).
 
 ### Changed
+
+- Organize permanent tests by tier and enforce the shared development/testing strategy (#1008).
 - Balance exhaustive owner smoke jobs within the existing verification deadline (#992).
 
 ### Fixed

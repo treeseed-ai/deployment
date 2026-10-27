@@ -11,20 +11,20 @@
       "default": "./dist/src/diagnose.js"
     },
     "./testing": {
-      "types": "./dist/tests/release-fixture.d.ts",
-      "default": "./dist/tests/release-fixture.js"
+      "types": "./dist/tests/support/release-fixture.d.ts",
+      "default": "./dist/tests/support/release-fixture.js"
     },
     "./testing/runtime": {
-      "types": "./dist/tests/service-runtime-fixture.d.ts",
-      "default": "./dist/tests/service-runtime-fixture.js"
+      "types": "./dist/tests/support/service-runtime-fixture.d.ts",
+      "default": "./dist/tests/support/service-runtime-fixture.js"
     },
     "./testing/plugins": {
-      "types": "./dist/tests/plugin-installation-fixture.d.ts",
-      "default": "./dist/tests/plugin-installation-fixture.js"
+      "types": "./dist/tests/support/plugin-installation-fixture.d.ts",
+      "default": "./dist/tests/support/plugin-installation-fixture.js"
     },
     "./testing/live": {
-      "types": "./dist/tests/live-probe-fixture.d.ts",
-      "default": "./dist/tests/live-probe-fixture.js"
+      "types": "./dist/tests/support/live-probe-fixture.d.ts",
+      "default": "./dist/tests/support/live-probe-fixture.js"
     }
   },
   "files": [
@@ -32,22 +32,25 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "dist/tests/release-fixture.*",
-    "dist/tests/service-fixture-plugins.*",
-    "dist/tests/service-runtime-fixture.*",
-    "dist/tests/plugin-installation-fixture.*",
-    "dist/tests/source-registry-fixture.*",
-    "dist/tests/git-source-fixture.*",
-    "dist/tests/live-probe-fixture.*",
-    "dist/tests/live-probe-plugins.*"
+    "dist/tests/support/release-fixture.*",
+    "dist/tests/support/service-fixture-plugins.*",
+    "dist/tests/support/service-runtime-fixture.*",
+    "dist/tests/support/plugin-installation-fixture.*",
+    "dist/tests/support/source-registry-fixture.*",
+    "dist/tests/support/git-source-fixture.*",
+    "dist/tests/support/live-probe-fixture.*",
+    "dist/tests/support/live-probe-plugins.*"
   ],
   "scripts": {
-    "check": "bun scripts/tooling.ts check",
+    "check": "bun run check:test-layout && bun scripts/tooling.ts check",
     "build": "bun scripts/tooling.ts build",
-    "test:unit": "bun test ./tests --test-name-pattern '^unit:'",
-    "test:integration": "bun test ./tests --test-name-pattern '^integration:'",
-    "test:smoke": "bun test ./tests --test-name-pattern '^smoke:'",
-    "verify": "bun run check && bun run build && bun run test:unit && bun run test:integration && bun run test:smoke"
+    "test:unit": "bun test ./tests/unit",
+    "test:integration": "bun test ./tests/integration",
+    "test:smoke": "bun run test:acceptance",
+    "verify": "bun run check && bun run build && bun run test:acceptance && bun run test:regression && bun run test:integration && bun run test:unit",
+    "check:test-layout": "bun .agents/skills/release-workflow/scripts/test-layout.ts",
+    "test:regression": "bun test ./tests/regression",
+    "test:acceptance": "bun test ./tests/acceptance"
   },
   "peerDependencies": {
     "@treeseed-cordis/sdk": "0.0.0-cordis.16"
