@@ -921,3 +921,42 @@ workflow:
   - id: candidate-delta-upstream-native
     action: { verifier: deployment.golden.candidate-delta-upstream-native }
     expect: { status: passed }
+  - id: candidate-bundle-diagnostic-unit
+    action: { verifier: deployment.golden.candidate-bundle-diagnostic-unit }
+    expect: { status: passed }
+  - id: candidate-bundle-diagnostic-native
+    action: { verifier: deployment.golden.candidate-bundle-diagnostic-native }
+    expect: { status: passed }
+  - id: native-publisher-prerequisites-unit
+    action: { verifier: deployment.golden.native-publisher-prerequisites-unit }
+    expect: { status: passed }
+  - id: native-publisher-resume-unit
+    action: { verifier: deployment.golden.native-publisher-resume-unit }
+    expect: { status: passed }
+  - id: source-loop-release-unit
+    action: { verifier: deployment.golden.source-loop-release-unit }
+    expect: { status: passed }
+  - id: source-loop-retained-unit
+    action: { verifier: deployment.golden.source-loop-retained-unit }
+    expect: { status: passed }
+  - id: source-loop-unreadable-unit
+    action: { verifier: deployment.golden.source-loop-unreadable-unit }
+    expect: { status: passed }
+  - id: source-loop-unsettled-unit
+    action: { verifier: deployment.golden.source-loop-unsettled-unit }
+    expect: { status: passed }
+  - id: scene-report-success-unit
+    action: { verifier: deployment.golden.scene-report-success-unit }
+    expect: { status: passed }
+  - id: scene-report-failure-unit
+    action: { verifier: deployment.golden.scene-report-failure-unit }
+    expect: { status: passed }
+  - id: scene-report-missing-unit
+    action: { verifier: deployment.golden.scene-report-missing-unit }
+    expect: { status: passed }
+  - id: scene-report-malformed-failure-unit
+    action: { verifier: deployment.golden.scene-report-malformed-failure-unit }
+    expect: { status: passed }
+  - id: scene-report-malformed-success-unit
+    action: { verifier: deployment.golden.scene-report-malformed-success-unit }
+    expect: { status: passed }

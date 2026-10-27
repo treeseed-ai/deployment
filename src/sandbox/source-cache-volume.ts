@@ -55,5 +55,9 @@ export async function withSourceCacheVolume<T>(cache: string, bundleLimit: numbe
     if (!/^\/dev\/loop[0-9]+$/u.test(device)
       || await commands.run('/usr/sbin/losetup', ['--noheadings', '--output', 'BACK-FILE', device]) !== image) throw new Error('Source cache mount ownership is uncertain.');
     await commands.run('/usr/bin/umount', [mount]);
+    // Kernel autoclear can still hold the backing file after umount returns.
+    // Wait for device events, then prove release before returning the fence.
+    await commands.run('/usr/bin/udevadm', ['settle']);
+    if (await commands.run('/usr/sbin/losetup', ['--associated', image])) throw new Error('Source cache loop release is unverified; retain the acquisition fence.');
   }
 }

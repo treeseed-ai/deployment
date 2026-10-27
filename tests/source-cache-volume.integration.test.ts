@@ -34,13 +34,16 @@ it('native source admission reclaims only an inactive fetch volume under real bo
       await withSourceCacheVolume(current, limit, async mounted => {
         const file = join(mounted, 'source-evidence'); await writeFile(file, 'new admitted source'); expect(await readFile(file, 'utf8')).toBe('new admitted source');
       });
+      expect((await exec('/usr/sbin/losetup', ['--associated', join(current, 'objects.ext4')])).stdout.trim()).toBe('');
       await expect(access(idleImage)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(access(join(idle, 'acquisition.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await readFile(heldImage, 'utf8')).toBe('unknown in-flight source'); expect(await readFile(journal, 'utf8')).toBe('original unresolved owner');
       expect(await readFile(bundle, 'utf8')).toBe('original immutable bundle'); expect(await readFile(product, 'utf8')).toBe('original retained work');
       // Existing ready-cache reuse remains the same path and quota.
       await withSourceCacheVolume(current, limit, async mounted => { expect(await readFile(join(mounted, 'source-evidence'), 'utf8')).toBe('new admitted source'); });
+      expect((await exec('/usr/sbin/losetup', ['--associated', join(current, 'objects.ext4')])).stdout.trim()).toBe('');
     });
+    expect((await exec('/usr/sbin/losetup', ['--associated', join(root, 'objects.ext4')])).stdout.trim()).toBe('');
     unmounted = true;
   } finally { if (unmounted) await rm(root, { recursive: true }); }
 }, 60_000);

@@ -118,6 +118,15 @@ async function initialize() {
     }
   }
   for (const [path, bytes] of held) if (!readFileSync(path).equals(bytes)) throw new Error('Held generated native candidate changed during host installation.');
+  // The timed native suites require this existing pinned development image.
+  // Prepare it here so verification and protected publication use one initializer.
+  const { resolveDevelopmentRuntimeImage } = await import('../src/supervisor/development-container.js');
+  const image = 'mirror.gcr.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd';
+  command('/usr/bin/docker', ['pull', '--quiet', image]);
+  const expected = command('/usr/bin/docker', ['image', 'inspect', image, '--format', '{{.Id}}']).trim();
+  command('/usr/bin/docker', ['tag', image, 'node:24-bookworm-slim']);
+  const resolved = resolveDevelopmentRuntimeImage((_executable, args) => command('/usr/bin/docker', args));
+  if (resolved !== expected) throw new Error('Native development image readback differs from its held manifest.');
   console.log(JSON.stringify({ initialized: true, disposable: true, enrolled: false, modelActivated: false,
     nativeAcceptance: 'required', catalog: development.catalogDigest }));
 }

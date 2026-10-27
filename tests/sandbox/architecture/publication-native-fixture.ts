@@ -63,7 +63,7 @@ export async function nativePublicationFixture(historicalBytes = 0) {
 				published++;
 				return reference;
 			} };
-		return { f, base, commit, remote, root, git, journals, baseBundlePath, directory,
+		return { f, base, commit, remote, root, git, journals, baseBundlePath, directory, operations,
 			set(value: typeof response) { response = value; }, interrupt(value: boolean) { interrupted = value; },
 			counts: () => ({ verified, published }), start: (stopped = true, maximum = 1_048_576) => new SourcePublicationJob(f.owner, commit, maximum, stopped, operations),
 			snapshot: () => ({ images: db.prepare('SELECT * FROM workspace_images ORDER BY id').all(), leases: db.prepare('SELECT * FROM workspace_leases ORDER BY id').all() }),

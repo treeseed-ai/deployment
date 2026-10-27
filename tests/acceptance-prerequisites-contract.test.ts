@@ -27,19 +27,18 @@ it('native denied host inspection retains its exact safe phase before resource s
 });
 
 it('native development image preparation holds one exact official manifest before timed suites and verifies local image readback',()=>{
- const path='.github/workflows/verify.yml',bytes=readFileSync(path);
- const steps=parse(bytes.toString()).jobs.verify.steps as {name?:string;run?:string}[];
- const preparation=steps.find(step=>step.name==='Prepare native development image before timed tests')!.run!;
- const payload=preparation.split("--eval '\n")[1]!.replace(/\n\s*'\s*$/u,'');
- expect(payload).not.toContain("'");
+ const path='scripts/verify-native-host.ts',bytes=readFileSync(path),workflowPath='.github/workflows/verify.yml',workflow=readFileSync(workflowPath);
+ const steps=parse(workflow.toString()).jobs.verify.steps as {name?:string;run?:string}[];
+ const preparation=bytes.toString();
+ expect(workflow.toString()).not.toContain("--eval '\n");
  const commands=preparation.replaceAll('"',"'");
  expect(preparation).toContain('mirror.gcr.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd');
- expect(commands).toContain("docker(['pull','--quiet',image])");
- expect(commands).toContain("docker(['image','inspect',image,'--format','{{.Id}}'])");
- expect(commands).toContain("docker(['tag',image,'node:24-bookworm-slim'])");
- expect(preparation).toContain('resolved!==expected');
- expect(steps.indexOf(steps.find(step=>step.name==='Prepare native development image before timed tests')!)).toBeLessThan(steps.findIndex(step=>step.run?.includes('npm run verify:direct')));
- expect(readFileSync(path)).toEqual(bytes);
+ expect(commands).toContain("command('/usr/bin/docker', ['pull', '--quiet', image])");
+ expect(commands).toContain("command('/usr/bin/docker', ['image', 'inspect', image, '--format', '{{.Id}}'])");
+ expect(commands).toContain("command('/usr/bin/docker', ['tag', image, 'node:24-bookworm-slim'])");
+ expect(preparation).toContain('resolved !== expected');
+ expect(steps.findIndex(step=>step.run?.includes('scripts/verify-native-host.ts'))).toBeLessThan(steps.findIndex(step=>step.run?.includes('npm run verify:direct')));
+ expect(readFileSync(path)).toEqual(bytes);expect(readFileSync(workflowPath)).toEqual(workflow);
 });
 
 it('native backup image preparation preserves the owning PostgreSQL digest through fixed mirror acquisition and local readback',()=>{

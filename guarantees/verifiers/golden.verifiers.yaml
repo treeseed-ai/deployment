@@ -1516,3 +1516,69 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox/architecture/publication-upstream-native.test.ts
     testName: "publishes and replays an exact incremental contribution through upstream Git transport with its sealed authority and unchanged ceiling"
+
+  deployment.golden.candidate-bundle-diagnostic-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/candidate-bundle-diagnostics.test.ts
+    testName: "retains the exit code and at most 512 stderr bytes from a real failing Git process"
+  deployment.golden.candidate-bundle-diagnostic-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox/architecture/candidate-delta.test.ts
+    testName: "retains real empty-bundle diagnostics and source custody through the publication job without inventing a commit"
+  deployment.golden.native-publisher-prerequisites-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "requires the existing native initializer before the complete owning suite in publish"
+  deployment.golden.native-publisher-resume-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "keeps native installation and the complete suite out of an exact APT-only resume"
+  deployment.golden.source-loop-release-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "reserves a fixed filesystem before fetch and unmounts before returning"
+  deployment.golden.source-loop-retained-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "retains the source fence when unmounted loop release is retained"
+  deployment.golden.source-loop-unreadable-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "retains the source fence when unmounted loop release is unreadable"
+  deployment.golden.source-loop-unsettled-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "retains the source fence when unmounted loop release is unsettled"
+  deployment.golden.scene-report-success-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "reports bounded scene metadata and preserves original failures: +0/true/false"
+  deployment.golden.scene-report-failure-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "reports bounded scene metadata and preserves original failures: 13/true/false"
+  deployment.golden.scene-report-missing-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "reports bounded scene metadata and preserves original failures: 7/false/false"
+  deployment.golden.scene-report-malformed-failure-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "reports bounded scene metadata and preserves original failures: 13/true/true"
+  deployment.golden.scene-report-malformed-success-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/native-publisher-prerequisites.test.ts
+    testName: "reports bounded scene metadata and preserves original failures: +0/true/true"

@@ -12,7 +12,7 @@ async function fixture() {
     calls.push({ command, args });
     if (command.endsWith('/fallocate')) await truncate(args[2]!, Number(args[1]));
     if (command.endsWith('/findmnt')) return '/dev/loop42';
-    if (command.endsWith('/losetup')) return join(root, 'objects.ext4');
+    if (command.endsWith('/losetup') && !args.includes('--associated')) return join(root, 'objects.ext4');
     return '';
   } };
   return { root, calls, commands };
@@ -24,7 +24,11 @@ it('reserves a fixed filesystem before fetch and unmounts before returning', asy
     expect(f.calls.at(-1)?.command).toBe('/usr/bin/mount'); return 'bundle';
   }, f.commands)).toBe('bundle');
   expect(f.calls[0]).toEqual({ command: '/usr/bin/fallocate', args: ['--length', String(sourceCacheVolumeBytes(1024)), join(f.root, 'objects.ext4.creating')] });
-  expect(f.calls.at(-1)?.command).toBe('/usr/bin/umount');
+  expect(f.calls.slice(-3)).toEqual([
+    { command: '/usr/bin/umount', args: [join(f.root, 'mounted')] },
+    { command: '/usr/bin/udevadm', args: ['settle'] },
+    { command: '/usr/sbin/losetup', args: ['--associated', join(f.root, 'objects.ext4')] },
+  ]);
   f.calls.length = 0;
   await withSourceCacheVolume(f.root, 1024, async () => undefined, f.commands);
   expect(f.calls.some(call => call.command.endsWith('/mkfs.ext4'))).toBe(false);
@@ -39,7 +43,25 @@ it('does not unmount a different loop device and retains failed custody', async 
 it('never forces an in-use filesystem and propagates fetch failure after teardown', async () => {
   const f = await fixture();
   await expect(withSourceCacheVolume(f.root, 1024, async () => { throw new Error('fetch failed'); }, f.commands)).rejects.toThrow('fetch failed');
-  expect(f.calls.at(-1)).toEqual({ command: '/usr/bin/umount', args: [join(f.root, 'mounted')] });
+  expect(f.calls.slice(-3)).toEqual([
+    { command: '/usr/bin/umount', args: [join(f.root, 'mounted')] },
+    { command: '/usr/bin/udevadm', args: ['settle'] },
+    { command: '/usr/sbin/losetup', args: ['--associated', join(f.root, 'objects.ext4')] },
+  ]);
+});
+it.each(['retained', 'unreadable', 'unsettled'])('retains the source fence when unmounted loop release is %s', async mode => {
+  const f = await fixture(), run = f.commands.run;
+  f.commands.run = async (command, args) => {
+    if (command.endsWith('/udevadm') && mode === 'unsettled') throw new Error('settlement failed');
+    if (command.endsWith('/losetup') && args.includes('--associated')) {
+      if (mode === 'unreadable') throw new Error('loop inspection denied');
+      return '/dev/loop42: still holds the exact backing image';
+    }
+    return run(command, args);
+  };
+  await expect(withSourceCacheVolume(f.root, 1024, async () => 'bundle', f.commands)).rejects.toThrow(
+    mode === 'unsettled' ? 'settlement failed' : mode === 'unreadable' ? 'loop inspection denied' : 'Source cache loop release is unverified');
+  expect(f.calls.some(call => call.args.some(arg => /force|lazy|detach/u.test(arg)))).toBe(false);
 });
 it('rejects invalid limits before filesystem access', async () => {
   for (const bytes of [0, -1, NaN, Number.MAX_SAFE_INTEGER]) await expect(withSourceCacheVolume('/unused', bytes, async () => undefined)).rejects.toThrow('quota');
