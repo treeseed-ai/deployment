@@ -945,3 +945,18 @@ workflow:
   - id: source-loop-unsettled-unit
     action: { verifier: deployment.golden.source-loop-unsettled-unit }
     expect: { status: passed }
+  - id: scene-report-success-unit
+    action: { verifier: deployment.golden.scene-report-success-unit }
+    expect: { status: passed }
+  - id: scene-report-failure-unit
+    action: { verifier: deployment.golden.scene-report-failure-unit }
+    expect: { status: passed }
+  - id: scene-report-missing-unit
+    action: { verifier: deployment.golden.scene-report-missing-unit }
+    expect: { status: passed }
+  - id: scene-report-malformed-failure-unit
+    action: { verifier: deployment.golden.scene-report-malformed-failure-unit }
+    expect: { status: passed }
+  - id: scene-report-malformed-success-unit
+    action: { verifier: deployment.golden.scene-report-malformed-success-unit }
+    expect: { status: passed }

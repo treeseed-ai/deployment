@@ -116,10 +116,17 @@ jobs:
       - name: Execute coded sandbox component scenes
         shell: bash
         run: |
+          scene_status=0
           sudo --preserve-env=GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,TREESEED_PRIVILEGED_CACHE_TESTS,NPM_CONFIG_CACHE,PATH "$(command -v node)" --import ./.treeseed/tools/reviewer/node_modules/tsx/dist/loader.mjs \
             .treeseed/tools/reviewer/src/verifiers/guarantees/command.ts \
             --workspace "$GITHUB_WORKSPACE" --environment local --ids guarantee.deployment.golden.component-boundaries \
-            --run-id "actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            --run-id "actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" || scene_status=$?
+          report="$GITHUB_WORKSPACE/.treeseed/guarantees/runs/actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/report.json"
+          if sudo test -f "$report"; then
+            sudo jq '{ok,counts,results:[.results[]|{id,status,failedSteps:[.steps[]|select(.status=="failed")|{id,status,diagnostics}]}]}' "$report" \
+              || { if [ "$scene_status" -eq 0 ]; then scene_status=1; fi; }
+          fi
+          exit "$scene_status"
         env:
           TREESEED_PRIVILEGED_CACHE_TESTS: '1'
       - name: Retain coded scene evidence

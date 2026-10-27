@@ -39,15 +39,16 @@ it('keeps native installation and the complete suite out of an exact APT-only re
 	}
 });
 
-it.each([{ exit: 0, report: true }, { exit: 13, report: true }, { exit: 7, report: false }])(
-	'reports bounded scene metadata without replacing the original command status: $exit/$report', ({ exit, report }) => {
+it.each([{ exit: 0, report: true, malformed: false }, { exit: 13, report: true, malformed: false },
+	{ exit: 7, report: false, malformed: false }, { exit: 13, report: true, malformed: true }, { exit: 0, report: true, malformed: true }])(
+	'reports bounded scene metadata and preserves original failures: $exit/$report/$malformed', ({ exit, report, malformed }) => {
 		const root = mkdtempSync(join(tmpdir(), 'treeseed-scene-report-'));
 		try {
 			const bin = join(root, 'bin'); mkdirSync(bin);
 			const sudo = join(bin, 'sudo'); writeFileSync(sudo, '#!/bin/sh\ncase "$1" in --preserve-env=*) exit "$SCENE_EXIT_CODE";; esac\nexec "$@"\n'); chmodSync(sudo, 0o700);
 			if (report) {
 				const directory = join(root, '.treeseed/guarantees/runs/actions-unit-1'); mkdirSync(directory, { recursive: true });
-				writeFileSync(join(directory, 'report.json'), JSON.stringify({ ok: exit === 0, counts: { failed: exit === 0 ? 0 : 1 },
+				writeFileSync(join(directory, 'report.json'), malformed ? '{invalid' : JSON.stringify({ ok: exit === 0, counts: { failed: exit === 0 ? 0 : 1 },
 					privateDetail: 'must-not-appear-in-scene-summary', results: [{ id: 'scene', status: exit === 0 ? 'passed' : 'failed',
 						steps: [{ id: 'case', status: exit === 0 ? 'passed' : 'failed', diagnostics: [] }] }] }));
 			}
@@ -55,8 +56,8 @@ it.each([{ exit: 0, report: true }, { exit: 13, report: true }, { exit: 7, repor
 			expect(command).toBeDefined();
 			const result = spawnSync('/usr/bin/bash', ['-euo', 'pipefail', '-c', command!], { encoding: 'utf8',
 				env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, GITHUB_WORKSPACE: root, GITHUB_RUN_ID: 'unit', GITHUB_RUN_ATTEMPT: '1', SCENE_EXIT_CODE: String(exit) } });
-			expect(result.status, result.stderr).toBe(exit); expect(result.stdout).not.toContain('must-not-appear-in-scene-summary');
-			if (report) expect(JSON.parse(result.stdout)).toMatchObject({ ok: exit === 0, counts: { failed: exit === 0 ? 0 : 1 },
+			expect(result.status, result.stderr).toBe(malformed && exit === 0 ? 1 : exit); expect(result.stdout).not.toContain('must-not-appear-in-scene-summary');
+			if (report && !malformed) expect(JSON.parse(result.stdout)).toMatchObject({ ok: exit === 0, counts: { failed: exit === 0 ? 0 : 1 },
 				results: [{ id: 'scene', status: exit === 0 ? 'passed' : 'failed', failedSteps: exit === 0 ? [] : [{ id: 'case', status: 'failed', diagnostics: [] }] }] });
 			else expect(result.stdout).toBe('');
 		} finally { rmSync(root, { recursive: true, force: true }); }

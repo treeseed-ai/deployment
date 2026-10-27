@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {chmodSync,createReadStream,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {Writable} from 'node:stream';
 import {developmentRuntimeSchema,developmentSessionSchema} from '@treeseed/sdk/development';
@@ -161,7 +161,8 @@ it('native managed writer reaches encrypted backup only after owning quiescence 
   const path=process.env.TREESEED_GUARANTEE_OBSERVATION_PATH;
   if(!path||recorded)return;
   writeFileSync(path,JSON.stringify({phase,aborted:signal.aborted,elapsedMs:Math.round(performance.now()-started),
-   operations:timings,inspectionSizes,cleanupComplete}),{flag:'wx',mode:0o600});recorded=true;
+   operations:timings,inspectionSizes,cleanupComplete}),{flag:'wx',mode:0o644});
+  chmodSync(path,0o644);recorded=true;
  };
  onTestFailed(()=>{observe();throw new Error(`ACCEPTANCE_NATIVE_BACKUP_${signal.aborted?'WATCHDOG':'FAILURE'}: ${JSON.stringify({operations:timings,inspectionSizes})}`);});
  const f=fixture(timings),key=randomBytes(32);try{
