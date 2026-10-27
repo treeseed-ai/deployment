@@ -10,7 +10,7 @@ import { ServiceProjection } from '../../src/service-projection.js';
 export class PostgresServiceFixture extends ServiceRuntimeFixture {
     async prepared(): Promise<this> {
         await this.services();
-        const entry = join(this.root, 'postgres-entry.ts'), source = join(this.root, 'plugin/package'), module = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../src/service-postgres.ts' : '../src/service-postgres.js', import.meta.url));
+        const entry = join(this.root, 'postgres-entry.ts'), source = join(this.root, 'plugin/package'), module = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../src/service-postgres.ts' : '../../src/service-postgres.js', import.meta.url));
         writeFileSync(entry, `import {writeFileSync} from 'node:fs';export {PostgresServicePlugin,PostgresReadinessPlugin} from ${JSON.stringify(module)};class Canary{static run():void{writeFileSync(${JSON.stringify(join(this.root, 'POSTGRES_IMPORT_CANARY'))},'imported');}}Canary.run();`);
         const build = spawnSync('bun', ['build', entry, '--target=node', '--outfile', join(source, 'index.js')], { encoding: 'utf8' });
         if (build.status !== 0) throw new Error('Production provider fixture compilation failed: ' + build.stderr);
