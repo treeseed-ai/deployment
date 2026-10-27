@@ -1,8 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parse } from 'yaml';
 import { expect, it } from 'vitest';
 
-interface Step { run?: string; uses?: string; if?: string; env?: Record<string, string>; }
+interface Step { name?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; }
 interface Job { 'runs-on': string; env?: Record<string, string>; steps: Step[]; }
 function job(workflow: string, name: string): Job {
 	const source = readFileSync(new URL(`../.github/workflows/${workflow}.yml`, import.meta.url), 'utf8');
@@ -35,3 +38,27 @@ it('keeps native installation and the complete suite out of an exact APT-only re
 		expect(selected?.if).toBe('${{ !inputs.resume_apt_only }}');
 	}
 });
+
+it.each([{ exit: 0, report: true }, { exit: 13, report: true }, { exit: 7, report: false }])(
+	'reports bounded scene metadata without replacing the original command status: $exit/$report', ({ exit, report }) => {
+		const root = mkdtempSync(join(tmpdir(), 'treeseed-scene-report-'));
+		try {
+			const bin = join(root, 'bin'); mkdirSync(bin);
+			const sudo = join(bin, 'sudo'); writeFileSync(sudo, '#!/bin/sh\ncase "$1" in --preserve-env=*) exit "$SCENE_EXIT_CODE";; esac\nexec "$@"\n'); chmodSync(sudo, 0o700);
+			if (report) {
+				const directory = join(root, '.treeseed/guarantees/runs/actions-unit-1'); mkdirSync(directory, { recursive: true });
+				writeFileSync(join(directory, 'report.json'), JSON.stringify({ ok: exit === 0, counts: { failed: exit === 0 ? 0 : 1 },
+					privateDetail: 'must-not-appear-in-scene-summary', results: [{ id: 'scene', status: exit === 0 ? 'passed' : 'failed',
+						steps: [{ id: 'case', status: exit === 0 ? 'passed' : 'failed', diagnostics: [] }] }] }));
+			}
+			const command = job('verify', 'verify').steps.find(step => step.name === 'Execute coded sandbox component scenes')?.run;
+			expect(command).toBeDefined();
+			const result = spawnSync('/usr/bin/bash', ['-euo', 'pipefail', '-c', command!], { encoding: 'utf8',
+				env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, GITHUB_WORKSPACE: root, GITHUB_RUN_ID: 'unit', GITHUB_RUN_ATTEMPT: '1', SCENE_EXIT_CODE: String(exit) } });
+			expect(result.status, result.stderr).toBe(exit); expect(result.stdout).not.toContain('must-not-appear-in-scene-summary');
+			if (report) expect(JSON.parse(result.stdout)).toMatchObject({ ok: exit === 0, counts: { failed: exit === 0 ? 0 : 1 },
+				results: [{ id: 'scene', status: exit === 0 ? 'passed' : 'failed', failedSteps: exit === 0 ? [] : [{ id: 'case', status: 'failed', diagnostics: [] }] }] });
+			else expect(result.stdout).toBe('');
+		} finally { rmSync(root, { recursive: true, force: true }); }
+	},
+);
