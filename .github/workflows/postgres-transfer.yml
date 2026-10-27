@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: { node-version: "24.12.0" }
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@8e07d9adaf45ff75e9ea16de691b90d182aa30f8
         with:
           github-token: ${{ github.token }}
       - run: npm run build

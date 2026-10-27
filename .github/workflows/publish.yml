@@ -72,7 +72,7 @@ jobs:
           node-version: "24.12.0"
           cache: npm
       - run: npm ci
-      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3
+      - uses: treeseed-ai/sdk/.github/actions/install-exact-sdk@8e07d9adaf45ff75e9ea16de691b90d182aa30f8
         env:
           NODE_ENV: production
         with:

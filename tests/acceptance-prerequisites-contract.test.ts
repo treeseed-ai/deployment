@@ -227,7 +227,7 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
   for(const step of steps.filter(step=>step.run?.includes('sudo --preserve-env=')))
     expect(step.run).toMatch(/sudo --preserve-env=[^\s]*NPM_CONFIG_CACHE[^\s]* /u);
   expect(steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'))
-    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@cbc03314871d271bce7275c5cee71d950397a0c3',
+    .map(step=>step.uses)).toEqual(['treeseed-ai/sdk/.github/actions/install-exact-sdk@8e07d9adaf45ff75e9ea16de691b90d182aa30f8',
       'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1']);
   const dependencies=steps.find(step=>step.name==='Install the executing Reviewer suite dependencies');
   expect(dependencies?.run).toBe('npm ci --prefix .treeseed/tools/reviewer --ignore-scripts --no-audit --no-fund');
@@ -302,11 +302,14 @@ it('capacity execution packaging binds one exact SDK dependency to its original 
     env:{NODE_ENV:'production'},with:{commit:'${{ steps.reviewer-prerequisites.outputs.sdk-commit }}',
       paths:'.treeseed/tools/reviewer/node_modules/@treeseed/sdk','github-token':'${{ github.token }}'}});
   const commit=owning[0]!.uses!.split('@').at(-1); expect(commit).toMatch(/^[a-f0-9]{40}$/u);
-  expect(manifest.dependencies['@treeseed/sdk']).toBe(`git+https://github.com/treeseed-ai/sdk.git#${commit}`);
+  expect(commit).toBe('8e07d9adaf45ff75e9ea16de691b90d182aa30f8');
+  expect(manifest.dependencies['@treeseed/sdk']).toBe('0.13.0-rc.131');
   expect(manifest.overrides['@treeseed/sdk']).toBe('$@treeseed/sdk');
   expect(Object.keys(lock.packages).filter(path=>path.endsWith('node_modules/@treeseed/sdk'))).toEqual(['node_modules/@treeseed/sdk']);
   expect(lock.packages[''].dependencies['@treeseed/sdk']).toBe(manifest.dependencies['@treeseed/sdk']);
-  expect(lock.packages['node_modules/@treeseed/sdk'].resolved.split('#').at(-1)).toBe(commit);
+  expect(lock.packages['node_modules/@treeseed/sdk'].version).toBe('0.13.0-rc.131');
+  expect(lock.packages['node_modules/@treeseed/sdk'].resolved).toBe('https://registry.npmjs.org/@treeseed/sdk/-/sdk-0.13.0-rc.131.tgz');
+  expect(lock.packages['node_modules/@treeseed/sdk'].integrity).toBe('sha512-2PWyxFklm1RYMeB1qXCzKqXuNHApgTKnLKwurJ2tnaC3WnSGHfaMKMUVzvwlrfVguGtJjPiBa5BDE+7wkjWibg==');
   expect(owning[0]?.env?.NODE_ENV).toBe('production');
   const prune=steps.findIndex(step=>step.run==='npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
   expect(prune).toBeGreaterThan(steps.indexOf(owning[0]!));
@@ -317,7 +320,8 @@ it('capacity execution packaging binds one exact SDK dependency to its original 
 
 it('every native execution workflow installs the same declared exact SDK before compiling its owning acceptance sources', () => {
   const dependency=JSON.parse(readFileSync('package.json','utf8')).dependencies['@treeseed/sdk'] as string;
-  const commit=dependency.split('#').at(-1)!;
+  expect(dependency).toBe('0.13.0-rc.131');
+  const commit='8e07d9adaf45ff75e9ea16de691b90d182aa30f8';
   expect(commit).toMatch(/^[a-f0-9]{40}$/u);
   const workflows=['verify.yml','publish.yml','development-backup.yml','identity-acceptance.yml','postgres-transfer.yml'];
   for(const name of workflows){
