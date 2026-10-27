@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { expect, it, onTestFailed } from 'vitest';
 import { parse } from 'yaml';
+import { nativeWorkflow } from './support/native-workflow.js';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertDisposableNativeHost } from '../scripts/verify-native-host.js';
@@ -28,7 +29,7 @@ it('native denied host inspection retains its exact safe phase before resource s
 
 it('native development image preparation holds one exact official manifest before timed suites and verifies local image readback',()=>{
  const path='scripts/verify-native-host.ts',bytes=readFileSync(path),workflowPath='.github/workflows/verify.yml',workflow=readFileSync(workflowPath);
- const steps=parse(workflow.toString()).jobs.verify.steps as {name?:string;run?:string}[];
+ const steps=nativeWorkflow(workflow.toString()).jobs.verify.steps as {name?:string;run?:string}[];
  const preparation=bytes.toString();
  expect(workflow.toString()).not.toContain("--eval '\n");
  const commands=preparation.replaceAll('"',"'");
@@ -93,7 +94,7 @@ it('native original Vitest retains controlled phase criteria alongside real asse
     expect(rows[1]?.failureMessages.join('\n')).toContain('Error: STACK_TRACE_ERROR');
     expect(rows[1]?.duration).toBeGreaterThanOrEqual(20);
     expect(rows[1]?.failureMessages.join('\n')).toContain('ACCEPTANCE_NATIVE_COLD_BUILD_WATCHDOG:');
-    const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
+    const workflow=nativeWorkflow(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
     const steps=workflow.jobs.verify.steps as {with?:Record<string,string>}[];
     const checkout=steps.find(step=>step.with?.repository==='treeseed-ai/reviewer')!.with!;
     const reviewer=resolve(checkout.path!);
@@ -114,7 +115,7 @@ it('native original Vitest retains controlled phase criteria alongside real asse
 });
 
 it('native pinned Reviewer retains bounded owning failure evidence after fresh complete prerequisites without exposing assertion values', () => {
-  const workflow=parse(readFileSync('.github/workflows/verify.yml','utf8'));
+  const workflow=nativeWorkflow(readFileSync('.github/workflows/verify.yml','utf8'));
   const checkout=(workflow.jobs.verify.steps as {with?:Record<string,string>}[])
     .find(step=>step.with?.repository==='treeseed-ai/reviewer')!.with!;
   const reviewer=resolve(checkout.path!),heldHead=spawnSync('git',['-C',reviewer,'rev-parse','HEAD'],{encoding:'utf8',timeout:5000});
@@ -220,7 +221,7 @@ it('parses component metadata and binds every scene step to exactly one existing
 });
 
 it('runs complete privileged owner prerequisites before coded scenes without a filtered substitute', () => {
-  const workflow=parse(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
+  const workflow=nativeWorkflow(readFileSync(new URL('../.github/workflows/verify.yml',import.meta.url),'utf8'));
   const steps=workflow.jobs.verify.steps as {name?:string;run?:string;env?:Record<string,string>;uses?:string;with?:Record<string,string>;'working-directory'?:string}[];
   expect(workflow.jobs.verify.env?.NPM_CONFIG_CACHE).toBe('${{ github.workspace }}/.treeseed/npm-cache');
   for(const step of steps.filter(step=>step.run?.includes('sudo --preserve-env=')))
@@ -270,7 +271,7 @@ it('runs complete privileged owner prerequisites before coded scenes without a f
 
 it('provisions only a disposable native Actions host through the original installer before complete privileged prerequisites', () => {
   const bytes=readFileSync('.github/workflows/verify.yml');
-  const workflow=parse(bytes.toString()),job=workflow.jobs.verify;
+  const workflow=nativeWorkflow(bytes.toString()),job=workflow.jobs.verify;
   const steps=job.steps as {name?:string;run?:string;env?:Record<string,string>}[];
   expect(job['runs-on']).toBe('ubuntu-26.04');
   const native=steps.find(step=>step.name==='Initialize disposable native capacity host');
@@ -288,9 +289,9 @@ it('provisions only a disposable native Actions host through the original instal
 });
 
 it('capacity execution packaging binds one exact SDK dependency to its original installer and every transitive consumer', () => {
-  const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
+  const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml','.github/actions/prepare-reviewer/action.yml'].map(path=>[path,readFileSync(path)]));
   const manifest=JSON.parse(inputs.get('package.json')!.toString()),lock=JSON.parse(inputs.get('package-lock.json')!.toString());
-  const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>;with?:Record<string,string>}[];
+  const steps=nativeWorkflow(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>;with?:Record<string,string>}[];
   const installers=steps.filter(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
   expect(installers).toHaveLength(2);
   const owning=installers.filter(step=>step.with?.paths===undefined);
@@ -318,10 +319,10 @@ it('every native execution workflow installs the same declared exact SDK before 
   const dependency=JSON.parse(readFileSync('package.json','utf8')).dependencies['@treeseed/sdk'] as string;
   const commit=dependency.split('#').at(-1)!;
   expect(commit).toMatch(/^[a-f0-9]{40}$/u);
-  const workflows=['verify.yml','development-backup.yml','identity-acceptance.yml','postgres-transfer.yml'];
+  const workflows=['verify.yml','publish.yml','development-backup.yml','identity-acceptance.yml','postgres-transfer.yml'];
   for(const name of workflows){
     const path=resolve('.github/workflows',name),bytes=readFileSync(path);
-    const workflow=parse(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string;with?:Record<string,unknown>}[]}>};
+    const workflow=nativeWorkflow(bytes.toString()) as {jobs:Record<string,{steps:{uses?:string;run?:string;with?:Record<string,unknown>}[]}>};
     const runtimes=Object.values(workflow.jobs).flatMap(job=>job.steps).filter(step=>step.uses?.startsWith('actions/setup-node@'));
     expect(runtimes.length,name).toBeGreaterThan(0);
     for(const runtime of runtimes)expect(runtime.with?.['node-version'],name).toBe('24.12.0');
@@ -332,7 +333,7 @@ it('every native execution workflow installs the same declared exact SDK before 
     expect(owning.map(step=>step.uses),name).toEqual(owning.map(()=>`treeseed-ai/sdk/.github/actions/install-exact-sdk@${commit}`));
     for(const step of owning)expect(step.with?.commit,name).toBeUndefined();
     const scoped=installers.filter(step=>step.with?.paths!==undefined);
-    expect(scoped,name).toEqual(name==='verify.yml'?[expect.objectContaining({
+    expect(scoped,name).toEqual(['verify.yml','publish.yml'].includes(name)?[expect.objectContaining({
       uses:'treeseed-ai/sdk/.github/actions/install-exact-sdk@8702e0285622276d850250a5f8637b6d704318d1',
       with:expect.objectContaining({commit:'${{ steps.reviewer-prerequisites.outputs.sdk-commit }}',
         paths:'.treeseed/tools/reviewer/node_modules/@treeseed/sdk'})})]:[]);
@@ -342,7 +343,7 @@ it('every native execution workflow installs the same declared exact SDK before 
 
 it('native capacity execution package install retains exact held SDK bytes and requires one valid tree and nonempty SBOM before scene admission', () => {
   const root=mkdtempSync(resolve(tmpdir(),'deployment-capacity-sdk-'));
-  const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml'].map(path=>[path,readFileSync(path)]));
+  const inputs=new Map(['package.json','package-lock.json','.github/workflows/verify.yml','.github/actions/prepare-reviewer/action.yml'].map(path=>[path,readFileSync(path)]));
   const sdkBytes=readFileSync('node_modules/@treeseed/sdk/package.json');
   let phase='PREPARATION';
   onTestFailed(()=>{throw new Error(`ACCEPTANCE_NATIVE_SDK_INSTALL_${phase}: Original native package-install failure; retain its failed disposition.`);});
@@ -362,7 +363,7 @@ it('native capacity execution package install retains exact held SDK bytes and r
     passed(run('npm',['ci','--ignore-scripts','--no-audit','--no-fund','--workspaces=false']));
     const destination=resolve(root,'node_modules/@treeseed/sdk');rmSync(destination,{recursive:true});mkdirSync(destination);
     passed(run('tar',['-xzf',archive,'--strip-components=1','-C',destination]));
-    const steps=parse(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>}[];
+    const steps=nativeWorkflow(inputs.get('.github/workflows/verify.yml')!.toString()).jobs.verify.steps as {uses?:string;run?:string;env?:Record<string,string>}[];
     const installer=steps.find(step=>step.uses?.startsWith('treeseed-ai/sdk/.github/actions/install-exact-sdk@'));
     expect(installer?.env?.NODE_ENV).toBe('production');
     passed(run('npm',['install','--prefix',destination,'--ignore-scripts','--no-save','--package-lock=false','--no-audit','--no-fund'],root,{...process.env,NODE_ENV:installer!.env!.NODE_ENV}));
@@ -406,11 +407,11 @@ it('native installer subprocess rejects a non Actions caller without touching he
 });
 
 it('native pinned Reviewer checkout plans every original capacity component case without executing or rewriting candidate evidence', () => {
-  const root=process.cwd(),workflow=parse(readFileSync('.github/workflows/verify.yml','utf8'));
+  const root=process.cwd(),workflow=nativeWorkflow(readFileSync('.github/workflows/verify.yml','utf8'));
   const steps=workflow.jobs.verify.steps as {with?:Record<string,string>}[];
   const checkout=steps.find(step=>step.with?.repository==='treeseed-ai/reviewer')!.with!;
   const reviewer=resolve(root,checkout.path!),command=resolve(reviewer,'src/verifiers/guarantees/command.ts');
-  const held=new Map(['.github/workflows/verify.yml','guarantees/verifiers/golden.verifiers.yaml',
+  const held=new Map(['.github/workflows/verify.yml','.github/actions/prepare-reviewer/action.yml','guarantees/verifiers/golden.verifiers.yaml',
     'guarantees/agent/golden/scenes/component-boundaries.scene.yaml',command].map(path=>[path,readFileSync(path)]));
   const git=(args:string[])=>spawnSync('git',['-C',reviewer,...args],{encoding:'utf8',timeout:5000});
   const head=git(['rev-parse','HEAD']);expect(head.error).toBeUndefined();expect(head.signal).toBeNull();
