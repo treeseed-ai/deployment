@@ -1561,7 +1561,7 @@ verifiers:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
     testFile: tests/native-publisher-prerequisites.test.ts
-    testName: "reports bounded scene metadata and preserves original failures: 0/true/false"
+    testName: "reports bounded scene metadata and preserves original failures: +0/true/false"
   deployment.golden.scene-report-failure-unit:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
@@ -1581,4 +1581,4 @@ verifiers:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"
     testFile: tests/native-publisher-prerequisites.test.ts
-    testName: "reports bounded scene metadata and preserves original failures: 0/true/true"
+    testName: "reports bounded scene metadata and preserves original failures: +0/true/true"
