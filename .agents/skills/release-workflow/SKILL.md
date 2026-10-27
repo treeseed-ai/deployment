@@ -179,7 +179,7 @@ into the normal check command and CI. It rejects misplaced or undiscoverable reg
 phase-based specification paths, and verifies complete tier commands. Platform checks each
 assembled specification is explicitly assigned to a script or CI closure because historical
 exact artifact selections run in separate jobs. Reusable test contracts with assertions belong
-in their actual tier; support holds fixture setup and executable fixture programs.
+in their actual tier; support holds fixture setup and executable fixture programs. Tier scripts run the complete tier directory directly; an individual-file selector does not qualify. When CI partitions cases with name filters, every static registered case must match exactly one nonempty partition. Missing, overlapping or malformed partitions fail verification.
 
 ## ⚠️ MANDATORY: Testing Tiers and the Composition Root
 

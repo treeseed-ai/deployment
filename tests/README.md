@@ -62,14 +62,15 @@ The same assertions and production command deadlines remain unchanged.
 ## Complete smoke partition gate
 
 CI retains the existing 15-minute deadline and Ubuntu 26.04 prerequisite gate. Every test file
-belongs to exactly one of four nonempty jobs: `foundation`, `transitions`, `sources`, `runtime`.
+belongs to exactly one of seven nonempty jobs: `foundation`, `transitions`, `sources`, `runtime`,
+`git-installed`, `registered` and `build-registered`.
 `transitions` owns explicit restart/retained-plan tests; `sources` owns NPM/Git/build tests;
 `runtime` owns native application/authority tests and `*-install.test.ts` programmes. Other new
 files remain in `foundation`. Each file's complete smoke selection runs in its assigned job.
 No suite is skipped, duplicated or made optional to fit the budget.
 
 `bun scripts/verification.ts smoke <partition>` runs the exact sorted set. `inventory` reports
-all four sets for read-back. Validation requires known suites, disjoint/exhaustive membership,
+all seven sets for read-back. Validation requires known suites, disjoint/exhaustive membership,
 valid paths, nonempty groups and a workflow matrix matching the inventory. Unknown partitions
 fail with exit 2 before execution. The existing aggregate `verify` gate requires checks and the
 complete smoke matrix to succeed. This change affects development verification only.
@@ -105,3 +106,8 @@ five groups, with the same fifteen-minute budget and all-success aggregate. No c
 Assertion-bearing reusable acceptance contracts live in `tests/acceptance/`; shared support
 contains fixture setup and program inputs. Moving a case must also move its shared behavioral
 assertions, rather than hiding the scenario in a support base class.
+
+Complete tier commands use `bun test ./tests/<tier>` with only non-filtering timeout or
+empty-tier reporting options. Individual-file selectors and shell wrappers do not prove
+complete discovery. Name-filtered CI matrices must cover each registered case exactly once
+and every partition must be nonempty; the shared layout guard verifies that inventory.
