@@ -55,6 +55,35 @@ describe('Debian and systemd contracts', () => {
 		expect(packaging).toContain("['libsodium-sumo', 'libsodium-wrappers-sumo']");
 		for (const entry of ['operator-contracts/operation-builder.js', 'secrets-capability/secret-contracts.js', 'secrets-capability/github-actions-encryption.js', 'standards/typescript/extract.js']) expect(verification).toContain(entry);
 	});
+	it('extracted SDK and CLI packages load the selected SDK schema dependency without host modules', () => {
+		const root = mkdtempSync(resolve(tmpdir(), 'deployment-sdk-cli-import-'));
+		const names = ['treeseed-sdk', 'treeseed-cli', 'treeseed-host-runtime'];
+		const archives = names.map(name => {
+			const files = readdirSync('release/out').filter(file => file.startsWith(`${name}_`) && file.endsWith('.deb'));
+			expect(files).toHaveLength(1); return resolve('release/out', files[0]!);
+		});
+		const held = new Map(archives.map(path => [path, readFileSync(path)]));
+		try {
+			for (const archive of archives) {
+				const extracted = spawnSync('dpkg-deb', ['--extract', archive, root], { encoding: 'utf8', timeout: 10_000 });
+				expect(extracted.error).toBeUndefined(); expect(extracted.signal).toBeNull(); expect(extracted.status, extracted.stderr).toBe(0);
+			}
+			const runtime = pathToFileURL(resolve(root, 'usr/lib/treeseed/cli/dist/cli/runtime.js')).href;
+			const imported = spawnSync(resolve(root, 'usr/lib/treeseed/runtime/bin/node'), ['--input-type=module', '--eval',
+				'const runtime = await import(process.argv[1]); if (typeof runtime.runCommandLine !== "function") process.exit(1);', runtime],
+				{ cwd: root, env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 10_000 });
+			expect(imported.error).toBeUndefined(); expect(imported.signal).toBeNull(); expect(imported.status, imported.stderr).toBe(0);
+			const dependency = 'usr/lib/treeseed/cli/node_modules/zod-to-json-schema/package.json';
+			expect(JSON.parse(readFileSync(resolve(root, dependency), 'utf8')).version)
+				.toBe(JSON.parse(readFileSync('node_modules/zod-to-json-schema/package.json', 'utf8')).version);
+			for (const [index, owns] of [[0, true], [1, false]] as const) {
+				const listing = spawnSync('dpkg-deb', ['--contents', archives[index]!], { encoding: 'utf8', timeout: 10_000 });
+				expect(listing.error).toBeUndefined(); expect(listing.signal).toBeNull(); expect(listing.status, listing.stderr).toBe(0);
+				expect(listing.stdout.includes(`./${dependency}`)).toBe(owns);
+			}
+			for (const [path, bytes] of held) expect(readFileSync(path).equals(bytes), `Exact original archive bytes: ${path}`).toBe(true);
+		} finally { rmSync(root, { recursive: true, force: true }); expect(existsSync(root)).toBe(false); }
+	});
 
 	it('includes the capacity manager schema dependency and verifies its actual supervisor API and broker entrypoints', () => {
 		const packaging = readFileSync('scripts/package-deb.ts', 'utf8'), verification = readFileSync('scripts/verify-deb.ts', 'utf8');
