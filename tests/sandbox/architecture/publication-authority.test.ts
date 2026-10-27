@@ -12,7 +12,7 @@ describe('attached source publication authority boundary (UNIT)', () => {
 		let observed = commit;
 		vi.doMock('../../../src/sandbox/source-git-transport.js', () => ({ runSourceGit: async (repository:string, args:string[]) => {
 			calls.push({repository,args:[...args]});
-			if (args[0] === 'rev-parse') return commit;
+			if (args[0] === 'rev-parse') return args[2] === `${f.response.authorization.source.commit}^{commit}` ? f.response.authorization.source.commit : commit;
 			if (args[0] === 'for-each-ref') return observed;
 			return '';
 		} }));
@@ -21,7 +21,7 @@ describe('attached source publication authority boundary (UNIT)', () => {
 			const {simulationSourceRepository} = await import('../../../src/sandbox/simulation-source-repository.js');
 			const repository = simulationSourceRepository(root,f.response.authorization.source), config = Buffer.from('original native configuration\n');
 			await mkdir(repository,{recursive:true}); await writeFile(join(repository,'config'),config);
-			const input = {assignmentId:'assignment',attempt:1,commit,bundlePath:join(root,'supplied.bundle'),response:f.response}, held=structuredClone(input);
+			const input = {assignmentId:'assignment',attempt:1,commit,bundlePath:join(root,'supplied.bundle'),baseBundlePath:join(root,'authorized.bundle'),response:f.response}, held=structuredClone(input);
 			for (const conflicting of [false,true]) {
 				calls.length=0; observed=conflicting?'c'.repeat(40):commit;
 				if (conflicting) await expect(publishVerifiedSourceBranch(input)).rejects.toThrow('another commit');

@@ -17,6 +17,7 @@ export async function publishVerifiedSourceBranch(input: {
 	attempt: number;
 	commit: string;
 	bundlePath: string;
+	baseBundlePath: string;
 	response: SourceWorkspaceResponse;
 	credential?: SourceGitCredential;
 }) {
@@ -28,6 +29,16 @@ export async function publishVerifiedSourceBranch(input: {
 	await mkdir(repository, { recursive: true, mode: 0o700 });
 	try {
 		await runSourceGit(repository, ['init', '--bare', '--template=']);
+		// Only the independently acquired authorized source supplies prerequisites.
+		// Never borrow objects, paths or configuration from the executed guest.
+		await runSourceGit(repository, ['bundle', 'unbundle', input.baseBundlePath]);
+		for (const commit of [input.response.authorization.source.commit,
+			...(input.response.authorization.source.additionalCommits ?? [])]) {
+			if (await runSourceGit(repository, ['rev-parse', '--verify', `${commit}^{commit}`]) !== commit) {
+				throw new Error('Publication source prerequisite differs from its authorization.');
+			}
+		}
+		await runSourceGit(repository, ['bundle', 'verify', input.bundlePath]);
 		await runSourceGit(repository, ['bundle', 'unbundle', input.bundlePath]);
 		if (await runSourceGit(repository, ['rev-parse', '--verify', `${input.commit}^{commit}`]) !== input.commit) {
 			throw new Error('Verified source publication changed commit identity.');
@@ -48,7 +59,9 @@ export async function publishVerifiedSourceBranch(input: {
 				const existing = await runSourceGit(localRepository, ['for-each-ref', '--format=%(objectname)', remoteRef]);
 				if (existing && existing !== input.commit) throw new Error('Simulation branch already identifies another commit.');
 				if (!existing) {
-					await runSourceGit(localRepository, ['bundle', 'unbundle', input.bundlePath]);
+						// The private prepared repository now has complete object closure,
+						// including authorized predecessors absent from a prior local target.
+						await runSourceGit(localRepository, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-recurse-submodules', repository, input.commit]);
 					try { await runSourceGit(localRepository, ['update-ref', remoteRef, input.commit, '0'.repeat(40)]); }
 					catch (failure) {
 						// Another exact concurrent publisher may win the same CAS. Never

@@ -103,8 +103,14 @@ export class AssignmentSourceStore {
       journal: value => durableJson(join(workspaceStorageRoot, 'candidates'), `${sandboxId}.json`, value),
       publish: async (bundlePath) => {
         const publication = source.publicationCredential(authority);
-        return publishVerifiedSourceBranch({ assignmentId: assignment.assignmentId, attempt: assignment.attempt,
-          commit, bundlePath, response: publication.response, ...(publication.credential ? { credential: publication.credential } : {}) });
+        try {
+          const basis = await acquireSourceBundle({ authorization: publication.response.authorization,
+            repository: publication.response.repository, ...(publication.credential ? { credential: publication.credential } : {}),
+            maxBundleBytes: Math.min(assignment.resources.diskBytes, 8_589_934_592) });
+          return await publishVerifiedSourceBranch({ assignmentId: assignment.assignmentId, attempt: assignment.attempt,
+            commit, bundlePath, baseBundlePath: join(workspaceStorageRoot, 'bundles', `${basis.bundleDigest.slice(7)}.bundle`),
+            response: publication.response, ...(publication.credential ? { credential: publication.credential } : {}) });
+        } finally { if (publication.credential) { publication.credential.token = ''; publication.credential.username = ''; } }
       },
       detachExecution: async disk => {
         if (!this.executionDetached.has(sandboxId)) { await detachWorkspaceDisk(disk, true); this.executionDetached.add(sandboxId); }

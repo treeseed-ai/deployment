@@ -36,6 +36,8 @@ export async function nativePublicationFixture(historicalBytes = 0) {
 		}
 		await writeFile(join(root, 'code.ts'), 'export const value = 1;\n');
 		git(root, 'add', '.'); git(root, 'commit', '--quiet', '-m', 'base'); const base = git(root, 'rev-parse', 'HEAD');
+		const baseBundlePath = join(directory, 'authorized-source.bundle');
+		git(root, 'bundle', 'create', baseBundlePath, 'HEAD');
 		await writeFile(join(root, 'code.ts'), 'export const value = 2;\n'); git(root, 'add', '.'); git(root, 'commit', '--quiet', '-m', 'candidate');
 		const commit = git(root, 'rev-parse', 'HEAD');
 		const catalogPath = join(directory, 'catalog.db'), f = await publicationFixture(base, catalogPath); source = f;
@@ -57,11 +59,11 @@ export async function nativePublicationFixture(historicalBytes = 0) {
 				if (!branch) throw new Error('Fixture requires parsed publication destination');
 				if (interrupted) throw new Error('isolated publication interruption');
 				const reference = await publishVerifiedSourceBranch({ assignmentId: f.owner.assignmentId, attempt: f.owner.attempt,
-					commit, bundlePath, response: authority.response });
+					commit, bundlePath, baseBundlePath, response: authority.response });
 				published++;
 				return reference;
 			} };
-		return { f, base, commit, remote, root, git, journals,
+		return { f, base, commit, remote, root, git, journals, baseBundlePath, directory,
 			set(value: typeof response) { response = value; }, interrupt(value: boolean) { interrupted = value; },
 			counts: () => ({ verified, published }), start: (stopped = true, maximum = 1_048_576) => new SourcePublicationJob(f.owner, commit, maximum, stopped, operations),
 			snapshot: () => ({ images: db.prepare('SELECT * FROM workspace_images ORDER BY id').all(), leases: db.prepare('SELECT * FROM workspace_leases ORDER BY id').all() }),
