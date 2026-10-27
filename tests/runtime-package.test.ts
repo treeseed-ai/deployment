@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 it('finishes dependency pruning before restoring the checked SDK in verification and publication', () => {
-	for (const [file, job] of [['verify', 'verify'], ['publish', 'publish']] as const) {
+	for (const [file, job] of [['verify', 'verify'], ['publish', 'publish']]) {
 		const workflow = parse(readFileSync(`.github/workflows/${file}.yml`, 'utf8'));
 		const steps = workflow.jobs[job].steps as Array<{ run?: string; uses?: string }>;
 		const prune = steps.findIndex(step => step.run === 'npm prune --ignore-scripts --no-audit --no-fund --workspaces=false');
