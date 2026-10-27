@@ -1537,3 +1537,23 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/native-publisher-prerequisites.test.ts
     testName: "keeps native installation and the complete suite out of an exact APT-only resume"
+  deployment.golden.source-loop-release-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "reserves a fixed filesystem before fetch and unmounts before returning"
+  deployment.golden.source-loop-retained-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "retains the source fence when unmounted loop release is retained"
+  deployment.golden.source-loop-unreadable-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "retains the source fence when unmounted loop release is unreadable"
+  deployment.golden.source-loop-unsettled-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-cache-volume.test.ts
+    testName: "retains the source fence when unmounted loop release is unsettled"

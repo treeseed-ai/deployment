@@ -933,3 +933,15 @@ workflow:
   - id: native-publisher-resume-unit
     action: { verifier: deployment.golden.native-publisher-resume-unit }
     expect: { status: passed }
+  - id: source-loop-release-unit
+    action: { verifier: deployment.golden.source-loop-release-unit }
+    expect: { status: passed }
+  - id: source-loop-retained-unit
+    action: { verifier: deployment.golden.source-loop-retained-unit }
+    expect: { status: passed }
+  - id: source-loop-unreadable-unit
+    action: { verifier: deployment.golden.source-loop-unreadable-unit }
+    expect: { status: passed }
+  - id: source-loop-unsettled-unit
+    action: { verifier: deployment.golden.source-loop-unsettled-unit }
+    expect: { status: passed }
