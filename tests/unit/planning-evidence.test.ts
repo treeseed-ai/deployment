@@ -4,6 +4,10 @@ import { PlanningBlockedError } from '@treeseed-cordis/sdk';
 import { NpmSourceProgram } from '../support/npm-source-program.js';
 class CauseGetterCanary {
   called = false;
+  descriptor(): PropertyDescriptor | undefined {
+    this.called = true;
+    throw new Error('PROXY_OUTPUT_CANARY');
+  }
   read(): string {
     this.called = true;
     return 'GETTER_OUTPUT_CANARY';
@@ -43,6 +47,19 @@ class PlanningEvidenceUnit {
     assert(this.render(error).includes('docker-invocation(unavailable)'));
     assert.equal(canary.called, false);
   }
+  proxies(): void {
+    const canary = new CauseGetterCanary();
+    const cause = new Proxy({}, { getOwnPropertyDescriptor: canary.descriptor.bind(canary) });
+    const message = this.message(cause);
+    assert(message.includes('docker-invocation(unavailable)'));
+    assert(!message.includes('CANARY'));
+  }
+  codes(): void {
+    const error = new PlanningBlockedError([{ code: 'private-CANARY', message: 'BLOCKER_CANARY' }]);
+    const message = this.render(error);
+    assert(message.startsWith('INVALID_SOURCE_BLOCKER '));
+    assert(!message.includes('CANARY'));
+  }
   private message(cause: unknown): string {
     const error = new PlanningBlockedError([
       { code: 'DOCKER_UNAVAILABLE', message: 'BLOCKER_CANARY' },
@@ -73,4 +90,13 @@ test(
 test(
   'unit: npm failure formatter does not invoke cause or field getters',
   suite.getters.bind(suite),
+);
+
+test(
+  'unit: npm evidence formatter contains errors from proxy descriptor traps',
+  suite.proxies.bind(suite),
+);
+test(
+  'unit: npm evidence formatter cannot print arbitrary provider blocker codes',
+  suite.codes.bind(suite),
 );
