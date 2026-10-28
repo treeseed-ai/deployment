@@ -5,6 +5,11 @@ adapter. Agent owns admission, exclusive assignment, warming/replenishment, prof
 guest environment execution. This backend never embeds an Agent root or supplies team authority.
 SDK portable protocols remain the cross-process boundary; a process-local Context is not isolation.
 
+The host-only public package entry is `@treeseed-cordis/deployment/sandbox`. Ordinary consumers of
+the Deployment root do not need to load its privileged backend. Review candidate `.80` keeps the
+existing SDK `.16` baseline; the separate `.79` compatibility PR adopts SDK `.19`. Their eventual
+assembled successor must record a new exact archive rather than overwriting either candidate.
+
 ## Interface and custody
 
 The backend accepts a trusted host configuration for an already prepared private containerd
