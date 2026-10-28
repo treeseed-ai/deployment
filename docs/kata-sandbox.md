@@ -6,9 +6,11 @@ guest environment execution. This backend never embeds an Agent root or supplies
 SDK portable protocols remain the cross-process boundary; a process-local Context is not isolation.
 
 The host-only public package entry is `@treeseed-cordis/deployment/sandbox`. Ordinary consumers of
-the Deployment root do not need to load its privileged backend. Review candidate `.80` keeps the
-existing SDK `.16` baseline; the separate `.79` compatibility PR adopts SDK `.19`. Their eventual
-assembled successor must record a new exact archive rather than overwriting either candidate.
+the Deployment root do not load its privileged backend. The .81 successor selects the
+accepted SDK .35 closure for environment/pool/service protocol integration. Earlier .80/.79
+artifacts and hosted qualification evidence remain immutable. The bounded interface below
+is unchanged by this exact dependency selection; guest setup and service-scoped control
+remain subsequent implementation, not a capability claimed by a new SDK schema.
 
 ## Interface and custody
 
