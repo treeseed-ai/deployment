@@ -181,6 +181,29 @@ assembled specification is explicitly assigned to a script or CI closure because
 exact artifact selections run in separate jobs. Reusable test contracts with assertions belong
 in their actual tier; support holds fixture setup and executable fixture programs. Tier scripts run the complete tier directory directly; an individual-file selector does not qualify. When CI partitions cases with name filters, every static registered case must match exactly one nonempty partition. Missing, overlapping or malformed partitions fail verification.
 
+## Mandatory: Readable Capability Layers and Contextual Refactoring
+
+Follow AGENTS.md's critical readable-capability-layer rule. New or changed executable methods,
+constructors and accessors have at most 20 canonically formatted body lines; declarative schemas
+and data are outside that behavioral count. Keep classes cohesive and orchestration as named
+capability calls. Refactor affected behavior and its immediate responsibility boundary when touched;
+a directed cleanup/refinement audits and refactors its stated scope. Never compress statements,
+introduce trivial wrappers or move complexity to evade the rule.
+
+Run `bun .agents/skills/release-workflow/scripts/source-readability.ts` in normal owner checks and
+CI with pinned `prettier@3.6.2`. The first policy baseline records only violations in the verified
+`origin/cordis` commit, not unmerged drafts. Baseline source fingerprints preserve unchanged debt;
+a changed method cannot gain a new baseline entry. Exceptions in `.readability.json` identify the
+exact file/symbol/fingerprint, a concrete reason and owning issue; review them with the PR. Stale
+or unused entries fail. Preserve the baseline provenance; it cannot advance to grandfather new
+work. The check validates original Git blobs, so CI must retain full Git history and the integration
+reference. Setup-only future initialization copies the helper without installing dependencies;
+the first implementation wires it.
+
+Review checklist: readable capability orchestration; contextual refactoring completed; method gate
+passed; every exception justified and reviewed; no baseline additions; no artificial class splitting.
+These helpers are development only, never runtime dependencies on AGENTS.md or private target rules.
+
 ## ⚠️ MANDATORY: Testing Tiers and the Composition Root
 
 Outside-in testing only works if the **outer** rung exists. Unit tests of injected, isolated
