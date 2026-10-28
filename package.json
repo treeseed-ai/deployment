@@ -1,11 +1,15 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.79",
+  "version": "0.0.0-cordis.80",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
   "packageManager": "bun@1.4.4",
   "exports": {
+    "./sandbox": {
+      "types": "./dist/src/kata-backend.d.ts",
+      "default": "./dist/src/kata-backend.js"
+    },
     ".": {
       "types": "./dist/src/diagnose.d.ts",
       "default": "./dist/src/diagnose.js"
@@ -87,7 +91,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.79"
+      "version": "0.0.0-cordis.80"
     },
     "providers": [
       {
@@ -353,6 +357,201 @@
             "stateVersion": 1
           }
         }
+      },
+      {
+        "declaration": {
+          "id": "deployment.sandbox.kata",
+          "pluginId": "deployment",
+          "capability": "host.sandbox.kata",
+          "contractVersion": "0.4.0-cordis.1",
+          "target": "deployment",
+          "provide": [
+            "host.sandbox.kata"
+          ],
+          "inject": []
+        },
+        "entry": "dist/src/kata-backend.js",
+        "classExport": "KataSandboxPlugin",
+        "configurationSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "object",
+              "properties": {
+                "installationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "serviceId": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                },
+                "providerGeneration": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "installationId",
+                "serviceId",
+                "providerGeneration"
+              ],
+              "additionalProperties": false
+            },
+            "custody": {
+              "type": "string",
+              "pattern": "^\\/"
+            },
+            "endpointDirectory": {
+              "type": "string",
+              "pattern": "^\\/"
+            },
+            "daemon": {
+              "type": "object",
+              "properties": {
+                "pid": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                },
+                "commandDigest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "pid",
+                "startTime",
+                "commandDigest"
+              ],
+              "additionalProperties": false
+            },
+            "client": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^\\/"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "additionalProperties": false
+            },
+            "runtime": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "const": "4.1.0"
+                },
+                "guestKernel": {
+                  "type": "string",
+                  "pattern": "^[0-9][a-zA-Z0-9._+-]{0,127}$"
+                },
+                "shim": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^\\/"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "hypervisor": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^\\/"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "configuration": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^\\/"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "version",
+                "guestKernel",
+                "shim",
+                "hypervisor",
+                "configuration"
+              ],
+              "additionalProperties": false
+            },
+            "image": {
+              "type": "string",
+              "pattern": "^(?:[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]+)?\\/)?(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*@sha256:[a-f0-9]{64}$"
+            },
+            "maximumSandboxes": {
+              "default": 64,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            }
+          },
+          "required": [
+            "scope",
+            "custody",
+            "endpointDirectory",
+            "daemon",
+            "client",
+            "runtime",
+            "image"
+          ],
+          "additionalProperties": false
+        },
+        "replacement": {
+          "kind": "restart",
+          "stateVersion": 1,
+          "qualificationDigest": null
+        },
+        "commandIds": []
       }
     ],
     "assets": [],
