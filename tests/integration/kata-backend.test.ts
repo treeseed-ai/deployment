@@ -1,12 +1,33 @@
 import { expect, test } from 'bun:test';
 import * as deployment from '@treeseed-cordis/deployment/sandbox';
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawnSync, spawn } from 'node:child_process';
+import { readFileSync, realpathSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { SandboxProcessObserver } from '../../src/kata-hypervisor.js';
 
 interface Constructor {
   open(value: unknown): Promise<unknown>;
 }
 class KataBackendAdmissionTests {
+  async processIdentity(): Promise<void> {
+    const name = 'fixture-' + randomUUID();
+    const child = spawn('node', ['dist/tests/support/kata-backend-program.js', '-name', 'sandbox-' + name], { stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      await once(child.stdout!, 'data');
+      const path = realpathSync('/proc/' + child.pid + '/exe');
+      const sha256 = createHash('sha256').update(readFileSync(path)).digest('hex');
+      const observer = new SandboxProcessObserver({ path, sha256 }, process.getuid!());
+      const proof = observer.observe(name);
+      expect(proof.pid).toBe(child.pid!);
+      expect(observer.absent(name)).toBe(false);
+      expect(observer.absent(name + '-foreign')).toBe(true);
+      child.kill('SIGTERM');
+      await once(child, 'close');
+      await observer.waitGone(name, new AbortController().signal);
+      expect(observer.absent(name)).toBe(true);
+    } finally { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }
+  }
   private readonly digest = 'a'.repeat(64);
   private readonly file = { path: '/fixture/unused', sha256: this.digest };
   private readonly configuration = {
@@ -57,6 +78,7 @@ class KataBackendAdmissionTests {
   }
 }
 const suite = new KataBackendAdmissionTests();
+test('integration: read-only process observer binds exact name executable and process lifetime with a real harmless Node fixture', suite.processIdentity.bind(suite), 10000);
 test(
   'integration: fully shaped Kata configuration rejects mutable image tags before opening host paths',
   suite.mutableImages.bind(suite),

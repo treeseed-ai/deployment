@@ -13,6 +13,7 @@ import {
 import { join } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   CanonicalJson,
   type CapabilityToken,
@@ -165,9 +166,14 @@ class KataBackendProgram {
     assert.equal(process.getuid?.(), 0);
   }
   async run(): Promise<void> {
+    if (process.argv[2] === '-name') return this.holdProcess();
     if (process.argv[2] === '--interface') return this.interface();
     this.host();
     await this.qualify();
+  }
+  private async holdProcess(): Promise<void> {
+    process.stdout.write('process-observer-fixture-ready\n');
+    await delay(30000);
   }
   private async qualify(): Promise<void> {
     const fixture = new PrivateKataFixture();
