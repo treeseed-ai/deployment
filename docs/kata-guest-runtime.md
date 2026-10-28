@@ -17,7 +17,10 @@ Use SDK's `treeseed.guest-runtime/v1` binding. Inspect the complete archive unde
 and declared `dist/bin/trsd-agent-guest.NNN.gzpart` files. Reject duplicate/unsafe archive members,
 wrong package identity, undeclared runtime chunks, bad hashes/sizes/modes, mutable references,
 malformed JSON and interrupted reads. Read custody through descriptor-anchored no-symlink
-primitives; require owner-private directory and file. Never extract the archive.
+primitives; require owner-private directory and file. Payload metadata and chunks are ordinary
+non-executable data: accept 0600, 0640 or 0644 archive member modes. Reject executable, special
+or group/world-writable modes. Private custody remains directory 0700 / file 0600. Never extract
+the archive.
 
 Verify every part, aggregate gzip digest/size and bounded 128 MiB expansion. Expanded identity
 must match the manifest. Parse ELF64 little-endian amd64 program/dynamic headers without an
