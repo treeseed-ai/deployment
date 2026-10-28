@@ -29,10 +29,6 @@
     "./testing/live": {
       "types": "./dist/tests/support/live-probe-fixture.d.ts",
       "default": "./dist/tests/support/live-probe-fixture.js"
-    },
-    "./guest-runtime": {
-      "types": "./dist/src/guest-archive.d.ts",
-      "default": "./dist/src/guest-archive.js"
     }
   },
   "files": [

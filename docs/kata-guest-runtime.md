@@ -1,7 +1,7 @@
 # Exact guest runtime admission
 
 Deployment's `GuestRuntimeArchive` reads one explicitly selected immutable NPM archive through
-`@treeseed-cordis/deployment/guest-runtime`. Configuration binds an owner-private directory,
+`@treeseed-cordis/deployment/sandbox`. Configuration binds an owner-private directory,
 single archive filename/hash/size and expected package name/version. `read(signal)` returns the
 SDK-validated manifest and verified executable bytes. It creates no files, imports no package,
 executes no lifecycle script or binary and starts no sandbox or host process.
