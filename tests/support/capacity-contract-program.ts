@@ -17,6 +17,8 @@ class CapacityContractProgram {
       'SandboxControlBinding',
       'CapacityChannelSchemas',
       'CapacityChannelBinding',
+      'SandboxRunnerSchemas',
+      'SandboxRunnerBinding',
     ])
       assert.equal(typeof Reflect.get(sdk, name), 'function');
     assert.equal(sdk.PlatformOperations.all.length, 7);
@@ -26,9 +28,9 @@ class CapacityContractProgram {
   private selection(): void {
     const metadata = JSON.parse(readFileSync('package.json', 'utf8'));
     const digest = createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex');
-    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.37');
-    assert.equal(metadata.cordisCandidate.sdk.commit, 'dce3108e061ecaf0cfa2915c03698f0e3170a67b');
-    assert.equal(digest, '886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384');
+    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.38');
+    assert.equal(metadata.cordisCandidate.sdk.commit, '9ceaa50767f7644755bec1c8f8beffbcd05517ed');
+    assert.equal(digest, '92858c0288b38aa30cb037e61f5da37e91e0c64f5690629b3a96ab3db6631011');
     assert.equal(metadata.cordisCandidate.sdk.sha256, digest);
   }
 }

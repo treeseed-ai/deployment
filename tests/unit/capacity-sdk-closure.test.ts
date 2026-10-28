@@ -8,10 +8,10 @@ class CapacitySdkClosureTests {
     const installed = JSON.parse(
       readFileSync('node_modules/@treeseed-cordis/sdk/package.json', 'utf8'),
     );
-    expect(metadata.peerDependencies['@treeseed-cordis/sdk']).toBe('0.0.0-cordis.37');
+    expect(metadata.peerDependencies['@treeseed-cordis/sdk']).toBe('0.0.0-cordis.38');
     expect(installed.version).toBe(metadata.peerDependencies['@treeseed-cordis/sdk']);
-    expect(metadata.cordisCandidate.sdk.commit).toBe('dce3108e061ecaf0cfa2915c03698f0e3170a67b');
-    const digest = '886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384';
+    expect(metadata.cordisCandidate.sdk.commit).toBe('9ceaa50767f7644755bec1c8f8beffbcd05517ed');
+    const digest = '92858c0288b38aa30cb037e61f5da37e91e0c64f5690629b3a96ab3db6631011';
     expect(metadata.cordisCandidate.sdk.sha256).toBe(digest);
     expect(createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex')).toBe(digest);
   }
@@ -26,6 +26,8 @@ class CapacitySdkClosureTests {
       'SandboxControlBinding',
       'CapacityChannelSchemas',
       'CapacityChannelBinding',
+      'SandboxRunnerSchemas',
+      'SandboxRunnerBinding',
     ])
       expect(typeof Reflect.get(sdk, name)).toBe('function');
     expect(sdk.PlatformOperations.all).toHaveLength(7);
