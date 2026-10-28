@@ -37,7 +37,7 @@ export class WorkerHandoffScenario {
     ], { stdio: 'ignore', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
   }
   private async handoff(): Promise<void> {
-    await new Promise(WorkerHandoffScenario.hold);
+    await new Promise<void>(WorkerHandoffScenario.hold);
     assert.equal(this.child!.exitCode, null, 'Worker inspected mutable state before handoff');
     assert.equal(this.child!.signalCode, null);
     this.restore();
@@ -51,13 +51,13 @@ export class WorkerHandoffScenario {
     const deadline = Date.now() + 20000;
     while (!existsSync(socket) && Date.now() < deadline) {
       assert.equal(this.child!.exitCode, null, 'Worker exited after handoff');
-      await new Promise(WorkerHandoffScenario.tick);
+      await new Promise<void>(WorkerHandoffScenario.tick);
     }
     assert(existsSync(socket), 'Owner socket was not published');
     const owner = new ServiceWorkerOwnerClient({ installationDirectory: this.plan.configuration.installationDirectory });
     const status = await owner.status();
     assert.equal(status.installationId, this.plan.configuration.installationId);
-    assert.equal(status.currentApplicationId, null);
+    assert.equal(status.activeComposition, null);
   }
   private async cleanup(failure: unknown): Promise<void> {
     try {
@@ -78,7 +78,7 @@ export class WorkerHandoffScenario {
     this.child.kill('SIGTERM');
     const deadline = Date.now() + 15000;
     while (this.child.exitCode === null && this.child.signalCode === null && Date.now() < deadline)
-      await new Promise(WorkerHandoffScenario.tick);
+      await new Promise<void>(WorkerHandoffScenario.tick);
     assert(this.child.exitCode !== null || this.child.signalCode !== null, 'Worker did not stop');
   }
   private static hold(done: () => void): void { setTimeout(done, 2500); }
