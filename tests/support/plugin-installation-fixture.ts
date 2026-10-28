@@ -1,3 +1,4 @@
+export {DockerPrerequisiteFixture} from './docker-prerequisite-fixture.js';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, chmodSync, realpathSync, lstatSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
