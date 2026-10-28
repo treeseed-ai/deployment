@@ -89,6 +89,7 @@ class ControlExchange {
     if (this.done) return;
     try {
       const bytes = Buffer.concat(this.chunks);
+      if (bytes.length === 0) return this.failed();
       ControlGuard.require(
         bytes.length > 0 && bytes.indexOf(10) === bytes.length - 1,
         'SANDBOX_RESPONSE_MISMATCH',

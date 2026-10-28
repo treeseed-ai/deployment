@@ -97,7 +97,7 @@ class UnixPeerFixture {
   private readonly server = createServer(this.connected.bind(this));
   private readonly sockets = new Set<Socket>();
   connections = 0;
-  mode: 'valid' | 'foreign' | 'duplicate' | 'secret' = 'valid';
+  mode: 'valid' | 'foreign' | 'duplicate' | 'secret' | 'silent' = 'valid';
   constructor() {
     writeFileSync(this.authorityFile, JSON.stringify(this.authority()), { mode: 0o600 });
   }
@@ -126,22 +126,27 @@ class UnixPeerFixture {
     this.sockets.add(socket);
     socket.once('data', this.reply.bind(this, socket));
   }
+  private static readonly availability = {
+    state: 'available',
+    configurationDigest: 'd'.repeat(64),
+    capabilityVersion: '1.0.0-cordis.1',
+  };
   private reply(socket: Socket, bytes: Buffer): void {
+    if (this.mode === 'silent') {
+      socket.end();
+      return;
+    }
+
     const frame = JSON.parse(bytes.toString());
     assert.equal(frame.credential, 'c'.repeat(64));
     const request = frame.request;
-    const result = {
-      state: 'available',
-      configurationDigest: 'd'.repeat(64),
-      capabilityVersion: '1.0.0-cordis.1',
-    };
     const response = {
       schemaVersion: request.schemaVersion,
       requestId: this.mode === 'foreign' ? 'foreign' : request.requestId,
       scope: request.scope,
       operation: 'ready',
       success: true,
-      result,
+      result: UnixPeerFixture.availability,
       problem: null,
     };
     socket.end(this.encoded(response) + '\n');
@@ -169,6 +174,19 @@ class UnixPeerFixture {
   }
 }
 class SandboxChannelIntegration {
+  async absentReply(): Promise<void> {
+    const fixture = new UnixPeerFixture();
+    await fixture.start();
+    try {
+      fixture.mode = 'silent';
+      await assert.rejects(fixture.client().ready(new AbortController().signal), {
+        message: 'SANDBOX_PROVIDER_UNAVAILABLE',
+      });
+      assert.equal(fixture.connections, 1);
+    } finally {
+      await fixture.close();
+    }
+  }
   async peer(): Promise<void> {
     const fixture = new UnixPeerFixture();
     await fixture.start();
@@ -474,4 +492,9 @@ test(
 test(
   'integration: pinned client socket inode reaches only the original peer after pathname replacement',
   suite.reference.bind(suite),
+);
+
+test(
+  'integration: private sandbox client treats an empty rejected-peer EOF as unavailable',
+  suite.absentReply.bind(suite),
 );
