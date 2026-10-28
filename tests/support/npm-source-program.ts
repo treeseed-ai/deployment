@@ -26,7 +26,7 @@ interface ManagerClient {
     inspect?(requestId: string): Promise<PluginInstallResult>;
 }
 
-class NpmSourceProgram {
+export class NpmSourceProgram {
     private static notAddition(change: ServicePlan['changes'][number]): boolean { return change.kind !== 'add'; }
     private static fixtureBytes(path: string, bytes: Buffer): void { chmodSync(path, 0o600); writeFileSync(path, bytes); chmodSync(path, 0o400); }
     private static async rewrittenPrepared(runtime: SourceRuntime, record: PluginRequestRecord, graph: ServiceGraph, configuration: ServicePlan['configuration']): Promise<void> {
@@ -349,4 +349,4 @@ class NpmSourceProgram {
     private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
     private static request(id: string, result: PluginInstallResult): boolean { return result.requestId === id; }
 }
-await NpmSourceProgram.run(process.argv[2]!).catch(NpmSourceProgram.failed);
+if (import.meta.main) await NpmSourceProgram.run(process.argv[2]!).catch(NpmSourceProgram.failed);
