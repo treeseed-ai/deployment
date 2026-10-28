@@ -70,6 +70,33 @@ class GuestRuntimeIntegration {
       fixture.close();
     }
   }
+  async modes(): Promise<void> {
+    const fixture = await new Fixture().prepare();
+    try {
+      for (const mode of [0o600, 0o640]) {
+        fixture.memberMode = mode;
+        await fixture.pack();
+        const result = await fixture.reader().read(new AbortController().signal);
+        assert.deepEqual(result.manifest, fixture.manifest);
+      }
+    } finally {
+      fixture.close();
+    }
+  }
+  async unsafeModes(): Promise<void> {
+    const fixture = await new Fixture().prepare();
+    try {
+      for (const mode of [0o664, 0o755, 0o2644]) {
+        fixture.memberMode = mode;
+        await fixture.pack();
+        await assert.rejects(fixture.reader().read(new AbortController().signal), {
+          message: 'KATA_GUEST_ARTIFACT_INVALID',
+        });
+      }
+    } finally {
+      fixture.close();
+    }
+  }
   async binding(): Promise<void> {
     const fixture = await new Fixture().prepare();
     try {
@@ -113,5 +140,16 @@ test(
 test(
   'integration: coherent outer guest archives cannot hide changed part stream or executable identities',
   suite.payload.bind(suite),
+  120000,
+);
+
+test(
+  'integration: guest payload data permits private and group-readable non-executable archive members',
+  suite.modes.bind(suite),
+  120000,
+);
+test(
+  'integration: guest payload rejects executable special and group-writable member modes',
+  suite.unsafeModes.bind(suite),
   120000,
 );

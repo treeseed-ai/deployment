@@ -35,6 +35,7 @@ export class GuestRuntimeFixture {
   readonly source = join(this.root, 'source');
   readonly archive = join(this.root, 'guest.tgz');
   readonly canary = join(this.root, 'HOST_EXECUTION_CANARY');
+  memberMode = 0o644;
   manifest!: GuestRuntimeManifest;
   bytes!: Buffer;
   constructor() {
@@ -109,10 +110,10 @@ export class GuestRuntimeFixture {
     await this.pack();
   }
   async pack(): Promise<void> {
-    chmodSync(join(this.source, 'package/package.json'), 0o644);
-    chmodSync(join(this.source, 'package/dist/bin/guest-runtime.json'), 0o644);
+    chmodSync(join(this.source, 'package/package.json'), this.memberMode);
+    chmodSync(join(this.source, 'package/dist/bin/guest-runtime.json'), this.memberMode);
     for (const part of this.manifest.compressed.parts)
-      chmodSync(join(this.source, 'package/dist/bin', part.file), 0o644);
+      chmodSync(join(this.source, 'package/dist/bin', part.file), this.memberMode);
     await create({ gzip: true, cwd: this.source, file: this.archive, portable: true }, ['package']);
     chmodSync(this.archive, 0o600);
     this.bytes = readFileSync(this.archive);
