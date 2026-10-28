@@ -42,6 +42,15 @@ permission to delete foreign containers. A destruction success requires task, co
 snapshot absence, followed by durable read-back. Image content may remain shared within the private
 prepared runtime. Assigned guests are destroyed, never returned to the virgin pool.
 
+Runtime-object absence is not sufficient proof of VM teardown. Qualification must additionally bind
+the exact owned QEMU process to the pinned hypervisor executable and stable Linux process start
+identity, and verify that process is gone before publishing destruction. The observer matches only
+the runtime's exact sandbox name; it never kills a PID discovered by a broad search. Normal removal
+continues through the bounded runtime operation. Unexpected or still-running processes require
+failure and explicit recovery. Kata's pinned
+[QEMU command construction](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/crates/hypervisor/src/qemu/cmdline_generator.rs)
+supplies the sandbox-name binding; the actual process/cleanup check still needs executable proof.
+
 Subprocesses use argument arrays, a pinned client executable, bounded time/output and cancellation.
 Unknown command errors and guest output do not become public blockers. Every operation revalidates
 private endpoint/process and resource identities. Lifecycle scripts, environment setup and handlers
