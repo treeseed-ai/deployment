@@ -14,19 +14,25 @@ service containers. Foreign/malformed grants and journals remain failures after 
 all issues open; no production or legacy service changes are authorized.
 
 
-## Task 3D SDK compatibility
+## Task 3D capacity SDK closure
 
-Issue #1018 adopts SDK `0.0.0-cordis.19`, source
-`90cf4f3cc62e166685280450c727499defd2af5b`, archive SHA-256
-`93dd549c98aba180306e9b19cc1cbc37494544b2764ed341c531c9af618c6f81`.
-The new owner candidate is `0.0.0-cordis.79`. Peer pins, accepted bytes and installed contracts
-must agree. The original dirty `.77` Agent-target draft remains preserved in its own checkout.
+Issue #1021 qualifies Deployment against the reviewed SDK `0.0.0-cordis.35`, source
+`bc6cb6610fd5ddc13639b3c3bc8b709ed930d647`, archive SHA-256
+`98a4474726b79c1ce1a4b96a76e636a3dafa8e20df3dc66db89331ae79b31fbf`.
+The new private successor is `0.0.0-cordis.81`. Peer pins, archive bytes, local lock SRI and
+installed SDK identity must agree. SDK #493–#497 are integrated; earlier artifacts remain
+immutable, and the original dirty Agent-target draft remains preserved in its checkout.
 
-This slice qualifies existing host behavior against the new portable contracts. It does not
-implement sandbox control or host an Agent root in Deployment's worker. Agent manager, worker
-and guest roots remain separate processes; Deployment supplies bounded runtime operations.
-Historical fixtures and archives are immutable. Full hosted Kata pool/setup/replacement
-qualification remains a separate gate. Work/model execution remains Task 10; all issues stay open.
+The real default Kata backend from Deployment #1022 remains intact. This selection adds no
+Agent root to Deployment, no setup execution or new host socket. It supplies portable
+activity/environment/lease/pool/protocol contracts for the bounded guest-control follow-up.
+Agent owns manager/worker/guest roots, pool policy and setup orchestration; Deployment owns
+verified artifact custody and bounded guest host operations. Kata pool/setup/egress,
+service grants, live enrollment and final assembly remain required Task 3D gates.
+
+Normal lower-tier checks and hosted smoke partitions must retain all historical fixtures,
+real Kata construction and verified destruction. Work/model execution stays Task 10;
+Keycloak/repository boundaries and all open issues stay preserved.
 
 `DeploymentHost.diagnose(configuration?) → Promise<DiagnosticReport>` is the public typed
 contract. `ComposeDeploymentHost` supplies the real default Docker CLI, host/filesystem and

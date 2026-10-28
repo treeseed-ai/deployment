@@ -262,12 +262,13 @@ class KataBackendProgram {
   }
   private registration(configuration: unknown, token: CapabilityToken): ProviderRegistration {
     const plugin = Reflect.get(deployment, 'KataSandboxPlugin') as NativeDescriptorClass;
+    const metadata = JSON.parse(readFileSync('package.json', 'utf8'));
     return {
       plugin: plugin as unknown as ProviderRegistration['plugin'],
       token,
       declaration: plugin.declaration,
       configuration,
-      artifact: { kind: 'bundled', identity: '@treeseed-cordis/deployment@0.0.0-cordis.80' },
+      artifact: { kind: 'bundled', identity: metadata.name + '@' + metadata.version },
     };
   }
   private async disposeNative(): Promise<void> {

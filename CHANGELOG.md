@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Qualify the Kata host against the reviewed capacity SDK closure (#1021).
 
 - Provide scoped native Kata sandbox lifecycle with private custody and verified destruction (#1021).
 
