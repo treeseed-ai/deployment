@@ -76,3 +76,10 @@ A descriptor returned by the native binder remains endpoint-owned until the serv
 If socket identity validation fails before adoption, close that known descriptor, preserve the
 foreign pathname and report failure. Native disposal must not leave a listener open merely
 because the endpoint was replaced between binding and adoption.
+
+The channel selects SDK .37, reviewed source dce3108e061ecaf0cfa2915c03698f0e3170a67b,
+archive SHA-256 886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384.
+It retains the accepted guest backend and the existing sandbox-control family, alongside
+the portable worker/guest envelopes consumed by Agent. This selection adds no ungranted
+operation or service mount. The owner closure prerequisite must land before this bounded
+channel candidate is submitted, keeping its PR within ten files.
