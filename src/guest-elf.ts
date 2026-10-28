@@ -10,13 +10,26 @@ interface ElfRequirements {
   interpreter: string;
   requiredLibraries: string[];
 }
-class ElfImage {
+/** Structural ELF admission only; never executes the file or resolves host libraries. */
+export class GuestRuntimeElf {
   private static readonly tags = new Set([
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 20, 21, 23, 25, 26, 27, 28, 0x6ffffef5, 0x6ffffff0,
     0x6ffffffc, 0x6ffffffd, 0x6ffffffe, 0x6fffffff,
   ]);
   private readonly segments: ElfSegment[] = [];
-  constructor(private readonly bytes: Buffer) {
+  static verify(bytes: Buffer, required: ElfRequirements): void {
+    const image = new GuestRuntimeElf(bytes);
+    KataSandboxError.require(
+      image.interpreter() === required.interpreter,
+      'KATA_GUEST_ARTIFACT_INVALID',
+    );
+    const actual = JSON.stringify(image.libraries().sort());
+    KataSandboxError.require(
+      actual === JSON.stringify([...required.requiredLibraries].sort()),
+      'KATA_GUEST_ARTIFACT_INVALID',
+    );
+  }
+  private constructor(private readonly bytes: Buffer) {
     this.header();
     const offset = this.number(bytes.readBigUInt64LE(32));
     const count = bytes.readUInt16LE(56);
@@ -81,7 +94,7 @@ class ElfImage {
     this.demand(found !== null);
     return found;
   }
-  interpreter(): string {
+  private interpreter(): string {
     const segment = this.selected(3);
     this.demand(segment.size > 1 && segment.size <= 256);
     const bytes = this.range(segment.offset, segment.size);
@@ -97,7 +110,7 @@ class ElfImage {
     for (let offset = 0; offset < bytes.length; offset += 16) {
       const tag = this.number(bytes.readBigUInt64LE(offset));
       if (tag === 0) return values;
-      this.demand(ElfImage.tags.has(tag));
+      this.demand(GuestRuntimeElf.tags.has(tag));
       const entries = values.get(tag) ?? [];
       entries.push(this.number(bytes.readBigUInt64LE(offset + 8)));
       values.set(tag, entries);
@@ -115,7 +128,7 @@ class ElfImage {
     this.demand(offset !== null);
     return this.range(offset, size);
   }
-  libraries(): string[] {
+  private libraries(): string[] {
     const values = this.dynamic();
     this.demand(values.get(5)?.length === 1 && values.get(10)?.length === 1);
     const size = values.get(10)![0]!;
@@ -132,20 +145,5 @@ class ElfImage {
     const name = table.subarray(offset, end).toString('utf8');
     this.demand(/^[a-zA-Z0-9._+-]+$/.test(name));
     return name;
-  }
-}
-/** Structural ELF admission only; never executes the file or resolves host libraries. */
-export class GuestRuntimeElf {
-  static verify(bytes: Buffer, required: ElfRequirements): void {
-    const image = new ElfImage(bytes);
-    KataSandboxError.require(
-      image.interpreter() === required.interpreter,
-      'KATA_GUEST_ARTIFACT_INVALID',
-    );
-    const actual = JSON.stringify(image.libraries().sort());
-    KataSandboxError.require(
-      actual === JSON.stringify([...required.requiredLibraries].sort()),
-      'KATA_GUEST_ARTIFACT_INVALID',
-    );
   }
 }
