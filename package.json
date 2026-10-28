@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.81",
+  "version": "0.0.0-cordis.84",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -29,6 +29,10 @@
     "./testing/live": {
       "types": "./dist/tests/support/live-probe-fixture.d.ts",
       "default": "./dist/tests/support/live-probe-fixture.js"
+    },
+    "./sandbox-control": {
+      "types": "./dist/src/sandbox-channel.d.ts",
+      "default": "./dist/src/sandbox-channel.js"
     }
   },
   "files": [
@@ -58,7 +62,7 @@
     "check:readability": "bun .agents/skills/release-workflow/scripts/source-readability.ts"
   },
   "peerDependencies": {
-    "@treeseed-cordis/sdk": "0.0.0-cordis.35"
+    "@treeseed-cordis/sdk": "0.0.0-cordis.36"
   },
   "devDependencies": {
     "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
@@ -71,8 +75,8 @@
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "bc6cb6610fd5ddc13639b3c3bc8b709ed930d647",
-      "sha256": "98a4474726b79c1ce1a4b96a76e636a3dafa8e20df3dc66db89331ae79b31fbf"
+      "commit": "0ae4f3973672e5c66ee021e7748c2ea73f7cb21c",
+      "sha256": "04cea0518a3d64228cfbdad73a357d18cc7040e4bc7a122833dddd9de96ed000"
     }
   },
   "dependencies": {
@@ -91,7 +95,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.81"
+      "version": "0.0.0-cordis.84"
     },
     "providers": [
       {
