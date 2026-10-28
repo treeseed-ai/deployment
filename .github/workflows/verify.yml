@@ -29,6 +29,9 @@ jobs:
         partition: [foundation, transitions, sources, runtime, git-installed, registered, build-registered]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.4
@@ -36,6 +39,15 @@ jobs:
         with:
           node-version: 24.19.0
       - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Prepare immutable Kata fixture for the real default backend
+        if: matrix.partition == 'foundation' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          test -c /dev/kvm
+          sudo modprobe vhost_vsock
+          curl --fail --location --retry 2 --output "$RUNNER_TEMP/kata.tar.zst" https://github.com/kata-containers/kata-containers/releases/download/4.1.0/kata-static-4.1.0-amd64.tar.zst
+          test "$(stat -c %s "$RUNNER_TEMP/kata.tar.zst")" = 969565384
+          echo "3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96  $RUNNER_TEMP/kata.tar.zst" | sha256sum --check --strict
+          sudo tar --zstd -xf "$RUNNER_TEMP/kata.tar.zst" -C /
       - run: bun run build
       - run: bun scripts/verification.ts smoke ${{ matrix.partition }}
   verify:

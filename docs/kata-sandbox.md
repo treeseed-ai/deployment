@@ -29,7 +29,8 @@ supplies that evidence. Agent worker scopes receive the bounded client, not this
 `create` records intent before allocating an owned container and starts a fixed harmless sleeper
 using `io.containerd.kata.v2`. A successful read-back must find the exact expected runtime, image,
 labels and running task and execute the fixed guest-kernel inspection inside that guest. Its kernel
-must differ from the host. No inspection or warm flag can turn an ordinary container into a Kata
+must match the qualified runtime's expected guest kernel and differ from the host. Unexpected
+guest output is rejected rather than included in an inspection receipt. No inspection or warm flag can turn an ordinary container into a Kata
 base. Used guest admission and assignment remain Agent/host-control policy above this layer.
 
 The runtime namespace and physical resource name derive from trusted installation/service/provider

@@ -4,7 +4,7 @@
 
 ### Added
 
-- Define the scoped Kata sandbox lifecycle and verified host-resource custody boundary (#1021).
+- Provide scoped native Kata sandbox lifecycle with private custody and verified destruction (#1021).
 
 ### Fixed
 - Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
