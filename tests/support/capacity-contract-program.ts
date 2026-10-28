@@ -8,7 +8,16 @@ class CapacityContractProgram {
     this.selection();
     assert.equal(typeof Reflect.get(sdk, 'CapacitySchemas'), 'function');
     assert.equal(typeof Reflect.get(sdk, 'SeedSchemas'), 'function');
-    for (const name of ['ActivitySchemas', 'EnvironmentSchemas', 'PoolSchemas', 'CapacityProtocolSchemas','SandboxControlSchemas','SandboxControlBinding','CapacityChannelSchemas','CapacityChannelBinding'])
+    for (const name of [
+      'ActivitySchemas',
+      'EnvironmentSchemas',
+      'PoolSchemas',
+      'CapacityProtocolSchemas',
+      'SandboxControlSchemas',
+      'SandboxControlBinding',
+      'CapacityChannelSchemas',
+      'CapacityChannelBinding',
+    ])
       assert.equal(typeof Reflect.get(sdk, name), 'function');
     assert.equal(sdk.PlatformOperations.all.length, 7);
     assert.equal(typeof new ComposeDeploymentHost().plan, 'function');

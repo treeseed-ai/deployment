@@ -58,7 +58,7 @@
     "check:readability": "bun .agents/skills/release-workflow/scripts/source-readability.ts"
   },
   "peerDependencies": {
-    "@treeseed-cordis/sdk": "0.0.0-cordis.36"
+    "@treeseed-cordis/sdk": "0.0.0-cordis.37"
   },
   "devDependencies": {
     "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
@@ -71,8 +71,8 @@
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "0ae4f3973672e5c66ee021e7748c2ea73f7cb21c",
-      "sha256": "04cea0518a3d64228cfbdad73a357d18cc7040e4bc7a122833dddd9de96ed000"
+      "commit": "dce3108e061ecaf0cfa2915c03698f0e3170a67b",
+      "sha256": "886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384"
     }
   },
   "dependencies": {
