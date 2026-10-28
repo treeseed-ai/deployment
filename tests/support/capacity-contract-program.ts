@@ -6,6 +6,12 @@ import { ComposeDeploymentHost } from '../../src/diagnose.js';
 class CapacityContractProgram {
   run(): void {
     this.selection();
+    this.contracts();
+    assert.equal(sdk.PlatformOperations.all.length, 7);
+    assert.equal(typeof new ComposeDeploymentHost().plan, 'function');
+    process.stdout.write('deployment-capacity-contracts-ok\n');
+  }
+  private contracts(): void {
     assert.equal(typeof Reflect.get(sdk, 'CapacitySchemas'), 'function');
     assert.equal(typeof Reflect.get(sdk, 'SeedSchemas'), 'function');
     for (const name of [
@@ -23,9 +29,6 @@ class CapacityContractProgram {
       'GuestRuntimeBinding',
     ])
       assert.equal(typeof Reflect.get(sdk, name), 'function');
-    assert.equal(sdk.PlatformOperations.all.length, 7);
-    assert.equal(typeof new ComposeDeploymentHost().plan, 'function');
-    process.stdout.write('deployment-capacity-contracts-ok\n');
   }
   private selection(): void {
     const metadata = JSON.parse(readFileSync('package.json', 'utf8'));
