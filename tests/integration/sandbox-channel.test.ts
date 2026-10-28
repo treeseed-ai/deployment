@@ -1,4 +1,5 @@
-import { SandboxControlSchemas } from '@treeseed-cordis/sdk';
+import { z } from 'zod';
+import { CapabilityToken, ProviderV4Schemas, SandboxControlSchemas } from '@treeseed-cordis/sdk';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createServer, type Socket, type Server } from 'node:net';
@@ -10,6 +11,8 @@ import {
   realpathSync,
   renameSync,
   existsSync,
+  fstatSync,
+  closeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,14 +22,52 @@ import {
   SandboxSocketClient,
   UnixSocketPlugin,
   UnixSocketToken,
+  SandboxControlPlugin,
 } from '../../src/sandbox-channel.js';
+import { KataSandboxPlugin, KataSandboxToken } from '../../src/kata-backend.js';
 import { SafeDirectory } from '../../src/filesystem.js';
 import {
+  Context,
   CordisScope,
   type ProviderRegistration,
   type ProviderLease,
 } from '@treeseed-cordis/sdk/runtime';
 
+interface FixtureEndpoint { start(): Promise<void>; close(): Promise<void> }
+class FixtureEndpointAdapter {
+  parse(input: unknown): FixtureEndpoint {
+    assert(input && typeof input === 'object');
+    assert.equal(typeof Reflect.get(input, 'start'), 'function');
+    assert.equal(typeof Reflect.get(input, 'close'), 'function');
+    return input as FixtureEndpoint;
+  }
+}
+/** Native real binder with a deliberate filesystem race; no VM or daemon fixture. */
+class ReplacedSocketFixture extends UnixSocketPlugin {
+  static descriptor = -1;
+  override async bind(directory: SafeDirectory): Promise<number> {
+    const fd = await super.bind(directory);
+    ReplacedSocketFixture.descriptor = fd;
+    renameSync(directory.childPath('control.sock'), directory.childPath('retained.sock'));
+    writeFileSync(directory.childPath('control.sock'), 'foreign-before-adoption', { mode: 0o600 });
+    return fd;
+  }
+}
+/** Host contract fixture only; no sandbox operation is exercised in this IO race case. */
+class UnusedKataFixture {
+  static readonly provide = KataSandboxPlugin.provide;
+  static readonly inject: string[] = [];
+  static readonly Config = z.strictObject({});
+  static readonly declaration = KataSandboxPlugin.declaration;
+  constructor(context: Context) { context.provide(KataSandboxToken.id, this); }
+  async ready(): Promise<void> {}
+  async close(): Promise<void> {}
+  async create(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
+  async inspect(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
+  async assign(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
+  async execute(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
+  async destroy(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
+}
 class UnixPeerFixture {
   readonly directory = mkdtempSync(join(tmpdir(), 'sandbox-peer-'));
   readonly path = join(this.directory, 'control.sock');
@@ -209,6 +250,51 @@ class SandboxChannelIntegration {
     assert.equal(readFileSync(path, 'utf8'), 'foreign-state');
     assert.equal(existsSync(directory.childPath('retained.sock')), true);
   }
+  private readonly endpointToken = new CapabilityToken<FixtureEndpoint>('host.sandbox.control', ProviderV4Schemas.version, new FixtureEndpointAdapter());
+  async adoption(): Promise<void> {
+    const authority = new UnixPeerFixture();
+    const directory = mkdtempSync(join(tmpdir(), 'socket-adopt-'));
+    const scope = await this.raceScope(authority, directory);
+    const lease = await scope.acquire(this.endpointToken);
+    try {
+      await assert.rejects(lease.value.start());
+      this.closedDescriptor(ReplacedSocketFixture.descriptor);
+      assert.equal(readFileSync(join(directory, 'control.sock'), 'utf8'), 'foreign-before-adoption');
+    } finally {
+      await lease.release();
+      await scope.dispose();
+    }
+    assert.equal(readFileSync(join(directory, 'control.sock'), 'utf8'), 'foreign-before-adoption');
+    assert.equal(existsSync(join(directory, 'retained.sock')), true);
+  }
+  private closedDescriptor(fd: number): void {
+    try {
+      const stat = fstatSync(fd);
+      assert(stat.isSocket());
+      closeSync(fd);
+      assert.fail('Unadopted listener descriptor leaked');
+    } catch (error) {
+      if (error && typeof error === 'object' && Reflect.get(error, 'code') === 'EBADF') return;
+      throw error;
+    }
+  }
+  private async raceScope(authority: UnixPeerFixture, directory: string): Promise<CordisScope> {
+    const registrations = this.raceRegistrations(authority, directory);
+    const selections = [];
+    for (const registration of registrations) selections.push({ scopeId: this.authority.scopeId, capability: registration.token.id, providerId: ProviderV4Schemas.declaration.parse(registration.declaration).id });
+    return CordisScope.start({ registrations, selections }, this.authority);
+  }
+  private raceRegistrations(authority: UnixPeerFixture, directory: string): ProviderRegistration[] {
+    const path = realpathSync('/lib/x86_64-linux-gnu/libc.so.6');
+    const sha256 = createHash('sha256').update(readFileSync(path)).digest('hex');
+    const artifact = { kind: 'bundled' as const, identity: 'fixture-only-native-adoption-race' };
+    const configuration = { scope: authority.scope, endpointDirectory: directory, authorityFile: authority.authorityFile, configurationDigest: 'd'.repeat(64) };
+    return [
+      { ...this.registration(path, sha256), plugin: ReplacedSocketFixture },
+      { plugin: UnusedKataFixture, token: KataSandboxToken, declaration: UnusedKataFixture.declaration, configuration: {}, artifact },
+      { plugin: SandboxControlPlugin, token: this.endpointToken, declaration: SandboxControlPlugin.declaration, configuration, artifact },
+    ];
+  }
   private readonly authority = {
     scopeId: 'installation:fixture:host',
     target: 'deployment' as const,
@@ -260,3 +346,5 @@ test(
   'integration: cancelled private sandbox admission creates no peer connection',
   suite.cancelled.bind(suite),
 );
+
+test('integration: native endpoint closes an unadopted descriptor after socket identity substitution', suite.adoption.bind(suite));
