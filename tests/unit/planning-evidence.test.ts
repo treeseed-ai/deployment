@@ -97,6 +97,6 @@ test(
   suite.proxies.bind(suite),
 );
 test(
-  'unit: npm evidence formatter cannot print arbitrary provider blocker codes',
+  'unit: npm evidence formatter rejects non-identifier provider blocker codes',
   suite.codes.bind(suite),
 );
