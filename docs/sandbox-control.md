@@ -83,3 +83,15 @@ It retains the accepted guest backend and the existing sandbox-control family, a
 the portable worker/guest envelopes consumed by Agent. This selection adds no ungranted
 operation or service mount. The owner closure prerequisite must land before this bounded
 channel candidate is submitted, keeping its PR within ten files.
+
+Client dialing pins the socket inode through a Linux `O_PATH | O_NOFOLLOW` descriptor and
+connects through its `/proc/self/fd` reference. The ordinary selected pathname is still checked
+before request publication and accepted reply, so replacement causes a safe failure. The held
+reference prevents a transient replacement from redirecting the actual connection, and its
+cleanup is mandatory before reporting a successful exchange. This is Linux-only IO, alongside
+the qualified local Unix-socket host boundary.
+
+An isolated Node 24.19.0 / Bun 1.4.4 spike connected to the original pinned peer while its pathname
+was occupied by a different listening peer. The [Linux open manual](https://man7.org/linux/man-pages/man2/open.2.html)
+defines `O_PATH` descriptor metadata semantics; permanent real Unix boundary tests qualify the
+actual connect behavior, rather than relying on the manual alone.
