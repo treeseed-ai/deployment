@@ -31,36 +31,40 @@ export class KataWorkloadFixture {
   prepare(image: string): FixtureWorkloads {
     this.write();
     const archive = this.pack();
+    const identity = {
+      reference: image,
+      manifestDigest: image.split('@sha256:')[1],
+      os: 'linux',
+      architecture: 'amd64',
+    };
     return {
       directory: this.archives,
       environments: [
-        this.definition(image, archive, 'environment:good', 'setup.sh', 10000),
-        this.definition(image, archive, 'environment:failed', 'failed.sh', 10000),
-        this.definition(image, archive, 'environment:slow', 'slow.sh', 20000),
-        this.definition(image, archive, 'environment:deadline', 'slow.sh', 3000),
+        this.definition(identity, archive, 'environment:good', 'setup.sh', 10000),
+        this.definition(identity, archive, 'environment:failed', 'failed.sh', 10000),
+        this.definition(identity, archive, 'environment:slow', 'slow.sh', 20000),
+        this.definition(identity, archive, 'environment:deadline', 'slow.sh', 3000),
+        this.definition(identity, archive, 'environment:output', 'output.sh', 10000),
       ],
     };
   }
   private write(): void {
     mkdirSync(this.source, { mode: 0o700 });
     mkdirSync(this.archives, { mode: 0o700 });
-    writeFileSync(join(this.source, 'setup.sh'), this.setup(), { mode: 0o700 });
-    writeFileSync(join(this.source, 'verify.sh'), this.verification(), {
-      mode: 0o700,
-    });
-    writeFileSync(
-      join(this.source, 'failed.sh'),
-      '#!/bin/sh\nprintf guest-output-canary\nexit 7\n',
-      { mode: 0o700 },
-    );
-    writeFileSync(
-      join(this.source, 'slow.sh'),
-      '#!/bin/sh\nprintf started > /tmp/cordis-env-started\nsleep 30\n',
-      { mode: 0o700 },
-    );
+    for (const [name, script] of Object.entries(this.scripts()))
+      writeFileSync(join(this.source, name), script, { mode: 0o700 });
     writeFileSync(join(this.source, 'package.json'), JSON.stringify(this.metadata()), {
       mode: 0o600,
     });
+  }
+  private scripts(): Record<string, string> {
+    return {
+      'setup.sh': this.setup(),
+      'verify.sh': this.verification(),
+      'failed.sh': '#!/bin/sh\nprintf guest-output-canary\nexit 7\n',
+      'slow.sh': '#!/bin/sh\nprintf started > /tmp/cordis-env-started\nsleep 30\n',
+      'output.sh': '#!/bin/sh\ndd if=/dev/zero bs=2048 count=1 2>/dev/null\n',
+    };
   }
   private setup(): string {
     return (
@@ -79,7 +83,7 @@ export class KataWorkloadFixture {
       name: '@fixture/kata-environment',
       version: '1.0.0',
       private: true,
-      files: ['setup.sh', 'verify.sh', 'failed.sh', 'slow.sh'],
+      files: ['setup.sh', 'verify.sh', 'failed.sh', 'slow.sh', 'output.sh'],
       scripts: { postinstall: 'touch ' + this.installCanary },
     };
   }
@@ -113,7 +117,12 @@ export class KataWorkloadFixture {
     };
   }
   private definition(
-    image: string,
+    image: {
+      reference: string;
+      manifestDigest: string | undefined;
+      os: string;
+      architecture: string;
+    },
     archive: ArchiveReference,
     id: string,
     setup: string,
@@ -122,12 +131,7 @@ export class KataWorkloadFixture {
     const value = {
       schemaVersion: 'treeseed.agent-environment/v1',
       id,
-      image: {
-        reference: image,
-        manifestDigest: image.split('@sha256:')[1],
-        os: 'linux',
-        architecture: 'amd64',
-      },
+      image,
       setup: this.entry(setup, deadlineMs),
       verification: this.entry('verify.sh', 10000),
       network: { mode: 'offline', destinations: [] },

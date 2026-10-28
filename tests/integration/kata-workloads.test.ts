@@ -11,7 +11,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { KataEnvironmentArchive, KataWorkloadJournal } from '../../src/kata-workloads.js';
+import {
+  KataEnvironmentArchive,
+  KataWorkloadJournal,
+  type KataWorkloadResult,
+} from '../../src/kata-workloads.js';
 import { KataWorkloadFixture } from '../support/kata-workload-fixture.js';
 import { SafeDirectory } from '../../src/filesystem.js';
 
@@ -44,6 +48,10 @@ class KataWorkloadBoundaries {
       new KataEnvironmentArchive(this.config).read('environment:good', this.image),
     );
     chmodSync(path, 0o600);
+    await this.symlink(entry);
+  }
+  private async symlink(entry: (typeof this.config.environments)[number]): Promise<void> {
+    const path = join(this.config.directory, entry.archive.path);
     const alias = { ...entry, archive: { ...entry.archive, path: 'alias.tgz' } };
     symlinkSync(path, join(this.config.directory, 'alias.tgz'));
     await assert.rejects(
@@ -60,14 +68,12 @@ class KataWorkloadBoundaries {
       mode: 'allow-list',
       destinations: [{ protocol: 'tcp', host: 'example.com', port: 443 }],
     });
-    const network = new KataEnvironmentArchive({
-      ...this.config,
-      environments: [{ ...entry, definition }],
-    });
-    await assert.rejects(network.read('environment:good', this.image));
+    assert.throws(
+      this.invalid.bind(this, { ...this.config, environments: [{ ...entry, definition }] }),
+    );
     Reflect.set(definition, 'network', { mode: 'offline', destinations: [] });
     Reflect.set(definition, 'setup', {
-      ...Reflect.get(definition, 'setup'),
+      ...(Reflect.get(definition, 'setup') as object),
       file: { path: '../host', sha256: 'a'.repeat(64), size: 1 },
     });
     assert.throws(
@@ -104,6 +110,49 @@ class KataWorkloadBoundaries {
     assert.throws(journal.begin.bind(journal, id, 'verification', 'd'.repeat(64)));
     assert.throws(journal.begin.bind(journal, id, 'setup', 'd'.repeat(64)));
   }
+  async receipts(): Promise<void> {
+    const path = join(this.root, 'receipts');
+    mkdirSync(path, { mode: 0o700 });
+    const directory = SafeDirectory.open(path);
+    try {
+      await this.complete(new KataWorkloadJournal(directory, 'c'.repeat(64)));
+    } finally {
+      directory.close();
+    }
+    const reopened = SafeDirectory.open(path);
+    try {
+      new KataWorkloadJournal(reopened, 'c'.repeat(64));
+    } finally {
+      reopened.close();
+    }
+  }
+  private async complete(journal: KataWorkloadJournal): Promise<void> {
+    const id = 'sandbox-' + randomUUID();
+    const environment = (
+      await new KataEnvironmentArchive(this.config).read('environment:good', this.image)
+    ).definition;
+    journal.assign(id, 'assignment:receipt', environment);
+    journal.begin(id, 'setup', 'd'.repeat(64));
+    const result = this.result(id, environment.revision);
+    assert.deepEqual(journal.complete(id, 'setup', 'd'.repeat(64), result), result);
+    assert.deepEqual(journal.begin(id, 'setup', 'd'.repeat(64)), result);
+    assert.throws(journal.begin.bind(journal, id, 'setup', 'e'.repeat(64)));
+    journal.begin(id, 'verification', 'e'.repeat(64));
+    journal.failed(id, 'verification', 'e'.repeat(64));
+  }
+  private result(id: string, revision: string): KataWorkloadResult {
+    return {
+      sandboxId: id,
+      environmentId: 'environment:good',
+      environmentRevision: revision,
+      phase: 'setup',
+      entrypointDigest: 'a'.repeat(64),
+      networkDigest: 'b'.repeat(64),
+      inspectionDigest: 'f'.repeat(64),
+      exitCode: 0,
+      outputBytes: 0,
+    };
+  }
 }
 const suite = new KataWorkloadBoundaries();
 test(
@@ -121,4 +170,9 @@ test(
 test(
   'integration: Kata assignment and phase journals fence repeats interruptions and failed setup',
   suite.journal.bind(suite),
+);
+
+test(
+  'integration: Kata complete phase receipts reopen exactly and fence changed retries',
+  suite.receipts.bind(suite),
 );
