@@ -12,6 +12,8 @@
 - Provide scoped native Kata sandbox lifecycle with private custody and verified destruction (#1021).
 
 ### Fixed
+
+- Retain safe Docker prerequisite read-back when the native npm-source fixture fails (#1029).
 - Fetch bounded complete candidate and Cordis history for CI without weakening verification (#1025).
 
 - Qualify capacity contracts and fence worker bootstrap handoff before mutable journal inspection (#1018, #1020).

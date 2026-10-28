@@ -6,8 +6,7 @@ Deployment selects SDK .39 from accepted source `f09247dbf020f0354edce9af2f9ccef
 archive SHA-256 `ddfb91a065bee6d7e9482427570e7c036b18f0fbbcaa09c0fc62fee094abdbd4`.
 The peer, vendor, lock, installed identity and public Node consumer must agree. This bounded
 selection enables the separately granted logical guest-session interface and shared exact guest
-payload manifest binding; it does not implement
-the session, install Agent or activate capacity. SDK #502 must integrate before this selection
+payload manifest binding. The session and installed Agent capacity remain separate implementation. SDK #502 must integrate before this selection
 is submitted. The independent private channel candidate then retains this accepted contract
 closure when syncing origin/cordis; neither slice overwrites the other runtime changes.
 
@@ -31,7 +30,7 @@ service containers. Foreign/malformed grants and journals remain failures after 
 all issues open; no production or legacy service changes are authorized.
 
 
-## Capacity and service-scoped sandbox SDK closure
+## Historical capacity and service-scoped sandbox SDK closure
 
 Issue #1021 selects the accepted SDK `0.0.0-cordis.37`, source
 `dce3108e061ecaf0cfa2915c03698f0e3170a67b`, archive SHA-256
@@ -1653,3 +1652,7 @@ Both actions remove credentials before checks or untrusted package fixtures exec
 smoke partitions, hosted Ubuntu 26.04, immutable Kata qualification, fifteen-minute limits and
 the aggregate required gate remain unchanged. Checkout incompleteness fails visibly; it never
 permits baseline replacement, skipped tests or an accepted partial run.
+
+Native npm-source fixture failures retain their original blocker plus bounded read-only Docker
+prerequisite read-back. The fixed status/timing diagnostics expose no raw host data and change
+no assertions, timeouts or production errors. See [fixture diagnostics](docs/docker-fixture-diagnostics.md).
