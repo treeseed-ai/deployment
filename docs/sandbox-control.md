@@ -53,3 +53,21 @@ scope/credential, and verify physical destruction and native/socket cleanup. Inj
 alone cannot qualify default construction. Retain all historical owner checks, test tiers and
 smoke partitions. Real pool/guest programs, allow-list egress, live enrollment, seed/CLI and
 installed final assembly remain required. Keep every issue open; Work/models remain Task 10.
+
+## Endpoint descriptor ownership
+
+The server runs in the qualified Bun host runtime. Its native Unix-socket provider loads only an
+explicit root-owned SHA-256-pinned ELF socket library through a held no-symlink descriptor. It
+binds a fresh socket, then transfers that listening descriptor to the Node-compatible server.
+Closing an adopted descriptor leaves pathname cleanup with checked Deployment custody. Ordinary
+pathname binding delegates automatic unlink to the runtime and cannot provide that ownership
+boundary. The client remains compatible with Node and Bun; invalid host construction fails safely
+before loading native code.
+
+An isolated Bun 1.4.4/Linux x64 spike proved a fixed AF_UNIX descriptor can be bound, adopted by
+`node:net`, round-trip data and close while leaving its original socket path for verified cleanup.
+This is mechanism evidence only; permanent provider and actual hosted default-root tests remain
+mandatory. The pinned [libuv pipe close source](https://github.com/libuv/libuv/blob/v1.51.0/src/unix/pipe.c)
+explains automatic pathname unlink, while its descriptor-open path carries no pathname ownership.
+Socket cleanup must close the known descriptor even if the original path has become foreign;
+that foreign state is preserved and disposal reports repair rather than successful removal.
