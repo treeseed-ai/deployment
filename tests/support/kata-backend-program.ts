@@ -47,7 +47,7 @@ interface BackendConstructor {
 }
 
 /** Qualification-only daemon fixture; production default construction remains in Deployment. */
-class PrivateKataFixture {
+export class PrivateKataFixture {
   readonly directory = mkdtempSync('/run/cordis-backend-');
   readonly socket = join(this.directory, 'containerd.sock');
   readonly namespaceScope = {
