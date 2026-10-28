@@ -1,5 +1,21 @@
 # Cordis diagnostics and non-activating planning
 
+## Host runner contract selection
+
+Deployment selects SDK .39 from accepted source `f09247dbf020f0354edce9af2f9ccef6ba351ff3`,
+archive SHA-256 `ddfb91a065bee6d7e9482427570e7c036b18f0fbbcaa09c0fc62fee094abdbd4`.
+The peer, vendor, lock, installed identity and public Node consumer must agree. This bounded
+selection enables the separately granted logical guest-session interface and shared exact guest
+payload manifest binding. The session and installed Agent capacity remain separate implementation. SDK #502 must integrate before this selection
+is submitted. The independent private channel candidate then retains this accepted contract
+closure when syncing origin/cordis; neither slice overwrites the other runtime changes.
+
+Agent .18 provides an actual GNU guest executable as bounded, individually hashed compressed
+chunks. The following runner provider must verify that exact owner artifact, stage it only inside
+the selected Kata sandbox, obtain actual guest readiness and preserve assignment/setup/cleanup
+custody. No worker-supplied commands, host paths, raw daemon sockets or invented readiness.
+Work/models remain Task 10; every issue stays open.
+
 ## Standalone worker bootstrap admission
 
 Issue #1020 requires the standalone worker to read its exact immutable published plan before
@@ -14,7 +30,7 @@ service containers. Foreign/malformed grants and journals remain failures after 
 all issues open; no production or legacy service changes are authorized.
 
 
-## Capacity and service-scoped sandbox SDK closure
+## Historical capacity and service-scoped sandbox SDK closure
 
 Issue #1021 selects the accepted SDK `0.0.0-cordis.37`, source
 `dce3108e061ecaf0cfa2915c03698f0e3170a67b`, archive SHA-256
