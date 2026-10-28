@@ -14,25 +14,21 @@ service containers. Foreign/malformed grants and journals remain failures after 
 all issues open; no production or legacy service changes are authorized.
 
 
-## Task 3D capacity SDK closure
+## Capacity and service-scoped sandbox SDK closure
 
-Issue #1021 qualifies Deployment against the reviewed SDK `0.0.0-cordis.35`, source
-`bc6cb6610fd5ddc13639b3c3bc8b709ed930d647`, archive SHA-256
-`98a4474726b79c1ce1a4b96a76e636a3dafa8e20df3dc66db89331ae79b31fbf`.
-The new private successor is `0.0.0-cordis.81`. Peer pins, archive bytes, local lock SRI and
-installed SDK identity must agree. SDK #493–#497 are integrated; earlier artifacts remain
-immutable, and the original dirty Agent-target draft remains preserved in its checkout.
+Issue #1021 selects the accepted SDK `0.0.0-cordis.37`, source
+`dce3108e061ecaf0cfa2915c03698f0e3170a67b`, archive SHA-256
+`886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384`.
+The next private Deployment successor is `.83`. Peer pin, archive bytes, local lock SRI and
+installed identity must agree. SDK #498 adds bounded scoped sandbox control; SDK #500 adds
+separate worker/guest message bindings to the activity/environment/lease/pool/protocol closure.
+Prior exact archives remain immutable.
 
-The real default Kata backend from Deployment #1022 remains intact. This selection adds no
-Agent root to Deployment, no setup execution or new host socket. It supplies portable
-activity/environment/lease/pool/protocol contracts for the bounded guest-control follow-up.
-Agent owns manager/worker/guest roots, pool policy and setup orchestration; Deployment owns
-verified artifact custody and bounded guest host operations. Kata pool/setup/egress,
-service grants, live enrollment and final assembly remain required Task 3D gates.
-
-Normal lower-tier checks and hosted smoke partitions must retain all historical fixtures,
-real Kata construction and verified destruction. Work/model execution stays Task 10;
-Keycloak/repository boundaries and all open issues stay preserved.
+This selection adds no transport or host power. The real Kata backend retains its own runtime
+qualification; the private service channel is a separate implementation. Agent owns manager,
+worker and guest roots, live authority, pool policy and setup orchestration. Deployment owns
+artifact custody and bounded host operations. Keep all historical lower-tier and smoke checks,
+real hosted Kata qualification, Keycloak boundaries and open issues. Work/models stay Task 10.
 
 `DeploymentHost.diagnose(configuration?) → Promise<DiagnosticReport>` is the public typed
 contract. `ComposeDeploymentHost` supplies the real default Docker CLI, host/filesystem and
