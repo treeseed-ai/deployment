@@ -2,21 +2,21 @@
 
 Deployment owns `KataSandboxBackend`, the bounded host implementation beneath Agent's sandbox
 adapter. Agent owns admission, exclusive assignment, warming/replenishment, profiles, handlers and
-guest environment execution. This backend never embeds an Agent root or supplies team authority.
+environment selection and setup orchestration. This backend never embeds an Agent root or supplies team authority.
 SDK portable protocols remain the cross-process boundary; a process-local Context is not isolation.
 
 The host-only public package entry is `@treeseed-cordis/deployment/sandbox`. Ordinary consumers of
 the Deployment root do not load its privileged backend. The .81 successor selects the
-accepted SDK .35 closure for environment/pool/service protocol integration. Earlier .80/.79
-artifacts and hosted qualification evidence remain immutable. The bounded interface below
-is unchanged by this exact dependency selection; guest setup and service-scoped control
-remain subsequent implementation, not a capability claimed by a new SDK schema.
+accepted SDK .35 closure for environment/pool/service protocol integration. The .82 candidate
+adds the offline guest-entrypoint mechanism specified below; service-scoped control remains
+a subsequent boundary. Earlier archives and hosted qualification evidence remain immutable.
+New schemas alone establish no runtime or authority proof.
 
 ## Interface and custody
 
 The backend accepts a trusted host configuration for an already prepared private containerd
 endpoint, its process identity, a pinned Kata runtime and one digest-pinned native linux/amd64
-image. It exposes `create`, `inspect` and `destroy` for caller-named owned sandbox identities.
+image. It exposes `create`, `inspect`, `assign`, `execute` and `destroy` for caller-named owned sandbox identities.
 The first privileged backend requires a root-owned private runtime hierarchy with trusted
 root-owned ancestors. The hosted fixture uses `/run`; it must not weaken ownership checks to
 traverse the unprivileged runner's home. Final installation custody and named service grants
@@ -59,8 +59,10 @@ supplies the sandbox-name binding; the actual process/cleanup check still needs 
 
 Subprocesses use argument arrays, a pinned client executable, bounded time/output and cancellation.
 Unknown command errors and guest output do not become public blockers. Every operation revalidates
-private endpoint/process and resource identities. Lifecycle scripts, environment setup and handlers
-are never run by this host backend. Setup will use the separate qualified guest-runner boundary.
+private endpoint/process and resource identities. Ambient lifecycle scripts and Agent handlers
+are never run by this host backend. Its optional workload configuration admits only exact
+setup/verification entrypoints inside owned guests, with Agent retaining authorization and
+sequence ownership. The separate guest runner remains an independent Agent process/root.
 
 ## Qualification and limits
 
@@ -80,10 +82,10 @@ implementation into a second runtime owner.
 
 ## Bounded guest entrypoint execution
 
-The next privileged backend slice adds `assign(id, assignmentId, environmentId, signal)` and
+The bounded privileged execution contract adds `assign(id, assignmentId, environmentId, signal)` and
 `execute(id, phase, signal)` to the host sandbox contract. Configuration selects an immutable
-environment definition, a private exact NPM archive and a separate owner-private workload
-journal. Worker callers choose only already admitted IDs and setup/verification phases; no
+environment definition, a private exact NPM archive and an owner-private workload
+journal beneath the same custody root. Worker callers choose only already admitted IDs and setup/verification phases; no
 arbitrary host path, image, command, environment variable or raw runtime socket is accepted.
 
 Deployment verifies package name/version/archive hash and regular entrypoint path/hash/size/
@@ -94,6 +96,13 @@ receipts or errors. This is a TreeSeed workload sequence, not Kata guest-agent h
 [pinned ctr exec source](https://github.com/containerd/containerd/blob/v2.4.1/cmd/ctr/commands/tasks/exec.go)
 and [Kata hook scope](https://github.com/kata-containers/kata-containers/blob/4.1.0/docs/design/hooks-handling.md)
 are mechanism references; real guest acceptance remains mandatory.
+
+The optional `workloads` configuration contains a private archive directory and exact archive/
+environment selections. Its generated positive configuration projection derives from SDK fields,
+restricts network to offline, and revalidates full SDK semantics before opening host custody.
+Enabled custody uses receipt format 2 and a closed `workloads` directory; existing configurations
+without workloads retain format 1. Each immutable journal record binds configuration, request and
+content digests, with private atomic publication and read-back. Pending intents require repair.
 
 Assignment is one-use and durable before execution. Setup must complete before verification.
 Exact repeated phase requests freshly verify runtime/artifacts and read a matching complete
