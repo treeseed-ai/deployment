@@ -71,3 +71,8 @@ mandatory. The pinned [libuv pipe close source](https://github.com/libuv/libuv/b
 explains automatic pathname unlink, while its descriptor-open path carries no pathname ownership.
 Socket cleanup must close the known descriptor even if the original path has become foreign;
 that foreign state is preserved and disposal reports repair rather than successful removal.
+
+A descriptor returned by the native binder remains endpoint-owned until the server adopts it.
+If socket identity validation fails before adoption, close that known descriptor, preserve the
+foreign pathname and report failure. Native disposal must not leave a listener open merely
+because the endpoint was replaced between binding and adoption.
