@@ -532,6 +532,269 @@
               "type": "string",
               "pattern": "^(?:[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]+)?\\/)?(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*@sha256:[a-f0-9]{64}$"
             },
+            "workloads": {
+              "type": "object",
+              "properties": {
+                "directory": {
+                  "type": "string",
+                  "pattern": "^\\/"
+                },
+                "environments": {
+                  "minItems": 1,
+                  "maxItems": 128,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "archive": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[a-zA-Z0-9_@./-]+$"
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "size": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 67108864
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "sha256",
+                          "size"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "definition": {
+                        "type": "object",
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "const": "treeseed.agent-environment/v1"
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                          },
+                          "revision": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "artifact": {
+                            "type": "object",
+                            "properties": {
+                              "package": {
+                                "type": "string",
+                                "pattern": "^(?:@[a-z0-9._-]+\\/)?[a-z0-9][a-z0-9._-]*$"
+                              },
+                              "version": {
+                                "type": "string",
+                                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.-]+)?(?:\\+[a-zA-Z0-9.-]+)?$"
+                              },
+                              "integrity": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              }
+                            },
+                            "required": [
+                              "package",
+                              "version",
+                              "integrity"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "image": {
+                            "type": "object",
+                            "properties": {
+                              "reference": {
+                                "type": "string",
+                                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[a-f0-9]{64}$"
+                              },
+                              "manifestDigest": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              },
+                              "os": {
+                                "type": "string",
+                                "const": "linux"
+                              },
+                              "architecture": {
+                                "type": "string",
+                                "const": "amd64"
+                              }
+                            },
+                            "required": [
+                              "reference",
+                              "manifestDigest",
+                              "os",
+                              "architecture"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "setup": {
+                            "type": "object",
+                            "properties": {
+                              "file": {
+                                "type": "object",
+                                "properties": {
+                                  "path": {
+                                    "type": "string",
+                                    "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[a-zA-Z0-9_@./-]+$"
+                                  },
+                                  "sha256": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{64}$"
+                                  },
+                                  "size": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 67108864
+                                  }
+                                },
+                                "required": [
+                                  "path",
+                                  "sha256",
+                                  "size"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "arguments": {
+                                "maxItems": 64,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 4096,
+                                  "pattern": "^[^\\x00]*$"
+                                }
+                              },
+                              "deadlineMs": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 86400000
+                              },
+                              "outputLimitBytes": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1048576
+                              }
+                            },
+                            "required": [
+                              "file",
+                              "arguments",
+                              "deadlineMs",
+                              "outputLimitBytes"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "verification": {
+                            "type": "object",
+                            "properties": {
+                              "file": {
+                                "type": "object",
+                                "properties": {
+                                  "path": {
+                                    "type": "string",
+                                    "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[a-zA-Z0-9_@./-]+$"
+                                  },
+                                  "sha256": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{64}$"
+                                  },
+                                  "size": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 67108864
+                                  }
+                                },
+                                "required": [
+                                  "path",
+                                  "sha256",
+                                  "size"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "arguments": {
+                                "maxItems": 64,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 4096,
+                                  "pattern": "^[^\\x00]*$"
+                                }
+                              },
+                              "deadlineMs": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 86400000
+                              },
+                              "outputLimitBytes": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1048576
+                              }
+                            },
+                            "required": [
+                              "file",
+                              "arguments",
+                              "deadlineMs",
+                              "outputLimitBytes"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "network": {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "const": "offline"
+                              },
+                              "destinations": {
+                                "maxItems": 0,
+                                "type": "array",
+                                "items": {
+                                  "not": {}
+                                }
+                              }
+                            },
+                            "required": [
+                              "mode",
+                              "destinations"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "schemaVersion",
+                          "id",
+                          "revision",
+                          "artifact",
+                          "image",
+                          "setup",
+                          "verification",
+                          "network"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "archive",
+                      "definition"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "directory",
+                "environments"
+              ],
+              "additionalProperties": false
+            },
             "maximumSandboxes": {
               "default": 64,
               "type": "integer",
