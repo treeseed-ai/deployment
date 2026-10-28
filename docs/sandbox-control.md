@@ -99,3 +99,7 @@ actual connect behavior, rather than relying on the manual alone.
 Availability binds the host configuration after parsing through the public Kata provider
 configuration schema, including its defaults. Consumers compare that normalized configuration
 digest; hashing raw input before defaults does not identify the composed host.
+
+An unauthenticated peer receives no response body. The client classifies an empty EOF as
+`SANDBOX_PROVIDER_UNAVAILABLE`; a nonempty malformed or mismatched reply remains
+`SANDBOX_RESPONSE_MISMATCH`. Both paths close held descriptors and expose no credential detail.
