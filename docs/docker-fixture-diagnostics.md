@@ -20,6 +20,28 @@ Examples motivating this boundary are #1027 job 123072690913 and #1028 jobs 1231
 and 123123662352, which reported only DOCKER_UNAVAILABLE. Broad workflow/policy changes
 remain a separate proposal; this bounded fixture implementation adds no such changes.
 
+## Evidence from the exact failed invocation
+
+`DockerCommands.failure` retains only the most recent failed invocation's fixed command category
+(`context`, `engine`, `compose`, `other`), failure kind, elapsed milliseconds, bounded exit status
+and a recognized termination signal. A new invocation clears the record; successful commands
+leave it null. The property contains no executable path, arguments, context/endpoint names,
+environment, stdout/stderr or exception text. Returned records are immutable. Missing executables,
+timeouts, output limits, other spawn failures and nonzero exits remain distinct fixed kinds.
+
+The existing execute contract still returns trimmed output or null. Its five-second timeout,
+one-MiB output limit, environment and command selection remain unchanged. There is no automatic
+retry, logging, new diagnostic envelope or credential handling. A fixture may explicitly pass the
+real default `DockerCommands` instance into its host and inspect this record immediately after a
+failure; other default-construction acceptance remains intact.
+
+The worker-handoff regression qualifies a real compiled child. Its preparation now retains safe
+command evidence if Docker planning fails before launch, while preserving the original error as
+the cause. This distinguishes the hosted #1028 job 123154357704 planning failure from the separate
+unproven local child exit-3 observation in #1032. The latter is not diagnosed by this change.
+Neither case permits weaker assertions or deadlines. Verify built public, integration and unit
+consumers before the complete owner/hosted gates. All issues remain open.
+
 ## Preserve exact planning failure evidence
 
 The planning host preserves the existing SDK PlanningBlockedError class, DOCKER_UNAVAILABLE
