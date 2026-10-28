@@ -4,6 +4,8 @@
 
 ### Added
 
+- Preserve safe exact Docker planning failure causes without changing blocker envelopes (#1029).
+
 - Select host-mediated guest-session and exact payload SDK contracts for bounded runner integration (#1021).
 - Select the reviewed capacity and bounded sandbox-control SDK closure (#1021).
 - Execute admitted environment entrypoints only inside owned offline Kata guests (#1021).
