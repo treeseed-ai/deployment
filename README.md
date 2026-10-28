@@ -1,5 +1,19 @@
 # Cordis diagnostics and non-activating planning
 
+## Task 3D SDK compatibility
+
+Issue #1018 adopts SDK `0.0.0-cordis.19`, source
+`90cf4f3cc62e166685280450c727499defd2af5b`, archive SHA-256
+`93dd549c98aba180306e9b19cc1cbc37494544b2764ed341c531c9af618c6f81`.
+The new owner candidate is `0.0.0-cordis.78`. Peer pins, accepted bytes and installed contracts
+must agree. The original dirty `.77` Agent-target draft remains preserved in its own checkout.
+
+This slice qualifies existing host behavior against the new portable contracts. It does not
+implement sandbox control or host an Agent root in Deployment's worker. Agent manager, worker
+and guest roots remain separate processes; Deployment supplies bounded runtime operations.
+Historical fixtures and archives are immutable. Full hosted Kata pool/setup/replacement
+qualification remains a separate gate. Work/model execution remains Task 10; all issues stay open.
+
 `DeploymentHost.diagnose(configuration?) → Promise<DiagnosticReport>` is the public typed
 contract. `ComposeDeploymentHost` supplies the real default Docker CLI, host/filesystem and
 loopback port probes. The CLI consumes this package unchanged. Planning adds `DeploymentHost.plan(configuration) → Promise<DeploymentPlan>` and private plan-only state. No apply, Compose up, container lifecycle or credential creation is implemented.

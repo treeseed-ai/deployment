@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Qualify Deployment against the exact SDK capacity contract candidate (#1018).
+
 ### Fixed
 - Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
 
