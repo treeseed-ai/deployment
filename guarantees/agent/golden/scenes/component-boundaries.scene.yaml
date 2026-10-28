@@ -1,4 +1,10 @@
 workflow:
+  - id: runtime-sdk-release-unit
+    action: { verifier: deployment.golden.runtime-sdk-release-unit }
+    expect: { status: passed }
+  - id: runtime-sdk-install-native
+    action: { verifier: deployment.golden.runtime-sdk-install-native }
+    expect: { status: passed }
   - id: source-cache-pressure-unit
     action: { verifier: deployment.golden.source-cache-pressure-unit }
     expect: { status: passed }
