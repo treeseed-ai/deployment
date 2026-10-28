@@ -14,6 +14,13 @@ There is no arbitrary command, host path, image pull or raw-socket operation in 
 Native host composition supplies the backend; the eventual service-scoped socket grants only its
 bounded operations and is distinct from the read-only observer socket.
 
+`KataSandboxPlugin` provides the typed `KataSandboxToken` in the privileged Deployment host
+composition. Its native declaration, configuration schema and package export come from the same
+class. It owns the backend resource through Cordis disposal; `ready()` validates and opens that
+resource, and methods use that same lifetime. Restart is required for replacement. Registering the
+plugin does not start a VM or make a healthy-capacity claim; only successful sandbox inspection
+supplies that evidence. Agent worker scopes receive the bounded client, not this host configuration.
+
 `create` records intent before allocating an owned container and starts a fixed harmless sleeper
 using `io.containerd.kata.v2`. A successful read-back must find the exact expected runtime, image,
 labels and running task and execute the fixed guest-kernel inspection inside that guest. Its kernel
