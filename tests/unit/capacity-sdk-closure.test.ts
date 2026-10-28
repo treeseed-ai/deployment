@@ -6,15 +6,15 @@ class CapacitySdkClosureTests {
   installed():void {
     const metadata=JSON.parse(readFileSync('package.json','utf8'));
     const installed=JSON.parse(readFileSync('node_modules/@treeseed-cordis/sdk/package.json','utf8'));
-    expect(metadata.peerDependencies['@treeseed-cordis/sdk']).toBe('0.0.0-cordis.35');
+    expect(metadata.peerDependencies['@treeseed-cordis/sdk']).toBe('0.0.0-cordis.36');
     expect(installed.version).toBe(metadata.peerDependencies['@treeseed-cordis/sdk']);
-    expect(metadata.cordisCandidate.sdk.commit).toBe('bc6cb6610fd5ddc13639b3c3bc8b709ed930d647');
-    const digest='98a4474726b79c1ce1a4b96a76e636a3dafa8e20df3dc66db89331ae79b31fbf';
+    expect(metadata.cordisCandidate.sdk.commit).toBe('0ae4f3973672e5c66ee021e7748c2ea73f7cb21c');
+    const digest='04cea0518a3d64228cfbdad73a357d18cc7040e4bc7a122833dddd9de96ed000';
     expect(metadata.cordisCandidate.sdk.sha256).toBe(digest);
     expect(createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex')).toBe(digest);
   }
   protocols():void {
-    for(const name of ['ActivitySchemas','EnvironmentSchemas','CapacitySchemas','PoolSchemas','CapacityProtocolSchemas'])
+    for(const name of ['ActivitySchemas','EnvironmentSchemas','CapacitySchemas','PoolSchemas','CapacityProtocolSchemas','SandboxControlSchemas','SandboxControlBinding'])
       expect(typeof Reflect.get(sdk,name)).toBe('function');
     expect(sdk.PlatformOperations.all).toHaveLength(7);
   }

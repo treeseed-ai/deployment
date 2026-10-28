@@ -8,7 +8,7 @@ class CapacityContractProgram {
     this.selection();
     assert.equal(typeof Reflect.get(sdk, 'CapacitySchemas'), 'function');
     assert.equal(typeof Reflect.get(sdk, 'SeedSchemas'), 'function');
-    for (const name of ['ActivitySchemas', 'EnvironmentSchemas', 'PoolSchemas', 'CapacityProtocolSchemas'])
+    for (const name of ['ActivitySchemas', 'EnvironmentSchemas', 'PoolSchemas', 'CapacityProtocolSchemas','SandboxControlSchemas','SandboxControlBinding'])
       assert.equal(typeof Reflect.get(sdk, name), 'function');
     assert.equal(sdk.PlatformOperations.all.length, 7);
     assert.equal(typeof new ComposeDeploymentHost().plan, 'function');
@@ -17,9 +17,9 @@ class CapacityContractProgram {
   private selection(): void {
     const metadata = JSON.parse(readFileSync('package.json', 'utf8'));
     const digest = createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex');
-    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.35');
-    assert.equal(metadata.cordisCandidate.sdk.commit, 'bc6cb6610fd5ddc13639b3c3bc8b709ed930d647');
-    assert.equal(digest, '98a4474726b79c1ce1a4b96a76e636a3dafa8e20df3dc66db89331ae79b31fbf');
+    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.36');
+    assert.equal(metadata.cordisCandidate.sdk.commit, '0ae4f3973672e5c66ee021e7748c2ea73f7cb21c');
+    assert.equal(digest, '04cea0518a3d64228cfbdad73a357d18cc7040e4bc7a122833dddd9de96ed000');
     assert.equal(metadata.cordisCandidate.sdk.sha256, digest);
   }
 }
