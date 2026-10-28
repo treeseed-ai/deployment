@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import assert from 'node:assert/strict';
 
 class KataBackendProgramAcceptance {
   private readonly qualificationArguments = [
@@ -29,7 +30,7 @@ class KataBackendProgramAcceptance {
       encoding: 'utf8',
       timeout: 180000,
     });
-    expect(result.status).toBe(0);
+    assert.equal(result.status, 0, result.stderr || 'Kata child exited without a diagnostic');
     expect(result.stderr).toBe('');
     expect(result.stdout).toBe('owned-kata-backend-ok\n');
   }
