@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
+
+- Qualify capacity contracts and fence worker bootstrap handoff before mutable journal inspection (#1018, #1020).
+
+### Fixed
 - Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
 
 ### Fixed

@@ -1,5 +1,33 @@
 # Cordis diagnostics and non-activating planning
 
+## Standalone worker bootstrap admission
+
+Issue #1020 requires the standalone worker to read its exact immutable published plan before
+waiting for parent handoff. It must not inspect mutable writer/journal state while the parent
+still owns the bootstrap transition. After the nonce, PID and executable-bound permit is ready,
+the native host acquires authority and performs the existing full state/ownership validation.
+An immutable plan is an input binding, never proof of active state or permission to mutate.
+
+The regression spawns the genuine compiled worker, holds an incomplete writer transition before
+handoff, restores the exact owner record and then completes the real protocol. It starts no
+service containers. Foreign/malformed grants and journals remain failures after handoff. Keep
+all issues open; no production or legacy service changes are authorized.
+
+
+## Task 3D SDK compatibility
+
+Issue #1018 adopts SDK `0.0.0-cordis.19`, source
+`90cf4f3cc62e166685280450c727499defd2af5b`, archive SHA-256
+`93dd549c98aba180306e9b19cc1cbc37494544b2764ed341c531c9af618c6f81`.
+The new owner candidate is `0.0.0-cordis.79`. Peer pins, accepted bytes and installed contracts
+must agree. The original dirty `.77` Agent-target draft remains preserved in its own checkout.
+
+This slice qualifies existing host behavior against the new portable contracts. It does not
+implement sandbox control or host an Agent root in Deployment's worker. Agent manager, worker
+and guest roots remain separate processes; Deployment supplies bounded runtime operations.
+Historical fixtures and archives are immutable. Full hosted Kata pool/setup/replacement
+qualification remains a separate gate. Work/model execution remains Task 10; all issues stay open.
+
 `DeploymentHost.diagnose(configuration?) → Promise<DiagnosticReport>` is the public typed
 contract. `ComposeDeploymentHost` supplies the real default Docker CLI, host/filesystem and
 loopback port probes. The CLI consumes this package unchanged. Planning adds `DeploymentHost.plan(configuration) → Promise<DeploymentPlan>` and private plan-only state. No apply, Compose up, container lifecycle or credential creation is implemented.
