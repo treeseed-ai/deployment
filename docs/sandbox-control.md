@@ -95,3 +95,7 @@ An isolated Node 24.19.0 / Bun 1.4.4 spike connected to the original pinned peer
 was occupied by a different listening peer. The [Linux open manual](https://man7.org/linux/man-pages/man2/open.2.html)
 defines `O_PATH` descriptor metadata semantics; permanent real Unix boundary tests qualify the
 actual connect behavior, rather than relying on the manual alone.
+
+Availability binds the host configuration after parsing through the public Kata provider
+configuration schema, including its defaults. Consumers compare that normalized configuration
+digest; hashing raw input before defaults does not identify the composed host.
