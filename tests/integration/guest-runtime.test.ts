@@ -52,6 +52,24 @@ class GuestRuntimeIntegration {
       fixture.close();
     }
   }
+  async payload(): Promise<void> {
+    const fixture = await new Fixture().prepare();
+    try {
+      const value = fixture.manifest;
+      const targets = [value.executable, value.compressed, value.compressed.parts[0]!];
+      for (const target of targets) {
+        const digest = target.sha256;
+        target.sha256 = 'f'.repeat(64);
+        await fixture.refresh();
+        await assert.rejects(fixture.reader().read(new AbortController().signal), {
+          message: 'KATA_GUEST_ARTIFACT_INVALID',
+        });
+        target.sha256 = digest;
+      }
+    } finally {
+      fixture.close();
+    }
+  }
   async binding(): Promise<void> {
     const fixture = await new Fixture().prepare();
     try {
@@ -89,5 +107,11 @@ test(
 test(
   'integration: guest artifact binds package identity and cancellation before admission',
   suite.binding.bind(suite),
+  120000,
+);
+
+test(
+  'integration: coherent outer guest archives cannot hide changed part stream or executable identities',
+  suite.payload.bind(suite),
   120000,
 );

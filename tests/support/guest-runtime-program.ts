@@ -7,6 +7,7 @@ import {
   chmodSync,
   rmSync,
   existsSync,
+  readdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -50,8 +51,18 @@ export class GuestRuntimeFixture {
     );
     const binary = readFileSync(process.execPath);
     const compressed = gzipSync(binary, { level: 1 });
+    this.manifest = this.describe(binary, compressed);
+    writeFileSync(
+      join(this.source, 'package/dist/bin/guest-runtime.json'),
+      JSON.stringify(this.manifest),
+    );
+    this.metadata();
+    await this.pack();
+    return this;
+  }
+  private describe(binary: Buffer, compressed: Buffer): GuestRuntimeManifest {
     const parts = this.parts(compressed);
-    this.manifest = GuestRuntimeBinding.assert({
+    return GuestRuntimeBinding.assert({
       schemaVersion: 'treeseed.guest-runtime/v1',
       compiler: 'bun@1.4.4',
       target: 'bun-linux-x64-baseline',
@@ -62,13 +73,6 @@ export class GuestRuntimeFixture {
       compressed: { format: 'gzip', parts, ...GuestRuntimeFixture.identity(compressed) },
       executable: { mode: 0o755, ...GuestRuntimeFixture.identity(binary) },
     });
-    writeFileSync(
-      join(this.source, 'package/dist/bin/guest-runtime.json'),
-      JSON.stringify(this.manifest),
-    );
-    this.metadata();
-    await this.pack();
-    return this;
   }
   private parts(bytes: Buffer): object[] {
     const result: { file: string; size: number; sha256: string }[] = [];
@@ -97,7 +101,18 @@ export class GuestRuntimeFixture {
       }),
     );
   }
+  async refresh(): Promise<void> {
+    writeFileSync(
+      join(this.source, 'package/dist/bin/guest-runtime.json'),
+      JSON.stringify(this.manifest),
+    );
+    await this.pack();
+  }
   async pack(): Promise<void> {
+    chmodSync(join(this.source, 'package/package.json'), 0o644);
+    chmodSync(join(this.source, 'package/dist/bin/guest-runtime.json'), 0o644);
+    for (const part of this.manifest.compressed.parts)
+      chmodSync(join(this.source, 'package/dist/bin', part.file), 0o644);
     await create({ gzip: true, cwd: this.source, file: this.archive, portable: true }, ['package']);
     chmodSync(this.archive, 0o600);
     this.bytes = readFileSync(this.archive);
@@ -122,13 +137,15 @@ class GuestRuntimeProgram {
   async run(): Promise<void> {
     const fixture = await new GuestRuntimeFixture().prepare();
     try {
+      const before = readdirSync(fixture.root).sort();
       const result = await fixture.reader().read(new AbortController().signal);
       assert.deepEqual(result.manifest, fixture.manifest);
       assert.deepEqual(
-        GuestRuntimeFixture.identity(result.executable),
+        { ...GuestRuntimeFixture.identity(result.executable), mode: 0o755 },
         fixture.manifest.executable,
       );
       assert.equal(existsSync(fixture.canary), false);
+      assert.deepEqual(readdirSync(fixture.root).sort(), before);
       process.stdout.write('guest-artifact-ok\n');
     } finally {
       fixture.close();

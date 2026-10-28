@@ -40,6 +40,14 @@ class GuestRuntimeUnit {
       }),
     );
   }
+  strings(): void {
+    const verifier = this.verifier();
+    const bytes = readFileSync(process.execPath);
+    const index = bytes.indexOf(Buffer.from('/lib64/ld-linux-x86-64.so.2'));
+    assert(index > 0);
+    bytes[index] = bytes[index]! | 0x80;
+    assert.throws(verifier.verify.bind(verifier, bytes, this.requirements()));
+  }
   bounds(): void {
     const verifier = this.verifier();
     const bytes = readFileSync(process.execPath);
@@ -48,6 +56,25 @@ class GuestRuntimeUnit {
     bytes.writeBigUInt64LE(64n, 32);
     bytes.writeUInt16LE(65535, 56);
     assert.throws(verifier.verify.bind(verifier, bytes, this.requirements()));
+  }
+  configuration(): void {
+    const Reader = Reflect.get(host, 'GuestRuntimeArchive');
+    assert.equal(typeof Reader, 'function');
+    const input = {
+      directory: '/tmp',
+      archive: { path: 'guest.tgz', size: 1, sha256: 'a'.repeat(64) },
+      package: { name: '@fixture/guest', version: '1.0.0' },
+    };
+    assert.doesNotThrow(Reflect.construct.bind(Reflect, Reader, [input]));
+    for (const version of ['latest', 'git:revision', 'workspace:*', 'v1.0.0'])
+      assert.throws(
+        Reflect.construct.bind(Reflect, Reader, [
+          { ...input, package: { ...input.package, version } },
+        ]),
+      );
+    assert.throws(
+      Reflect.construct.bind(Reflect, Reader, [{ ...input, directory: '/tmp/../tmp' }]),
+    );
   }
   private requirements(): { interpreter: string; requiredLibraries: string[] } {
     return {
@@ -72,4 +99,14 @@ test(
 test(
   'unit: guest ELF verifier rejects unsafe header offsets and excessive segment counts',
   suite.bounds.bind(suite),
+);
+
+test(
+  'unit: guest ELF interpreter comparison cannot mask high-bit path bytes',
+  suite.strings.bind(suite),
+);
+
+test(
+  'unit: guest archive configuration rejects mutable package versions and noncanonical custody paths',
+  suite.configuration.bind(suite),
 );

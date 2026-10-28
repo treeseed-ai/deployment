@@ -31,3 +31,10 @@ Lower tiers cover archive tampering/foreign custody/cancellation and ELF/manifes
 The separate genuine accepted Agent archive consumer must pass before review. Keep all existing
 owner/hosted gates. This slice consumes accepted SDK #502 and is submitted only after the exact
 SDK owner closure integrates, retaining the ten-file gate. All issues stay open; Work stays Task 10.
+
+The verifier follows the [ELF program header](https://gabi.xinuos.com/elf/07-pheader.html) and
+[dynamic linking](https://gabi.xinuos.com/elf/08-dynamic.html) layouts. Its positive dynamic-tag
+set is qualified against Bun 1.4.4 GNU baseline output; unexpected search paths, filters or
+other unqualified dynamic behavior fail admission. This does not validate relocation semantics
+or replace actual guest execution. String comparison preserves the original bytes; high-bit
+path bytes cannot be masked into an accepted ASCII interpreter or library name.
