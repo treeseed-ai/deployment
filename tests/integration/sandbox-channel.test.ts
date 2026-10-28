@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CapabilityToken, ProviderV4Schemas, SandboxControlSchemas } from '@treeseed-cordis/sdk';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { createServer, type Socket, type Server } from 'node:net';
+import { createServer, Socket, type Server } from 'node:net';
 import {
   mkdtempSync,
   readFileSync,
@@ -24,6 +24,7 @@ import {
   UnixSocketToken,
   SandboxControlPlugin,
 } from '../../src/sandbox-channel.js';
+import * as socketIo from '../../src/sandbox-io.js';
 import { KataSandboxPlugin, KataSandboxToken } from '../../src/kata-backend.js';
 import { SafeDirectory } from '../../src/filesystem.js';
 import {
@@ -265,6 +266,51 @@ class SandboxChannelIntegration {
     assert.equal(readFileSync(path, 'utf8'), 'foreign-state');
     assert.equal(existsSync(directory.childPath('retained.sock')), true);
   }
+  async reference(): Promise<void> {
+    const first = new UnixPeerFixture();
+    const second = new UnixPeerFixture();
+    await first.start();
+    await second.start();
+    const directory = SafeDirectory.open(first.directory);
+    try { await this.pinned(directory, first, second); }
+    finally {
+      directory.close();
+      await first.close();
+      await second.close();
+    }
+  }
+  private async pinned(directory: SafeDirectory, first: UnixPeerFixture, second: UnixPeerFixture): Promise<void> {
+    const Constructor = Reflect.get(socketIo, 'ControlSocketReference') as new (directory: SafeDirectory) => { path: string; verify(): void; close(): boolean };
+    assert.equal(typeof Constructor, 'function', 'client socket inode must be pinned');
+    const reference = new Constructor(directory);
+    const retained = join(first.directory, 'retained.sock');
+    renameSync(first.path, retained);
+    renameSync(second.path, first.path);
+    try {
+      await this.pinnedExchange(reference.path, first);
+      assert.equal(first.connections, 1);
+      assert.equal(second.connections, 0);
+      assert.throws(reference.verify.bind(reference), { message: 'SANDBOX_RESOURCE_CHANGED' });
+    } finally {
+      renameSync(first.path, second.path);
+      renameSync(retained, first.path);
+      assert.equal(reference.close(), true);
+    }
+  }
+  private async pinnedExchange(path: string, fixture: UnixPeerFixture): Promise<void> {
+    const socket = new Socket();
+    try {
+      const connected = once(socket, 'connect');
+      socket.connect(path);
+      await connected;
+      const data = once(socket, 'data');
+      socket.write(JSON.stringify({ credential: 'c'.repeat(64), request: {
+        schemaVersion: 'treeseed.sandbox-control/v1', requestId: 'fixture:pinned',
+        scope: fixture.scope, operation: 'ready', parameters: {},
+      } }) + '\n');
+      assert.equal(JSON.parse(String((await data)[0])).success, true);
+    } finally { socket.destroy(); }
+  }
   private readonly endpointToken = new CapabilityToken<FixtureEndpoint>(
     'host.sandbox.control',
     ProviderV4Schemas.version,
@@ -404,3 +450,5 @@ test(
   'integration: native endpoint closes an unadopted descriptor after socket identity substitution',
   suite.adoption.bind(suite),
 );
+
+test('integration: pinned client socket inode reaches only the original peer after pathname replacement', suite.reference.bind(suite));
