@@ -171,7 +171,10 @@ export class GuestRuntimeArchive {
     return { manifest, executable: this.expand(Buffer.concat(parts), manifest, signal) };
   }
   private mode(index: ArchiveMetadata, path: string): void {
-    KataSandboxError.require(index.modes.get(path) === 0o644, 'KATA_GUEST_ARTIFACT_INVALID');
+    KataSandboxError.require(
+      [0o600, 0o640, 0o644].includes(index.modes.get(path) ?? -1),
+      'KATA_GUEST_ARTIFACT_INVALID',
+    );
   }
   private identity(bytes: Buffer | undefined, expected: { size: number; sha256: string }): void {
     KataSandboxError.require(

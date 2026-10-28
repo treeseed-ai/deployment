@@ -114,7 +114,9 @@ export class GuestRuntimeFixture {
     chmodSync(join(this.source, 'package/dist/bin/guest-runtime.json'), this.memberMode);
     for (const part of this.manifest.compressed.parts)
       chmodSync(join(this.source, 'package/dist/bin', part.file), this.memberMode);
-    await create({ gzip: true, cwd: this.source, file: this.archive, portable: true }, ['package']);
+    await create({ gzip: true, cwd: this.source, file: this.archive, portable: false }, [
+      'package',
+    ]);
     chmodSync(this.archive, 0o600);
     this.bytes = readFileSync(this.archive);
   }
