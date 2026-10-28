@@ -1626,3 +1626,17 @@ Retain every previous private file and all unchanged resource identities. Publis
 asset-bound configuration under its new definition digest and mount it only in the explicitly
 replaced container. Readiness/asset generation acknowledgements must verify the new closure;
 no implicit restart or live image replacement is inferred. Identity remains Identity-owned.
+
+## Bounded complete CI history
+
+Cordis verification fetches the exact candidate and `refs/heads/cordis` histories, rather than
+all unrelated legacy branches and tags. Two pinned checkout steps use a maximum positive depth
+to select targeted refs; the following gate requires non-shallow history, the integration ref
+and the exact candidate HEAD. A `blob:limit=1m` filter excludes large unrelated historical blobs;
+current checkout and the original readability baseline remain available. Baseline source
+fingerprints and ancestry are still verified by the existing owner gate.
+
+Both actions remove credentials before checks or untrusted package fixtures execute. All seven
+smoke partitions, hosted Ubuntu 26.04, immutable Kata qualification, fifteen-minute limits and
+the aggregate required gate remain unchanged. Checkout incompleteness fails visibly; it never
+permits baseline replacement, skipped tests or an accepted partial run.
