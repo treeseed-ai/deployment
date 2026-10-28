@@ -77,8 +77,11 @@ If socket identity validation fails before adoption, close that known descriptor
 foreign pathname and report failure. Native disposal must not leave a listener open merely
 because the endpoint was replaced between binding and adoption.
 
-The channel selects SDK .37, reviewed source dce3108e061ecaf0cfa2915c03698f0e3170a67b,
+The initial channel qualification selected SDK .37, reviewed source dce3108e061ecaf0cfa2915c03698f0e3170a67b,
 archive SHA-256 886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384.
+That immutable snapshot remains retained. The current channel selects accepted SDK .39,
+source f09247dbf020f0354edce9af2f9ccef6ba351ff3, archive SHA-256
+ddfb91a065bee6d7e9482427570e7c036b18f0fbbcaa09c0fc62fee094abdbd4, through Deployment #1031.
 It retains the accepted guest backend and the existing sandbox-control family, alongside
 the portable worker/guest envelopes consumed by Agent. This selection adds no ungranted
 operation or service mount. The owner closure prerequisite must land before this bounded
