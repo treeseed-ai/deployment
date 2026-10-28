@@ -19,6 +19,8 @@ class CapacityContractProgram {
       'CapacityChannelBinding',
       'SandboxRunnerSchemas',
       'SandboxRunnerBinding',
+      'GuestRuntimeSchemas',
+      'GuestRuntimeBinding',
     ])
       assert.equal(typeof Reflect.get(sdk, name), 'function');
     assert.equal(sdk.PlatformOperations.all.length, 7);

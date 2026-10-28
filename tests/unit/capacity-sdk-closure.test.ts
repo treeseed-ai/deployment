@@ -28,6 +28,8 @@ class CapacitySdkClosureTests {
       'CapacityChannelBinding',
       'SandboxRunnerSchemas',
       'SandboxRunnerBinding',
+      'GuestRuntimeSchemas',
+      'GuestRuntimeBinding',
     ])
       expect(typeof Reflect.get(sdk, name)).toBe('function');
     expect(sdk.PlatformOperations.all).toHaveLength(7);
