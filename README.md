@@ -14,14 +14,15 @@ service containers. Foreign/malformed grants and journals remain failures after 
 all issues open; no production or legacy service changes are authorized.
 
 
-## Service-scoped sandbox SDK closure
+## Capacity and service-scoped sandbox SDK closure
 
-Issue #1021 selects the accepted SDK `0.0.0-cordis.36`, source
-`0ae4f3973672e5c66ee021e7748c2ea73f7cb21c`, archive SHA-256
-`04cea0518a3d64228cfbdad73a357d18cc7040e4bc7a122833dddd9de96ed000`.
+Issue #1021 selects the accepted SDK `0.0.0-cordis.37`, source
+`dce3108e061ecaf0cfa2915c03698f0e3170a67b`, archive SHA-256
+`886a9f359148a1aee49997de7e0604c65c87bf16c693d23781c5732f41990384`.
 The next private Deployment successor is `.83`. Peer pin, archive bytes, local lock SRI and
-installed identity must agree. SDK #498 adds bounded scoped sandbox control to the accepted
-activity/environment/lease/pool/protocol closure. Prior exact archives remain immutable.
+installed identity must agree. SDK #498 adds bounded scoped sandbox control; SDK #500 adds
+separate worker/guest message bindings to the activity/environment/lease/pool/protocol closure.
+Prior exact archives remain immutable.
 
 This selection adds no transport or host power. The real Kata backend retains its own runtime
 qualification; the private service channel is a separate implementation. Agent owns manager,
