@@ -2,13 +2,14 @@
 
 ## Host runner contract selection
 
-Deployment selects SDK .39 from reviewed candidate source `f09247dbf020f0354edce9af2f9ccef6ba351ff3`,
+Deployment selects SDK .39 from accepted source `f09247dbf020f0354edce9af2f9ccef6ba351ff3`,
 archive SHA-256 `ddfb91a065bee6d7e9482427570e7c036b18f0fbbcaa09c0fc62fee094abdbd4`.
 The peer, vendor, lock, installed identity and public Node consumer must agree. This bounded
 selection enables the separately granted logical guest-session interface and shared exact guest
 payload manifest binding; it does not implement
-the session, install Agent or activate capacity. The private channel candidate must integrate
-together with SDK #502 before this selection is submitted, retaining both runtime slices and the ten-file review gate.
+the session, install Agent or activate capacity. SDK #502 must integrate before this selection
+is submitted. The independent private channel candidate then retains this accepted contract
+closure when syncing origin/cordis; neither slice overwrites the other runtime changes.
 
 Agent .18 provides an actual GNU guest executable as bounded, individually hashed compressed
 chunks. The following runner provider must verify that exact owner artifact, stage it only inside
