@@ -30,11 +30,23 @@ class CheckoutHistoryRegression {
     return { directory, candidate };
   }
   private commit(directory: string, message: string): void {
-    this.git(directory, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid', 'commit', '--allow-empty', '-qm', message]);
+    this.git(directory, [
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@invalid',
+      'commit',
+      '--allow-empty',
+      '-qm',
+      message,
+    ]);
   }
   private run(directory: string, candidate: string): number | null {
     const result = spawnSync('bash', ['-e', '-c', this.script()], {
-      cwd: directory, env: { ...process.env, CANDIDATE_SHA: candidate }, encoding: 'utf8', timeout: 10000,
+      cwd: directory,
+      env: { ...process.env, CANDIDATE_SHA: candidate },
+      encoding: 'utf8',
+      timeout: 10000,
     });
     return result.status;
   }
@@ -66,18 +78,44 @@ class CheckoutHistoryRegression {
     }
   }
   gates(): void {
-    assert(this.workflow.includes('partition: [foundation, transitions, sources, runtime, git-installed, registered, build-registered]'));
+    assert(
+      this.workflow.includes(
+        'partition: [foundation, transitions, sources, runtime, git-installed, registered, build-registered]',
+      ),
+    );
     assert.equal(this.workflow.match(/timeout-minutes: 15/g)?.length, 2);
     assert.equal(this.workflow.match(/runs-on: ubuntu-26.04/g)?.length, 3);
-    assert(this.workflow.includes('bun run check && bun run build && bun run test:regression && bun run test:integration && bun run test:unit'));
+    assert(
+      this.workflow.includes(
+        'bun run check && bun run build && bun run test:regression && bun run test:integration && bun run test:unit',
+      ),
+    );
     assert(this.workflow.includes('bun scripts/verification.ts smoke ${{ matrix.partition }}'));
-    assert(this.workflow.includes('3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96'));
-    assert(this.workflow.includes("github.event.pull_request.head.repo.full_name == github.repository"));
-    assert(this.workflow.includes("needs.checks.result == 'success' && needs.smoke.result == 'success'"));
+    this.kata();
+  }
+  private kata(): void {
+    assert(
+      this.workflow.includes('3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96'),
+    );
+    assert(
+      this.workflow.includes('github.event.pull_request.head.repo.full_name == github.repository'),
+    );
+    assert(
+      this.workflow.includes("needs.checks.result == 'success' && needs.smoke.result == 'success'"),
+    );
   }
 }
 const suite = new CheckoutHistoryRegression();
-test('regression: CI checkout targets complete candidate and Cordis history without retaining credentials', suite.selections.bind(suite));
-test('regression: actual checkout gate rejects missing integration and invalid candidate identities', suite.gate.bind(suite));
+test(
+  'regression: CI checkout targets complete candidate and Cordis history without retaining credentials',
+  suite.selections.bind(suite),
+);
+test(
+  'regression: actual checkout gate rejects missing integration and invalid candidate identities',
+  suite.gate.bind(suite),
+);
 test('regression: actual checkout gate rejects a shallow repository', suite.shallow.bind(suite));
-test('regression: bounded checkout preserves every hosted runtime qualification gate', suite.gates.bind(suite));
+test(
+  'regression: bounded checkout preserves every hosted runtime qualification gate',
+  suite.gates.bind(suite),
+);
