@@ -19,7 +19,7 @@ all issues open; no production or legacy service changes are authorized.
 Issue #1018 adopts SDK `0.0.0-cordis.19`, source
 `90cf4f3cc62e166685280450c727499defd2af5b`, archive SHA-256
 `93dd549c98aba180306e9b19cc1cbc37494544b2764ed341c531c9af618c6f81`.
-The new owner candidate is `0.0.0-cordis.78`. Peer pins, accepted bytes and installed contracts
+The new owner candidate is `0.0.0-cordis.79`. Peer pins, accepted bytes and installed contracts
 must agree. The original dirty `.77` Agent-target draft remains preserved in its own checkout.
 
 This slice qualifies existing host behavior against the new portable contracts. It does not
