@@ -9,6 +9,12 @@ interface SafeCommandFailure {
   signal: string | null;
 }
 export class DockerEvidenceFixture {
+  static explain(error: unknown, commands: DockerCommands): never {
+    const failure = this.read(commands);
+    if (failure)
+      throw new Error('DOCKER_PREREQUISITE ' + JSON.stringify(failure), { cause: error });
+    throw error;
+  }
   static read(commands: DockerCommands): SafeCommandFailure | null {
     const value: unknown = Reflect.get(commands, 'failure');
     assert.notEqual(
