@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
+
+- Await process-bound bootstrap handoff before inspecting mutable worker journal state (#1020).
+
+### Fixed
 - Admit explicitly scoped asset-generation configuration restart while preserving credentials and ownership (#910).
 
 ### Fixed

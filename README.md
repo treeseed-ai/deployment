@@ -1,5 +1,18 @@
 # Cordis diagnostics and non-activating planning
 
+## Standalone worker bootstrap admission
+
+Issue #1020 requires the standalone worker to read its exact immutable published plan before
+waiting for parent handoff. It must not inspect mutable writer/journal state while the parent
+still owns the bootstrap transition. After the nonce, PID and executable-bound permit is ready,
+the native host acquires authority and performs the existing full state/ownership validation.
+An immutable plan is an input binding, never proof of active state or permission to mutate.
+
+The regression spawns the genuine compiled worker, holds an incomplete writer transition before
+handoff, restores the exact owner record and then completes the real protocol. It starts no
+service containers. Foreign/malformed grants and journals remain failures after handoff. Keep
+all issues open; no production or legacy service changes are authorized.
+
 `DeploymentHost.diagnose(configuration?) → Promise<DiagnosticReport>` is the public typed
 contract. `ComposeDeploymentHost` supplies the real default Docker CLI, host/filesystem and
 loopback port probes. The CLI consumes this package unchanged. Planning adds `DeploymentHost.plan(configuration) → Promise<DeploymentPlan>` and private plan-only state. No apply, Compose up, container lifecycle or credential creation is implemented.
