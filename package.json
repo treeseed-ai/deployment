@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.88",
+  "version": "0.0.0-cordis.92",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -93,7 +93,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.88"
+      "version": "0.0.0-cordis.92"
     },
     "providers": [
       {

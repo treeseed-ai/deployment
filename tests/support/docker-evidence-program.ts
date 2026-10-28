@@ -46,12 +46,23 @@ export class DockerEvidenceFixture {
 }
 class DockerEvidenceProgram {
   run(): void {
+    if (process.argv[2] === '--fixture-timeout') return this.wait();
+    if (process.argv[2] === '--fixture-output') return this.output();
     const commands = new DockerCommands();
     assert.equal(DockerEvidenceFixture.read(commands), null);
     DockerEvidenceFixture.absent(commands);
     assert.equal(typeof commands.execute(['--version']), 'string');
     assert.equal(DockerEvidenceFixture.read(commands), null);
     process.stdout.write('docker-command-evidence-ok\n');
+  }
+  private wait(): void {
+    setTimeout(DockerEvidenceProgram.finished, 10000);
+  }
+  private output(): void {
+    process.stdout.write('output-must-not-appear-canary'.repeat(131072));
+  }
+  private static finished(): void {
+    process.exit(0);
   }
 }
 if (import.meta.main) new DockerEvidenceProgram().run();
