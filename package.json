@@ -42,7 +42,7 @@
     "dist/tests/support/live-probe-plugins.*"
   ],
   "scripts": {
-    "check": "bun run check:test-layout && bun scripts/tooling.ts check",
+    "check": "bun run check:readability && bun run check:test-layout && bun scripts/tooling.ts check",
     "build": "bun scripts/tooling.ts build",
     "test:unit": "bun test ./tests/unit",
     "test:integration": "bun test ./tests/integration",
@@ -50,7 +50,8 @@
     "verify": "bun run check && bun run build && bun run test:acceptance && bun run test:regression && bun run test:integration && bun run test:unit",
     "check:test-layout": "bun .agents/skills/release-workflow/scripts/test-layout.ts",
     "test:regression": "bun test ./tests/regression",
-    "test:acceptance": "bun test ./tests/acceptance"
+    "test:acceptance": "bun test ./tests/acceptance",
+    "check:readability": "bun .agents/skills/release-workflow/scripts/source-readability.ts"
   },
   "peerDependencies": {
     "@treeseed-cordis/sdk": "0.0.0-cordis.19"
@@ -60,7 +61,8 @@
     "typescript": "5.9.3",
     "@types/bun": "1.4.4",
     "@types/node": "24.10.1",
-    "@types/semver": "7.8.0"
+    "@types/semver": "7.8.0",
+    "prettier": "3.6.2"
   },
   "cordisCandidate": {
     "sdk": {
