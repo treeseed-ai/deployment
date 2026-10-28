@@ -1,3 +1,4 @@
+import { KataSandboxPlugin } from '@treeseed-cordis/deployment/sandbox';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -65,10 +66,10 @@ class HostedChannelQualification {
       scope,
     });
   }
-  private async host(): Promise<object> {
+  private async host(): Promise<ReturnType<typeof KataSandboxPlugin.Config.parse>> {
     await this.fixture.start();
-    const host = (await this.fixture.configuration()) as object;
-    const image = Reflect.get(host, 'image') as string;
+    const host = KataSandboxPlugin.Config.parse(await this.fixture.configuration());
+    const image = host.image;
     this.fixture.run([
       'images',
       'pull',
