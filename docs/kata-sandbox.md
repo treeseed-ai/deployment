@@ -15,6 +15,10 @@ assembled successor must record a new exact archive rather than overwriting eith
 The backend accepts a trusted host configuration for an already prepared private containerd
 endpoint, its process identity, a pinned Kata runtime and one digest-pinned native linux/amd64
 image. It exposes `create`, `inspect` and `destroy` for caller-named owned sandbox identities.
+The first privileged backend requires a root-owned private runtime hierarchy with trusted
+root-owned ancestors. The hosted fixture uses `/run`; it must not weaken ownership checks to
+traverse the unprivileged runner's home. Final installation custody and named service grants
+remain a separate integration boundary.
 There is no arbitrary command, host path, image pull or raw-socket operation in that interface.
 Native host composition supplies the backend; the eventual service-scoped socket grants only its
 bounded operations and is distinct from the read-only observer socket.

@@ -12,21 +12,35 @@ interface Constructor {
 class KataBackendAdmissionTests {
   async processIdentity(): Promise<void> {
     const name = 'fixture-' + randomUUID();
-    const child = spawn('node', ['dist/tests/support/kata-backend-program.js', '-name', 'sandbox-' + name], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(
+      'node',
+      ['dist/tests/support/kata-backend-program.js', '-name', 'sandbox-' + name],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
     try {
       await once(child.stdout!, 'data');
       const path = realpathSync('/proc/' + child.pid + '/exe');
       const sha256 = createHash('sha256').update(readFileSync(path)).digest('hex');
       const observer = new SandboxProcessObserver({ path, sha256 }, process.getuid!());
       const proof = observer.observe(name);
-      expect(proof.pid).toBe(child.pid!);
-      expect(observer.absent(name)).toBe(false);
-      expect(observer.absent(name + '-foreign')).toBe(true);
+      this.liveProcess(observer, name, proof.pid, child.pid!);
       child.kill('SIGTERM');
       await once(child, 'close');
-      await observer.waitGone(name, new AbortController().signal);
+      await observer.waitGone(name, new AbortController().signal, proof);
       expect(observer.absent(name)).toBe(true);
-    } finally { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  }
+  private liveProcess(
+    observer: SandboxProcessObserver,
+    name: string,
+    actual: number,
+    pid: number,
+  ): void {
+    expect(actual).toBe(pid);
+    expect(observer.absent(name)).toBe(false);
+    expect(observer.absent(name + '-foreign')).toBe(true);
   }
   private readonly digest = 'a'.repeat(64);
   private readonly file = { path: '/fixture/unused', sha256: this.digest };
@@ -40,6 +54,7 @@ class KataBackendAdmissionTests {
       version: '4.1.0',
       guestKernel: '6.18.35',
       shim: this.file,
+      hypervisor: this.file,
       configuration: this.file,
     },
   };
@@ -78,7 +93,11 @@ class KataBackendAdmissionTests {
   }
 }
 const suite = new KataBackendAdmissionTests();
-test('integration: read-only process observer binds exact name executable and process lifetime with a real harmless Node fixture', suite.processIdentity.bind(suite), 10000);
+test(
+  'integration: read-only process observer binds exact name executable and process lifetime with a real harmless Node fixture',
+  suite.processIdentity.bind(suite),
+  10000,
+);
 test(
   'integration: fully shaped Kata configuration rejects mutable image tags before opening host paths',
   suite.mutableImages.bind(suite),

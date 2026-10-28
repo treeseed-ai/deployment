@@ -31,6 +31,7 @@ interface SandboxEvidence {
   resourceName: string;
   kernel: string;
   inspectionDigest: string;
+  hypervisor: { pid: number; startTime: string };
 }
 interface Backend {
   create(id: string, signal: AbortSignal): Promise<SandboxEvidence>;
@@ -47,7 +48,7 @@ interface BackendConstructor {
 
 /** Qualification-only daemon fixture; production default construction remains in Deployment. */
 class PrivateKataFixture {
-  readonly directory = mkdtempSync(join(process.env.RUNNER_TEMP!, 'cordis-backend-'));
+  readonly directory = mkdtempSync('/run/cordis-backend-');
   readonly socket = join(this.directory, 'containerd.sock');
   readonly namespaceScope = {
     installationId: 'fixture-' + randomUUID(),
@@ -124,18 +125,22 @@ class PrivateKataFixture {
       endpointDirectory: this.directory,
       daemon: this.daemonIdentity(),
       client: this.file('/usr/bin/ctr'),
-      runtime: {
-        version: '4.1.0',
-        guestKernel: '6.18.35',
-        shim: this.file('/opt/kata/runtime-rs/bin/containerd-shim-kata-v2'),
-        configuration: this.file(process.env.KATA_CONF_FILE!),
-      },
+      runtime: this.runtime(),
       image:
         'docker.io/library/busybox@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4',
     };
   }
   private file(path: string): object {
     return { path: realpathSync(path), sha256: PrivateKataFixture.hash(path) };
+  }
+  private runtime(): object {
+    return {
+      version: '4.1.0',
+      guestKernel: '6.18.35',
+      shim: this.file('/opt/kata/runtime-rs/bin/containerd-shim-kata-v2'),
+      hypervisor: this.file('/opt/kata/bin/qemu-system-x86_64'),
+      configuration: this.file(process.env.KATA_CONF_FILE!),
+    };
   }
   private daemonIdentity(): object {
     const pid = this.daemon!.pid!;
@@ -317,6 +322,11 @@ class KataBackendProgram {
     const created = await backend.create(id, signal);
     await assert.rejects(backend.close());
     const inspected = await backend.inspect(id, signal);
+    assert(created.hypervisor.pid > 0);
+    assert.equal(
+      PrivateKataFixture.startTime(created.hypervisor.pid),
+      created.hypervisor.startTime,
+    );
     assert.equal(created.id, id);
     assert.equal(created.kernel, inspected.kernel);
     assert.equal(created.inspectionDigest, inspected.inspectionDigest);

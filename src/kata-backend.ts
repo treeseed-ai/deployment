@@ -21,6 +21,7 @@ import {
 import { Context } from '@treeseed-cordis/sdk/runtime';
 import { SafeDirectory, StrictJson } from './filesystem.js';
 import { InstallationStore } from './installed.js';
+import { SandboxProcessObserver, type SandboxProcessIdentity } from './kata-hypervisor.js';
 
 class KataConfiguration {
   static readonly file = z.strictObject({
@@ -46,6 +47,7 @@ class KataConfiguration {
       version: z.literal('4.1.0'),
       guestKernel: z.string().regex(/^[0-9][a-zA-Z0-9._+-]{0,127}$/),
       shim: this.file,
+      hypervisor: this.file,
       configuration: this.file,
     }),
     image: z
@@ -85,6 +87,7 @@ export interface KataSandboxEvidence {
   resourceName: string;
   kernel: string;
   inspectionDigest: string;
+  hypervisor: SandboxProcessIdentity;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -177,6 +180,7 @@ class KataEndpoint {
   private executables(): void {
     KataExecutable.verify(this.configuration.client, true);
     KataExecutable.verify(this.configuration.runtime.shim, true);
+    KataExecutable.verify(this.configuration.runtime.hypervisor, true);
     KataExecutable.verify(this.configuration.runtime.configuration);
   }
   private process(): void {
@@ -654,6 +658,7 @@ export class KataSandboxPlugin implements KataSandboxHost {
 /** Privileged bounded host backend. Worker plugins never receive this raw-runtime configuration. */
 export class KataSandboxBackend {
   private readonly queue = new KataQueue();
+  private readonly processes: SandboxProcessObserver;
   private closing = false;
   private closed = false;
   private disposal: Promise<void> | null = null;
@@ -661,7 +666,12 @@ export class KataSandboxBackend {
     private readonly configuration: KataBackendConfiguration,
     private readonly client: KataClient,
     private readonly custody: KataCustody,
-  ) {}
+  ) {
+    this.processes = new SandboxProcessObserver(
+      configuration.runtime.hypervisor,
+      process.getuid!(),
+    );
+  }
   static async open(input: unknown): Promise<KataSandboxBackend> {
     const configuration = KataConfiguration.parse(input);
     KataConfiguration.requireHost();
@@ -733,11 +743,13 @@ export class KataSandboxBackend {
       kernel === this.configuration.runtime.guestKernel && kernel !== release(),
       'KATA_GUEST_UNQUALIFIED',
     );
+    const hypervisor = this.processes.observe(record.resourceName);
     return {
       id: record.id,
       resourceName: record.resourceName,
       kernel,
-      inspectionDigest: CanonicalJson.digest({ record, kernel }),
+      hypervisor,
+      inspectionDigest: CanonicalJson.digest({ record, kernel, hypervisor }),
     };
   }
   destroy(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
@@ -746,8 +758,17 @@ export class KataSandboxBackend {
   private async destroyOwned(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
     this.admit(signal);
     const record = this.custody.read(id);
+    const previous = this.processes.capture(record.resourceName);
     if ((await this.client.list('containers', signal)).includes(record.resourceName))
       await this.remove(record, signal);
+    await this.removed(record, signal, previous);
+    return this.custody.complete(record);
+  }
+  private async removed(
+    record: KataIntent,
+    signal: AbortSignal,
+    previous: SandboxProcessIdentity | null,
+  ): Promise<void> {
     KataSandboxError.require(
       !(await this.client.list('containers', signal)).includes(record.resourceName) &&
         !(await this.client.list('tasks', signal)).includes(record.resourceName),
@@ -762,7 +783,7 @@ export class KataSandboxBackend {
         line.trim().split(/\s+/)[0] !== record.resourceName,
         'KATA_CLEANUP_FAILED',
       );
-    return this.custody.complete(record);
+    await this.processes.waitGone(record.resourceName, signal, previous ?? undefined);
   }
   private async remove(record: KataIntent, signal: AbortSignal): Promise<void> {
     await this.resource(record, signal);
