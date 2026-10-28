@@ -3,21 +3,20 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as program from '../support/npm-source-program.js';
+import * as program from '../support/plugin-installation-fixture.js';
+interface DockerFixtureReporter {
+  report(file: string): string;
+}
 class DockerPrerequisiteDiagnosticsIntegration {
+  private static readonly input = {
+    configuration: { engineContext: 'default' },
+    secret: 'diagnostic-output-canary',
+  };
   real(): void {
     const directory = mkdtempSync(join(tmpdir(), 'docker-readback-'));
     const file = join(directory, 'fixture.json');
-    writeFileSync(
-      file,
-      JSON.stringify({
-        configuration: { engineContext: 'default' },
-        secret: 'diagnostic-output-canary',
-      }),
-    );
-    const diagnostic = Reflect.get(program, 'DockerPrerequisiteFixture') as {
-      report(file: string): string;
-    };
+    writeFileSync(file, JSON.stringify(DockerPrerequisiteDiagnosticsIntegration.input));
+    const diagnostic = Reflect.get(program, 'DockerPrerequisiteFixture') as DockerFixtureReporter;
     assert.equal(
       typeof diagnostic,
       'function',
