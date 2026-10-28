@@ -1636,3 +1636,7 @@ Both actions remove credentials before checks or untrusted package fixtures exec
 smoke partitions, hosted Ubuntu 26.04, immutable Kata qualification, fifteen-minute limits and
 the aggregate required gate remain unchanged. Checkout incompleteness fails visibly; it never
 permits baseline replacement, skipped tests or an accepted partial run.
+
+Native npm-source fixture failures retain their original blocker plus bounded read-only Docker
+prerequisite read-back. The fixed status/timing diagnostics expose no raw host data and change
+no assertions, timeouts or production errors. See [fixture diagnostics](docs/docker-fixture-diagnostics.md).

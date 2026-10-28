@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.85",
+  "version": "0.0.0-cordis.89",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -47,7 +47,9 @@
     "dist/tests/support/source-registry-fixture.*",
     "dist/tests/support/git-source-fixture.*",
     "dist/tests/support/live-probe-fixture.*",
-    "dist/tests/support/live-probe-plugins.*"
+    "dist/tests/support/live-probe-plugins.*",
+    "dist/tests/support/docker-prerequisite-fixture.js",
+    "dist/tests/support/docker-prerequisite-fixture.d.ts"
   ],
   "scripts": {
     "check": "bun run check:readability && bun run check:test-layout && bun scripts/tooling.ts check",
@@ -95,7 +97,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.85"
+      "version": "0.0.0-cordis.89"
     },
     "providers": [
       {

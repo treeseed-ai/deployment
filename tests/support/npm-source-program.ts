@@ -1,3 +1,4 @@
+import {DockerPrerequisiteFixture} from './docker-prerequisite-fixture.js';
 import { RegistryFixture } from './source-registry-fixture.js';
 import * as Deployment from '@treeseed-cordis/deployment';
 import { PlanningBlockedError, CanonicalJson, type PluginRequestRecord, type PluginInstallRequest, type PluginInstallResult, type ServicePlan, type ServiceGraph, type PluginPackageDescriptor } from '@treeseed-cordis/sdk';
@@ -44,8 +45,11 @@ class NpmSourceProgram {
         if (!refused) throw new Error('Coherently rewritten prepared custody escaped exact acquired source binding');
     }
     static failed(error: unknown): never {
-        if (error instanceof PlanningBlockedError)
-            throw new Error(error.blockers.map(NpmSourceProgram.code).join(","));
+        if (error instanceof PlanningBlockedError) {
+            const codes = error.blockers.map(NpmSourceProgram.code).join(',');
+            const diagnostics = DockerPrerequisiteFixture.report(process.argv[2] ?? '');
+            throw new Error(codes + ' ' + diagnostics);
+        }
         throw error;
     }
     private static code(blocker: {
