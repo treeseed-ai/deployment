@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Execute admitted environment entrypoints only inside owned offline Kata guests (#1021).
 
 - Provide scoped native Kata sandbox lifecycle with private custody and verified destruction (#1021).
 

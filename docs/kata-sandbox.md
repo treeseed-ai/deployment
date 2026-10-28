@@ -75,3 +75,39 @@ Command semantics are checked against the pinned containerd sources for
 Platform #792 records the already verified hosted venue and immutable Kata fixture. Backend
 qualification must exercise its own production constructor rather than copying that fixture's
 implementation into a second runtime owner.
+
+## Bounded guest entrypoint execution
+
+The next privileged backend slice adds `assign(id, assignmentId, environmentId, signal)` and
+`execute(id, phase, signal)` to the host sandbox contract. Configuration selects an immutable
+environment definition, a private exact NPM archive and a separate owner-private workload
+journal. Worker callers choose only already admitted IDs and setup/verification phases; no
+arbitrary host path, image, command, environment variable or raw runtime socket is accepted.
+
+Deployment verifies package name/version/archive hash and regular entrypoint path/hash/size/
+executable mode without extraction or imports. Scripts are staged only into the already-owned
+Kata guest and invoked there through the pinned containerd client. Argument arrays, bounded
+stdin/time/combined output and cancellation apply. Script stdout/stderr never enter public
+receipts or errors. This is a TreeSeed workload sequence, not Kata guest-agent hooks. The
+[pinned ctr exec source](https://github.com/containerd/containerd/blob/v2.4.1/cmd/ctr/commands/tasks/exec.go)
+and [Kata hook scope](https://github.com/kata-containers/kata-containers/blob/4.1.0/docs/design/hooks-handling.md)
+are mechanism references; real guest acceptance remains mandatory.
+
+Assignment is one-use and durable before execution. Setup must complete before verification.
+Exact repeated phase requests freshly verify runtime/artifacts and read a matching complete
+receipt without rerunning scripts. An interrupted or uncertain phase requires explicit repair;
+failed phases cannot advance. Never-assigned bases alone are pool eligible, and every assigned
+sandbox is destroyed with the existing verified QEMU/task/container/snapshot teardown.
+
+The first execution slice supports offline environments only and verifies a guest with only
+the loopback interface before each entrypoint. Declared allow-list environments block until
+the separate network enforcement contribution is qualified. This is not completion of Task
+3D egress, service-grant transport, runner readiness, live authority, pool policy or assembly.
+Agent retains those orchestration/authority responsibilities; this host API supplies only the
+bounded guest mechanism and owned evidence. Worker replacement remains restart-only.
+
+Acceptance must use genuine archived setup/verification fixtures in a real hosted Kata guest,
+prove setup precedes verification, repeated requests do not rerun, failed/cancelled entries
+cannot advance, unsafe archives and wrong image/network selections block, output/host-script
+canaries stay absent, and assigned VM teardown is verified. Ordinary workstation tests may
+exercise denial and pure archive/custody boundaries only; never start the venue implicitly.
