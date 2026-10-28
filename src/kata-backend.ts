@@ -1,5 +1,16 @@
+import {
+  KataEnvironmentArchive,
+  KataWorkloadJournal,
+  KataWorkloadSchemas,
+  type KataAssignment,
+  type KataWorkloadPhase,
+  type KataWorkloadResult,
+  type KataPreparedEnvironment,
+} from './kata-workloads.js';
+export type { KataAssignment, KataWorkloadPhase, KataWorkloadResult } from './kata-workloads.js';
+import { KataCommand, KataSandboxError, type KataCommandOptions } from './kata-command.js';
+export { KataSandboxError } from './kata-command.js';
 import { z } from 'zod';
-import { spawn, type ChildProcess } from 'node:child_process';
 import {
   readFileSync,
   lstatSync,
@@ -55,11 +66,13 @@ class KataConfiguration {
       .regex(
         /^(?:[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]+)?\/)?(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*@sha256:[a-f0-9]{64}$/,
       ),
+    workloads: KataWorkloadSchemas.configuration.optional(),
     maximumSandboxes: z.number().int().min(1).max(4096).default(64),
   });
   static parse(value: unknown): KataBackendConfiguration {
     const result = this.schema.safeParse(value);
     KataSandboxError.require(result.success, 'KATA_CONFIGURATION_INVALID');
+    if (result.data.workloads) new KataEnvironmentArchive(result.data.workloads);
     return result.data;
   }
   static requireHost(): void {
@@ -88,6 +101,7 @@ export interface KataSandboxEvidence {
   kernel: string;
   inspectionDigest: string;
   hypervisor: SandboxProcessIdentity;
+  assignment: KataAssignment | null;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -96,6 +110,13 @@ export interface KataSandboxDestruction {
 }
 export interface KataSandboxHost {
   ready(): Promise<void>;
+  assign(
+    id: string,
+    assignmentId: string,
+    environmentId: string,
+    signal: AbortSignal,
+  ): Promise<KataAssignment>;
+  execute(id: string, phase: KataWorkloadPhase, signal: AbortSignal): Promise<KataWorkloadResult>;
   create(id: string, signal: AbortSignal): Promise<KataSandboxEvidence>;
   inspect(id: string, signal: AbortSignal): Promise<KataSandboxEvidence>;
   destroy(id: string, signal: AbortSignal): Promise<KataSandboxDestruction>;
@@ -104,7 +125,7 @@ export interface KataSandboxHost {
 class KataHostAdapter {
   parse(value: unknown): KataSandboxHost {
     KataSandboxError.require(value && typeof value === 'object', 'KATA_PROVIDER_INVALID');
-    for (const method of ['ready', 'create', 'inspect', 'destroy', 'close'])
+    for (const method of ['ready', 'create', 'inspect', 'assign', 'execute', 'destroy', 'close'])
       KataSandboxError.require(
         typeof Reflect.get(value, method) === 'function',
         'KATA_PROVIDER_INVALID',
@@ -117,15 +138,6 @@ export const KataSandboxToken = new CapabilityToken<KataSandboxHost>(
   ProviderV4Schemas.version,
   new KataHostAdapter(),
 );
-export class KataSandboxError extends Error {
-  constructor(readonly code: string) {
-    super(code);
-    this.name = 'KataSandboxError';
-  }
-  static require(value: unknown, code: string): asserts value {
-    if (!value) throw new KataSandboxError(code);
-  }
-}
 
 class KataExecutable {
   static verify(file: { path: string; sha256: string }, executable = false): void {
@@ -222,83 +234,6 @@ class KataEndpoint {
   }
 }
 
-class KataCommand {
-  private child: ChildProcess | null = null;
-  private readonly chunks: Buffer[] = [];
-  private count = 0;
-  private failure: string | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private killTimer: ReturnType<typeof setTimeout> | null = null;
-  private accept: ((bytes: Buffer) => void) | null = null;
-  private reject: ((error: Error) => void) | null = null;
-  private readonly cancellation: () => void;
-  constructor(
-    private readonly executable: string,
-    private readonly args: string[],
-    private readonly signal: AbortSignal,
-  ) {
-    this.cancellation = this.cancel.bind(this);
-  }
-  run(): Promise<Buffer> {
-    return new Promise(this.start.bind(this));
-  }
-  private start(accept: (bytes: Buffer) => void, reject: (error: Error) => void): void {
-    this.accept = accept;
-    this.reject = reject;
-    if (this.signal.aborted) return this.finish(null);
-    this.child = spawn(this.executable, this.args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
-    });
-    this.child.once('error', this.failed.bind(this));
-    this.child.once('close', this.finish.bind(this));
-    this.child.stdout!.on('data', this.output.bind(this));
-    this.child.stderr!.on('data', this.discard.bind(this));
-    this.signal.addEventListener('abort', this.cancellation, { once: true });
-    this.timer = setTimeout(this.timeout.bind(this), 120000);
-  }
-  private output(bytes: Buffer): void {
-    if (this.limit(bytes.length)) this.chunks.push(bytes);
-  }
-  private discard(bytes: Buffer): void {
-    this.limit(bytes.length);
-  }
-  private limit(size: number): boolean {
-    this.count += size;
-    if (this.count <= 1024 * 1024) return true;
-    this.failure = 'KATA_OUTPUT_LIMIT';
-    this.terminate();
-    return false;
-  }
-  private failed(): void {
-    this.failure = 'KATA_COMMAND_FAILED';
-  }
-  private cancel(): void {
-    this.failure = 'KATA_CANCELLED';
-    this.terminate();
-  }
-  private timeout(): void {
-    this.failure = 'KATA_COMMAND_TIMEOUT';
-    this.terminate();
-  }
-  private terminate(): void {
-    this.child?.kill('SIGTERM');
-    if (!this.killTimer) this.killTimer = setTimeout(this.kill.bind(this), 1000);
-  }
-  private kill(): void {
-    this.child?.kill('SIGKILL');
-  }
-  private finish(code: number | null): void {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.killTimer) clearTimeout(this.killTimer);
-    this.signal.removeEventListener('abort', this.cancellation);
-    if (this.signal.aborted) this.failure = 'KATA_CANCELLED';
-    if (this.failure || code !== 0)
-      this.reject!(new KataSandboxError(this.failure ?? 'KATA_COMMAND_FAILED'));
-    else this.accept!(Buffer.concat(this.chunks));
-  }
-}
-
 class KataClient {
   readonly namespace: string;
   constructor(
@@ -317,6 +252,72 @@ class KataClient {
     ).run();
     this.endpoint.verify();
     return bytes;
+  }
+  async guest(
+    name: string,
+    command: string[],
+    options: KataCommandOptions,
+    signal: AbortSignal,
+  ): Promise<number> {
+    this.endpoint.verify();
+    const args = [
+      '--address',
+      this.endpoint.path(),
+      '--namespace',
+      this.namespace,
+      'tasks',
+      'exec',
+      '--exec-id',
+      'workload-' + randomUUID(),
+      name,
+      ...command,
+    ];
+    const process = new KataCommand(this.configuration.client.path, args, signal, options);
+    await process.run();
+    this.endpoint.verify();
+    return process.outputBytes;
+  }
+  async offline(name: string, signal: AbortSignal): Promise<void> {
+    await this.guest(
+      name,
+      ['/bin/sh', '-c', 'for p in /sys/class/net/*; do [ "${p##*/}" = lo ] || exit 1; done'],
+      {},
+      signal,
+    );
+  }
+  async stage(
+    name: string,
+    path: string,
+    bytes: Buffer,
+    deadlineMs: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const command =
+      'umask 077; mkdir -p /run/treeseed-workload && test ! -L "$1" && cat > "$1" && chmod 0700 "$1"';
+    await this.guest(
+      name,
+      ['/bin/sh', '-c', command, 'cordis', path],
+      { stdin: bytes, deadlineMs, outputLimitBytes: 1024 },
+      signal,
+    );
+  }
+  async entrypoint(
+    name: string,
+    entry: import('@treeseed-cordis/sdk').EnvironmentEntrypoint,
+    bytes: Buffer,
+    signal: AbortSignal,
+  ): Promise<number> {
+    const path = '/run/treeseed-workload/' + entry.file.sha256;
+    const deadline = performance.now() + entry.deadlineMs;
+    await this.stage(name, path, bytes, entry.deadlineMs, signal);
+    const remaining = Math.floor(deadline - performance.now());
+    KataSandboxError.require(remaining > 0, 'KATA_COMMAND_TIMEOUT');
+    return this.guest(
+      name,
+      [path, ...entry.arguments],
+      { deadlineMs: remaining, outputLimitBytes: entry.outputLimitBytes },
+      signal,
+    );
   }
   async text(args: string[], signal: AbortSignal): Promise<string> {
     return (await this.bytes(args, signal)).toString('utf8').trim();
@@ -400,9 +401,10 @@ class KataCustody {
     private readonly directory: SafeDirectory,
     private readonly digest: string,
     private readonly namespace: string,
+    private readonly workloads: boolean,
   ) {}
-  static open(path: string, digest: string, namespace: string): KataCustody {
-    const custody = new KataCustody(SafeDirectory.open(path), digest, namespace);
+  static open(path: string, digest: string, namespace: string, workloads = false): KataCustody {
+    const custody = new KataCustody(SafeDirectory.open(path), digest, namespace, workloads);
     try {
       custody.initialize();
       custody.acquire();
@@ -418,10 +420,14 @@ class KataCustody {
     if (this.directory.entries().length === 0) {
       InstallationStore.mkdir(this.directory, 'intents').close();
       InstallationStore.mkdir(this.directory, 'destroyed').close();
+      if (this.workloads) InstallationStore.mkdir(this.directory, 'workloads').close();
       InstallationStore.publish(this.directory, 'receipt.json', this.receipt());
     }
     KataSandboxError.require(
-      this.directory.entries().join(',') === 'destroyed,intents,receipt.json',
+      this.directory.entries().join(',') ===
+        (this.workloads
+          ? 'destroyed,intents,receipt.json,workloads'
+          : 'destroyed,intents,receipt.json'),
       'KATA_REPAIR_REQUIRED',
     );
     const receipt = StrictJson.parse(this.directory.file('receipt.json', undefined, 1024, true));
@@ -432,7 +438,26 @@ class KataCustody {
     KataSandboxError.require(this.active().length === 0, 'KATA_REPAIR_REQUIRED');
   }
   private receipt(): object {
-    return { formatVersion: 1, configurationDigest: this.digest, namespace: this.namespace };
+    return {
+      formatVersion: this.workloads ? 2 : 1,
+      configurationDigest: this.digest,
+      namespace: this.namespace,
+    };
+  }
+  journal(): KataWorkloadJournal | null {
+    if (!this.workloads) return null;
+    this.verify();
+    const directory = this.directory.directory('workloads', true);
+    try {
+      return new KataWorkloadJournal(directory, this.digest);
+    } catch (error) {
+      directory.close();
+      throw error;
+    }
+  }
+  abandon(): void {
+    this.lock?.close();
+    this.directory.close();
   }
   private acquire(): void {
     this.lock = InstallationStore.mkdir(this.directory, 'owner.lock');
@@ -637,6 +662,21 @@ export class KataSandboxPlugin implements KataSandboxHost {
   async inspect(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     return (await this.active()).inspect(id, signal);
   }
+  async assign(
+    id: string,
+    assignmentId: string,
+    environmentId: string,
+    signal: AbortSignal,
+  ): Promise<KataAssignment> {
+    return (await this.active()).assign(id, assignmentId, environmentId, signal);
+  }
+  async execute(
+    id: string,
+    phase: KataWorkloadPhase,
+    signal: AbortSignal,
+  ): Promise<KataWorkloadResult> {
+    return (await this.active()).execute(id, phase, signal);
+  }
   async destroy(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
     return (await this.active()).destroy(id, signal);
   }
@@ -655,10 +695,19 @@ export class KataSandboxPlugin implements KataSandboxHost {
   }
 }
 
+interface KataWorkloadAttempt {
+  evidence: KataSandboxEvidence;
+  phase: KataWorkloadPhase;
+  environment: KataPreparedEnvironment;
+  digest: string;
+}
+
 /** Privileged bounded host backend. Worker plugins never receive this raw-runtime configuration. */
 export class KataSandboxBackend {
   private readonly queue = new KataQueue();
   private readonly processes: SandboxProcessObserver;
+  private readonly workloads: KataEnvironmentArchive | null;
+  private readonly journal: KataWorkloadJournal | null;
   private closing = false;
   private closed = false;
   private disposal: Promise<void> | null = null;
@@ -667,6 +716,10 @@ export class KataSandboxBackend {
     private readonly client: KataClient,
     private readonly custody: KataCustody,
   ) {
+    this.workloads = configuration.workloads
+      ? new KataEnvironmentArchive(configuration.workloads)
+      : null;
+    this.journal = custody.journal();
     this.processes = new SandboxProcessObserver(
       configuration.runtime.hypervisor,
       process.getuid!(),
@@ -682,10 +735,27 @@ export class KataSandboxBackend {
       const signal = new AbortController().signal;
       await client.qualify(signal);
       const digest = CanonicalJson.digest({ configuration, endpoint: endpoint.identity() });
-      const custody = KataCustody.open(configuration.custody, digest, client.namespace);
-      return new KataSandboxBackend(configuration, client, custody);
+      return this.owned(configuration, client, digest);
     } catch (error) {
       directory.close();
+      throw error;
+    }
+  }
+  private static owned(
+    configuration: KataBackendConfiguration,
+    client: KataClient,
+    digest: string,
+  ): KataSandboxBackend {
+    const custody = KataCustody.open(
+      configuration.custody,
+      digest,
+      client.namespace,
+      configuration.workloads !== undefined,
+    );
+    try {
+      return new KataSandboxBackend(configuration, client, custody);
+    } catch (error) {
+      custody.abandon();
       throw error;
     }
   }
@@ -732,7 +802,7 @@ export class KataSandboxBackend {
       'KATA_RESOURCE_CHANGED',
     );
   }
-  private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
+  private async qualifiedGuest(record: KataIntent, signal: AbortSignal): Promise<string> {
     await this.resource(record, signal);
     KataSandboxError.require(
       (await this.client.list('tasks', signal)).includes(record.resourceName),
@@ -743,14 +813,128 @@ export class KataSandboxBackend {
       kernel === this.configuration.runtime.guestKernel && kernel !== release(),
       'KATA_GUEST_UNQUALIFIED',
     );
+    return kernel;
+  }
+  private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
+    const kernel = await this.qualifiedGuest(record, signal);
     const hypervisor = this.processes.observe(record.resourceName);
+    const assignment = this.journal?.assignment(record.id) ?? null;
     return {
       id: record.id,
       resourceName: record.resourceName,
       kernel,
       hypervisor,
-      inspectionDigest: CanonicalJson.digest({ record, kernel, hypervisor }),
+      assignment,
+      inspectionDigest: CanonicalJson.digest({ record, kernel, hypervisor, assignment }),
     };
+  }
+  assign(
+    id: string,
+    assignmentId: string,
+    environmentId: string,
+    signal: AbortSignal,
+  ): Promise<KataAssignment> {
+    return this.queue.run(this.assignOwned.bind(this, id, assignmentId, environmentId, signal));
+  }
+  private async assignOwned(
+    id: string,
+    assignmentId: string,
+    environmentId: string,
+    signal: AbortSignal,
+  ): Promise<KataAssignment> {
+    await this.inspectOwned(id, signal);
+    KataSandboxError.require(this.workloads && this.journal, 'KATA_ENVIRONMENT_UNAVAILABLE');
+    const environment = await this.workloads.read(environmentId, this.configuration.image);
+    await this.client.offline(this.custody.read(id).resourceName, signal);
+    this.admit(signal);
+    return this.journal.assign(id, assignmentId, environment.definition);
+  }
+  execute(id: string, phase: KataWorkloadPhase, signal: AbortSignal): Promise<KataWorkloadResult> {
+    return this.queue.run(this.executeOwned.bind(this, id, phase, signal));
+  }
+  private async executeOwned(
+    id: string,
+    phase: KataWorkloadPhase,
+    signal: AbortSignal,
+  ): Promise<KataWorkloadResult> {
+    const evidence = await this.inspectOwned(id, signal);
+    const environment = await this.prepareWorkload(evidence, phase, signal);
+    const digest = CanonicalJson.digest({
+      assignment: evidence.assignment,
+      phase,
+      environment: environment.definition,
+    });
+    const previous = this.journal!.begin(id, phase, digest);
+    if (previous) return previous;
+    return this.runWorkload({ evidence, environment, phase, digest }, signal);
+  }
+  private async prepareWorkload(
+    evidence: KataSandboxEvidence,
+    phase: KataWorkloadPhase,
+    signal: AbortSignal,
+  ): Promise<KataPreparedEnvironment> {
+    KataSandboxError.require(
+      this.workloads && this.journal && evidence.assignment,
+      'KATA_ASSIGNMENT_REQUIRED',
+    );
+    KataSandboxError.require(
+      KataWorkloadSchemas.phase.safeParse(phase).success,
+      'KATA_PHASE_INVALID',
+    );
+    const environment = await this.workloads.read(
+      evidence.assignment.environmentId,
+      this.configuration.image,
+    );
+    KataSandboxError.require(
+      CanonicalJson.digest(environment.definition) === evidence.assignment.environmentDigest,
+      'KATA_ENVIRONMENT_CHANGED',
+    );
+    await this.client.offline(evidence.resourceName, signal);
+    this.admit(signal);
+    return environment;
+  }
+  private async runWorkload(
+    attempt: KataWorkloadAttempt,
+    signal: AbortSignal,
+  ): Promise<KataWorkloadResult> {
+    const { evidence, environment, phase, digest } = attempt;
+    try {
+      const outputBytes = await this.client.entrypoint(
+        evidence.resourceName,
+        environment.definition[phase],
+        environment[phase],
+        signal,
+      );
+      const inspected = await this.inspectOwned(evidence.id, signal);
+      return this.saveWorkload(attempt, inspected.inspectionDigest, outputBytes);
+    } catch (error) {
+      this.journal!.failed(evidence.id, phase, digest);
+      throw error;
+    }
+  }
+  private saveWorkload(
+    attempt: KataWorkloadAttempt,
+    inspectionDigest: string,
+    outputBytes: number,
+  ): KataWorkloadResult {
+    const {
+      evidence,
+      phase,
+      digest,
+      environment: { definition },
+    } = attempt;
+    this.admit(new AbortController().signal);
+    return this.journal!.complete(evidence.id, phase, digest, {
+      sandboxId: evidence.id,
+      environmentId: definition.id,
+      environmentRevision: definition.revision,
+      phase,
+      entrypointDigest: definition[phase].file.sha256,
+      networkDigest: CanonicalJson.digest(definition.network),
+      inspectionDigest,
+      exitCode: 0,
+      outputBytes,
+    });
   }
   destroy(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
     return this.queue.run(this.destroyOwned.bind(this, id, signal));
@@ -803,6 +987,7 @@ export class KataSandboxBackend {
     try {
       await this.client.emptyNamespace(new AbortController().signal);
       this.custody.close();
+      this.journal?.close();
       this.client.endpoint.close();
       this.closed = true;
     } catch (error) {

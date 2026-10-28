@@ -41,7 +41,7 @@ test(
   suite.interface.bind(suite),
 );
 test(
-  'acceptance: real default Kata backend keeps an owned guest warm and verifies scoped destruction',
+  'acceptance: real default Kata backend prepares assigned offline guests and verifies scoped destruction',
   suite.realGuest.bind(suite),
   185000,
 );
