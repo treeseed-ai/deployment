@@ -1,6 +1,5 @@
 import type { z } from 'zod';
 import { Socket } from 'node:net';
-import type { Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import {
   CanonicalJson,
@@ -22,11 +21,11 @@ import {
   ControlGuard,
   ControlSchemas,
   ControlAuthority,
-  ControlSocketIdentity,
+  ControlSocketReference,
   type ControlAuthorityRecord,
 } from './sandbox-io.js';
 class ControlExchange {
-  private readonly identity: Stats;
+  private readonly target: ControlSocketReference;
   private readonly socket = new Socket();
   private readonly chunks: Buffer[] = [];
   private bytes = 0;
@@ -43,7 +42,7 @@ class ControlExchange {
     private readonly signal: AbortSignal,
     private readonly timeoutMs: number,
   ) {
-    this.identity = ControlSocketIdentity.read(directory);
+    this.target = new ControlSocketReference(directory);
     this.cancellation = this.cancel.bind(this);
   }
   run(): Promise<SandboxControlResponse> {
@@ -65,11 +64,11 @@ class ControlExchange {
     this.socket.on('data', this.data.bind(this));
     this.socket.once('end', this.end.bind(this));
     this.socket.once('close', this.closed.bind(this));
-    this.socket.connect(this.directory.childPath('control.sock'), this.connected.bind(this));
+    this.socket.connect(this.target.path, this.connected.bind(this));
   }
   private connected(): void {
     try {
-      ControlSocketIdentity.verify(this.directory, this.identity);
+      this.target.verify();
       this.authority.verify(this.record);
       SandboxControlBinding.assertRequest(this.request, this.record.grant, Date.now());
       this.socket.write(
@@ -98,16 +97,19 @@ class ControlExchange {
         StrictJson.parse(bytes.subarray(0, -1)),
         this.request,
       );
-      this.validate();
-      this.finish();
-      this.accept!(response);
+      this.accepted(response);
     } catch (error) {
       this.fail(ControlGuard.failure(error));
     }
   }
+  private accepted(response: SandboxControlResponse): void {
+    this.validate();
+    if (!this.finish()) this.reject!(new SandboxControlError('SANDBOX_REPAIR_REQUIRED'));
+    else this.accept!(response);
+  }
   private validate(): void {
     ControlGuard.require(!this.signal.aborted, 'SANDBOX_CANCELLED');
-    ControlSocketIdentity.verify(this.directory, this.identity);
+    this.target.verify();
     this.authority.verify(this.record);
     SandboxControlBinding.assertRequest(this.request, this.record.grant, Date.now());
   }
@@ -122,14 +124,15 @@ class ControlExchange {
   }
   private fail(code: SandboxControlCode): void {
     if (this.done) return;
-    this.finish();
-    this.reject!(new SandboxControlError(code));
+    const closed = this.finish();
+    this.reject!(new SandboxControlError(closed ? code : 'SANDBOX_REPAIR_REQUIRED'));
   }
-  private finish(): void {
+  private finish(): boolean {
     this.done = true;
     if (this.timer) clearTimeout(this.timer);
     this.signal.removeEventListener('abort', this.cancellation);
     this.socket.destroy();
+    return this.target.close();
   }
 }
 

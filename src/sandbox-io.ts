@@ -313,12 +313,59 @@ export class ControlSocketIdentity {
     return stat;
   }
   static verify(directory: SafeDirectory, expected: Stats): void {
-    const actual = this.read(directory);
+    this.same(this.read(directory), expected);
+  }
+  static same(actual: Stats, expected: Stats): void {
     ControlGuard.require(
-      actual.dev === expected.dev &&
+      actual.isSocket() &&
+        actual.nlink === 1 &&
+        actual.uid === expected.uid &&
+        (actual.mode & 0o777) === 0o600 &&
+        actual.dev === expected.dev &&
         actual.ino === expected.ino &&
         actual.ctimeMs === expected.ctimeMs,
       'SANDBOX_RESOURCE_CHANGED',
     );
+  }
+}
+
+/** Affine Linux inode reference; pathname validation remains separate from kernel dialing. */
+export class ControlSocketReference {
+  private static readonly oPath = 0x200000;
+  private readonly identity: Stats;
+  private descriptor: number | null = null;
+  constructor(private readonly directory: SafeDirectory) {
+    ControlGuard.require(process.platform === 'linux', 'SANDBOX_PROVIDER_UNAVAILABLE');
+    this.identity = ControlSocketIdentity.read(directory);
+    this.descriptor = openSync(
+      directory.childPath('control.sock'),
+      ControlSocketReference.oPath | constants.O_NOFOLLOW,
+    );
+    try {
+      this.verify();
+    } catch (error) {
+      if (!this.close()) throw new SandboxControlError('SANDBOX_REPAIR_REQUIRED');
+      throw error;
+    }
+  }
+  get path(): string {
+    ControlGuard.require(this.descriptor !== null, 'SANDBOX_RESOURCE_CHANGED');
+    return '/proc/self/fd/' + this.descriptor;
+  }
+  verify(): void {
+    ControlGuard.require(this.descriptor !== null, 'SANDBOX_RESOURCE_CHANGED');
+    ControlSocketIdentity.verify(this.directory, this.identity);
+    ControlSocketIdentity.same(fstatSync(this.descriptor), this.identity);
+  }
+  close(): boolean {
+    const fd = this.descriptor;
+    if (fd === null) return true;
+    this.descriptor = null;
+    try {
+      closeSync(fd);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

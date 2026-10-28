@@ -272,15 +272,22 @@ class SandboxChannelIntegration {
     await first.start();
     await second.start();
     const directory = SafeDirectory.open(first.directory);
-    try { await this.pinned(directory, first, second); }
-    finally {
+    try {
+      await this.pinned(directory, first, second);
+    } finally {
       directory.close();
       await first.close();
       await second.close();
     }
   }
-  private async pinned(directory: SafeDirectory, first: UnixPeerFixture, second: UnixPeerFixture): Promise<void> {
-    const Constructor = Reflect.get(socketIo, 'ControlSocketReference') as new (directory: SafeDirectory) => { path: string; verify(): void; close(): boolean };
+  private async pinned(
+    directory: SafeDirectory,
+    first: UnixPeerFixture,
+    second: UnixPeerFixture,
+  ): Promise<void> {
+    const Constructor = Reflect.get(socketIo, 'ControlSocketReference') as new (
+      directory: SafeDirectory,
+    ) => { path: string; verify(): void; close(): boolean };
     assert.equal(typeof Constructor, 'function', 'client socket inode must be pinned');
     const reference = new Constructor(directory);
     const retained = join(first.directory, 'retained.sock');
@@ -304,12 +311,25 @@ class SandboxChannelIntegration {
       socket.connect(path);
       await connected;
       const data = once(socket, 'data');
-      socket.write(JSON.stringify({ credential: 'c'.repeat(64), request: {
-        schemaVersion: 'treeseed.sandbox-control/v1', requestId: 'fixture:pinned',
-        scope: fixture.scope, operation: 'ready', parameters: {},
-      } }) + '\n');
+      socket.write(this.pinnedFrame(fixture));
       assert.equal(JSON.parse(String((await data)[0])).success, true);
-    } finally { socket.destroy(); }
+    } finally {
+      socket.destroy();
+    }
+  }
+  private pinnedFrame(fixture: UnixPeerFixture): string {
+    return (
+      JSON.stringify({
+        credential: 'c'.repeat(64),
+        request: {
+          schemaVersion: 'treeseed.sandbox-control/v1',
+          requestId: 'fixture:pinned',
+          scope: fixture.scope,
+          operation: 'ready',
+          parameters: {},
+        },
+      }) + '\n'
+    );
   }
   private readonly endpointToken = new CapabilityToken<FixtureEndpoint>(
     'host.sandbox.control',
@@ -451,4 +471,7 @@ test(
   suite.adoption.bind(suite),
 );
 
-test('integration: pinned client socket inode reaches only the original peer after pathname replacement', suite.reference.bind(suite));
+test(
+  'integration: pinned client socket inode reaches only the original peer after pathname replacement',
+  suite.reference.bind(suite),
+);
