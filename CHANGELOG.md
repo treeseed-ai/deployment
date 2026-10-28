@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+
+- Select accepted host-mediated guest-session SDK contracts for bounded runner integration (#1021).
 - Select the reviewed capacity and bounded sandbox-control SDK closure (#1021).
 - Execute admitted environment entrypoints only inside owned offline Kata guests (#1021).
 - Qualify the Kata host against the reviewed capacity SDK closure (#1021).

@@ -1,5 +1,20 @@
 # Cordis diagnostics and non-activating planning
 
+## Host runner contract selection
+
+Deployment selects SDK .38 from accepted source `9ceaa50767f7644755bec1c8f8beffbcd05517ed`,
+archive SHA-256 `92858c0288b38aa30cb037e61f5da37e91e0c64f5690629b3a96ab3db6631011`.
+The peer, vendor, lock, installed identity and public Node consumer must agree. This bounded
+selection enables the separately granted logical guest-session interface; it does not implement
+the session, install Agent or activate capacity. The private channel candidate must integrate
+before this selection is submitted, retaining both runtime slices and the ten-file review gate.
+
+Agent .18 provides an actual GNU guest executable as bounded, individually hashed compressed
+chunks. The following runner provider must verify that exact owner artifact, stage it only inside
+the selected Kata sandbox, obtain actual guest readiness and preserve assignment/setup/cleanup
+custody. No worker-supplied commands, host paths, raw daemon sockets or invented readiness.
+Work/models remain Task 10; every issue stays open.
+
 ## Standalone worker bootstrap admission
 
 Issue #1020 requires the standalone worker to read its exact immutable published plan before
