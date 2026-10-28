@@ -2,7 +2,7 @@ export { SandboxSocketClient } from './sandbox-client.js';
 export { UnixSocketPlugin, UnixSocketToken } from './sandbox-io.js';
 import { z } from 'zod';
 import { createServer, type Socket, type Server } from 'node:net';
-import { unlinkSync, type Stats } from 'node:fs';
+import { closeSync, unlinkSync, type Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import {
   CanonicalJson,
@@ -263,7 +263,7 @@ class ControlConnection {
 /** Native endpoint lifetime and authentication are one coherent host security boundary. */
 export class SandboxControlPlugin implements ControlEndpoint {
   static readonly provide = ['host.sandbox.control'];
-  static readonly inject = ['host.socket.unix', 'host.sandbox.kata'];
+  static readonly inject = ['cordis.composition', 'host.socket.unix', 'host.sandbox.kata'];
   static readonly Config = EndpointConfiguration.schema;
   static readonly declaration = ProviderV4Schemas.declaration.parse({
     id: 'deployment.sandbox.control',
@@ -306,10 +306,18 @@ export class SandboxControlPlugin implements ControlEndpoint {
     this.directory = SafeDirectory.open(this.configuration.endpointDirectory);
     this.socketLease = await CordisServiceLocator.from(this.context).acquire(UnixSocketToken);
     const fd = await this.socketLease.value.bind(this.directory);
-    this.identity = ControlSocketIdentity.read(this.directory);
-    await new Promise<void>(this.listen.bind(this, fd));
+    await this.adopt(fd);
     this.verify();
     this.authority.verify(record);
+  }
+  private adopt(fd: number): Promise<void> {
+    try {
+      this.identity = ControlSocketIdentity.read(this.directory!);
+    } catch (error) {
+      closeSync(fd);
+      throw error;
+    }
+    return new Promise<void>(this.listen.bind(this, fd));
   }
   private admission(): ControlAuthorityRecord {
     const record = this.authority.read();

@@ -33,7 +33,10 @@ import {
   type ProviderLease,
 } from '@treeseed-cordis/sdk/runtime';
 
-interface FixtureEndpoint { start(): Promise<void>; close(): Promise<void> }
+interface FixtureEndpoint {
+  start(): Promise<void>;
+  close(): Promise<void>;
+}
 class FixtureEndpointAdapter {
   parse(input: unknown): FixtureEndpoint {
     assert(input && typeof input === 'object');
@@ -59,14 +62,26 @@ class UnusedKataFixture {
   static readonly inject: string[] = [];
   static readonly Config = z.strictObject({});
   static readonly declaration = KataSandboxPlugin.declaration;
-  constructor(context: Context) { context.provide(KataSandboxToken.id, this); }
+  constructor(context: Context) {
+    context.provide(KataSandboxToken.id, this);
+  }
   async ready(): Promise<void> {}
   async close(): Promise<void> {}
-  async create(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
-  async inspect(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
-  async assign(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
-  async execute(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
-  async destroy(): Promise<never> { throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION'); }
+  async create(): Promise<never> {
+    throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION');
+  }
+  async inspect(): Promise<never> {
+    throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION');
+  }
+  async assign(): Promise<never> {
+    throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION');
+  }
+  async execute(): Promise<never> {
+    throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION');
+  }
+  async destroy(): Promise<never> {
+    throw new Error('UNEXPECTED_FIXTURE_HOST_OPERATION');
+  }
 }
 class UnixPeerFixture {
   readonly directory = mkdtempSync(join(tmpdir(), 'sandbox-peer-'));
@@ -250,22 +265,36 @@ class SandboxChannelIntegration {
     assert.equal(readFileSync(path, 'utf8'), 'foreign-state');
     assert.equal(existsSync(directory.childPath('retained.sock')), true);
   }
-  private readonly endpointToken = new CapabilityToken<FixtureEndpoint>('host.sandbox.control', ProviderV4Schemas.version, new FixtureEndpointAdapter());
+  private readonly endpointToken = new CapabilityToken<FixtureEndpoint>(
+    'host.sandbox.control',
+    ProviderV4Schemas.version,
+    new FixtureEndpointAdapter(),
+  );
   async adoption(): Promise<void> {
     const authority = new UnixPeerFixture();
     const directory = mkdtempSync(join(tmpdir(), 'socket-adopt-'));
     const scope = await this.raceScope(authority, directory);
     const lease = await scope.acquire(this.endpointToken);
     try {
-      await assert.rejects(lease.value.start());
+      await assert.rejects(lease.value.start(), this.boundFailure.bind(this));
       this.closedDescriptor(ReplacedSocketFixture.descriptor);
-      assert.equal(readFileSync(join(directory, 'control.sock'), 'utf8'), 'foreign-before-adoption');
+      assert.equal(
+        readFileSync(join(directory, 'control.sock'), 'utf8'),
+        'foreign-before-adoption',
+      );
     } finally {
       await lease.release();
       await scope.dispose();
     }
     assert.equal(readFileSync(join(directory, 'control.sock'), 'utf8'), 'foreign-before-adoption');
     assert.equal(existsSync(join(directory, 'retained.sock')), true);
+  }
+  private boundFailure(error: unknown): boolean {
+    assert(
+      ReplacedSocketFixture.descriptor >= 0,
+      error instanceof Error ? error.stack : String(error),
+    );
+    return true;
   }
   private closedDescriptor(fd: number): void {
     try {
@@ -281,19 +310,43 @@ class SandboxChannelIntegration {
   private async raceScope(authority: UnixPeerFixture, directory: string): Promise<CordisScope> {
     const registrations = this.raceRegistrations(authority, directory);
     const selections = [];
-    for (const registration of registrations) selections.push({ scopeId: this.authority.scopeId, capability: registration.token.id, providerId: ProviderV4Schemas.declaration.parse(registration.declaration).id });
+    for (const registration of registrations)
+      selections.push({
+        scopeId: this.authority.scopeId,
+        capability: registration.token.id,
+        providerId: ProviderV4Schemas.declaration.parse(registration.declaration).id,
+      });
     return CordisScope.start({ registrations, selections }, this.authority);
   }
+  private readonly unusedHost: ProviderRegistration = {
+    plugin: UnusedKataFixture,
+    token: KataSandboxToken,
+    declaration: UnusedKataFixture.declaration,
+    configuration: {},
+    artifact: { kind: 'bundled', identity: 'fixture-only-native-adoption-race' },
+  };
   private raceRegistrations(authority: UnixPeerFixture, directory: string): ProviderRegistration[] {
     const path = realpathSync('/lib/x86_64-linux-gnu/libc.so.6');
     const sha256 = createHash('sha256').update(readFileSync(path)).digest('hex');
-    const artifact = { kind: 'bundled' as const, identity: 'fixture-only-native-adoption-race' };
-    const configuration = { scope: authority.scope, endpointDirectory: directory, authorityFile: authority.authorityFile, configurationDigest: 'd'.repeat(64) };
     return [
       { ...this.registration(path, sha256), plugin: ReplacedSocketFixture },
-      { plugin: UnusedKataFixture, token: KataSandboxToken, declaration: UnusedKataFixture.declaration, configuration: {}, artifact },
-      { plugin: SandboxControlPlugin, token: this.endpointToken, declaration: SandboxControlPlugin.declaration, configuration, artifact },
+      this.unusedHost,
+      this.controlRegistration(authority, directory),
     ];
+  }
+  private controlRegistration(authority: UnixPeerFixture, directory: string): ProviderRegistration {
+    return {
+      plugin: SandboxControlPlugin,
+      token: this.endpointToken,
+      declaration: SandboxControlPlugin.declaration,
+      configuration: {
+        scope: authority.scope,
+        endpointDirectory: directory,
+        authorityFile: authority.authorityFile,
+        configurationDigest: 'd'.repeat(64),
+      },
+      artifact: { kind: 'bundled', identity: 'fixture-only-native-adoption-race' },
+    };
   }
   private readonly authority = {
     scopeId: 'installation:fixture:host',
@@ -347,4 +400,7 @@ test(
   suite.cancelled.bind(suite),
 );
 
-test('integration: native endpoint closes an unadopted descriptor after socket identity substitution', suite.adoption.bind(suite));
+test(
+  'integration: native endpoint closes an unadopted descriptor after socket identity substitution',
+  suite.adoption.bind(suite),
+);
