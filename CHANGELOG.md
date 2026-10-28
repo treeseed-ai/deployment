@@ -9,6 +9,7 @@
 - Provide scoped native Kata sandbox lifecycle with private custody and verified destruction (#1021).
 
 ### Fixed
+- Fetch bounded complete candidate and Cordis history for CI without weakening verification (#1025).
 
 - Qualify capacity contracts and fence worker bootstrap handoff before mutable journal inspection (#1018, #1020).
 
