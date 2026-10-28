@@ -67,25 +67,16 @@ class EndpointConfiguration {
 }
 type ControlConfiguration = z.infer<typeof EndpointConfiguration.schema>;
 type RootConfiguration = z.infer<typeof EndpointConfiguration.root>;
-type WorkloadHost = KataSandboxHost & Pick<SandboxControlClient, 'assign' | 'execute'>;
 
 class ControlDispatch {
   constructor(
     private readonly context: Context,
     private readonly configuration: ControlConfiguration,
   ) {}
-  private host(input: KataSandboxHost): WorkloadHost {
-    for (const name of ['assign', 'execute'])
-      ControlGuard.require(
-        typeof Reflect.get(input, name) === 'function',
-        'SANDBOX_PROVIDER_UNAVAILABLE',
-      );
-    return input as WorkloadHost;
-  }
   async ready(): Promise<void> {
     const lease = await CordisServiceLocator.from(this.context).acquire(KataSandboxToken);
     try {
-      await this.host(lease.value).ready();
+      await lease.value.ready();
     } finally {
       await lease.release();
     }
@@ -93,13 +84,13 @@ class ControlDispatch {
   async execute(request: SandboxControlRequest, signal: AbortSignal): Promise<unknown> {
     const lease = await CordisServiceLocator.from(this.context).acquire(KataSandboxToken);
     try {
-      return await this.operation(this.host(lease.value), request, signal);
+      return await this.operation(lease.value, request, signal);
     } finally {
       await lease.release();
     }
   }
   private async operation(
-    host: WorkloadHost,
+    host: KataSandboxHost,
     request: SandboxControlRequest,
     signal: AbortSignal,
   ): Promise<unknown> {
@@ -123,7 +114,7 @@ class ControlDispatch {
         return this.destruction(await host.destroy(request.parameters.sandboxId, signal));
     }
   }
-  private async availability(host: WorkloadHost): Promise<SandboxAvailability> {
+  private async availability(host: KataSandboxHost): Promise<SandboxAvailability> {
     await host.ready();
     return {
       state: 'available',
@@ -136,7 +127,7 @@ class ControlDispatch {
     return SandboxControlSchemas.evidence.parse({
       sandboxId: input.id,
       inspectionDigest: input.inspectionDigest,
-      assignment: Reflect.get(input, 'assignment'),
+      assignment: input.assignment,
     });
   }
   private destruction(
