@@ -1,16 +1,9 @@
-import assert from "node:assert/strict";
-import {
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  chmodSync,
-  existsSync,
-  statSync,
-} from "node:fs";
-import { join } from "node:path";
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { CanonicalJson } from "@treeseed-cordis/sdk";
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { CanonicalJson } from '@treeseed-cordis/sdk';
 interface ArchiveReference {
   path: string;
   sha256: string;
@@ -30,10 +23,10 @@ export class KataWorkloadFixture {
   private readonly source: string;
   private readonly archives: string;
   constructor(private readonly root: string) {
-    this.source = join(root, "environment-source");
-    this.archives = join(root, "environment-archives");
-    this.hostCanary = join(root, "host-script-ran");
-    this.installCanary = join(root, "ambient-script-ran");
+    this.source = join(root, 'environment-source');
+    this.archives = join(root, 'environment-archives');
+    this.hostCanary = join(root, 'host-script-ran');
+    this.installCanary = join(root, 'ambient-script-ran');
   }
   prepare(image: string): FixtureWorkloads {
     this.write();
@@ -41,47 +34,33 @@ export class KataWorkloadFixture {
     return {
       directory: this.archives,
       environments: [
-        this.definition(image, archive, "environment:good", "setup.sh", 10000),
-        this.definition(
-          image,
-          archive,
-          "environment:failed",
-          "failed.sh",
-          10000,
-        ),
-        this.definition(image, archive, "environment:slow", "slow.sh", 20000),
-        this.definition(
-          image,
-          archive,
-          "environment:deadline",
-          "slow.sh",
-          3000,
-        ),
+        this.definition(image, archive, 'environment:good', 'setup.sh', 10000),
+        this.definition(image, archive, 'environment:failed', 'failed.sh', 10000),
+        this.definition(image, archive, 'environment:slow', 'slow.sh', 20000),
+        this.definition(image, archive, 'environment:deadline', 'slow.sh', 3000),
       ],
     };
   }
   private write(): void {
     mkdirSync(this.source, { mode: 0o700 });
     mkdirSync(this.archives, { mode: 0o700 });
-    writeFileSync(join(this.source, "setup.sh"), this.setup(), { mode: 0o700 });
-    writeFileSync(join(this.source, "verify.sh"), this.verification(), {
+    writeFileSync(join(this.source, 'setup.sh'), this.setup(), { mode: 0o700 });
+    writeFileSync(join(this.source, 'verify.sh'), this.verification(), {
       mode: 0o700,
     });
     writeFileSync(
-      join(this.source, "failed.sh"),
-      "#!/bin/sh\nprintf guest-output-canary\nexit 7\n",
+      join(this.source, 'failed.sh'),
+      '#!/bin/sh\nprintf guest-output-canary\nexit 7\n',
       { mode: 0o700 },
     );
     writeFileSync(
-      join(this.source, "slow.sh"),
-      "#!/bin/sh\nprintf started > /tmp/cordis-env-started\nsleep 30\n",
+      join(this.source, 'slow.sh'),
+      '#!/bin/sh\nprintf started > /tmp/cordis-env-started\nsleep 30\n',
       { mode: 0o700 },
     );
-    writeFileSync(
-      join(this.source, "package.json"),
-      JSON.stringify(this.metadata()),
-      { mode: 0o600 },
-    );
+    writeFileSync(join(this.source, 'package.json'), JSON.stringify(this.metadata()), {
+      mode: 0o600,
+    });
   }
   private setup(): string {
     return (
@@ -97,26 +76,26 @@ export class KataWorkloadFixture {
   }
   private metadata(): object {
     return {
-      name: "@fixture/kata-environment",
-      version: "1.0.0",
+      name: '@fixture/kata-environment',
+      version: '1.0.0',
       private: true,
-      files: ["setup.sh", "verify.sh", "failed.sh", "slow.sh"],
-      scripts: { postinstall: "touch " + this.installCanary },
+      files: ['setup.sh', 'verify.sh', 'failed.sh', 'slow.sh'],
+      scripts: { postinstall: 'touch ' + this.installCanary },
     };
   }
   private pack(): ArchiveReference {
-    const result = spawnSync(
-      process.execPath,
-      ["pm", "pack", "--destination", this.archives],
-      { cwd: this.source, encoding: "utf8", timeout: 30000 },
-    );
+    const result = spawnSync(process.execPath, ['pm', 'pack', '--destination', this.archives], {
+      cwd: this.source,
+      encoding: 'utf8',
+      timeout: 30000,
+    });
     assert.equal(result.status, 0, result.stderr);
-    const path = "fixture-kata-environment-1.0.0.tgz";
+    const path = 'fixture-kata-environment-1.0.0.tgz';
     const file = join(this.archives, path);
     chmodSync(file, 0o600);
     return {
       path,
-      sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+      sha256: createHash('sha256').update(readFileSync(file)).digest('hex'),
       size: statSync(file).size,
     };
   }
@@ -125,7 +104,7 @@ export class KataWorkloadFixture {
     return {
       file: {
         path: file,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
+        sha256: createHash('sha256').update(bytes).digest('hex'),
         size: bytes.length,
       },
       arguments: [],
@@ -141,17 +120,17 @@ export class KataWorkloadFixture {
     deadlineMs: number,
   ) {
     const value = {
-      schemaVersion: "treeseed.agent-environment/v1",
+      schemaVersion: 'treeseed.agent-environment/v1',
       id,
       image: {
         reference: image,
-        manifestDigest: image.split("@sha256:")[1],
-        os: "linux",
-        architecture: "amd64",
+        manifestDigest: image.split('@sha256:')[1],
+        os: 'linux',
+        architecture: 'amd64',
       },
       setup: this.entry(setup, deadlineMs),
-      verification: this.entry("verify.sh", 10000),
-      network: { mode: "offline", destinations: [] },
+      verification: this.entry('verify.sh', 10000),
+      network: { mode: 'offline', destinations: [] },
     };
     return {
       archive,
@@ -159,8 +138,8 @@ export class KataWorkloadFixture {
         ...value,
         revision: CanonicalJson.digest(value),
         artifact: {
-          package: "@fixture/kata-environment",
-          version: "1.0.0",
+          package: '@fixture/kata-environment',
+          version: '1.0.0',
           integrity: archive.sha256,
         },
       },
