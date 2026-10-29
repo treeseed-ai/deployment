@@ -1,4 +1,9 @@
 import { RuntimeArchiveCustody } from './runtime-archive.js';
+export {
+  RuntimeComponentCustody,
+  type RuntimeComponentBinding,
+  type RuntimeComponentProof,
+} from './runtime-components.js';
 export { RuntimeArchiveCustody } from './runtime-archive.js';
 export type { RuntimeKitMember, RuntimeKitMembers } from './runtime-kit.js';
 export {

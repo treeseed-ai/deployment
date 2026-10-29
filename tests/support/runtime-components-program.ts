@@ -10,6 +10,7 @@ import {
   readFileSync,
   readdirSync,
   lstatSync,
+  chmodSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,6 +41,7 @@ export class ComponentFixture {
   readonly bindings: ComponentBindings[];
   constructor() {
     writeFileSync(this.installed, this.bytes, { mode: 0o755 });
+    chmodSync(this.installed, 0o755);
     const archive = zstdCompressSync(this.tar());
     const path = join(this.directory, 'fixture.tar.zst');
     writeFileSync(path, archive, { mode: 0o600 });
@@ -133,7 +135,7 @@ class InstalledComponentsProgram {
             sha256: fixture.digest(fixture.bytes),
             size: fixture.bytes.length,
             mode: 0o755,
-            links: [{ path: 'opt/kata/bin/alias', target: 'component' }],
+            links: [{ path: 'opt/kata/bin/alias', target: 'opt/kata/bin/component' }],
           },
         },
       ],
