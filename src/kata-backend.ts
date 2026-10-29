@@ -1,5 +1,6 @@
 import { RuntimeArchiveCustody } from './runtime-archive.js';
 export { RuntimeArchiveCustody } from './runtime-archive.js';
+export type { RuntimeKitMember, RuntimeKitMembers } from './runtime-kit.js';
 export {
   GuestRuntimeArchive,
   GuestRuntimeElf,
