@@ -1,3 +1,4 @@
+export { GuestRuntimeArchive, GuestRuntimeElf, type GuestRuntimeArtifact } from './guest-archive.js';
 import {
   KataEnvironmentArchive,
   KataWorkloadJournal,
