@@ -63,7 +63,7 @@ interface BackendConstructor {
 
 /** Qualification-only daemon fixture; production default construction remains in Deployment. */
 export class PrivateKataFixture {
-  readonly directory = mkdtempSync('/run/cordis-backend-');
+  readonly directory = PrivateKataFixture.qualifiedDirectory();
   readonly socket = join(this.directory, 'containerd.sock');
   readonly workloads = new KataWorkloadFixture(this.directory);
   readonly namespaceScope = {
@@ -74,6 +74,19 @@ export class PrivateKataFixture {
   readonly namespace = 'cordis-sandbox-' + CanonicalJson.digest(this.namespaceScope).slice(0, 24);
   private daemon: ChildProcess | null = null;
   private log: number | null = null;
+  private static qualifiedDirectory(): string {
+    if (
+      typeof Bun === 'undefined' ||
+      process.platform !== 'linux' ||
+      process.arch !== 'x64' ||
+      process.getuid?.() !== 0 ||
+      process.env.GITHUB_ACTIONS !== 'true' ||
+      process.env.RUNNER_ENVIRONMENT !== 'github-hosted' ||
+      !process.env.RUNNER_TEMP?.startsWith('/home/runner/')
+    )
+      throw new Error('KATA_QUALIFICATION_REQUIRED');
+    return mkdtempSync('/run/cordis-backend-');
+  }
   private readonly daemonArguments = [
     '--config',
     join(this.directory, 'config.toml'),
