@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import type{Format2MigrationRequest,Format2MigrationResult}from'./migration-custody.js';
 import {constants,openSync,closeSync,writeFileSync,fsyncSync,mkdirSync,linkSync,unlinkSync,lstatSync,fstatSync,rmdirSync,chmodSync,renameSync,readdirSync,rmSync,readFileSync} from 'node:fs';
 import {resolve,dirname,basename,join} from 'node:path';
@@ -193,20 +194,192 @@ export class DeploymentWorkerClient {
 import {Parser,type ReadEntry,create as createTar} from 'tar';
 import type {InstalledRelease,ContainerDefinition} from '@treeseed-cordis/sdk';
 class ArchiveOutput {
- private readonly parser:Parser;private resolveResult:((value:void)=>void)|null=null;private rejectResult:((error:Error)=>void)|null=null;private readonly paths=new Set<string>();private bytes=0;
- constructor(private readonly target:SafeDirectory,private readonly archive:Buffer){this.parser=new Parser({strict:true,maxMetaEntrySize:1024*1024,maxDecompressionRatio:1000,onReadEntry:this.entry.bind(this)});}
- run():Promise<void>{return new Promise(this.start.bind(this));}
- private start(resolveResult:(value:void)=>void,rejectResult:(error:Error)=>void):void{this.resolveResult=resolveResult;this.rejectResult=rejectResult;this.parser.once('error',this.failed.bind(this));this.parser.once('end',this.end.bind(this));this.parser.end(this.archive);}
- private entry(entry:ReadEntry):void{try{const path=entry.path.replace(/\/$/,'');Check.require(path==='package'||path.startsWith('package/'),'INVALID_ARCHIVE');Check.require(!this.paths.has(path)&&['File','OldFile','Directory'].includes(entry.type),'INVALID_ARCHIVE');this.paths.add(path);this.bytes+=entry.size;Check.require(this.bytes<=64*1024*1024&&this.paths.size<=8192&&entry.size<=8*1024*1024,'PROVIDER_CLOSURE');if(path==='package'){entry.resume();return;}const parts=SafeDirectory.relative(path.slice(8)),name=parts.pop()!;let parent=this.target;try{for(const part of parts){if(!parent.entries().includes(part)){const child=InstallationStore.mkdir(parent,part);if(parent!==this.target)parent.close();parent=child;}else{const child=parent.directory(part,true);if(parent!==this.target)parent.close();parent=child;}}if(entry.type==='Directory'){if(!parent.entries().includes(name)){const child=InstallationStore.mkdir(parent,name);child.close();}entry.resume();}else{const file=new ArchiveOutputFile(parent,name,entry.size,this.failed.bind(this),parent!==this.target);parent=this.target;entry.once('error',file.abort.bind(file));entry.on('data',file.data.bind(file));entry.once('end',file.end.bind(file));entry.resume();}}finally{if(parent!==this.target)parent.close();}}catch{entry.resume();this.failed();}}
- private end():void{this.target.verify();this.resolveResult!();}
- private failed():void{this.rejectResult!(new Error('Verified package staging failed'));}
+  private readonly parser: Parser;
+  private resolveResult: ((value: void) => void) | null = null;
+  private rejectResult: ((error: Error) => void) | null = null;
+  private readonly paths = new Set<string>();
+  private bytes = 0;
+  private settled = false;
+  private current: ArchiveOutputFile | null = null;
+  constructor(
+    private readonly target: SafeDirectory,
+    private readonly archive: Buffer,
+  ) {
+    this.parser = new Parser({
+      strict: true,
+      maxMetaEntrySize: 1024 * 1024,
+      maxDecompressionRatio: 1000,
+      onReadEntry: this.entry.bind(this),
+    });
+  }
+  run(): Promise<void> {
+    return new Promise(this.start.bind(this));
+  }
+  private start(resolveResult: (value: void) => void, rejectResult: (error: Error) => void): void {
+    this.resolveResult = resolveResult;
+    this.rejectResult = rejectResult;
+    this.parser.once('error', this.failed.bind(this));
+    this.parser.once('end', this.end.bind(this));
+    void this.feed().catch(this.failed.bind(this));
+  }
+  private static turn(done: (value: void) => void): void {
+    setImmediate(done);
+  }
+  private async feed(): Promise<void> {
+    for (let offset = 0; offset < this.archive.length && !this.settled; offset += 256) {
+      await new Promise<void>(ArchiveOutput.turn);
+      if (this.settled) return;
+      const end = Math.min(offset + 256, this.archive.length);
+      // Preserve the original whole-input expansion allowance while feeding prefixes.
+      this.parser.maxDecompressionRatio = (1000 * this.archive.length) / end;
+      const ready = this.parser.write(this.archive.subarray(offset, end));
+      if (!ready && !this.settled) await once(this.parser, 'drain');
+    }
+    if (!this.settled) {
+      this.parser.maxDecompressionRatio = 1000;
+      this.parser.end();
+    }
+  }
+  private admit(entry: ReadEntry): string {
+    const path = entry.path.replace(/\/$/, '');
+    Check.require(path === 'package' || path.startsWith('package/'), 'INVALID_ARCHIVE');
+    Check.require(
+      !this.paths.has(path) && ['File', 'OldFile', 'Directory'].includes(entry.type),
+      'INVALID_ARCHIVE',
+    );
+    this.paths.add(path);
+    this.bytes += entry.size;
+    Check.require(
+      this.bytes <= 64 * 1024 * 1024 && this.paths.size <= 8192 && entry.size <= 8 * 1024 * 1024,
+      'PROVIDER_CLOSURE',
+    );
+    return path;
+  }
+  private entry(entry: ReadEntry): void {
+    if (this.settled) {
+      entry.resume();
+      return;
+    }
+    try {
+      const path = this.admit(entry);
+      if (path === 'package') {
+        entry.resume();
+        return;
+      }
+      const parts = SafeDirectory.relative(path.slice(8)),
+        name = parts.pop()!;
+      this.publish(this.parent(parts), name, entry);
+    } catch {
+      entry.resume();
+      this.failed();
+    }
+  }
+  private parent(parts: string[]): SafeDirectory {
+    let parent = this.target;
+    try {
+      for (const part of parts) {
+        const child = parent.entries().includes(part)
+          ? parent.directory(part, true)
+          : InstallationStore.mkdir(parent, part);
+        if (parent !== this.target) parent.close();
+        parent = child;
+      }
+      return parent;
+    } catch (error) {
+      if (parent !== this.target) parent.close();
+      throw error;
+    }
+  }
+  private publish(parent: SafeDirectory, name: string, entry: ReadEntry): void {
+    let transferred = false;
+    try {
+      if (entry.type === 'Directory') {
+        if (!parent.entries().includes(name)) InstallationStore.mkdir(parent, name).close();
+        entry.resume();
+      } else {
+        this.attach(parent, name, entry);
+        transferred = true;
+      }
+    } finally {
+      if (!transferred && parent !== this.target) parent.close();
+    }
+  }
+  private attach(parent: SafeDirectory, name: string, entry: ReadEntry): void {
+    const file = new ArchiveOutputFile(
+      parent,
+      name,
+      entry.size,
+      this.failed.bind(this),
+      parent !== this.target,
+    );
+    this.current = file;
+    entry.once('error', file.abort.bind(file));
+    entry.on('data', file.data.bind(file));
+    entry.once('end', file.end.bind(file));
+    entry.resume();
+  }
+  private end(): void {
+    if (this.settled) return;
+    try {
+      this.target.verify();
+      this.settled = true;
+      this.resolveResult!();
+    } catch {
+      this.failed();
+    }
+  }
+  private failed(): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.current?.abort();
+    try {
+      this.parser.abort(new Error('Verified package staging failed'));
+    } catch {}
+    this.rejectResult!(new Error('Verified package staging failed'));
+  }
 }
 class ArchiveOutputFile {
- private readonly chunks:Buffer[]=[];private size=0;private readonly directory:SafeDirectory;
- constructor(parent:SafeDirectory,private readonly name:string,private readonly expected:number,private readonly failed:()=>void,private readonly release:boolean){this.directory=parent;SafeDirectory.owner(fstatSync(this.directory.fd),true);}
- data(bytes:Buffer):void{this.size+=bytes.length;if(this.size>this.expected||this.size>8*1024*1024){this.failed();return;}this.chunks.push(bytes);}
- end():void{try{Check.require(this.size===this.expected,'INVALID_ARCHIVE');InstallationStore.publish(this.directory,this.name,Buffer.concat(this.chunks));}catch{this.failed();}finally{if(this.release)this.directory.close();}}
- abort():void{if(this.release)this.directory.close();this.failed();}
+  private readonly chunks: Buffer[] = [];
+  private size = 0;
+  private closed = false;
+  constructor(
+    private readonly directory: SafeDirectory,
+    private readonly name: string,
+    private readonly expected: number,
+    private readonly failure: () => void,
+    private readonly release: boolean,
+  ) {
+    SafeDirectory.owner(fstatSync(directory.fd), true);
+  }
+  data(bytes: Buffer): void {
+    if (this.closed) return;
+    this.size += bytes.length;
+    if (this.size > this.expected || this.size > 8 * 1024 * 1024) {
+      this.abort();
+      return;
+    }
+    this.chunks.push(bytes);
+  }
+  end(): void {
+    if (this.closed) return;
+    try {
+      Check.require(this.size === this.expected, 'INVALID_ARCHIVE');
+      InstallationStore.publish(this.directory, this.name, Buffer.concat(this.chunks));
+    } catch {
+      this.failure();
+    } finally {
+      this.close();
+    }
+  }
+  private close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.release) this.directory.close();
+  }
+  abort(): void {
+    this.close();
+    this.failure();
+  }
 }
 export class PreparedProviderStager {
  constructor(private readonly plan:InstalledPlan,private readonly inventory:InstalledRelease){}

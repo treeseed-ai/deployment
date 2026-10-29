@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { test } from 'bun:test';
 import { CooperativePackageFixture } from '../support/cooperative-package-program.js';
 class CooperativePackageBoundaries {
@@ -25,11 +25,18 @@ class CooperativePackageBoundaries {
     const fixture = new CooperativePackageFixture(mode);
     try {
       await assert.rejects(fixture.materialize.bind(fixture));
+      const terminal = readdirSync(fixture.target);
+      for (let turn = 0; turn < 4; turn++)
+        await new Promise<void>(CooperativePackageBoundaries.turn);
+      assert.deepEqual(readdirSync(fixture.target), terminal);
       assert.equal(existsSync(fixture.canary), false);
       assert.equal(existsSync(fixture.root + '/escape'), false);
     } finally {
       fixture.close();
     }
+  }
+  private static turn(done: (value: void) => void): void {
+    setImmediate(done);
   }
 }
 const suite = new CooperativePackageBoundaries();

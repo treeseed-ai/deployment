@@ -29,3 +29,10 @@ another service container or selectable validation bypass. Keep changed methods 
 formatted body lines. Existing worker/API deadlines and full installed acceptance stay required.
 The API failure is not fixed until a fresh accepted exact owner archive passes that genuine gate.
 All issues remain open; Work/model execution remains Task 10; legacy services are untouched.
+
+The feeder supplies at most 256 compressed bytes per turn. The pinned tar parser exposes its
+expansion-ratio limit against compressed bytes supplied so far. Scale that intermediate limit
+by total input bytes / supplied bytes, retaining the original total-input allowance of 1000
+throughout, then restore 1000 at final end. Otherwise a valid dense prefix followed by less
+compressible data could be rejected solely because of chunking. A genuine dense-prefix archive
+pins that compatibility. Member, metadata and total-output guards remain unchanged.
