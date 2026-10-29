@@ -1,3 +1,4 @@
+import { RuntimeArchiveCustody } from './runtime-archive.js';
 export { RuntimeArchiveCustody } from './runtime-archive.js';
 export {
   GuestRuntimeArchive,
@@ -73,6 +74,7 @@ class KataConfiguration {
       shim: this.file,
       hypervisor: this.file,
       configuration: this.file,
+      archive: RuntimeArchiveCustody.Config.optional(),
     }),
     image: z
       .string()
@@ -191,6 +193,7 @@ class KataEndpoint {
   constructor(
     readonly directory: SafeDirectory,
     private readonly configuration: KataBackendConfiguration,
+    private readonly archive: RuntimeArchiveCustody | null,
   ) {
     SafeDirectory.owner(fstatSync(directory.fd), true);
     this.socket = lstatSync(directory.childPath('containerd.sock'));
@@ -198,7 +201,23 @@ class KataEndpoint {
   }
   verify(): void {
     this.directory.verify();
+    this.archive?.verify();
+    this.socketIdentity();
+    this.process();
+    this.runtimeConfiguration();
+    this.executables();
+  }
+  private socketIdentity(): void {
     const socket = lstatSync(this.directory.childPath('containerd.sock'));
+    this.socketOwner(socket);
+    KataSandboxError.require(
+      socket.dev === this.socket.dev &&
+        socket.ino === this.socket.ino &&
+        socket.ctimeMs === this.socket.ctimeMs,
+      'KATA_ENDPOINT_CHANGED',
+    );
+  }
+  private socketOwner(socket: Stats): void {
     KataSandboxError.require(
       socket.isSocket() &&
         !socket.isSymbolicLink() &&
@@ -207,15 +226,6 @@ class KataEndpoint {
         (socket.mode & 0o777) === 0o600,
       'KATA_ENDPOINT_OWNER',
     );
-    KataSandboxError.require(
-      socket.dev === this.socket.dev &&
-        socket.ino === this.socket.ino &&
-        socket.ctimeMs === this.socket.ctimeMs,
-      'KATA_ENDPOINT_CHANGED',
-    );
-    this.process();
-    this.runtimeConfiguration();
-    this.executables();
   }
   private executables(): void {
     KataExecutable.verify(this.configuration.client, true);
@@ -258,7 +268,11 @@ class KataEndpoint {
     return { device: this.socket.dev, inode: this.socket.ino, daemon: this.configuration.daemon };
   }
   close(): void {
-    this.directory.close();
+    try {
+      this.archive?.close();
+    } finally {
+      this.directory.close();
+    }
   }
 }
 
@@ -938,9 +952,24 @@ export class KataSandboxBackend {
     configuration: KataBackendConfiguration,
     directory: SafeDirectory,
   ): Promise<KataSandboxBackend> {
-    const endpoint = new KataEndpoint(directory, configuration);
-    const client = new KataClient(configuration, endpoint);
     const signal = new AbortController().signal;
+    const archive = configuration.runtime.archive
+      ? await RuntimeArchiveCustody.open(configuration.runtime.archive, signal)
+      : null;
+    try {
+      const endpoint = new KataEndpoint(directory, configuration, archive);
+      return await this.connected(configuration, endpoint, signal);
+    } catch (error) {
+      archive?.close();
+      throw error;
+    }
+  }
+  private static async connected(
+    configuration: KataBackendConfiguration,
+    endpoint: KataEndpoint,
+    signal: AbortSignal,
+  ): Promise<KataSandboxBackend> {
+    const client = new KataClient(configuration, endpoint);
     await client.qualify(signal);
     const digest = CanonicalJson.digest({ configuration, endpoint: endpoint.identity() });
     const runtime = configuration.guestRuntime
