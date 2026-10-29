@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Retain bounded effective Kata runtime policy (#1063).
+
 ### Changed
 - Select the exact SDK availability-compatible public closure (#1058).
 
