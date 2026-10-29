@@ -90,7 +90,9 @@ export class KataRunnerSession {
       expectedGeneration: this.generation,
       parameters: {},
     });
-    return new Promise(this.begin.bind(this, request, signal));
+    const result = await new Promise<CapacityReadiness>(this.begin.bind(this, request, signal));
+    KataSandboxError.require(!this.failure && !this.ended, 'KATA_RUNNER_UNAVAILABLE');
+    return result;
   }
   private begin(
     request: CapacityChannelRequest,
@@ -119,32 +121,39 @@ export class KataRunnerSession {
     if (bytes.length > 65536 - this.buffered.length) return this.fail('KATA_RUNNER_OUTPUT_INVALID');
     this.buffered = Buffer.concat([this.buffered, bytes]);
     try {
-      while (this.buffered.includes(10)) this.frame();
+      if (this.buffered.includes(10)) this.frame();
     } catch {
       this.fail('KATA_RUNNER_RESPONSE_INVALID');
     }
   }
   private frame(): void {
+    const result = this.response();
+    this.buffered = Buffer.alloc(0);
+    this.generation = structuredClone(result.generation);
+    const accept = this.pending!.accept;
+    this.settled();
+    accept(result);
+  }
+  private response(): CapacityReadiness {
     const end = this.buffered.indexOf(10);
     KataSandboxError.require(
-      end > 0 && this.pending && performance.now() < this.pending.deadline,
+      end > 0 &&
+        end === this.buffered.length - 1 &&
+        this.pending &&
+        performance.now() < this.pending.deadline,
       'KATA_RUNNER_RESPONSE_INVALID',
     );
     const response = CapacityChannelBinding.assertResponse(
       StrictJson.parse(this.buffered.subarray(0, end)),
       this.pending.request,
     );
-    this.buffered = this.buffered.subarray(end + 1);
     KataSandboxError.require(
       response.success && response.role === 'runner' && response.operation === 'ready',
       'KATA_RUNNER_RESPONSE_INVALID',
     );
     const result = response.result;
     KataSandboxError.require(result.ready && result.blockers.length === 0, 'KATA_RUNNER_UNREADY');
-    this.generation = structuredClone(result.generation);
-    const accept = this.pending.accept;
-    this.settled();
-    accept(result);
+    return result;
   }
   close(): Promise<void> {
     if (!this.closing) this.closing = new Promise(this.drain.bind(this));
@@ -153,7 +162,7 @@ export class KataRunnerSession {
   private drain(accept: () => void, reject: (error: Error) => void): void {
     if (this.pending) this.fail('KATA_RUNNER_CANCELLED');
     const timer = setTimeout(this.drainTimeout.bind(this, reject), 5000);
-    void this.exited.then(this.drained.bind(this, timer, accept, reject));
+    void this.exited.then(this.drained.bind(this, timer, performance.now() + 5000, accept, reject));
     this.child.stdin.end();
   }
   private drainTimeout(reject: (error: Error) => void): void {
@@ -162,12 +171,13 @@ export class KataRunnerSession {
   }
   private drained(
     timer: ReturnType<typeof setTimeout>,
+    deadline: number,
     accept: () => void,
     reject: (error: Error) => void,
     code: number | null,
   ): void {
     clearTimeout(timer);
-    if (this.failure || code !== 0 || this.buffered.length)
+    if (this.failure || code !== 0 || this.buffered.length || performance.now() >= deadline)
       return reject(new KataSandboxError('KATA_RUNNER_CLEANUP_FAILED'));
     accept();
   }

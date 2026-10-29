@@ -54,6 +54,8 @@ class KataRunnerProgram {
     'native',
     this.image,
   ];
+  private readonly privilegeCheck =
+    'found=0; for d in /proc/[0-9]*; do test -r "$d/cmdline" || continue; first=$(tr "\\000" "\\n" < "$d/cmdline" | head -n 1); if test "$first" = /run/treeseed-runner/guest; then grep -Eq "^Uid:[[:space:]]+65532[[:space:]]+65532[[:space:]]+65532[[:space:]]+65532$" "$d/status" || exit 1; grep -Eq "^CapEff:[[:space:]]+0000000000000000$" "$d/status" || exit 1; grep -Eq "^NoNewPrivs:[[:space:]]+1$" "$d/status" || exit 1; found=$((found+1)); fi; done; test "$found" = 1';
   private scope: CordisScope | null = null;
   private lease: ProviderLease<KataSandboxHost> | null = null;
   async run(): Promise<void> {
@@ -181,6 +183,7 @@ class KataRunnerProgram {
       const second = await backend.inspect(id, signal);
       assert.deepEqual(this.readiness(second).generation, ready.generation);
       this.virgin(fixture, first.resourceName);
+      this.privileges(fixture, first.resourceName);
     } finally {
       await backend.destroy(id, signal);
     }
@@ -194,6 +197,21 @@ class KataRunnerProgram {
     assert.deepEqual(result.blockers, []);
     assert.match(result.generation.processGeneration, /^[a-f0-9]{64}$/);
     return result;
+  }
+  private privileges(fixture: PrivateKataFixture, name: string): void {
+    assert.equal(
+      fixture.run([
+        'tasks',
+        'exec',
+        '--exec-id',
+        'privileges-' + randomUUID(),
+        name,
+        '/bin/sh',
+        '-c',
+        this.privilegeCheck,
+      ]),
+      '',
+    );
   }
   private virgin(fixture: PrivateKataFixture, name: string): void {
     const result = fixture.run([
