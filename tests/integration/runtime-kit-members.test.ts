@@ -44,6 +44,22 @@ class RuntimeKitMemberBoundaries {
       fixture.close();
     }
   }
+  async interrupted(mode: string): Promise<void> {
+    const fixture = new RuntimeKitFixture();
+    const custody = await fixture.open();
+    const controller = new AbortController();
+    try {
+      const pending = custody.inspect([RuntimeKitFixture.link], controller.signal);
+      if (mode === 'cancelled') controller.abort();
+      else appendFileSync(fixture.path, 'PRIVATE_KIT_CANARY');
+      await assert.rejects(pending, {
+        code: mode === 'cancelled' ? 'KATA_CANCELLED' : 'KATA_RUNTIME_ARCHIVE_CHANGED',
+      });
+    } finally {
+      custody.close();
+      fixture.close();
+    }
+  }
   async lifetime(mode: string): Promise<void> {
     const fixture = new RuntimeKitFixture();
     const custody = await fixture.open();
@@ -101,3 +117,8 @@ test(
   'integration: asynchronous kit inspection snapshots its exact selected paths',
   suite.snapshot.bind(suite),
 );
+for (const mode of ['cancelled', 'changed'])
+  test(
+    'integration: in-progress kit inspection cannot accept ' + mode + ' custody',
+    suite.interrupted.bind(suite, mode),
+  );
