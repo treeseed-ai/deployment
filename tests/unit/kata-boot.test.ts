@@ -74,7 +74,7 @@ for (const [before, after] of [
 ])
   test(
     'unit: boot projection rejects invalid supported boot field ' + before + ':' + after,
-    suite.rejected.bind(suite, before, after),
+    suite.rejected.bind(suite, before!, after!),
   );
 for (const [flag, value] of [
   ['-kernel', '/PRIVATE_OTHER_KERNEL'],
