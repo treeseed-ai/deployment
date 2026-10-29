@@ -93,6 +93,10 @@ for (const mode of [
   'cycle',
   'truncated',
   'garbage',
+  'checksum',
+  'truncated-zstd',
+  'ratio',
+  'entries',
 ])
   test('integration: retained kit inspection refuses ' + mode, suite.rejects.bind(suite, mode));
 for (const paths of [

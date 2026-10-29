@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { RuntimeArchiveCustody } from '@treeseed-cordis/deployment/sandbox';
 export type { RuntimeKitMembers as KitMembers } from '@treeseed-cordis/deployment/sandbox';
 import type { RuntimeKitMembers as KitMembers } from '@treeseed-cordis/deployment/sandbox';
@@ -52,8 +52,10 @@ export class RuntimeKitFixture {
   }
   private bytes(mode: string): Buffer {
     const parts = this.members(mode);
+    if (mode === 'checksum') parts[0]![0] = parts[0]![0]! ^ 1;
     if (mode !== 'truncated') parts.push(Buffer.alloc(1024));
     const bytes = zstdCompressSync(Buffer.concat(parts));
+    if (mode === 'truncated-zstd') return bytes.subarray(0, -1);
     return mode === 'garbage' ? Buffer.concat([bytes, Buffer.from('PRIVATE_KIT_CANARY')]) : bytes;
   }
   private members(mode: string): Buffer[] {
@@ -74,6 +76,16 @@ export class RuntimeKitFixture {
       parts.push(this.entry({ path: 'opt/kata/device', type: 'CharacterDevice' }));
     if (mode === 'permissions') parts.push(this.entry({ path: 'opt/kata/writable', mode: 0o666 }));
     if (mode === 'ancestor') parts.push(this.entry({ path: RuntimeKitFixture.link + '/child' }));
+    parts.push(...this.expansion(mode));
+    return parts;
+  }
+  private expansion(mode: string): Buffer[] {
+    const parts: Buffer[] = [];
+    if (mode === 'ratio')
+      parts.push(this.entry({ path: 'opt/kata/repetition' }, Buffer.alloc(65536)));
+    if (mode === 'entries')
+      for (let index = 0; index < 4096; index++)
+        parts.push(this.entry({ path: 'opt/kata/file-' + index }, randomBytes(32)));
     return parts;
   }
   private entry(input: HeaderData, bytes = Buffer.alloc(0)): Buffer {
