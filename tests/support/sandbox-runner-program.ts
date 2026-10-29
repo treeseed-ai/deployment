@@ -24,6 +24,7 @@ import {
   type SandboxControlScope,
 } from '@treeseed-cordis/sdk';
 import * as Deployment from '@treeseed-cordis/deployment/sandbox-control';
+import { KataSandboxPlugin } from '@treeseed-cordis/deployment/sandbox';
 import { PrivateKataFixture } from './kata-backend-program.js';
 interface RunnerClientConstructor {
   new (configuration: unknown): SandboxRunnerClient;
@@ -47,6 +48,16 @@ class HostedRunnerChannel {
   });
   private readonly image =
     'docker.io/library/ubuntu@sha256:157dc3d6e4a3e4f2c68d12df9df9ed6e808b59af6d4c3757b432b4f519916725';
+  private readonly imageArguments = [
+    'images',
+    'pull',
+    '--local',
+    '--platform',
+    'linux/amd64',
+    '--snapshotter',
+    'native',
+    this.image,
+  ];
   private application: Deployment.SandboxControlApplication | null = null;
   constructor(private readonly Client: RunnerClientConstructor) {}
   async run(): Promise<void> {
@@ -81,24 +92,16 @@ class HostedRunnerChannel {
     assert.equal(this.fixture.run(['containers', 'list', '--quiet']), '');
   }
   private async host(): Promise<object> {
-    const original = await this.fixture.configuration();
+    const { workloads, ...original } = KataSandboxPlugin.Config.parse(
+      await this.fixture.configuration(),
+    );
     const directory = join(this.fixture.directory, 'runner-artifacts');
     mkdirSync(directory, { mode: 0o700 });
     copyFileSync('vendor/agent-guest.tgz', join(directory, 'agent.tgz'));
     chmodSync(join(directory, 'agent.tgz'), 0o600);
-    this.fixture.run([
-      'images',
-      'pull',
-      '--local',
-      '--platform',
-      'linux/amd64',
-      '--snapshotter',
-      'native',
-      this.image,
-    ]);
+    this.fixture.run(this.imageArguments);
     return {
-      ...(original as object),
-      workloads: undefined,
+      ...original,
       image: this.image,
       guestRuntime: {
         scope: this.capacityScope,
@@ -145,16 +148,19 @@ class HostedRunnerChannel {
         expiresAtEpochMs: Date.now() + 180000,
         operations: ['ready', 'create', 'inspect', 'destroy'],
       },
-      runnerGrant: {
-        schemaVersion: 'treeseed.sandbox-runner-grant/v1',
-        id: 'grant:runner',
-        revision: 1,
-        scope: this.scope,
-        capacityScope: this.capacityScope,
-        state: 'granted',
-        expiresAtEpochMs: Date.now() + 180000,
-        operations: ['ready'],
-      },
+      runnerGrant: this.runnerGrant(),
+    };
+  }
+  private runnerGrant(): object {
+    return {
+      schemaVersion: 'treeseed.sandbox-runner-grant/v1',
+      id: 'grant:runner',
+      revision: 1,
+      scope: this.scope,
+      capacityScope: this.capacityScope,
+      state: 'granted',
+      expiresAtEpochMs: Date.now() + 180000,
+      operations: ['ready'],
     };
   }
   private publish(record: object): void {
