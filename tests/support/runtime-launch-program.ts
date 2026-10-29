@@ -15,6 +15,37 @@ import { CanonicalJson, SandboxControlSchemas } from '@treeseed-cordis/sdk';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { RuntimePolicyFixture } from './runtime-policy-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
+import { KataCommand } from '../../src/kata-command.js';
+
+/** Temporary isolated fixture diagnostics; remove before final production qualification. */
+class IsolatedCommandTrace {
+  private static previous: ((this: KataCommand, bytes: Buffer) => void) | null = null;
+  private static bytes = Buffer.alloc(0);
+  static start(): void {
+    assert.equal(this.previous, null);
+    this.bytes = Buffer.alloc(0);
+    this.previous = Reflect.get(KataCommand.prototype, 'discard');
+    assert.equal(typeof this.previous, 'function');
+    assert(Reflect.set(KataCommand.prototype, 'discard', this.prototype.discard));
+  }
+  private discard(this: KataCommand, bytes: Buffer): void {
+    IsolatedCommandTrace.previous!.call(this, bytes);
+    IsolatedCommandTrace.bytes = Buffer.concat([IsolatedCommandTrace.bytes, bytes]).subarray(
+      -16384,
+    );
+  }
+  static explain(): void {
+    process.stderr.write(
+      'Isolated native creation command stderr:\n' + this.bytes.toString('utf8') + '\n',
+    );
+  }
+  static stop(): void {
+    assert(this.previous);
+    assert(Reflect.set(KataCommand.prototype, 'discard', this.previous));
+    this.previous = null;
+    this.bytes = Buffer.alloc(0);
+  }
+}
 
 interface LaunchProof {
   readonly kind: 'kata-launch-binding';
@@ -199,12 +230,23 @@ class NativeLaunchScenario {
       resources: this.custody.resources,
     });
     this.active = true;
-    const created = await this.backend.create(this.id, this.custody.signal);
+    const created = await this.create();
     await this.attest(created);
     await this.destroy();
     assert.throws(this.attestation!.verify.bind(this.attestation), {
       message: 'KATA_LAUNCH_CHANGED',
     });
+  }
+  private async create(): Promise<Sandbox.KataSandboxEvidence> {
+    IsolatedCommandTrace.start();
+    try {
+      return await this.backend!.create(this.id, this.custody.signal);
+    } catch (error) {
+      IsolatedCommandTrace.explain();
+      throw error;
+    } finally {
+      IsolatedCommandTrace.stop();
+    }
   }
   private async attest(created: Sandbox.KataSandboxEvidence): Promise<void> {
     const Constructor = LaunchCapability.type(),
