@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Actual process boot-input observation is specified in [the owner reference](docs/kata-boot-observation.md).
+It remains separate from complete installed policy/profile admission.
+
 Installed runtime path/alias custody is specified in [the owner reference](docs/runtime-alias-custody.md).
 It extends read-only artifact proof; complete host profile admission remains required.
 
