@@ -66,10 +66,11 @@ test(
   'integration: bounded runner process transport freshly validates stable readiness and orderly disposal',
   suite.stable.bind(suite),
 );
-for (const mode of ['foreign', 'malformed', 'stderr', 'generation', 'exit'])
+for (const mode of ['foreign', 'malformed', 'stderr', 'generation', 'exit', 'duplicate', 'silent'])
   test(
     'integration: bounded runner transport rejects ' + mode + ' without reporting clean disposal',
     suite.invalid.bind(suite, mode),
+    20000,
   );
 test(
   'integration: cancelled runner exchange remains fenced through disposal',

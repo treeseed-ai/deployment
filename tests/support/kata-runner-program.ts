@@ -227,7 +227,8 @@ class RunnerTransportFixture {
     const mode = process.argv[3];
     if (this.disturbance(mode)) return;
     const response = this.response(request, mode);
-    process.stdout.write(JSON.stringify(response) + '\n');
+    const bytes = JSON.stringify(response) + '\n';
+    process.stdout.write(mode === 'duplicate' ? bytes + bytes : bytes);
   }
   private disturbance(mode: string | undefined): boolean {
     if (mode === 'silent') return true;
