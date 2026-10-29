@@ -10,6 +10,8 @@ import {
   chmodSync,
   realpathSync,
   existsSync,
+  copyFileSync,
+  readdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -192,10 +194,21 @@ export class PrivateKataFixture {
   private runtime(): object {
     return {
       version: '4.1.0',
+      archive: this.archive(),
       guestKernel: '6.18.35',
       shim: this.file('/opt/kata/runtime-rs/bin/containerd-shim-kata-v2'),
       hypervisor: this.file('/opt/kata/bin/qemu-system-x86_64'),
       configuration: this.file(process.env.KATA_CONF_FILE!),
+    };
+  }
+  private archive(): object {
+    const path = join(this.directory, 'kata-runtime.tar.zst');
+    copyFileSync(join(process.env.RUNNER_TEMP!, 'kata.tar.zst'), path);
+    chmodSync(path, 0o600);
+    return {
+      path,
+      size: 969565384,
+      sha256: '3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96',
     };
   }
   private daemonIdentity(): object {
@@ -309,6 +322,12 @@ class KataBackendProgram {
       'KataSandboxBackend',
     ) as unknown as BackendConstructor;
     assert.equal(typeof constructor, 'function', 'production Kata backend must exist');
+    await this.archiveAdmission(constructor, configuration);
+    this.pull(fixture, configuration);
+    await this.scriptCanary(constructor, configuration, fixture.directory);
+    return this.native(configuration, fixture.namespaceScope.installationId);
+  }
+  private pull(fixture: PrivateKataFixture, configuration: unknown): void {
     const image = Reflect.get(configuration as object, 'image') as string;
     fixture.run([
       'images',
@@ -320,8 +339,16 @@ class KataBackendProgram {
       'native',
       image,
     ]);
-    await this.scriptCanary(constructor, configuration, fixture.directory);
-    return this.native(configuration, fixture.namespaceScope.installationId);
+  }
+  private async archiveAdmission(
+    constructor: BackendConstructor,
+    configuration: unknown,
+  ): Promise<void> {
+    const value = configuration as { runtime: Record<string, unknown>; custody: string };
+    const archive = { ...(value.runtime.archive as object), sha256: '0'.repeat(64) };
+    const input = { ...value, runtime: { ...value.runtime, archive } };
+    await assert.rejects(constructor.open(input), { message: 'KATA_RUNTIME_ARCHIVE_INVALID' });
+    assert.deepEqual(readdirSync(value.custody), []);
   }
   private async native(configuration: unknown, installationId: string): Promise<Backend> {
     const token = Reflect.get(deployment, 'KataSandboxToken') as unknown as CapabilityToken<
