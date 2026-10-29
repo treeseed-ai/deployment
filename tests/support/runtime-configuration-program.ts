@@ -53,7 +53,7 @@ static_sandbox_resource_mgmt = true
 [agent.kata.mem_agent]
 compact_force_times = 9223372036854775807
 `;
-  constructor(text = ConfigurationFixture.text) {
+  constructor(text: string | Buffer = ConfigurationFixture.text) {
     const parts: Buffer[] = [];
     this.component(parts, 'configuration', 'opt/kata/config/runtime.toml', Buffer.from(text));
     this.component(parts, 'hypervisor', 'opt/kata/bin/qemu', Buffer.from('QEMU fixture data'));
