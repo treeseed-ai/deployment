@@ -176,19 +176,34 @@ class KataRunnerProgram {
     const backend = await this.prepare(fixture);
     const id = 'sandbox-' + randomUUID();
     const signal = new AbortController().signal;
+    const failures: unknown[] = [];
     try {
-      const first = await backend.create(id, signal);
-      const ready = this.readiness(first);
-      assert.equal(first.assignment, null);
-      const second = await backend.inspect(id, signal);
-      assert.deepEqual(this.readiness(second).generation, ready.generation);
-      this.virgin(fixture, first.resourceName);
-      this.privileges(fixture, first.resourceName);
-    } finally {
-      await backend.destroy(id, signal);
+      await this.warm(backend, id, signal, fixture);
+    } catch (error) {
+      failures.push(new Error('fixture-native-root-readiness', { cause: error }));
     }
+    try {
+      await backend.destroy(id, signal);
+    } catch (error) {
+      failures.push(new Error('fixture-physical-destruction', { cause: error }));
+    }
+    if (failures.length) throw new AggregateError(failures, 'fixture-runner-lifecycle');
     assert.equal(fixture.run(['tasks', 'list', '--quiet']), '');
     assert.equal(fixture.run(['containers', 'list', '--quiet']), '');
+  }
+  private async warm(
+    backend: KataSandboxHost,
+    id: string,
+    signal: AbortSignal,
+    fixture: PrivateKataFixture,
+  ): Promise<void> {
+    const first = await backend.create(id, signal);
+    const ready = this.readiness(first);
+    assert.equal(first.assignment, null);
+    const second = await backend.inspect(id, signal);
+    assert.deepEqual(this.readiness(second).generation, ready.generation);
+    this.virgin(fixture, first.resourceName);
+    this.privileges(fixture, first.resourceName);
   }
   private readiness(evidence: unknown): CapacityReadiness {
     const result = CapacitySchemas.readiness.parse(Reflect.get(evidence as object, 'runner'));
