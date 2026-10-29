@@ -76,7 +76,7 @@ class InstalledPolicyFixture {
   private static requested(path: string, member: Sandbox.RuntimeKitMember): boolean {
     return member.requestedPath === path;
   }
-  private async effective(): Promise<string> {
+  private document(): string {
     const template = '/' + RuntimePolicyFixture.selections[0][1];
     const document = parse(readFileSync(template, 'utf8'), { integersAsBigInt: true });
     const qemu = (document.hypervisor as Record<string, unknown>).qemu as Record<string, unknown>;
@@ -88,10 +88,13 @@ class InstalledPolicyFixture {
       memory_slots: 1n,
       enable_annotations: [],
     });
+    return stringify(document);
+  }
+  private async effective(): Promise<string> {
     const parent = join(this.directory, 'launch-policy');
     mkdirSync(parent, { mode: 0o700 });
     const path = join(parent, 'effective.toml'),
-      bytes = Buffer.from(stringify(document));
+      bytes = Buffer.from(this.document());
     writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
     this.policy = await Sandbox.EffectiveRuntimePolicy.open(
       {
@@ -173,6 +176,10 @@ class NativeLaunchScenario {
     await assert.rejects(
       Constructor.open.bind(Constructor, policy, created.resourceName, AbortSignal.abort()),
       { message: 'KATA_CANCELLED' },
+    );
+    await assert.rejects(
+      Constructor.open.bind(Constructor, policy, '../PRIVATE_NAME', this.custody.signal),
+      { message: 'KATA_LAUNCH_INVALID' },
     );
     this.attestation.verify();
   }
