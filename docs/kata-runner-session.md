@@ -82,3 +82,11 @@ isolates the host pipe without executing the payload. Upstream reports about [CR
 and [Bun closed-stdin reporting](https://github.com/oven-sh/bun/issues/45882) are hypotheses to test,
 not evidence that this ctr/Kata configuration has those defects. Keep original deadlines and avoid
 retries or timing sleeps. Retain the failed .98/.99 archives and hosted runs.
+
+The .100 failure is specifically TRANSFER, after successful directory preparation. Before physical
+cleanup, qualification reads only the known guest payload's byte count and its filesystem's type,
+block size and available blocks. The fixed read-only probe has a ten-second bound and a 1 KiB output
+limit; only validated numeric/type fields enter the diagnostic. Probe failure cannot mask the
+original failure or skip destruction. The [uutils stat contract](https://uutils.org/coreutils/docs/utils/stat.html)
+defines these filesystem fields. This separates an exhausted guest mount from a failed stdin
+transport without exposing files or executing the payload on the host.
