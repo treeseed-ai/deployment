@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Provide a distinct private service-scoped sandbox control transport (#1021).
 
 - Preserve shared safe planning evidence in compiled source and installed fixture failures (#1029).
 
