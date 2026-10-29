@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Keep worker requests responsive during verified package staging (#1052).
+
 ### Added
 - Provide private installation record custody for seed coordination (#1054).
 - Bind Kata configuration references to verified runtime components (#1021).
