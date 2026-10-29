@@ -67,3 +67,9 @@ Containerd's [exec implementation](https://github.com/containerd/containerd/blob
 uses attached stdin/stdout and waits for the guest process; its normal completion deletes the exec
 record. Cancellation/disposal still requires owner resource read-back and physical VM destruction.
 EOF or a client exit alone is never a successful sandbox-destruction receipt.
+
+Qualification failures retain both the primary warm/inspect failure and any destruction failure;
+cleanup must never replace the original cause. Fixed stage codes distinguish binary/configuration
+staging from readiness and physical removal, without printing commands, output, paths or secrets.
+The first .98 hosted run failed with generic KATA_COMMAND_FAILED; retain that immutable run/archive
+as evidence and use a new candidate for additional stage evidence. No timeout or assertion is removed.
