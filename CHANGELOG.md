@@ -5,6 +5,8 @@
 ### Added
 - Provide a distinct private service-scoped sandbox control transport (#1021).
 
+- Preserve shared safe planning evidence in compiled source and installed fixture failures (#1029).
+
 - Preserve safe exact Docker planning failure causes without changing blocker envelopes (#1029).
 - Retain safe evidence from exact failed Docker prerequisite commands without retries (#1029).
 

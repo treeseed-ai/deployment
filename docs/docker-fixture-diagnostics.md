@@ -60,3 +60,27 @@ of this formatter without starting the fixture; the actual compiled program rema
 This follow-up depends on exact invocation evidence #1034 and follows documentation, built public
 failure tests and sanitizer tests before implementation. It investigates the original failure;
 it adds no retries, weaker deadlines, activation, shared workflow changes or issue closure.
+
+## Shared fixture error preservation
+
+The existing development-only `DockerPrerequisiteFixture.failed(error, inputFile?)` is the
+shared safe terminal formatter for built fixture programs. Npm source retains its subsequent
+read-back by passing the existing fixture input file; installed-plugin qualification does not
+add queries. Both preserve fixed blocker identifiers plus the original invocation category/kind.
+When present, append only validated original elapsed milliseconds, bounded exit status and
+recognized signal, so timeout and exit evidence is not lost again. Missing or invalid numeric/
+signal fields report fixed unavailable timing. Read data descriptors without invoking getters.
+Unknown causes, getters/proxy traps and non-identifier codes never enter output; arbitrary
+provider messages/causes remain excluded. Non-planning errors retain their previous propagation.
+
+Move the existing npm sanitizer into this helper and call it from both terminal paths. Make the
+installed fixture safely importable for built formatter qualification, while its compiled main
+entry still executes every original scenario/assertion/deadline. Do not format or refactor its
+untouched historical scenario method. New tests must prove both imports avoid startup and both
+formatters retain the original safe cause. Existing privacy controls and full installed Git
+acceptance remain mandatory.
+
+This is motivated by guest-admission .94 job 123181267173: InstalledPluginProgram replaced
+DOCKER_UNAVAILABLE and discarded its cause. Its failed aggregate 123184819292 remains evidence,
+not an accepted run. This fixes evidence transport, not the original intermittent prerequisite;
+no retry, deadline change, production log or shared workflow change is introduced.
