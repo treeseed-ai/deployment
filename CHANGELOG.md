@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Inspect exact runtime kit members through retained archive custody (#1021).
 - Qualify bounded Docker prerequisites before hosted verification (#1029).
 - Retain the exact Kata runtime kit throughout native backend lifetime (#1021).
 - Select the exact manager-readiness SDK closure (#1021).

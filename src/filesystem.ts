@@ -205,6 +205,11 @@ export class VerifiedDescriptor {
     signal.throwIfAborted();
     this.finish(hash, expected, count);
   }
+  read(signal: AbortSignal): import('node:fs').ReadStream {
+    this.verify();
+    PlanningFailure.require(this.before.size > 0, 'OCI_SIZE');
+    return this.stream(this.before.size, signal);
+  }
   private stream(size: number, signal: AbortSignal): import('node:fs').ReadStream {
     const fd = openSync('/proc/self/fd/' + this.fd, constants.O_RDONLY | constants.O_NONBLOCK);
     try {
