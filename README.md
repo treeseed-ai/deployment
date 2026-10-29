@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Installed runtime path/alias custody is specified in [the owner reference](docs/runtime-alias-custody.md).
+It extends read-only artifact proof; complete host profile admission remains required.
+
 ## Host runner contract selection
 
 Deployment selects SDK .44 from accepted source `00be028b92998f8d7039a3906e784c6b8598e730`,

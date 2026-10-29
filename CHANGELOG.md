@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Verify installed Kata aliases against retained runtime members (#1061).
+
 ### Changed
 - Select the exact SDK availability-compatible public closure (#1058).
 
