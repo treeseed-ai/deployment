@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, copyFileSync, chmodSync, statSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import {
   CapacitySchemas,
   CapacityChannelSchemas,
@@ -198,6 +199,7 @@ class KataRunnerProgram {
       await this.warm(backend, id, signal, fixture);
     } catch (error) {
       failures.push(new Error('fixture-native-root-readiness', { cause: error }));
+      failures.push(this.transferEvidence(fixture, id));
     }
     try {
       await backend.destroy(id, signal);
@@ -207,6 +209,44 @@ class KataRunnerProgram {
     if (failures.length) throw new AggregateError(failures, 'fixture-runner-lifecycle');
     assert.equal(fixture.run(['tasks', 'list', '--quiet']), '');
     assert.equal(fixture.run(['containers', 'list', '--quiet']), '');
+  }
+  private transferArguments(fixture: PrivateKataFixture, id: string): string[] {
+    const name = fixture.namespace + '-' + CanonicalJson.digest({ id }).slice(0, 24);
+    const command =
+      'if test -f /run/treeseed-runner/guest; then stat -c "payload=%s" /run/treeseed-runner/guest; else printf "payload=missing\\n"; fi; stat -f -c "filesystem=%T,block=%S,available=%a" /run/treeseed-runner';
+    return [
+      '--address',
+      fixture.socket,
+      '--namespace',
+      fixture.namespace,
+      'tasks',
+      'exec',
+      '--exec-id',
+      'failure-readback-' + randomUUID(),
+      name,
+      '/bin/sh',
+      '-c',
+      command,
+    ];
+  }
+  private transferEvidence(fixture: PrivateKataFixture, id: string): Error {
+    const result = spawnSync('/usr/bin/ctr', this.transferArguments(fixture, id), {
+      encoding: 'utf8',
+      timeout: 10000,
+      maxBuffer: 1024,
+    });
+    const accepted =
+      /^payload=(?:missing|[0-9]+)\nfilesystem=[a-zA-Z0-9_-]+,block=[0-9]+,available=[0-9]+\n$/.test(
+        result.stdout ?? '',
+      );
+    return new Error(
+      JSON.stringify({
+        phase: 'fixture-transfer-readback',
+        status: result.status,
+        signal: result.signal,
+        evidence: accepted ? result.stdout.trim() : 'unavailable',
+      }),
+    );
   }
   private async warm(
     backend: KataSandboxHost,
