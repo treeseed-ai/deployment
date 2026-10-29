@@ -44,6 +44,12 @@ class InstalledPolicyFixture {
   readonly signal = new AbortController().signal;
   constructor(readonly directory: string) {}
   async prepare(): Promise<string> {
+    await this.retain();
+    const prepared = await this.effective();
+    this.policy = prepared.policy;
+    return prepared.path;
+  }
+  private async retain(): Promise<void> {
     const path = '/opt/kata/kata-static-4.1.0-amd64.tar.zst';
     this.archive = await Sandbox.RuntimeArchiveCustody.open(
       {
@@ -62,7 +68,6 @@ class InstalledPolicyFixture {
       this.signal,
     );
     this.aliases = await Sandbox.RuntimeAliasCustody.open(this.components, '/', this.signal);
-    return this.effective();
   }
   private bindings(inspected: Sandbox.RuntimeKitMembers): Sandbox.RuntimeComponentBinding[] {
     const bindings = [];
@@ -76,39 +81,51 @@ class InstalledPolicyFixture {
   private static requested(path: string, member: Sandbox.RuntimeKitMember): boolean {
     return member.requestedPath === path;
   }
-  private document(): string {
+  private document(memoryMiB: number): string {
     const template = '/' + RuntimePolicyFixture.selections[0][1];
     const document = parse(readFileSync(template, 'utf8'), { integersAsBigInt: true });
     const qemu = (document.hypervisor as Record<string, unknown>).qemu as Record<string, unknown>;
     Object.assign(qemu, {
       default_vcpus: 3n,
       default_maxvcpus: 3n,
-      default_memory: 1056n,
-      default_maxmemory: 1312n,
+      default_memory: BigInt(memoryMiB + 32),
+      default_maxmemory: BigInt(memoryMiB + 32 + 256),
       memory_slots: 1n,
       enable_annotations: [],
     });
     return stringify(document);
   }
-  private async effective(): Promise<string> {
-    const parent = join(this.directory, 'launch-policy');
+  private async effective(
+    name = 'launch-policy',
+    memoryMiB = 1024,
+  ): Promise<{
+    path: string;
+    policy: Sandbox.EffectiveRuntimePolicy;
+  }> {
+    const parent = join(this.directory, name);
     mkdirSync(parent, { mode: 0o700 });
     const path = join(parent, 'effective.toml'),
-      bytes = Buffer.from(this.document());
+      bytes = Buffer.from(this.document(memoryMiB));
     writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
-    this.policy = await Sandbox.EffectiveRuntimePolicy.open(
+    const policy = await Sandbox.EffectiveRuntimePolicy.open(
       {
         configuration: {
           path,
           sha256: createHash('sha256').update(bytes).digest('hex'),
         },
-        resources: this.resources,
+        resources: { ...this.resources, memoryMiB },
       },
       this.components!,
       this.aliases!,
       this.signal,
     );
-    return path;
+    return { path, policy };
+  }
+  async mismatch(): Promise<Sandbox.EffectiveRuntimePolicy> {
+    const alternate = await this.effective('mismatch-policy', 1025);
+    assert.notEqual(alternate.policy.proof.digest, this.policy!.proof.digest);
+    assert.equal(alternate.policy.proof.resources.memoryMiB, 1025);
+    return alternate.policy;
   }
   close(): void {
     const failures = [];
@@ -164,12 +181,26 @@ class NativeLaunchScenario {
   private async attest(created: Sandbox.KataSandboxEvidence): Promise<void> {
     const Constructor = LaunchCapability.type(),
       policy = this.custody.policy!;
+    this.observed(created);
     this.attestation = await Constructor.open(policy, created.resourceName, this.custody.signal);
     this.attestation.verify();
     this.proof(created);
     await this.repeated(created);
     await this.refused(created);
+    await this.mismatched(created);
     this.attestation.verify();
+  }
+  private async mismatched(created: Sandbox.KataSandboxEvidence): Promise<void> {
+    const alternate = await this.custody.mismatch(),
+      Constructor = LaunchCapability.type();
+    try {
+      await assert.rejects(
+        Constructor.open.bind(Constructor, alternate, created.resourceName, this.custody.signal),
+        { message: 'KATA_LAUNCH_INVALID' },
+      );
+    } finally {
+      alternate.close();
+    }
   }
   private async repeated(created: Sandbox.KataSandboxEvidence): Promise<void> {
     const repeated = await LaunchCapability.type().open(
@@ -204,15 +235,17 @@ class NativeLaunchScenario {
     assert.equal(payload.kind, 'kata-launch-binding');
     assert.equal(payload.policyDigest, this.custody.policy!.proof.digest);
     assert.deepEqual(payload.boot, created.boot);
-    assert.deepEqual(payload.boot.boot.resources, {
+    assert.deepEqual(payload.machine, { type: 'q35', accelerator: 'kvm' });
+    assert.equal(digest, CanonicalJson.digest(payload));
+    assert(Object.isFrozen(proof) && Object.isFrozen(payload.machine));
+  }
+  private observed(created: Sandbox.KataSandboxEvidence): void {
+    assert.deepEqual(created.boot.boot.resources, {
       vcpus: 3,
       maximumVcpus: 3,
       memoryMiB: 1056,
       maximumMemoryMiB: 1312,
     });
-    assert.deepEqual(payload.machine, { type: 'q35', accelerator: 'kvm' });
-    assert.equal(digest, CanonicalJson.digest(payload));
-    assert(Object.isFrozen(proof) && Object.isFrozen(payload.machine));
   }
   private async destroy(): Promise<void> {
     if (!this.backend || !this.active) return;
