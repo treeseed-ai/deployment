@@ -18,11 +18,64 @@ export class InstallationStore {
   let directory=SafeDirectory.open(path);
   try{Check.require(fstatSync(directory.fd).uid===process.getuid?.(),'PATH_OWNER');for(const name of missing){mkdirSync(directory.childPath(name),{mode:0o700});fsyncSync(directory.fd);const child=directory.directory(name,true);directory.close();directory=child;}directory.verify();return directory;}catch(error){directory.close();throw error;}
  }
- static publish(directory:SafeDirectory,name:string,value:unknown,mode=0o600):void {
-  const bytes=Buffer.isBuffer(value)?value:typeof value==='string'?value:CanonicalJson.stringify(value)+'\n',temporary='.tmp-'+randomUUID(),fd=openSync(directory.childPath(temporary),constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,mode);
-  try{writeFileSync(fd,bytes);fsyncSync(fd);}finally{closeSync(fd);}
-  try{directory.verify();try{linkSync(directory.childPath(temporary),directory.childPath(name));}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;Check.require(directory.file(name,undefined,512*1024*1024,mode===0o600).equals(Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes)),'RECORD_CONFLICT');}fsyncSync(directory.fd);}finally{unlinkSync(directory.childPath(temporary));}
- }
+  static publish(
+    directory: SafeDirectory,
+    name: string,
+    value: unknown,
+    mode = 0o600,
+    reuse = true,
+  ): void {
+    const bytes = InstallationStore.publicationBytes(value),
+      temporary = '.tmp-' + randomUUID();
+    InstallationStore.writePublication(directory, temporary, bytes, mode);
+    try {
+      directory.verify();
+      InstallationStore.linkPublication(directory, temporary, name, bytes, mode, reuse);
+      fsyncSync(directory.fd);
+    } finally {
+      unlinkSync(directory.childPath(temporary));
+    }
+  }
+  private static publicationBytes(value: unknown): Buffer {
+    if (Buffer.isBuffer(value)) return value;
+    return Buffer.from(typeof value === 'string' ? value : CanonicalJson.stringify(value) + '\n');
+  }
+  private static writePublication(
+    directory: SafeDirectory,
+    name: string,
+    bytes: Buffer,
+    mode: number,
+  ): void {
+    const fd = openSync(
+      directory.childPath(name),
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      mode,
+    );
+    try {
+      writeFileSync(fd, bytes);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+  private static linkPublication(
+    directory: SafeDirectory,
+    temporary: string,
+    name: string,
+    bytes: Buffer,
+    mode: number,
+    reuse: boolean,
+  ): void {
+    try {
+      linkSync(directory.childPath(temporary), directory.childPath(name));
+    } catch (error) {
+      if (!reuse || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      Check.require(
+        directory.file(name, undefined, 512 * 1024 * 1024, mode === 0o600).equals(bytes),
+        'RECORD_CONFLICT',
+      );
+    }
+  }
  static mkdir(directory:SafeDirectory,name:string):SafeDirectory {mkdirSync(directory.childPath(name),{mode:0o700});fsyncSync(directory.fd);directory.verify();return directory.directory(name,true);}
  private state():SafeDirectory {const installation=this.installation();try{Check.require(installation.entries().join(',')==='.cordis','FOREIGN_INSTALLATION');return installation.directory('.cordis',true);}finally{installation.close();}}
  inspect(configuration?:DeploymentConfiguration,engine?:InstalledPlan['expectedEngine']):'absent'|'legacy'|'installed' {
