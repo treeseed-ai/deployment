@@ -9,6 +9,8 @@ import {
   unlinkSync,
   mkdirSync,
   writeFileSync,
+  renameSync,
+  rmSync,
 } from 'node:fs';
 import {
   RuntimeArchiveFixture,
@@ -63,11 +65,27 @@ class RuntimeArchiveBoundaries {
       fixture.close();
     }
   }
+  async directoryReplacement(): Promise<void> {
+    const fixture = new RuntimeArchiveFixture();
+    let file: RuntimeArchiveHandle | null = null;
+    const held = fixture.directory + '-held';
+    try {
+      file = await fixture.open();
+      renameSync(fixture.directory, held);
+      mkdirSync(fixture.directory, { mode: 0o700 });
+      assert.throws(file.verify.bind(file), { code: 'KATA_RUNTIME_ARCHIVE_CHANGED' });
+    } finally {
+      file?.close();
+      fixture.close();
+      rmSync(held, { recursive: true, force: true });
+    }
+  }
   async cancelled(): Promise<void> {
     const fixture = new RuntimeArchiveFixture();
     const controller = new AbortController();
     try {
-      const pending = fixture.open(controller.signal);
+      const api = await RuntimeArchiveFixture.api();
+      const pending = api.open(fixture.input, controller.signal);
       controller.abort();
       await assert.rejects(pending, { code: 'KATA_CANCELLED' });
     } finally {
@@ -106,4 +124,8 @@ test(
 test(
   'integration: runtime archive captures declared identity before asynchronous hashing',
   suite.snapshots.bind(suite),
+);
+test(
+  'integration: retained runtime archive refuses directory replacement',
+  suite.directoryReplacement.bind(suite),
 );
