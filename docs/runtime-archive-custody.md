@@ -62,3 +62,65 @@ Every preceding actual Kata/setup/guest/resource/teardown gate remains enabled. 
 configuration acceptance runs without a VM; real native lifetime qualification runs only on
 trusted exact-head hosted Ubuntu/KVM. Delivery follows documentation, outside-in tests,
 implementation, owner/public-archive gates and full hosted review. All issues stay open.
+
+## Read-only runtime kit member proof
+
+`await custody.inspect(paths, signal)` resolves at most sixteen unique canonical `opt/kata/…`
+member paths in the retained archive and returns immutable, sorted owner data:
+`{formatVersion:1, archive:{sha256,size}, members:[{requestedPath,path,size,mode,sha256,links}]}`.
+Each link is `{path,target}` and the terminal path must be a regular file. The same public sandbox entry exports `RuntimeKitMember` and `RuntimeKitMembers` types.
+This is an owner artifact inspection contract; SDK resource profiles and cross-process messages remain SDK-owned.
+
+The complete Zstandard tar stream is inspected without extraction, imports, scripts or runtime
+execution. All regular bytes are hashed while streaming, including targets occurring before
+selected symlinks. Bound the archive to 4096 entries, 8 GiB of declared and observed regular data,
+9 GiB of total decoded tar bytes and a 64:1 decompression ratio.
+Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Ordinary file, directory and symbolic-link entries plus bounded GNU next-path/next-link controls
+are supported. Each GNU control contains one canonical ASCII value and exactly one terminal NUL,
+fits 4097 bytes, occurs at most once per kind before its target, and must be consumed by an ordinary
+entry; a link control must target a symbolic link. Reject PAX, unknown, empty, oversized,
+duplicate, wrongly targeted or dangling metadata controls. Count raw headers
+and validate complete body framing and two zero footer blocks before accepting the proof.
+Bytes after the tar footer must be zero padding. Entries use canonical relative symbolic links without parent segments beneath `opt/kata`; only directory ancestors `.` and
+`opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
+unsafe permissions, malformed/truncated streams and paths beneath a file/symlink ancestor.
+Never expose archive member bytes, caller paths or parser diagnostics in errors.
+Paths use slash-separated ASCII letters/digits, dots, underscores, plus or hyphen; at most
+4096 characters and 64 segments, with no empty, dot or parent components. The structural
+parser/hash/link checks form one coherent artifact-admission invariant that providers cannot
+bypass. Native runtime selection remains the typed Kata sandbox provider seam.
+
+Selection resolves symbolic links only inside the archive's namespace, never the host filesystem.
+Reject missing targets, selected directories, duplicate/empty/noncanonical selections and cycles;
+limit resolution to sixteen links. Unselected dangling links may be retained as metadata because
+nothing is extracted or followed. Only requested paths and their resolved exact file identities
+are returned; unrelated inventory remains private. Freeze all returned objects and arrays.
+
+Snapshot paths before asynchronous work, verify retained file/directory identities before and
+after streaming, honor cancellation and fence closed/tampered custody. Use fixed safe codes
+`KATA_RUNTIME_KIT_INVALID`, `KATA_RUNTIME_ARCHIVE_CHANGED`, `KATA_RUNTIME_ARCHIVE_CLOSED` and
+`KATA_CANCELLED`. Failed inspection publishes no state and leaves custody available for explicit
+close. The read stream owns a duplicate descriptor; it cannot close the retained primary.
+
+Delivery: documentation → built public inspection acceptance → real archive/file-boundary cases
+→ bounded implementation → full owner checks/build, all tiers, genuine archive consumer and
+current-head hosted gates. Genuine small tar/Zstandard fixtures are explicitly test artifacts;
+the pinned upstream Kata kit also receives read-only Node and Bun inspection, with exact member
+hash/size/mode and link-edge read-back. No daemon or VM is needed for these inspection cases.
+This adds member provenance only; matching installed components, TOML configuration, kernel/rootfs,
+firmware/isolation and complete SDK profile admission remain required before pool readiness.
+
+Decoder qualification: [Bun documents rejectGarbageAfterEnd](https://bun.com/reference/node/zlib/createZstdDecompress),
+but exact Node 24.22.1 and Bun 1.4.4 probes differ: with one complete sixteen-byte compressed
+frame plus seven trailer bytes, Node rejects with that option while Bun accepts. Both report
+only sixteen consumed bytes through `bytesWritten`. Inspection therefore verifies consumed bytes
+against the pinned archive size instead of relying on the option. The permanent genuine trailer
+case must pass in the actual Node program and Bun integration suite. No stream size option is
+mistaken for a streaming expansion bound; the reader counts all decoded and regular bytes.
+
+The pinned upstream kit contains 171 ordinary entries and two GNU long-path controls for the
+NVIDIA SNP/TDX configuration filenames. A strict read-only tar@7.5.22 / Node 24.22.1 probe
+records both controls and no ignored entries. Preserve these real required forms; rejecting
+all metadata would incorrectly reject the exact qualified kit. A shared-header framing guard
+counts ordinary and control entries, checks complete 512-byte framing and footer padding, and
+only then feeds the same upstream tar parser. GNU controls cannot override payload sizes.

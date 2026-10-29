@@ -3,6 +3,7 @@ import { dirname, basename, resolve } from 'node:path';
 import { PlatformSchemas } from '@treeseed-cordis/sdk';
 import { SafeDirectory, VerifiedDescriptor } from './filesystem.js';
 import { KataSandboxError } from './kata-command.js';
+import { RuntimeKitInspection, type RuntimeKitMembers } from './runtime-kit.js';
 /** Artifact identity only; no extraction, binary compatibility assertion or host activation. */
 export class RuntimeArchiveCustody {
   static readonly Config = z.strictObject({
@@ -63,6 +64,24 @@ export class RuntimeArchiveCustody {
       this.file.verify();
     } catch {
       throw new KataSandboxError('KATA_RUNTIME_ARCHIVE_CHANGED');
+    }
+  }
+  async inspect(paths: unknown, signal: AbortSignal): Promise<RuntimeKitMembers> {
+    this.verify();
+    try {
+      signal.throwIfAborted();
+      const selected = RuntimeKitInspection.selections(paths);
+      const members = await new RuntimeKitInspection(this.proof.size).read(
+        this.file,
+        selected,
+        signal,
+      );
+      this.verify();
+      signal.throwIfAborted();
+      return Object.freeze({ formatVersion: 1, archive: this.proof, members });
+    } catch {
+      this.verify();
+      throw new KataSandboxError(signal.aborted ? 'KATA_CANCELLED' : 'KATA_RUNTIME_KIT_INVALID');
     }
   }
   close(): void {
