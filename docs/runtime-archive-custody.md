@@ -74,9 +74,11 @@ This is an owner artifact inspection contract; SDK resource profiles and cross-p
 The complete Zstandard tar stream is inspected without extraction, imports, scripts or runtime
 execution. All regular bytes are hashed while streaming, including targets occurring before
 selected symlinks. Bound the archive to 4096 entries, 8 GiB of declared and observed regular data,
-64 KiB extended metadata, 9 GiB of total decoded tar bytes and a 64:1 decompression ratio.
-Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Entries may be ordinary files,
-directories or canonical relative symbolic links without parent segments beneath `opt/kata`; only directory ancestors `.` and
+9 GiB of total decoded tar bytes and a 64:1 decompression ratio.
+Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Only ordinary USTAR file, directory and symbolic-link entries are supported; auxiliary
+PAX/GNU metadata forms are rejected, including empty and oversized records. Count raw headers
+and validate complete body framing and two zero footer blocks before accepting the proof.
+Bytes after the tar footer must be zero padding. Entries use canonical relative symbolic links without parent segments beneath `opt/kata`; only directory ancestors `.` and
 `opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
 unsafe permissions, malformed/truncated streams and paths beneath a file/symlink ancestor.
 Never expose archive member bytes, caller paths or parser diagnostics in errors.
