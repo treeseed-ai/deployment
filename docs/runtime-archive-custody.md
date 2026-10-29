@@ -31,3 +31,40 @@ suites, genuine public archive consumer and current-head hosted qualification. T
 Zstandard frame in tests is explicitly an artifact-identity fixture, not a Kata runtime. No VM or
 daemon runs on the workstation; no test relaxes the preceding physical resource gates.
 Work/models remain Task 10 and every issue stays open.
+
+## Read-only runtime kit member proof
+
+`await custody.inspect(paths, signal)` resolves at most sixteen unique canonical `opt/kata/…`
+member paths in the retained archive and returns immutable, sorted owner data:
+`{formatVersion:1, archive:{sha256,size}, members:[{requestedPath,path,size,mode,sha256,links}]}`.
+Each link is `{path,target}` and the terminal path must be a regular file. This is an owner
+artifact inspection contract; SDK resource profiles and cross-process messages remain SDK-owned.
+
+The complete Zstandard tar stream is inspected without extraction, imports, scripts or runtime
+execution. All regular bytes are hashed while streaming, including targets occurring before
+selected symlinks. Bound the archive to 4096 entries, 8 GiB of declared and observed regular data,
+64 KiB extended metadata and a 64:1 decompression ratio. Entries may be ordinary files,
+directories or relative symbolic links beneath `opt/kata`; only directory ancestors `.` and
+`opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
+unsafe permissions, malformed/truncated streams and paths beneath a file/symlink ancestor.
+Never expose archive member bytes, caller paths or parser diagnostics in errors.
+
+Selection resolves symbolic links only inside the archive's namespace, never the host filesystem.
+Reject missing targets, selected directories, duplicate/empty/noncanonical selections and cycles;
+limit resolution to sixteen links. Unselected dangling links may be retained as metadata because
+nothing is extracted or followed. Only requested paths and their resolved exact file identities
+are returned; unrelated inventory remains private. Freeze all returned objects and arrays.
+
+Snapshot paths before asynchronous work, verify retained file/directory identities before and
+after streaming, honor cancellation and fence closed/tampered custody. Use fixed safe codes
+`KATA_RUNTIME_KIT_INVALID`, `KATA_RUNTIME_ARCHIVE_CHANGED`, `KATA_RUNTIME_ARCHIVE_CLOSED` and
+`KATA_CANCELLED`. Failed inspection publishes no state and leaves custody available for explicit
+close. The read stream owns a duplicate descriptor; it cannot close the retained primary.
+
+Delivery: documentation → built public inspection acceptance → real archive/file-boundary cases
+→ bounded implementation → full owner checks/build, all tiers, genuine archive consumer and
+current-head hosted gates. Genuine small tar/Zstandard fixtures are explicitly test artifacts;
+the pinned upstream Kata kit also receives read-only Node and Bun inspection, with exact member
+hash/size/mode and link-edge read-back. No daemon or VM is needed for these inspection cases.
+This adds member provenance only; matching installed components, TOML configuration, kernel/rootfs,
+firmware/isolation and complete SDK profile admission remain required before pool readiness.
