@@ -17,7 +17,10 @@ interface ComponentFile {
 export interface RuntimeComponentProof {
   readonly formatVersion: 1;
   readonly archive: Readonly<{ sha256: string; size: number }>;
-  readonly components: readonly Readonly<{ role: string; member: RuntimeKitMember }>[];
+  readonly components: readonly Readonly<{
+    role: string;
+    member: RuntimeKitMember;
+  }>[];
 }
 /** Borrowed kit, owned installed descriptors. This admits bytes; it never activates a runtime. */
 export class RuntimeComponentCustody {
@@ -34,10 +37,16 @@ export class RuntimeComponentCustody {
   private readonly files: ComponentFile[] = [];
   private closed = false;
   private closeFailed = false;
+  readonly proof: RuntimeComponentProof;
+  private readonly selectedBindings: readonly RuntimeComponentBinding[];
   private constructor(
     private readonly archive: RuntimeArchiveCustody,
-    readonly proof: RuntimeComponentProof,
-  ) {}
+    selected: RuntimeComponentBinding[],
+    inspected: RuntimeKitMembers,
+  ) {
+    this.proof = RuntimeComponentCustody.projection(selected, inspected);
+    this.selectedBindings = RuntimeComponentCustody.snapshot(selected);
+  }
   static async open(
     archive: RuntimeArchiveCustody,
     input: unknown,
@@ -50,7 +59,7 @@ export class RuntimeComponentCustody {
       const paths: string[] = [];
       for (const binding of selected) paths.push(binding.member);
       const inspected = await archive.inspect(paths, signal);
-      custody = new RuntimeComponentCustody(archive, this.projection(selected, inspected));
+      custody = new RuntimeComponentCustody(archive, selected, inspected);
       await custody.capture(selected, signal);
       custody.verify();
       return custody;
@@ -60,6 +69,14 @@ export class RuntimeComponentCustody {
       } catch {}
       throw new KataSandboxError(signal.aborted ? 'KATA_CANCELLED' : 'KATA_COMPONENTS_INVALID');
     }
+  }
+  get bindings(): readonly RuntimeComponentBinding[] {
+    return this.selectedBindings;
+  }
+  private static snapshot(selected: RuntimeComponentBinding[]): readonly RuntimeComponentBinding[] {
+    const bindings: RuntimeComponentBinding[] = [];
+    for (const binding of selected) bindings.push(Object.freeze({ ...binding }));
+    return Object.freeze(bindings);
   }
   private static selections(input: unknown): RuntimeComponentBinding[] {
     const selected = this.Config.parse(input);
