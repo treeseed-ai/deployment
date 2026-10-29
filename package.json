@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.93",
+  "version": "0.0.0-cordis.95",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -29,6 +29,10 @@
     "./testing/live": {
       "types": "./dist/tests/support/live-probe-fixture.d.ts",
       "default": "./dist/tests/support/live-probe-fixture.js"
+    },
+    "./sandbox-control": {
+      "types": "./dist/src/sandbox-channel.d.ts",
+      "default": "./dist/src/sandbox-channel.js"
     }
   },
   "files": [
@@ -93,7 +97,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.93"
+      "version": "0.0.0-cordis.95"
     },
     "providers": [
       {

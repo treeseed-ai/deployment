@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Provide a distinct private service-scoped sandbox control transport (#1021).
 
 - Preserve safe exact Docker planning failure causes without changing blocker envelopes (#1029).
 - Retain safe evidence from exact failed Docker prerequisite commands without retries (#1029).
