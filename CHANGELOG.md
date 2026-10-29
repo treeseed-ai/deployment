@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Observe generation-bound Kata boot inputs (#1065).
 - Verify installed Kata aliases against retained runtime members (#1061).
 
 ### Changed
