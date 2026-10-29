@@ -50,9 +50,9 @@ class PolicyKitFixture {
       for (const link of member.links) selected.add('./' + link.path);
     }
     const result = spawnSync('tar', ['--zstd', '--extract', '--file', archive, '--directory', root,
-      '--no-same-owner', '--same-permissions', '--no-overwrite-dir', '--keep-old-files', '--',
+      '--no-same-owner', '--same-permissions', '--keep-old-files', '--',
       ...selected], { encoding: 'utf8', timeout: 180000, maxBuffer: 1048576 });
-    assert.equal(result.status, 0, 'Pinned selected runtime fixture members could not be prepared');
+    assert.equal(result.status, 0, result.stderr || 'Pinned selected runtime fixture members could not be prepared');
   }
 }
 /** Real official kit descriptors and private effective TOML; no runtime, scripts or managed effects. */

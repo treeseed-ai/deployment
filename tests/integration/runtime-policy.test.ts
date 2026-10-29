@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, beforeAll, beforeEach, afterEach, afterAll } from 'bun:test';
-import { appendFileSync, chmodSync, rmSync, symlinkSync, readdirSync } from 'node:fs';
+import { appendFileSync, chmodSync, rmSync, symlinkSync, readdirSync, readlinkSync, closeSync, openSync, fstatSync } from 'node:fs';
 import { parse, stringify } from 'smol-toml';
 import { RuntimePolicyFixture, type EffectivePolicy } from '../support/runtime-policy-program.js';
 type Table = Record<string, unknown>;
@@ -129,6 +129,42 @@ class RuntimePolicyIntegration {
     await assert.rejects(this.fixture.open(input), this.safe.bind(this));
     assert.equal(getter.calls, calls);
   }
+  async failedDisposal(kind: string): Promise<void> {
+    const before = new Set(readdirSync('/proc/self/fd'));
+    const policy = await this.fixture.open();
+    const path = kind === 'file' ? this.fixture.configuration.path : this.fixture.directory;
+    const borrowed = this.withdraw(path, before);
+    try {
+      assert.throws(policy.close.bind(policy), /KATA_RUNTIME_POLICY_CLOSE_FAILED/);
+      assert.throws(policy.close.bind(policy), /KATA_RUNTIME_POLICY_CLOSE_FAILED/);
+      this.fixture.held.length = 0;
+      assert(fstatSync(borrowed).isFile());
+      this.fixture.aliases!.verify();
+    } finally { this.releaseDescriptor(borrowed); }
+  }
+  private retained(path: string, before: Set<string>): number {
+    for (const entry of readdirSync('/proc/self/fd')) {
+      if (before.has(entry)) continue;
+      try { if (readlinkSync('/proc/self/fd/' + entry) === path) return Number(entry); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    throw new Error('Missing retained effective policy descriptor');
+  }
+  private withdraw(path: string, before: Set<string>): number {
+    const owned = this.retained(path, before);
+    closeSync(owned);
+    const borrowed = openSync(this.fixture.components!.bindings[0]!.path, 'r');
+    assert.equal(borrowed, owned);
+    return borrowed;
+  }
+  private releaseDescriptor(fd: number): void {
+    try { fstatSync(fd); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EBADF') return;
+      throw error;
+    }
+    closeSync(fd);
+  }
   async disposal(): Promise<void> {
     const before = readdirSync('/proc/self/fd').length, policy = await this.fixture.open();
     policy.close(); policy.close();
@@ -157,3 +193,5 @@ test('integration: effective runtime policy cancellation drains owned admission 
 test('integration: effective runtime policy snapshots caller input before asynchronous admission', suite.snapshot.bind(suite));
 test('integration: effective runtime policy rejects accessors without invoking their behavior', suite.getter.bind(suite));
 test('integration: effective runtime policy disposal is idempotent and closes only owned descriptors', suite.disposal.bind(suite));
+
+for (const kind of ['file','parent']) test('integration: failed effective policy disposal preserves reused ' + kind + ' descriptors and stays failed', suite.failedDisposal.bind(suite, kind));
