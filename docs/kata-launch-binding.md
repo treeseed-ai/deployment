@@ -13,6 +13,8 @@ process rather than accepting a caller's boot snapshot. The host owner must reta
 component/alias custody before launching its owned sandbox; the helper cannot retroactively prove
 what a caller allowed before taking custody. The production integration and its tests must obey
 that ordering.
+Use the backend's `sandbox-<UUID>` record ID for creation/destruction. Pass the distinct returned
+runtime `resourceName` to attestation; the backend derives it from scope and record identity.
 
 Require the actual executable's canonical `/proc/<pid>/exe` path and device/inode to match the
 retained installed hypervisor; the observer verifies its owner/hash, start identity and complete
