@@ -31,3 +31,32 @@ suites, genuine public archive consumer and current-head hosted qualification. T
 Zstandard frame in tests is explicitly an artifact-identity fixture, not a Kata runtime. No VM or
 daemon runs on the workstation; no test relaxes the preceding physical resource gates.
 Work/models remain Task 10 and every issue stays open.
+
+## Native Kata backend lifetime
+
+The trusted `KataSandboxPlugin.Config.runtime` may additionally contain
+`archive: {path, sha256, size}`. When selected, `KataSandboxBackend.open` admits that exact
+archive before daemon qualification or host-store publication. The endpoint retains custody
+for its whole lifetime and verifies the file/directory identities before and after runtime
+commands, sandbox admission and read-back. The archive hashes once at construction; subsequent
+operations use retained identity checks. A changed archive fences further host operations.
+
+Failed construction releases archive and directory descriptors without publishing store state.
+Successful disposal first verifies the empty runtime namespace, then closes retained custody.
+Uncertain cleanup remains a failure requiring explicit repair; archive tampering cannot become
+successful activation or cleanup. The complete configured archive identity also participates in
+the existing configuration digest. Omitting this optional field preserves historical behavior.
+
+This is exact artifact custody alongside independently pinned shim, hypervisor and configuration
+hashes. It does not yet prove those components were extracted from the kit, bind kernel/rootfs
+and policy into a complete profile, or advertise pool readiness. No metadata hash substitutes
+for actual kit bytes. Those remaining associations are required before profile admission.
+
+Hosted positive qualification must use the real 969565384-byte Kata 4.1.0 amd64 Zstandard kit,
+SHA-256 `3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96`.
+Copy the runner-owned download into the root fixture's private directory, set mode 0600 and let
+the backend hash it. Do not weaken ownership or pretend the runner checkout is root-private.
+Every preceding actual Kata/setup/guest/resource/teardown gate remains enabled. Built public
+configuration acceptance runs without a VM; real native lifetime qualification runs only on
+trusted exact-head hosted Ubuntu/KVM. Delivery follows documentation, outside-in tests,
+implementation, owner/public-archive gates and full hosted review. All issues stay open.
