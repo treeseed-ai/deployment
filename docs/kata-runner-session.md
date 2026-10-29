@@ -8,8 +8,8 @@ cannot supply raw runtime executables, image names, paths or arbitrary commands 
 
 An admitted archive is read before any sandbox is created. Its artifact and complete configuration
 bind custody/generation as usual. Create warms one owned Kata sandbox using the configured immutable
-GNU image, stages the verified guest bytes and a credential-free configuration to fixed paths under
-`/run/treeseed-runner`, and launches the actual guest as UID/GID 65532. Private directories/configuration
+GNU image, stages verified guest bytes at `/opt/treeseed-runner/guest` and a credential-free
+configuration under `/run/treeseed-runner`, and launches the actual guest as UID/GID 65532. Private directories/configuration
 are 0700/0600 and owned by that guest identity. Hosted acceptance must inspect the actual
 runner process: all four UID values 65532, no effective Linux capabilities, and NoNewPrivs=1. The guest gets a bounded explicit environment, with no
 host options, credentials or engine socket. No Agent module or executable runs on the host.
@@ -95,3 +95,10 @@ Preparation, payload transfer and finalization share one absolute monotonic 120-
 deadline. A phase also keeps its smaller local limit; spending time in an earlier phase cannot
 reset the shared budget. Reject an already expired budget before spawning, and recheck it when
 the process closes. The separate configuration write retains its original ten-second bound.
+
+The .101 hosted read-back proved that `/run` is a 64 MiB tmpfs: the incomplete payload was exactly
+67,108,864 bytes and zero blocks remained. Preserve that failed head/run. Stage the executable in
+a distinct fixed 0700 directory on the guest root filesystem, rejecting symlink parents and existing
+entries. Small configuration and future assignment records remain under `/run`; both directories
+belong to UID/GID 65532 after verified size/hash read-back. This changes no runtime mount, host path,
+image identity, test timeout or application authority. No Agent payload executes on the host.
