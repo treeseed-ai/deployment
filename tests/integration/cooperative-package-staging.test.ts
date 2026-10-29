@@ -3,6 +3,15 @@ import { existsSync } from 'node:fs';
 import { test } from 'bun:test';
 import { CooperativePackageFixture } from '../support/cooperative-package-program.js';
 class CooperativePackageBoundaries {
+  async densePrefix(): Promise<void> {
+    const fixture = new CooperativePackageFixture('dense-prefix');
+    try {
+      await fixture.materialize();
+      fixture.verify();
+    } finally {
+      fixture.close();
+    }
+  }
   async readable(): Promise<void> {
     const fixture = new CooperativePackageFixture();
     try {
@@ -24,6 +33,11 @@ class CooperativePackageBoundaries {
   }
 }
 const suite = new CooperativePackageBoundaries();
+test(
+  'integration: cooperative input preserves the original whole-archive expansion bound for dense prefixes',
+  suite.densePrefix.bind(suite),
+  15000,
+);
 test(
   'integration: readable public package materialization preserves exact bytes modes and fairness',
   suite.readable.bind(suite),

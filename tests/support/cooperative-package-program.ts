@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Header, type HeaderData } from 'tar';
 import { gzipSync } from 'node:zlib';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   mkdtempSync,
   realpathSync,
@@ -46,6 +46,7 @@ export class CooperativePackageFixture {
       }),
     );
     this.entry(parts, 'package.json', metadata);
+    if (mode === 'dense-prefix') this.entry(parts, 'prefix.bin', Buffer.alloc(4 * 1024 * 1024));
     for (let index = 0; index < 512; index++)
       this.entry(
         parts,
@@ -53,6 +54,7 @@ export class CooperativePackageFixture {
         Buffer.from('explicit package fixture ' + index + '\n'),
       );
     this.invalid(parts, mode);
+    if (mode === 'dense-prefix') this.entry(parts, 'entropy.bin', randomBytes(32000));
     return gzipSync(Buffer.concat([...parts, Buffer.alloc(1024)]));
   }
   private entry(parts: Buffer[], name: string, bytes: Buffer): void {
