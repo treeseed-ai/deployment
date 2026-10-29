@@ -4,6 +4,15 @@ import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
 class KataBackendProgramAcceptance {
+  boot(): void {
+    const result = spawnSync('node', ['dist/tests/support/kata-boot-program.js'], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    assert.equal(result.stdout, 'generation-bound-boot-public-ok\n');
+  }
   private readonly qualificationArguments = [
     '-n',
     'env',
@@ -36,6 +45,11 @@ class KataBackendProgramAcceptance {
   }
 }
 const suite = new KataBackendProgramAcceptance();
+test(
+  'acceptance: built public Kata boot observer verifies a genuine harmless process generation',
+  suite.boot.bind(suite),
+  20000,
+);
 test(
   'acceptance: built default Kata backend rejects malformed configuration before any host effect',
   suite.interface.bind(suite),
