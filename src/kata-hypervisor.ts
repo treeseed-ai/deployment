@@ -199,6 +199,7 @@ export class SandboxProcessObserver {
         boot,
       });
       this.startupCommand(identity);
+      if (this.startTime(identity.pid) !== identity.startTime) throw new Error();
       return Object.freeze({ ...payload, digest: CanonicalJson.digest(payload) });
     } catch {
       throw new Error('SANDBOX_BOOT_OBSERVATION_UNVERIFIED');
