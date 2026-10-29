@@ -8,6 +8,8 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  linkSync,
+  readlinkSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -16,12 +18,149 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
+import { InstallationStore, ServicePlanStore } from '@treeseed-cordis/deployment';
 import {
   InstallationRecordFixture,
   type RecordCustody,
   type RecordScope,
 } from '../support/installation-records-program.js';
 class InstallationRecordBoundaries {
+  async exclusivePublication(): Promise<void> {
+    const fixture = new InstallationRecordFixture();
+    try {
+      await fixture.prepare();
+      const Type = fixture.type();
+      const writer = await Type.acquire(fixture.scope, fixture.signal);
+      try {
+        await writer.append(null, { value: 'original' });
+      } finally {
+        writer.close();
+      }
+      this.refuseReuse(fixture);
+    } finally {
+      fixture.close();
+    }
+  }
+  private refuseReuse(fixture: InstallationRecordFixture): void {
+    const root = new ServicePlanStore(fixture.release.installation).directory('artifacts');
+    let directory: ReturnType<ServicePlanStore['directory']> | null = null;
+    try {
+      directory = root.directory('records/seeds', true);
+      this.existing(directory, this.record(fixture));
+    } finally {
+      directory?.close();
+      root.close();
+    }
+  }
+  private existing(directory: ReturnType<ServicePlanStore['directory']>, file: string): void {
+    const name = file.slice(file.lastIndexOf('/') + 1),
+      before = readFileSync(file);
+    assert.throws(
+      InstallationStore.publish.bind(InstallationStore, directory, name, before, 0o600, false),
+    );
+    assert(readFileSync(file).equals(before));
+    assert(!directory.entries().some(InstallationRecordBoundaries.temporary));
+  }
+  private static temporary(name: string): boolean {
+    return name.startsWith('.tmp-');
+  }
+  async publicationUncertain(): Promise<void> {
+    const fixture = new InstallationRecordFixture();
+    let writer: RecordCustody | null = null;
+    try {
+      await fixture.prepare();
+      const Type = fixture.type(),
+        controller = new AbortController();
+      writer = await Type.acquire(fixture.scope, controller.signal);
+      await this.cancelPublished(fixture, writer, controller);
+      writer = null;
+      assert.equal(this.descriptors(fixture.release.root), 0);
+      await this.busy(fixture);
+    } finally {
+      if (writer) {
+        try {
+          writer.close();
+        } catch {}
+      }
+      fixture.close();
+    }
+  }
+  private async cancelPublished(
+    fixture: InstallationRecordFixture,
+    writer: RecordCustody,
+    controller: AbortController,
+  ): Promise<void> {
+    const pending = writer.append(null, { value: 'PRIVATE_RECORD_CANARY' });
+    await this.published(fixture);
+    controller.abort();
+    await assert.rejects(pending, { message: 'INSTALLATION_RECORDS_WRITE_FAILED' });
+    assert.throws(writer.close.bind(writer), { message: 'INSTALLATION_RECORDS_CLOSE_FAILED' });
+  }
+  private async published(fixture: InstallationRecordFixture): Promise<void> {
+    for (let turn = 0; turn < 32; turn++) {
+      await new Promise<void>(InstallationRecordBoundaries.turn);
+      if (readdirSync(fixture.directory).some(InstallationRecordBoundaries.recordName)) return;
+    }
+    assert.fail('Expected complete publication before read-back cancellation');
+  }
+  private static turn(done: (value: void) => void): void {
+    setImmediate(done);
+  }
+  private getterCalls = 0;
+  async invalidContent(mode: string): Promise<void> {
+    const fixture = new InstallationRecordFixture();
+    let writer: RecordCustody | null = null;
+    try {
+      await fixture.prepare();
+      writer = await fixture.type().acquire(fixture.scope, fixture.signal);
+      this.getterCalls = 0;
+      await assert.rejects(writer.append.bind(writer, null, this.content(mode)), {
+        message: 'INSTALLATION_RECORDS_INVALID',
+      });
+      assert.equal(this.getterCalls, 0);
+      assert.deepEqual(await writer.read(), []);
+    } finally {
+      writer?.close();
+      fixture.close();
+    }
+  }
+  private content(mode: string): unknown {
+    if (mode === 'date') return new Date();
+    if (mode === 'nan') return NaN;
+    if (mode === 'bigint') return 1n;
+    if (mode === 'undefined') return undefined;
+    if (mode === 'oversized') return 'x'.repeat(1024 * 1024 + 1);
+    if (mode === 'sparse') return new Array(2);
+    if (mode === 'nodes') return new Array(65536).fill(null);
+    if (mode === 'depth') return this.deep();
+    return this.behavioral(mode);
+  }
+  private behavioral(mode: string): unknown {
+    const value: Record<string, unknown> = {};
+    if (mode === 'cycle') value.self = value;
+    if (mode === 'getter')
+      Object.defineProperty(value, 'value', { enumerable: true, get: this.getter.bind(this) });
+    if (mode === 'unsafe')
+      Object.defineProperty(value, '__proto__', {
+        enumerable: true,
+        value: 'PRIVATE_RECORD_CANARY',
+      });
+    if (mode === 'symbol')
+      Object.defineProperty(value, Symbol('private'), {
+        enumerable: true,
+        value: 'PRIVATE_RECORD_CANARY',
+      });
+    return value;
+  }
+  private deep(): unknown {
+    let value: unknown = 'private';
+    for (let depth = 0; depth < 65; depth++) value = [value];
+    return value;
+  }
+  private getter(): string {
+    this.getterCalls++;
+    return 'PRIVATE_RECORD_CANARY';
+  }
   async invalidScope(mode: string): Promise<void> {
     const fixture = new InstallationRecordFixture();
     try {
@@ -229,6 +368,7 @@ class InstallationRecordBoundaries {
     const file = this.record(fixture);
     if (mode === 'bytes') appendFileSync(file, 'PRIVATE_RECORD_CANARY');
     else if (mode === 'mode') chmodSync(file, 0o644);
+    else if (mode === 'hardlink') linkSync(file, join(fixture.release.root, 'record-link'));
     else if (mode === 'symlink') {
       const copy = join(fixture.release.root, 'copy');
       copyFileSync(file, copy);
@@ -259,6 +399,7 @@ class InstallationRecordBoundaries {
       this.changeScope(fixture, mode);
       await assert.rejects(writer.read.bind(writer));
       assert.throws(writer.close.bind(writer), { message: 'INSTALLATION_RECORDS_CLOSE_FAILED' });
+      assert.equal(this.descriptors(fixture.release.root), 0);
       assert.throws(writer.close.bind(writer), { message: 'INSTALLATION_RECORDS_CLOSE_FAILED' });
       writer = null;
     } finally {
@@ -271,6 +412,7 @@ class InstallationRecordBoundaries {
     }
   }
   private changeScope(fixture: InstallationRecordFixture, mode: string): void {
+    if (mode === 'permissions') chmodSync(fixture.directory, 0o755);
     if (mode === 'receipt')
       appendFileSync(join(fixture.release.installation, '.cordis/installation.json'), ' ');
     if (mode === 'marker') appendFileSync(join(fixture.directory, 'scope.json'), ' ');
@@ -280,8 +422,48 @@ class InstallationRecordBoundaries {
       symlinkSync(moved, fixture.directory);
     }
   }
+  private descriptors(root: string): number {
+    let count = 0;
+    for (const name of readdirSync('/proc/self/fd')) {
+      try {
+        if (readlinkSync('/proc/self/fd/' + name).startsWith(root + '/')) count++;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    return count;
+  }
 }
 const suite = new InstallationRecordBoundaries();
+test(
+  'integration: strict record publication refuses identical existing files and removes only its own temporary',
+  suite.exclusivePublication.bind(suite),
+  15000,
+);
+test(
+  'integration: publication read-back cancellation retains explicit repair state without leaking descriptors',
+  suite.publicationUncertain.bind(suite),
+  15000,
+);
+for (const mode of [
+  'date',
+  'nan',
+  'bigint',
+  'undefined',
+  'oversized',
+  'sparse',
+  'nodes',
+  'depth',
+  'cycle',
+  'getter',
+  'unsafe',
+  'symbol',
+])
+  test(
+    'integration: record content rejects ' + mode + ' before publication or behavior execution',
+    suite.invalidContent.bind(suite, mode),
+    15000,
+  );
 for (const mode of [
   'missing',
   'foreign',
@@ -324,7 +506,17 @@ for (const mode of ['initialization', 'writer'])
     suite.interrupted.bind(suite, mode),
     15000,
   );
-for (const mode of ['bytes', 'mode', 'symlink', 'scope', 'sequence', 'previous', 'format', 'extra'])
+for (const mode of [
+  'bytes',
+  'mode',
+  'hardlink',
+  'symlink',
+  'scope',
+  'sequence',
+  'previous',
+  'format',
+  'extra',
+])
   test(
     'integration: stored installation records reject ' +
       mode +
@@ -332,7 +524,7 @@ for (const mode of ['bytes', 'mode', 'symlink', 'scope', 'sequence', 'previous',
     suite.stored.bind(suite, mode),
     15000,
   );
-for (const mode of ['receipt', 'marker', 'directory'])
+for (const mode of ['receipt', 'marker', 'directory', 'permissions'])
   test(
     'integration: retained record custody fences changed ' +
       mode +
