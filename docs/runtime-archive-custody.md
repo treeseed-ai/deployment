@@ -1,6 +1,6 @@
 # Runtime archive custody
 
-Deployment owns `RuntimeArchiveCustody` at `@treeseed-cordis/deployment/runtime-archive`.
+Deployment owns `RuntimeArchiveCustody` at `@treeseed-cordis/deployment/sandbox`.
 `await RuntimeArchiveCustody.open({path, sha256, size}, signal)` admits one canonical absolute,
 owner-private regular Zstandard file up to 2 GiB through descriptor-anchored no-symlink access.
 It streams SHA-256 in 1 MiB chunks, verifies exact declared size and the Zstandard frame magic,
