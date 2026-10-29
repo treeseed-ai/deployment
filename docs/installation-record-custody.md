@@ -68,6 +68,10 @@ and report failed close; a subsequent acquisition/inspection cannot silently ado
 Use `InstallationStore.publish(..., mode, false)` for strict fresh publication. Its existing
 four-argument callers retain exact-byte idempotent reuse; the explicit false mode rejects even
 an identical pre-existing destination, without overwriting it.
+Preserve captured-reference calls to public InstallationStore.publish: delegating wrappers may
+store the original static method and call it through their own receiver. Internal helper dispatch
+must name InstallationStore explicitly rather than depending on that incidental receiver. The
+existing genuine paused-journal worker exercises this compatibility; add a focused regression.
 
 Public failures expose only fixed `INSTALLATION_RECORDS_INVALID`, `INSTALLATION_RECORDS_BUSY`,
 `INSTALLATION_RECORDS_CHANGED`, `INSTALLATION_RECORDS_CANCELLED`, `INSTALLATION_RECORDS_CLOSED`,
