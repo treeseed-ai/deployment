@@ -10,6 +10,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -191,6 +192,8 @@ class ForeignRecordQualification {
         message: 'INSTALLATION_RECORDS_INVALID',
       });
     } finally {
+      const marker = join(fixture.directory, 'scope.json');
+      if (existsSync(marker)) unlinkSync(marker);
       fixture.close();
     }
     process.stdout.write('installation-records-foreign-owner-ok\n');
