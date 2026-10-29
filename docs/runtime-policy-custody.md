@@ -44,7 +44,9 @@ objects/arrays. No timestamps, live resource reservations or caller mutable obje
 Safe errors use fixed `KATA_RUNTIME_POLICY_INVALID`, `KATA_RUNTIME_POLICY_CHANGED`,
 `KATA_RUNTIME_POLICY_CLOSED`, `KATA_RUNTIME_POLICY_CLOSE_FAILED` or `KATA_CANCELLED`, never private
 paths, TOML values or nested exceptions. Private effective files must be current-owner0600,
-regular/single-link, descriptor anchored and no-follow; retain file/parent identities through
+regular/single-link, descriptor anchored and no-follow. Effective files and their immediate
+private parents use exact0600/0700 permission modes, including rejection of special mode bits;
+retain file/parent identities through
 lifetime. Cancellation or uncertain paths fail without repair/adoption or filesystem mutation.
 
 Require real component/alias custody, one consistent kit identity, canonical bounded paths and
