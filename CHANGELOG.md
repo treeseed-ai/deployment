@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Export the isolated Kata qualification fixture through an explicit guarded testing interface (#1021).
+
+### Added
 - Read back real guest readiness through scoped private sandbox protocols with safe provider errors (#1021, #1038).
 - Verify actual native Agent guest readiness inside owned Kata sandboxes (#1021).
 
