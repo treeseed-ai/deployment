@@ -6,6 +6,7 @@
 - Keep worker requests responsive during verified package staging (#1052).
 
 ### Added
+- Bind Kata configuration references to verified runtime components (#1021).
 - Bind installed runtime components to exact verified kit member custody (#1021).
 - Bind observed QEMU startup resources to sandbox inspection evidence (#1021).
 - Inspect exact runtime kit members through retained archive custody (#1021).
