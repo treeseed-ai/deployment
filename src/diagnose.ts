@@ -5,6 +5,7 @@ import { ServiceInstalledHost } from './service-installed.js';
 import { HostSystem, TcpTableProbe } from './host-system.js';
 export { HostSystem, TcpTableProbe } from './host-system.js';
 import {ServicePlanStore} from './service-plan.js';
+export {InstallationRecords, InstallationRecordError, type InstallationRecord} from './installation-records.js';
 import {ServicePlanningHost} from './service-plan.js';
 import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan,ServiceSchemas,type InstalledPlan,type ApplyOptions,type DeploymentConfiguration, type DeploymentPlan, type DiagnosticConfiguration, type DiagnosticReport, type ServiceStatus, type ServiceApplicationRecord } from '@treeseed-cordis/sdk';
 import { readFileSync, lstatSync, readdirSync, accessSync, statfsSync, constants, statSync } from 'node:fs';
