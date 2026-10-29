@@ -1,4 +1,8 @@
-export { GuestRuntimeArchive, GuestRuntimeElf, type GuestRuntimeArtifact } from './guest-archive.js';
+export {
+  GuestRuntimeArchive,
+  GuestRuntimeElf,
+  type GuestRuntimeArtifact,
+} from './guest-archive.js';
 import {
   KataEnvironmentArchive,
   KataWorkloadJournal,
@@ -9,6 +13,9 @@ import {
   type KataPreparedEnvironment,
 } from './kata-workloads.js';
 export type { KataAssignment, KataWorkloadPhase, KataWorkloadResult } from './kata-workloads.js';
+import { KataRunnerSession } from './kata-runner.js';
+import { GuestRuntimeArchive, type GuestRuntimeArtifact } from './guest-archive.js';
+import { spawn } from 'node:child_process';
 import { KataCommand, KataSandboxError, type KataCommandOptions } from './kata-command.js';
 export { KataSandboxError } from './kata-command.js';
 import { z } from 'zod';
@@ -21,7 +28,7 @@ import {
   unlinkSync,
   type Stats,
 } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { release, arch } from 'node:os';
 import {
@@ -29,6 +36,8 @@ import {
   PlatformSchemas,
   CapabilityToken,
   ProviderV4Schemas,
+  CapacitySchemas,
+  type CapacityReadiness,
 } from '@treeseed-cordis/sdk';
 import { Context } from '@treeseed-cordis/sdk/runtime';
 import { SafeDirectory, StrictJson } from './filesystem.js';
@@ -68,12 +77,24 @@ class KataConfiguration {
         /^(?:[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]+)?\/)?(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*@sha256:[a-f0-9]{64}$/,
       ),
     workloads: KataWorkloadSchemas.configuration.optional(),
+    guestRuntime: z
+      .strictObject({ scope: CapacitySchemas.scope, artifact: GuestRuntimeArchive.configuration })
+      .optional(),
     maximumSandboxes: z.number().int().min(1).max(4096).default(64),
   });
   static parse(value: unknown): KataBackendConfiguration {
     const result = this.schema.safeParse(value);
     KataSandboxError.require(result.success, 'KATA_CONFIGURATION_INVALID');
     if (result.data.workloads) new KataEnvironmentArchive(result.data.workloads);
+    if (result.data.guestRuntime) {
+      const runtime = result.data.guestRuntime;
+      KataSandboxError.require(
+        runtime.scope.installationId === result.data.scope.installationId &&
+          resolve(runtime.scope.installationDirectory) === runtime.scope.installationDirectory,
+        'KATA_CONFIGURATION_INVALID',
+      );
+      new GuestRuntimeArchive(runtime.artifact);
+    }
     return result.data;
   }
   static requireHost(): void {
@@ -103,6 +124,7 @@ export interface KataSandboxEvidence {
   inspectionDigest: string;
   hypervisor: SandboxProcessIdentity;
   assignment: KataAssignment | null;
+  runner: CapacityReadiness | null;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -236,6 +258,16 @@ class KataEndpoint {
 }
 
 class KataClient {
+  private static readonly runnerCommand = [
+    '/usr/bin/env',
+    '-i',
+    'PATH=/usr/bin:/bin',
+    'HOME=/run/treeseed-runner',
+    'TMPDIR=/tmp',
+    '/run/treeseed-runner/guest',
+    '--config',
+    '/run/treeseed-runner/guest.json',
+  ];
   readonly namespace: string;
   constructor(
     private readonly configuration: KataBackendConfiguration,
@@ -301,6 +333,63 @@ class KataClient {
       { stdin: bytes, deadlineMs, outputLimitBytes: 1024 },
       signal,
     );
+  }
+  async stageRunner(
+    name: string,
+    artifact: GuestRuntimeArtifact,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.offline(name, signal);
+    const command =
+      'umask 077; test ! -e /run/treeseed-runner && mkdir -m 0700 /run/treeseed-runner && cat > /run/treeseed-runner/guest && chmod 0755 /run/treeseed-runner/guest && chown -R 65532:65532 /run/treeseed-runner';
+    await this.guest(
+      name,
+      ['/bin/sh', '-c', command],
+      { stdin: artifact.executable, deadlineMs: 120000, outputLimitBytes: 1024 },
+      signal,
+    );
+    await this.configureRunner(name, signal);
+  }
+  private async configureRunner(name: string, signal: AbortSignal): Promise<void> {
+    const configuration = {
+      schemaVersion: 'treeseed.guest-configuration/v1',
+      scope: this.configuration.guestRuntime!.scope,
+      assignmentFile: '/run/treeseed-runner/assignment.json',
+    };
+    const publish =
+      'umask 077; test ! -e /run/treeseed-runner/guest.json && cat > /run/treeseed-runner/guest.json && chmod 0600 /run/treeseed-runner/guest.json && chown 65532:65532 /run/treeseed-runner/guest.json';
+    await this.guest(
+      name,
+      ['/bin/sh', '-c', publish],
+      {
+        stdin: Buffer.from(CanonicalJson.stringify(configuration)),
+        deadlineMs: 10000,
+        outputLimitBytes: 1024,
+      },
+      signal,
+    );
+  }
+  runner(name: string): KataRunnerSession {
+    this.endpoint.verify();
+    const args = [
+      '--address',
+      this.endpoint.path(),
+      '--namespace',
+      this.namespace,
+      'tasks',
+      'exec',
+      '--exec-id',
+      'runner-' + randomUUID(),
+      '--user',
+      '65532:65532',
+      name,
+      ...KataClient.runnerCommand,
+    ];
+    const child = spawn(this.configuration.client.path, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
+    });
+    return new KataRunnerSession(child, this.configuration.guestRuntime!.scope);
   }
   async entrypoint(
     name: string,
@@ -706,6 +795,7 @@ interface KataWorkloadAttempt {
 /** Privileged bounded host backend. Worker plugins never receive this raw-runtime configuration. */
 export class KataSandboxBackend {
   private readonly queue = new KataQueue();
+  private readonly runners = new Map<string, KataRunnerSession>();
   private readonly processes: SandboxProcessObserver;
   private readonly workloads: KataEnvironmentArchive | null;
   private readonly journal: KataWorkloadJournal | null;
@@ -716,6 +806,7 @@ export class KataSandboxBackend {
     private readonly configuration: KataBackendConfiguration,
     private readonly client: KataClient,
     private readonly custody: KataCustody,
+    private readonly guestRuntime: GuestRuntimeArtifact | null,
   ) {
     this.workloads = configuration.workloads
       ? new KataEnvironmentArchive(configuration.workloads)
@@ -731,21 +822,31 @@ export class KataSandboxBackend {
     KataConfiguration.requireHost();
     const directory = SafeDirectory.open(configuration.endpointDirectory);
     try {
-      const endpoint = new KataEndpoint(directory, configuration);
-      const client = new KataClient(configuration, endpoint);
-      const signal = new AbortController().signal;
-      await client.qualify(signal);
-      const digest = CanonicalJson.digest({ configuration, endpoint: endpoint.identity() });
-      return this.owned(configuration, client, digest);
+      return await this.qualified(configuration, directory);
     } catch (error) {
       directory.close();
       throw error;
     }
   }
+  private static async qualified(
+    configuration: KataBackendConfiguration,
+    directory: SafeDirectory,
+  ): Promise<KataSandboxBackend> {
+    const endpoint = new KataEndpoint(directory, configuration);
+    const client = new KataClient(configuration, endpoint);
+    const signal = new AbortController().signal;
+    await client.qualify(signal);
+    const digest = CanonicalJson.digest({ configuration, endpoint: endpoint.identity() });
+    const runtime = configuration.guestRuntime
+      ? await new GuestRuntimeArchive(configuration.guestRuntime.artifact).read(signal)
+      : null;
+    return this.owned(configuration, client, digest, runtime);
+  }
   private static owned(
     configuration: KataBackendConfiguration,
     client: KataClient,
     digest: string,
+    runtime: GuestRuntimeArtifact | null,
   ): KataSandboxBackend {
     const custody = KataCustody.open(
       configuration.custody,
@@ -754,7 +855,7 @@ export class KataSandboxBackend {
       configuration.workloads !== undefined,
     );
     try {
-      return new KataSandboxBackend(configuration, client, custody);
+      return new KataSandboxBackend(configuration, client, custody, runtime);
     } catch (error) {
       custody.abandon();
       throw error;
@@ -779,7 +880,20 @@ export class KataSandboxBackend {
     const existing = await this.client.list('containers', signal);
     KataSandboxError.require(!existing.includes(record.resourceName), 'KATA_FOREIGN_RESOURCE');
     await this.client.prewarm(record.resourceName, CanonicalJson.digest(record), signal);
+    await this.warmRunner(record, signal);
     return this.inspection(record, signal);
+  }
+  private async warmRunner(record: KataIntent, signal: AbortSignal): Promise<void> {
+    if (!this.guestRuntime) return;
+    await this.client.stageRunner(record.resourceName, this.guestRuntime, signal);
+    const session = this.client.runner(record.resourceName);
+    this.runners.set(record.id, session);
+  }
+  private async runnerReady(id: string, signal: AbortSignal): Promise<CapacityReadiness | null> {
+    if (!this.guestRuntime) return null;
+    const session = this.runners.get(id);
+    KataSandboxError.require(session, 'KATA_RUNNER_UNAVAILABLE');
+    return session.readiness(signal);
   }
   inspect(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     return this.queue.run(this.inspectOwned.bind(this, id, signal));
@@ -820,13 +934,15 @@ export class KataSandboxBackend {
     const kernel = await this.qualifiedGuest(record, signal);
     const hypervisor = this.processes.observe(record.resourceName);
     const assignment = this.journal?.assignment(record.id) ?? null;
+    const runner = await this.runnerReady(record.id, signal);
     return {
       id: record.id,
       resourceName: record.resourceName,
       kernel,
       hypervisor,
       assignment,
-      inspectionDigest: CanonicalJson.digest({ record, kernel, hypervisor, assignment }),
+      runner,
+      inspectionDigest: CanonicalJson.digest({ record, kernel, hypervisor, assignment, runner }),
     };
   }
   assign(
@@ -944,10 +1060,20 @@ export class KataSandboxBackend {
     this.admit(signal);
     const record = this.custody.read(id);
     const previous = this.processes.capture(record.resourceName);
+    const session = this.runners.get(id);
+    const drained = session ? await Promise.allSettled([session.close()]) : [];
     if ((await this.client.list('containers', signal)).includes(record.resourceName))
       await this.remove(record, signal);
     await this.removed(record, signal, previous);
+    KataSandboxError.require(
+      drained.every(KataSandboxBackend.drained),
+      'KATA_RUNNER_CLEANUP_FAILED',
+    );
+    this.runners.delete(id);
     return this.custody.complete(record);
+  }
+  private static drained(result: PromiseSettledResult<void>): boolean {
+    return result.status === 'fulfilled';
   }
   private async removed(
     record: KataIntent,

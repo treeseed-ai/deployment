@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.97",
+  "version": "0.0.0-cordis.98",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -97,7 +97,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.97"
+      "version": "0.0.0-cordis.98"
     },
     "providers": [
       {
@@ -794,6 +794,111 @@
               "required": [
                 "directory",
                 "environments"
+              ],
+              "additionalProperties": false
+            },
+            "guestRuntime": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "object",
+                  "properties": {
+                    "installationId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                    },
+                    "installationDirectory": {
+                      "type": "string",
+                      "pattern": "^\\/"
+                    },
+                    "capacityProviderId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                    },
+                    "project": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                    },
+                    "platformProfile": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                    },
+                    "workerId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                    }
+                  },
+                  "required": [
+                    "installationId",
+                    "installationDirectory",
+                    "capacityProviderId",
+                    "project",
+                    "platformProfile",
+                    "workerId"
+                  ],
+                  "additionalProperties": false
+                },
+                "artifact": {
+                  "type": "object",
+                  "properties": {
+                    "directory": {
+                      "type": "string",
+                      "pattern": "^\\/"
+                    },
+                    "archive": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[a-zA-Z0-9_@./-]+$"
+                        },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 67108864
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256",
+                        "size"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "package": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^(?:@[a-z0-9._-]+\\/)?[a-z0-9][a-z0-9._-]*$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "version"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "directory",
+                    "archive",
+                    "package"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "scope",
+                "artifact"
               ],
               "additionalProperties": false
             },
