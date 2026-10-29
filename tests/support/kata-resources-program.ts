@@ -199,7 +199,7 @@ class KataResourcesProgram {
   }
   private scratchCanary(fixture: PrivateKataFixture, name: string): void {
     const command =
-      'test ! -e /cordis-readonly-canary; if touch /cordis-readonly-canary 2>/dev/null; then exit 1; fi; if dd if=/dev/zero of=/tmp/cordis-scratch-canary bs=1048576 count=65 2>/dev/null; then exit 1; fi; test "$(stat -c %s /tmp/cordis-scratch-canary)" = 67108864; rm /tmp/cordis-scratch-canary';
+      'if printf 1073741824 > /sys/fs/cgroup/memory.max 2>/dev/null; then exit 1; fi; test ! -e /cordis-readonly-canary; if touch /cordis-readonly-canary 2>/dev/null; then exit 1; fi; if dd if=/dev/zero of=/tmp/cordis-scratch-canary bs=1048576 count=65 2>/dev/null; then exit 1; fi; test "$(stat -c %s /tmp/cordis-scratch-canary)" = 67108864; rm /tmp/cordis-scratch-canary';
     assert.equal(
       fixture.run([
         'tasks',

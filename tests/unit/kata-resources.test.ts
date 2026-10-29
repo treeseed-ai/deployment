@@ -4,11 +4,12 @@ import { KataResourcePolicy } from '../../src/kata-resources.js';
 class KataResourcesTests {
   private readonly shape = { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 };
   private readonly guestText =
-    '200000 100000\n1073741824\ntmpfs 4096 16384\ntmpfs 4096 16384\ntmpfs 4096 65536\nro,relatime';
+    '200000 100000\n1073741824\ntmpfs 4096 16384\ntmpfs 4096 16384\ntmpfs 4096 65536\nro,relatime\nro,nosuid,nodev,noexec,relatime cgroup2';
   private readonly expectedMounts = [
     'type=tmpfs,src=tmpfs,dst=/tmp,options=size=67108864:mode=1777:nosuid:nodev',
     'type=tmpfs,src=tmpfs,dst=/run,options=size=67108864:mode=0755:nosuid:nodev',
     'type=tmpfs,src=tmpfs,dst=/opt,options=size=268435456:mode=0755:nosuid:nodev',
+    'type=cgroup,src=cgroup,dst=/sys/fs/cgroup,options=ro:nosuid:noexec:nodev',
   ];
   arguments(): void {
     const input = { ...this.shape };
@@ -22,7 +23,7 @@ class KataResourcesTests {
       '1073741824',
       '--read-only',
     ]);
-    assert.equal(args.filter(KataResourcesTests.mountFlag).length, 3);
+    assert.equal(args.filter(KataResourcesTests.mountFlag).length, 4);
     for (const expected of this.expectedMounts) assert(args.includes(expected));
     args.push('foreign');
     assert(!policy.arguments().includes('foreign'));
@@ -38,6 +39,8 @@ class KataResourcesTests {
       this.guestText.replace('1073741824', 'max'),
       this.guestText.replace('16384', '16385'),
       this.guestText.replace('ro,', 'rw,'),
+      this.guestText.replace('noexec,', ''),
+      this.guestText.replace('cgroup2', 'cgroup'),
       this.guestText + '\nprivate-canary',
     ])
       assert.throws(policy.assertGuest.bind(policy, bytes), {
@@ -50,7 +53,15 @@ class KataResourcesTests {
       { destination: '/run', size: 67108864, mode: '0755' },
       { destination: '/opt', size: 268435456, mode: '0755' },
     ];
-    return rows.map(KataResourcesTests.mount);
+    return [
+      ...rows.map(KataResourcesTests.mount),
+      {
+        destination: '/sys/fs/cgroup',
+        type: 'cgroup',
+        source: 'cgroup',
+        options: ['ro', 'nosuid', 'noexec', 'nodev'],
+      },
+    ];
   }
   private static mount(row: { destination: string; size: number; mode: string }) {
     return {
