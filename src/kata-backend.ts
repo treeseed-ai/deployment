@@ -340,14 +340,36 @@ class KataClient {
     signal: AbortSignal,
   ): Promise<void> {
     await this.offline(name, signal);
-    const command =
-      'umask 077; test ! -e /run/treeseed-runner && mkdir -m 0700 /run/treeseed-runner && cat > /run/treeseed-runner/guest && chmod 0755 /run/treeseed-runner/guest && chown -R 65532:65532 /run/treeseed-runner';
+    const prepare =
+      'umask 077; test ! -L /run && mkdir -p -m 0755 /run && test ! -e /run/treeseed-runner && mkdir -m 0700 /run/treeseed-runner';
+    await this.writeRunner(name, { command: prepare, deadlineMs: 10000, phase: 'PREPARE' }, signal);
+    const transfer =
+      'umask 077; test ! -e /run/treeseed-runner/guest && cat > /run/treeseed-runner/guest';
     await this.writeRunner(
       name,
-      { command, bytes: artifact.executable, deadlineMs: 120000, phase: 'BINARY' },
+      { command: transfer, bytes: artifact.executable, deadlineMs: 120000, phase: 'TRANSFER' },
       signal,
     );
+    await this.finalizeRunner(name, artifact, signal);
     await this.configureRunner(name, signal);
+  }
+  private async finalizeRunner(
+    name: string,
+    artifact: GuestRuntimeArtifact,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const command =
+      'test "$(stat -c %s /run/treeseed-runner/guest)" = "$1" && printf "%s  /run/treeseed-runner/guest\\n" "$2" | sha256sum --status --check && chmod 0755 /run/treeseed-runner/guest && chown 65532:65532 /run/treeseed-runner/guest /run/treeseed-runner';
+    await this.writeRunner(
+      name,
+      {
+        command,
+        parameters: [String(artifact.executable.length), artifact.manifest.executable.sha256],
+        deadlineMs: 10000,
+        phase: 'FINALIZE',
+      },
+      signal,
+    );
   }
   private async configureRunner(name: string, signal: AbortSignal): Promise<void> {
     const configuration = {
@@ -372,16 +394,17 @@ class KataClient {
     name: string,
     input: {
       command: string;
-      bytes: Buffer;
+      bytes?: Buffer;
+      parameters?: string[];
       deadlineMs: number;
-      phase: 'BINARY' | 'CONFIGURATION';
+      phase: 'PREPARE' | 'TRANSFER' | 'FINALIZE' | 'CONFIGURATION';
     },
     signal: AbortSignal,
   ): Promise<void> {
     try {
       await this.guest(
         name,
-        ['/bin/sh', '-c', input.command],
+        ['/bin/sh', '-c', input.command, 'cordis', ...(input.parameters ?? [])],
         { stdin: input.bytes, deadlineMs: input.deadlineMs, outputLimitBytes: 1024 },
         signal,
       );
