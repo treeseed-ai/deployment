@@ -13,11 +13,11 @@ activation; native-kit candidate #1044 and the separate CI proposal remain indep
 SDK #505 integrated the corrected awaited sandbox-profile binding; the retained .40 candidate
 must not be selected because it admitted compatibility mutation during hashing.
 
-This dependency update preserves the implemented native Kata guest session, scoped private
-control/runner socket, archive custody and non-activating planning. Deployment .107 makes the
-new profile contracts available; it does not advertise a resource profile or claim CPU/memory/
-scratch enforcement. The following owner slice must qualify that physical boundary before Agent
-can admit resource-bound pool bases. Keep all preceding tests, limits and timeouts unchanged.
+This dependency update preserves the native Kata guest session, scoped private control/runner
+socket, non-activating planning, qualified workload CPU/memory/read-only/scratch limits from .109
+and retained runtime archive identity from .110. Complete component/configuration/isolation
+profile binding and pool admission remain required. It does not include unmerged native-kit
+candidate #1044. Keep all preceding tests, limits and timeouts unchanged.
 
 Deployment's retained real-runner fixture selects the accepted Agent .22 archive. Agent's own
 hosted #555 acceptance additionally qualifies its exact .28 guest and separate default worker
