@@ -1,3 +1,4 @@
+import { DockerCommands } from './docker-commands.js';
 import{AssetConfigurationRestart}from'./service-asset-restart.js';
 import{MigrationCustody}from'./migration-custody.js';
 import {PluginRequestJournal} from './plugin-registry.js';
@@ -11,7 +12,7 @@ import { dirname, basename } from 'node:path';
 import { InstallationStore, InstallationWriter } from './installed.js';
 import { PlanStore } from './filesystem.js';
 import { resolve } from 'node:path';
-import { ServiceSchemas, PlatformSchemas, CanonicalJson, type ServicePlan, type ServiceInstance, type ServiceGraph } from '@treeseed-cordis/sdk';
+import { ServiceSchemas, PlatformSchemas, CanonicalJson, PlanningBlockedError, type ServicePlan, type ServiceInstance, type ServiceGraph } from '@treeseed-cordis/sdk';
 import type { DiagnosticCommands, DiagnosticSystem } from './diagnose.js';
 import { TcpTableProbe } from './host-system.js';
 import { SafeDirectory, StrictJson, PlanningFailure as Check } from './filesystem.js';
@@ -115,7 +116,17 @@ export class ServicePlanningHost {
             directory.close();
         }
     }
-    private execute(args: string[]): string { const value = this.commands.execute(args); Check.require(value !== null, 'DOCKER_UNAVAILABLE'); return value; }
+    private execute(args: string[]): string {
+        const value = this.commands.execute(args);
+        if (value !== null) return value;
+        const error = new PlanningBlockedError([{
+            code: 'DOCKER_UNAVAILABLE',
+            message: 'Planning validation failed: DOCKER_UNAVAILABLE. No activation was performed.',
+        }]);
+        const evidence = this.commands instanceof DockerCommands ? this.commands.failure : null;
+        if (evidence) Object.defineProperty(error, 'cause', { value: evidence });
+        throw error;
+    }
     async plan(input: unknown): Promise<ServicePlan> {
         const configuration = ServiceSchemas.configuration.parse(input);
         configuration.installationDirectory = resolve(configuration.installationDirectory);
