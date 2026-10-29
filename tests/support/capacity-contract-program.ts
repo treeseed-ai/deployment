@@ -20,7 +20,6 @@ export const CapacityContractSymbols = [
   'SandboxProfileBinding',
   'SandboxProfileError',
   'CapacitySchemas',
-  'SeedSchemas',
 ] as const;
 class CapacityContractProgram {
   run(): void {
