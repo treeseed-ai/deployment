@@ -1684,3 +1684,6 @@ no assertions, timeouts or production errors. See [fixture diagnostics](docs/doc
 
 See [the bounded effective-policy contract](docs/runtime-policy-custody.md). This read-only
 prerequisite does not advertise a native profile or admit a warm sandbox.
+
+Retained policy and actual native boot binding are specified in [the launch reference](docs/kata-launch-binding.md).
+Host profile publication and warm admission still require their owner integration.
