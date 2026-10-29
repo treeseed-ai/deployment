@@ -73,3 +73,12 @@ cleanup must never replace the original cause. Fixed stage codes distinguish bin
 staging from readiness and physical removal, without printing commands, output, paths or secrets.
 The first .98 hosted run failed with generic KATA_COMMAND_FAILED; retain that immutable run/archive
 as evidence and use a new candidate for additional stage evidence. No timeout or assertion is removed.
+
+
+The .99 run narrowed the real failure to binary staging and verified physical destruction. Next
+qualification separates fixed directory preparation, byte transfer and permission finalization,
+and requires guest-side size/SHA-256 read-back before launch. A local genuine-payload Node receiver
+isolates the host pipe without executing the payload. Upstream reports about [CRI stdin teardown](https://github.com/containerd/containerd/issues/13934)
+and [Bun closed-stdin reporting](https://github.com/oven-sh/bun/issues/45882) are hypotheses to test,
+not evidence that this ctr/Kata configuration has those defects. Keep original deadlines and avoid
+retries or timing sleeps. Retain the failed .98/.99 archives and hosted runs.
