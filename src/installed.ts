@@ -1,3 +1,4 @@
+import { ArchivePublicationQueue } from './archive-publication.js';
 import { once } from 'node:events';
 import type{Format2MigrationRequest,Format2MigrationResult}from'./migration-custody.js';
 import {constants,openSync,closeSync,writeFileSync,fsyncSync,mkdirSync,linkSync,unlinkSync,lstatSync,fstatSync,rmdirSync,chmodSync,renameSync,readdirSync,rmSync,readFileSync} from 'node:fs';
@@ -248,6 +249,7 @@ import {Parser,type ReadEntry,create as createTar} from 'tar';
 import type {InstalledRelease,ContainerDefinition} from '@treeseed-cordis/sdk';
 class ArchiveOutput {
   private readonly parser: Parser;
+  private readonly publications = new ArchivePublicationQueue(this.failed.bind(this));
   private resolveResult: ((value: void) => void) | null = null;
   private rejectResult: ((error: Error) => void) | null = null;
   private readonly paths = new Set<string>();
@@ -309,22 +311,32 @@ class ArchiveOutput {
     return path;
   }
   private entry(entry: ReadEntry): void {
+    void this.accept(entry).catch(this.failed.bind(this));
+  }
+  private async accept(entry: ReadEntry): Promise<void> {
     if (this.settled) {
       entry.resume();
       return;
     }
+    const path = this.admit(entry);
+    if (path === 'package') {
+      entry.resume();
+      return;
+    }
+    await this.admittedEntry(entry, path);
+  }
+  private async admittedEntry(entry: ReadEntry, path: string): Promise<void> {
+    const file = entry.type !== 'Directory';
+    if (file) await this.publications.available();
     try {
-      const path = this.admit(entry);
-      if (path === 'package') {
-        entry.resume();
-        return;
-      }
+      this.publications.check();
       const parts = SafeDirectory.relative(path.slice(8)),
         name = parts.pop()!;
       this.publish(this.parent(parts), name, entry);
-    } catch {
+    } catch (error) {
+      if (file) this.publications.release();
       entry.resume();
-      this.failed();
+      throw error;
     }
   }
   private parent(parts: string[]): SafeDirectory {
@@ -364,6 +376,7 @@ class ArchiveOutput {
       entry.size,
       this.failed.bind(this),
       parent !== this.target,
+      this.publications,
     );
     this.current = file;
     entry.once('error', file.abort.bind(file));
@@ -372,24 +385,29 @@ class ArchiveOutput {
     entry.resume();
   }
   private end(): void {
+    void this.finish().catch(this.failed.bind(this));
+  }
+  private async finish(): Promise<void> {
+    await this.publications.drain();
     if (this.settled) return;
-    try {
-      this.target.verify();
-      this.settled = true;
-      this.resolveResult!();
-    } catch {
-      this.failed();
-    }
+    this.target.verify();
+    this.settled = true;
+    this.resolveResult!();
   }
   private failed(): void {
     if (this.settled) return;
     this.settled = true;
+    this.publications.stop();
     try {
       this.current?.abort();
     } catch {}
     try {
       this.parser.abort(new Error('Verified package staging failed'));
     } catch {}
+    void this.rejectAfterDrain();
+  }
+  private async rejectAfterDrain(): Promise<void> {
+    await this.publications.drain();
     this.rejectResult!(new Error('Verified package staging failed'));
   }
 }
@@ -403,6 +421,7 @@ class ArchiveOutputFile {
     private readonly expected: number,
     private readonly failure: () => void,
     private readonly release: boolean,
+    private readonly publications: ArchivePublicationQueue,
   ) {
     SafeDirectory.owner(fstatSync(directory.fd), true);
   }
@@ -419,16 +438,22 @@ class ArchiveOutputFile {
     if (this.closed) return;
     try {
       Check.require(this.size === this.expected, 'INVALID_ARCHIVE');
-      InstallationStore.publish(this.directory, this.name, Buffer.concat(this.chunks));
+      void this.publications.publish(
+        this.directory,
+        this.name,
+        Buffer.concat(this.chunks),
+        this.release,
+      );
+      this.closed = true;
     } catch {
-      this.failure();
-    } finally {
       this.close();
+      this.failure();
     }
   }
   private close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.publications.release();
     if (this.release) this.directory.close();
   }
   abort(): void {

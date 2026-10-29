@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Bound concurrent durable archive member publication without changing installation deadlines (#1056).
 - Keep worker requests responsive during verified package staging (#1052).
 
 ### Added
