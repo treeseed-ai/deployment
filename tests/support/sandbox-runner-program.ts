@@ -11,6 +11,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { Socket } from 'node:net';
+import { once } from 'node:events';
 import {
   CapacitySchemas,
   CapacityChannelSchemas,
@@ -330,6 +332,42 @@ class HostedRunnerChannel {
     else record.runnerGrant!.expiresAtEpochMs = Date.now() - 1;
     this.publish(record);
     await assert.rejects(this.client().exchange(this.request(id), signal));
+    const response = await this.raw(this.request(id));
+    assert.equal(response.success, false);
+    assert(response.problem && /^[A-Z_]+$/.test(response.problem.code));
+  }
+  /** Deliberately bypasses client preflight; never exposed as a production client. */
+  private async raw(request: SandboxRunnerRequest) {
+    const socket = new Socket();
+    const timer = setTimeout(
+      socket.destroy.bind(socket, new Error('fixture-raw-runner-deadline')),
+      10000,
+    );
+    try {
+      const connected = once(socket, 'connect');
+      socket.connect(join(this.endpointDirectory, 'control.sock'));
+      await connected;
+      socket.write(CanonicalJson.stringify({ credential: this.credential, request }) + '\n');
+      return await this.rawResponse(socket, request);
+    } finally {
+      clearTimeout(timer);
+      socket.destroy();
+    }
+  }
+  private async rawResponse(socket: Socket, request: SandboxRunnerRequest) {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const bytes of socket) {
+      size += bytes.length;
+      assert(size <= 65536);
+      chunks.push(Buffer.from(bytes));
+    }
+    const response = Buffer.concat(chunks);
+    assert(response.length > 0 && response.indexOf(10) === response.length - 1);
+    return SandboxRunnerBinding.assertResponse(
+      JSON.parse(response.subarray(0, -1).toString()),
+      request,
+    );
   }
 }
 class SandboxRunnerProgram {
