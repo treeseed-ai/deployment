@@ -16,6 +16,8 @@ import {
   chmodSync,
   copyFileSync,
   lchownSync,
+  fstatSync,
+  closeSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -142,10 +144,21 @@ export class AliasFixture {
       }
     }
   }
+  static releaseDescriptor(fd: number): void {
+    if (fd === -1) return;
+    try {
+      fstatSync(fd);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EBADF') return;
+      throw error;
+    }
+    closeSync(fd);
+  }
   static descriptors(): number {
     return readdirSync('/proc/self/fd').length;
   }
-  descriptor(path = this.alias): number {
+  descriptor(kind = 'link'): number {
+    const path = kind === 'root' ? this.root : kind === 'parent' ? this.parent : this.alias;
     for (const entry of readdirSync('/proc/self/fd')) {
       try {
         if (readlinkSync('/proc/self/fd/' + entry) === path) return Number(entry);

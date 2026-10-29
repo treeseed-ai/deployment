@@ -28,6 +28,7 @@ export interface RuntimeAliasProof {
 }
 /** An anchor with stricter direct-parent permissions than shared ancestor traversal. */
 class AliasDirectory {
+  private closed = false;
   private readonly identity: Stats;
   private constructor(readonly directory: SafeDirectory) {
     this.identity = fstatSync(directory.fd);
@@ -71,6 +72,11 @@ class AliasDirectory {
     );
   }
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    const held = fstatSync(this.directory.fd);
+    if (!held.isDirectory() || held.dev !== this.identity.dev || held.ino !== this.identity.ino)
+      throw new Error();
     this.directory.close();
   }
 }

@@ -146,7 +146,7 @@ class AliasBoundaries {
     try {
       await fixture.prepare();
       const custody = await fixture.open(),
-        withdrawn = fixture.descriptor(kind === 'root' ? fixture.root : kind === 'parent' ? fixture.parent : fixture.alias);
+        withdrawn = fixture.descriptor(kind);
       closeSync(withdrawn);
       borrowed = openSync(fixture.terminal, 'r');
       assert.equal(borrowed, withdrawn);
@@ -155,7 +155,7 @@ class AliasBoundaries {
       assert(fstatSync(borrowed).isFile());
       fixture.components!.verify();
     } finally {
-      if (borrowed !== -1) closeSync(borrowed);
+      AliasFixture.releaseDescriptor(borrowed);
       fixture.close();
     }
   }
@@ -236,7 +236,11 @@ test(
 
 test(
   'integration: alias close refuses an unrelated file that reused its withdrawn descriptor',
-  suite.reusedDescriptor.bind(suite),
+  suite.reusedDescriptor.bind(suite, 'link'),
 );
 
-for (const kind of ['root','parent']) test('integration: alias close preserves unrelated files reusing withdrawn ' + kind + ' anchors', suite.reusedDescriptor.bind(suite, kind));
+for (const kind of ['root', 'parent'])
+  test(
+    'integration: alias close preserves unrelated files reusing withdrawn ' + kind + ' anchors',
+    suite.reusedDescriptor.bind(suite, kind),
+  );
