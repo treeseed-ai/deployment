@@ -71,7 +71,7 @@ class InstallationRecordsProgram {
       writer = null;
       rmSync(fixture.release.bundle, { recursive: true });
       assert.deepEqual(await Type.inspect(fixture.scope, fixture.signal), records);
-      this.private(fixture);
+      this.permissions(fixture);
     } finally {
       writer?.close();
       fixture.close();
@@ -97,7 +97,7 @@ class InstallationRecordsProgram {
     assert.deepEqual(await writer.read(), records);
     return records;
   }
-  private private(fixture: InstallationRecordFixture): void {
+  private permissions(fixture: InstallationRecordFixture): void {
     assert.equal(statSync(fixture.directory).mode & 0o777, 0o700);
     assert.equal(existsSync(join(fixture.release.root, 'SCRIPT_CANARY')), false);
     assert.equal(new Deployment.ServicePlanStore(fixture.release.installation).inspect(), true);
@@ -107,4 +107,24 @@ class InstallationRecordsProgram {
     assert.equal(receipt.installationId, fixture.scope.installationId);
   }
 }
-if (import.meta.main) await new InstallationRecordsProgram().run();
+class RecordConcurrencyAttempt {
+  static async run(file: string): Promise<void> {
+    const scope = JSON.parse(readFileSync(file, 'utf8'));
+    const Type = Reflect.get(Deployment, 'InstallationRecords') as RecordConstructor;
+    let writer: RecordCustody | null = null;
+    try {
+      writer = await Type.acquire(scope, new AbortController().signal);
+      throw new Error('Unexpected second writer');
+    } catch (error) {
+      assert(error instanceof Error);
+      assert.equal(error.message, 'INSTALLATION_RECORDS_BUSY');
+    } finally {
+      writer?.close();
+    }
+    process.stdout.write('installation-records-busy\n');
+  }
+}
+if (import.meta.main) {
+  if (process.argv[2] === 'attempt') await RecordConcurrencyAttempt.run(process.argv[3]!);
+  else await new InstallationRecordsProgram().run();
+}
