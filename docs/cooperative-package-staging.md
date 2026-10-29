@@ -36,3 +36,20 @@ by total input bytes / supplied bytes, retaining the original total-input allowa
 throughout, then restore 1000 at final end. Otherwise a valid dense prefix followed by less
 compressible data could be rejected solely because of chunking. A genuine dense-prefix archive
 pins that compatibility. Member, metadata and total-output guards remain unchanged.
+
+## Candidate verification
+
+Documentation 487922232 preceded the built Node intended starvation failure 0b8660570 and
+regression 6ca79fd79. Hostile archives and whole-input compression accounting were specified
+before implementation. Only ArchiveOutput/ArchiveOutputFile and the event helper import change
+inside the historical installed module; unrelated source bytes, guards and deadlines remain.
+Both classes now have short cohesive methods, with no baseline or exception additions.
+
+After accepted configuration #1051, local checks/build, eight focused cases, complete 19
+regression / 228 integration / 82 unit pass. The `.122` archive producer is
+`29c801af896bd4bdae2ce310c88319b503a07b50`, with 168 exact source files/modes and SHA-256
+`295ec9e2cd9d9e68730867952b222eb1064ac0722cd273dd675957d356d7a95a`.
+An empty-cache script-disabled strict TypeScript/Node archive consumer runs the real public
+materializer: `cooperative-package-public-ok`. Both complete current-head hosted runs and final
+review remain pending. The real API installed gate remains held separately; this local fairness
+proof does not establish that its entire failure is resolved.
