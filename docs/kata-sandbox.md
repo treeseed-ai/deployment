@@ -141,7 +141,10 @@ not advertise an aggregate writable-storage quota.
 
 `vcpus` is the workload CPU quota and `memoryMiB` the workload cgroup limit, not a claim that
 QEMU has exactly that many CPUs or RAM bytes: Kata's pinned runtime allocates VM overhead.
-Inspection must freshly verify both the saved OCI spec and the actual guest CPU/memory limits,
+An explicit fixed read-only `cgroup` mount at `/sys/fs/cgroup` exposes the current guest
+container's controller limits; it adds no host bind path or worker-selected option. Kata 4.1
+mounts this as cgroup2 in unified mode. Inspection verifies its actual cgroup2 type and read-only
+flags as well as both the saved OCI spec and the actual guest CPU/memory limits,
 read-only root and scratch filesystem type/capacity. Wrong, missing or ambiguous evidence fails
 with a fixed `KATA_RESOURCE_SHAPE_MISMATCH` error before returning a successful receipt. Guest
 output is private. The exact shape joins the inspection digest and is returned as `resources`
@@ -161,3 +164,12 @@ describes runtime overhead, and its [volume dispatch](https://github.com/kata-co
 distinguishes ordinary OCI tmpfs mounts from special Kubernetes ephemeral volumes. Those sources
 inform the bounded implementation; actual guest qualification decides whether it is accepted.
 Work/models remain Task 10, existing services remain untouched and every issue remains open.
+
+The .108 hosted prototype correctly refused a guest whose scratch/root constraints matched but
+whose CPU/memory files were absent. The retained read-back has membership `0::/`, expected tmpfs
+sizes and read-only root. Containerd v2.4.2 [default mounts](https://github.com/containerd/containerd/blob/v2.4.2/pkg/oci/mounts.go)
+include no cgroup filesystem. The corrected .109 positive policy therefore explicitly requests
+the fixed read-only cgroup mount. Kata's pinned [mount handling](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/agent/rustjail/src/mount.rs)
+maps `cgroup` to cgroup2 in unified mode and remounts read-only when requested. This is the next
+configuration to qualify, not an inference that flags alone prove enforcement. Keep .108 and
+both failed hosted records immutable; no CPU/memory read-back requirement or deadline is removed.
