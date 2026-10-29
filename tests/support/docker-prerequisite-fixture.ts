@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { PlanningBlockedError } from '@treeseed-cordis/sdk';
 import { DockerCommands } from '@treeseed-cordis/deployment';
 import { SafeDirectory, StrictJson } from '../../src/filesystem.js';
@@ -12,6 +13,21 @@ export class DockerPrerequisiteFixture {
   }
   private static code(blocker: { code: string }): string {
     return /^[A-Z][A-Z0-9_]{0,62}$/.test(blocker.code) ? blocker.code : 'INVALID_SOURCE_BLOCKER';
+  }
+  private static readonly timingFields = z.strictObject({
+    elapsedMs: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    status: z.number().int().min(0).max(255).nullable(),
+    signal: z.enum(['SIGTERM', 'SIGKILL']).nullable(),
+  });
+  private static timing(cause: object): string {
+    const result = this.timingFields.safeParse({
+      elapsedMs: Object.getOwnPropertyDescriptor(cause, 'elapsedMs')?.value,
+      status: Object.getOwnPropertyDescriptor(cause, 'status')?.value,
+      signal: Object.getOwnPropertyDescriptor(cause, 'signal')?.value,
+    });
+    if (!result.success) return 'docker-timing(unavailable)';
+    const { elapsedMs, status, signal } = result.data;
+    return 'docker-timing(' + elapsedMs + 'ms,status:' + status + ',signal:' + signal + ')';
   }
   private static readonly failureCategories = ['context', 'engine', 'compose', 'other'];
   private static readonly failureKinds = [
@@ -31,7 +47,7 @@ export class DockerPrerequisiteFixture {
         return 'docker-invocation(unavailable)';
       if (typeof kind !== 'string' || !this.failureKinds.includes(kind))
         return 'docker-invocation(unavailable)';
-      return 'docker-invocation(' + category + ':' + kind + ')';
+      return 'docker-invocation(' + category + ':' + kind + ') ' + this.timing(cause);
     } catch {
       return 'docker-invocation(unavailable)';
     }
