@@ -6,8 +6,8 @@ verified runtime kit. It extends the existing Deployment artifact/runtime owners
 continues to own pool admission and execution policy.
 
 `RuntimeComponentCustody.open(archive, bindings, signal)` will borrow an open
-`RuntimeArchiveCustody` and retain descriptor-anchored installed-file identities. Each binding
-has a unique role, exact kit `member` and canonical absolute installed `path`. One to sixteen
+`RuntimeArchiveCustody` and retain descriptor-anchored installed-file identities. The public RuntimeComponentBinding and RuntimeComponentProof types describe selection and proof.
+Each binding has a unique role, exact kit `member` and canonical absolute installed `path`. One to sixteen
 unique role/member/path selections are permitted. Kit inspection resolves only the archive's
 bounded links and supplies the regular member's digest, size and original mode. The installed
 path must be a regular, single-link, correctly owned file through checked no-symlink ancestors;
