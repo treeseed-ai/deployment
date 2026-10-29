@@ -63,6 +63,11 @@ as record counts grow. Methods on one custody object are serialized by admission
 read/append calls fail busy. Cancellation fails safely, releases no writer prematurely and cannot
 report an unpublished record as accepted. After any publication uncertainty, reject further writes
 on that custody object; preserve the complete/incomplete bytes for explicit recovery/read-back.
+On publication uncertainty, close all owned descriptors but retain the namespace writer lock
+and report failed close; a subsequent acquisition/inspection cannot silently adopt that state.
+Use `InstallationStore.publish(..., mode, false)` for strict fresh publication. Its existing
+four-argument callers retain exact-byte idempotent reuse; the explicit false mode rejects even
+an identical pre-existing destination, without overwriting it.
 
 Public failures expose only fixed `INSTALLATION_RECORDS_INVALID`, `INSTALLATION_RECORDS_BUSY`,
 `INSTALLATION_RECORDS_CHANGED`, `INSTALLATION_RECORDS_CANCELLED`, `INSTALLATION_RECORDS_CLOSED`,
