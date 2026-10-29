@@ -1,3 +1,4 @@
+export { RuntimeArchiveCustody } from './runtime-archive.js';
 export {
   GuestRuntimeArchive,
   GuestRuntimeElf,
