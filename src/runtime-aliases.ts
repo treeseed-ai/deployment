@@ -28,14 +28,18 @@ export interface RuntimeAliasProof {
 }
 /** An anchor with stricter direct-parent permissions than shared ancestor traversal. */
 class AliasDirectory {
-  private constructor(readonly directory: SafeDirectory) {}
+  private readonly identity: Stats;
+  private constructor(readonly directory: SafeDirectory) {
+    this.identity = fstatSync(directory.fd);
+  }
   static open(path: string): AliasDirectory {
-    const anchor = new AliasDirectory(SafeDirectory.open(path));
+    const directory = SafeDirectory.open(path);
     try {
+      const anchor = new AliasDirectory(directory);
       anchor.verify();
       return anchor;
     } catch (error) {
-      anchor.close();
+      directory.close();
       throw error;
     }
   }
@@ -49,9 +53,22 @@ class AliasDirectory {
       (held.mode & 0o022) !== 0 ||
       linked.isSymbolicLink() ||
       held.dev !== linked.dev ||
-      held.ino !== linked.ino
+      held.ino !== linked.ino ||
+      !this.same(held)
     )
       throw new Error();
+  }
+  private same(stat: Stats): boolean {
+    const original = this.identity;
+    return (
+      stat.dev === original.dev &&
+      stat.ino === original.ino &&
+      stat.uid === original.uid &&
+      stat.gid === original.gid &&
+      stat.mode === original.mode &&
+      stat.ctimeMs === original.ctimeMs &&
+      stat.mtimeMs === original.mtimeMs
+    );
   }
   close(): void {
     this.directory.close();

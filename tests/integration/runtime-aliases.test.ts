@@ -145,7 +145,8 @@ class AliasBoundaries {
     let borrowed = -1;
     try {
       await fixture.prepare();
-      const custody = await fixture.open(), withdrawn = fixture.descriptor();
+      const custody = await fixture.open(),
+        withdrawn = fixture.descriptor();
       closeSync(withdrawn);
       borrowed = openSync(fixture.terminal, 'r');
       assert.equal(borrowed, withdrawn);
@@ -233,4 +234,7 @@ test(
   suite.failedClose.bind(suite),
 );
 
-test('integration: alias close refuses an unrelated file that reused its withdrawn descriptor', suite.reusedDescriptor.bind(suite));
+test(
+  'integration: alias close refuses an unrelated file that reused its withdrawn descriptor',
+  suite.reusedDescriptor.bind(suite),
+);
