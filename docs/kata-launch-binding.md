@@ -44,6 +44,9 @@ private exact effective configuration, then use the real default backend to star
 sandbox. Read back retained executable/kernel/image, three finite vCPUs,1056MiB ordinary RAM and
 1312MiB maximum address space. Repeated proof agrees, cancellation refuses admission and verified
 destruction invalidates read-back. Local tests never run QEMU/Kata or spoof qualification flags.
+Also construct a second genuine native policy with different finite RAM bounds and require it to
+reject the same running process. Validate its distinct policy identity before the attempt, so
+relocated, forged or otherwise invalid custody cannot mask a missing resource comparison.
 
 Actual provider/profile publication, pool ownership/claims/refill, setup/egress, live authority,
 seed coordination, CLI and final assembled admission remain subsequent Task3D gates. Real
