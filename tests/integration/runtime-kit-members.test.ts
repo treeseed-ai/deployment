@@ -102,6 +102,12 @@ for (const mode of [
   'oversized-metadata',
   'ignored',
   'tar-tail',
+  'long-empty',
+  'long-extra',
+  'long-dangling',
+  'long-duplicate',
+  'long-wrong-kind',
+  'control-entries',
 ])
   test('integration: retained kit inspection refuses ' + mode, suite.rejects.bind(suite, mode));
 for (const paths of [

@@ -67,7 +67,7 @@ export class RuntimeKitFixture {
       parts.push(this.entry({ path: 'opt/kata/device', type: 'CharacterDevice' }));
     if (mode === 'permissions') parts.push(this.entry({ path: 'opt/kata/writable', mode: 0o666 }));
     if (mode === 'ancestor') parts.push(this.entry({ path: RuntimeKitFixture.link + '/child' }));
-    parts.push(...this.expansion(mode), ...this.auxiliary(mode));
+    parts.push(...this.expansion(mode), ...this.auxiliary(mode), ...this.invalidControl(mode));
     return parts;
   }
   private baseline(mode: string): Buffer[] {
@@ -103,7 +103,29 @@ export class RuntimeKitFixture {
     if (mode === 'entries')
       for (let index = 0; index < 4096; index++)
         parts.push(this.entry({ path: 'opt/kata/file-' + index }, randomBytes(32)));
+    return [...parts, ...this.controlEntries(mode)];
+  }
+  private controlEntries(mode: string): Buffer[] {
+    const parts: Buffer[] = [];
+    if (mode !== 'control-entries') return parts;
+    for (let index = 0; index < 2050; index++) {
+      const path = 'opt/kata/extra-' + index;
+      parts.push(this.control('NextFileHasLongPath', path + '\0'));
+      parts.push(this.entry({ path }, randomBytes(128)));
+    }
     return parts;
+  }
+  private invalidControl(mode: string): Buffer[] {
+    const type = 'NextFileHasLongPath';
+    const path = 'opt/kata/extra';
+    const header = this.control(type, path + '\0');
+    if (mode === 'long-empty') return [this.control(type, '')];
+    if (mode === 'long-extra') return [this.control(type, path + '\0PRIVATE_KIT_CANARY')];
+    if (mode === 'long-dangling') return [header];
+    if (mode === 'long-duplicate') return [header, header, this.entry({ path })];
+    if (mode === 'long-wrong-kind')
+      return [this.control('NextFileHasLongLinkpath', 'fixture\0'), this.entry({ path })];
+    return [];
   }
   private auxiliary(mode: string): Buffer[] {
     const parts: Buffer[] = [];
