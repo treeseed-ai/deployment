@@ -36,11 +36,15 @@ export class ControlGuard {
     if (!value) throw new SandboxControlError(code);
   }
   static failure(error: unknown): SandboxControlCode {
-    if (
-      error instanceof SandboxControlError &&
-      SandboxControlSchemas.code.safeParse(error.code).success
-    )
-      return error.code;
+    try {
+      if (error instanceof SandboxControlError) {
+        const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+        const parsed = SandboxControlSchemas.code.safeParse(code);
+        if (parsed.success) return parsed.data;
+      }
+    } catch {
+      /* Hostile inspection cannot escape the safe transport error boundary. */
+    }
     return 'SANDBOX_OPERATION_FAILED';
   }
 }
