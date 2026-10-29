@@ -66,3 +66,7 @@ productive Work/model execution remains Task10.
 Final custody review also pins direct directory metadata so a moved-and-restored parent is not
 silently accepted. Qualification must cover missing links and retained-descriptor replacement;
 failed close must not close an unrelated file that reused a withdrawn descriptor number.
+
+Apply the withdrawn/reused-descriptor disposal fence to retained root and parent directories as
+well as symlink nodes. Close only the original held inode; drain the other owned descriptors
+and preserve sticky failure without closing a replacement file.
