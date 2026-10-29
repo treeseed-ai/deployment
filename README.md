@@ -2,9 +2,14 @@
 
 ## Host runner contract selection
 
-Deployment selects SDK .41 from accepted source `4bb54954ac6d636309a8312c2bf71536b5aefb73`,
-archive SHA-256 `2bbde1a4ca35fbffaeacb2fbeab40b49f56dc57dca3355e8e47e22ed5f0f822a`.
+Deployment selects SDK .42 from accepted source `afdfac7bdd3c9c1f783362cd1d50324181e1d725`,
+archive SHA-256 `0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc`.
 Peer, vendor archive, lock, installed identity and built public Node consumer must agree.
+This .113 dependency closure supplies SDK #506 manager ready-only service envelopes (channel
+1.1.0-cordis.1) through one exact peer/vendor/lock selection. Existing worker/runner roles and
+all seven platform operations remain intact. It adds no manager runtime, host capability or
+activation; native-kit candidate #1044 and the separate CI proposal remain independent.
+
 SDK #505 integrated the corrected awaited sandbox-profile binding; the retained .40 candidate
 must not be selected because it admitted compatibility mutation during hashing.
 
