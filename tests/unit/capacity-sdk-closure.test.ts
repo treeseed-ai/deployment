@@ -9,10 +9,10 @@ class CapacitySdkClosureTests {
     const installed = JSON.parse(
       readFileSync('node_modules/@treeseed-cordis/sdk/package.json', 'utf8'),
     );
-    expect(metadata.peerDependencies['@treeseed-cordis/sdk']).toBe('0.0.0-cordis.41');
+    expect(metadata.peerDependencies['@treeseed-cordis/sdk']).toBe('0.0.0-cordis.42');
     expect(installed.version).toBe(metadata.peerDependencies['@treeseed-cordis/sdk']);
-    expect(metadata.cordisCandidate.sdk.commit).toBe('4bb54954ac6d636309a8312c2bf71536b5aefb73');
-    const digest = '2bbde1a4ca35fbffaeacb2fbeab40b49f56dc57dca3355e8e47e22ed5f0f822a';
+    expect(metadata.cordisCandidate.sdk.commit).toBe('afdfac7bdd3c9c1f783362cd1d50324181e1d725');
+    const digest = '0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc';
     expect(metadata.cordisCandidate.sdk.sha256).toBe(digest);
     expect(createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex')).toBe(digest);
   }
