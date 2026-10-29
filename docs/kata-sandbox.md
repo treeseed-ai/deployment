@@ -173,3 +173,38 @@ the fixed read-only cgroup mount. Kata's pinned [mount handling](https://github.
 maps `cgroup` to cgroup2 in unified mode and remounts read-only when requested. This is the next
 configuration to qualify, not an inference that flags alone prove enforcement. Keep .108 and
 both failed hosted records immutable; no CPU/memory read-back requirement or deadline is removed.
+
+## Bound QEMU startup resource observations
+
+`KataSandboxEvidence.startupShape` records `{vcpus, maximumVcpus, memoryMiB,
+maximumMemoryMiB}` from the exact observed QEMU process's explicit `-smp` and `-m` arguments.
+The inspection digest includes this data. Repeated inspection rechecks process owner, executable,
+PID/start identity and complete command digest before accepting the resource observation.
+Missing, repeated, malformed, unsupported or contradictory arguments fail with a fixed safe error;
+raw process arguments, paths and private values never enter the public result or error.
+
+This is the observed startup configuration, not QMP live hotplug state, host RSS/reservations or
+an SDK resource-profile/readiness claim. Keep workload cgroup limits separate. The known pinned
+Kata configuration uses static resource management with CPU/memory overhead; the effective QEMU
+arguments must be observed rather than inferred from default memory or metadata. Complete
+component/configuration/isolation association and pool admission remain later required gates.
+
+The parser supports one explicit CPU count (`n` or `cpus=n`) with optional `maxcpus` and finite
+integer topology fields. It supports explicit whole-MiB memory (`n` or `size=n`, with binary
+K/M/G/T units) and optional `slots`/`maxmem`. Missing maxima equal their startup values; maxima
+must not be lower than startup values. Reject duplicate keys/options, fractional/overflowing or
+zero dimensions and unknown fields. All other command arguments remain private, while their
+complete digest stays bound to the process identity.
+
+This is a coherent process-inspection invariant, not a replacement dependency container or
+selectable security bypass. The typed sandbox provider remains the native plugin seam. Preserve
+all previous guest/resource/readiness/teardown assertions and deadlines. Outside-in acceptance
+extends the real default hosted Kata resource program; local process-boundary tests use genuine
+Linux Node processes explicitly identified as argument-carrier fixtures, never as VM evidence.
+No workstation VM or daemon is started. Follow docs, acceptance, integration/unit, implementation,
+owner/public archive and complete exact-head hosted gates. All issues stay open; Work/models stay
+Task 10.
+
+Primary references: [QEMU invocation](https://www.qemu.org/docs/master/system/invocation.html),
+[Kata command construction](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/crates/hypervisor/src/qemu/cmdline_generator.rs),
+and [pinned runtime resource defaults](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/config/configuration-qemu-runtime-rs.toml.in).
