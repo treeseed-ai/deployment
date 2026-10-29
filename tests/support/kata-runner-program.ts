@@ -57,7 +57,7 @@ class KataRunnerProgram {
     this.image,
   ];
   private readonly privilegeCheck =
-    'found=0; for d in /proc/[0-9]*; do test -r "$d/cmdline" || continue; first=$(tr "\\000" "\\n" < "$d/cmdline" | head -n 1); if test "$first" = /run/treeseed-runner/guest; then grep -Eq "^Uid:[[:space:]]+65532[[:space:]]+65532[[:space:]]+65532[[:space:]]+65532$" "$d/status" || exit 1; grep -Eq "^CapEff:[[:space:]]+0000000000000000$" "$d/status" || exit 1; grep -Eq "^NoNewPrivs:[[:space:]]+1$" "$d/status" || exit 1; found=$((found+1)); fi; done; test "$found" = 1';
+    'found=0; for d in /proc/[0-9]*; do test -r "$d/cmdline" || continue; first=$(tr "\\000" "\\n" < "$d/cmdline" | head -n 1); if test "$first" = /opt/treeseed-runner/guest; then grep -Eq "^Uid:[[:space:]]+65532[[:space:]]+65532[[:space:]]+65532[[:space:]]+65532$" "$d/status" || exit 1; grep -Eq "^CapEff:[[:space:]]+0000000000000000$" "$d/status" || exit 1; grep -Eq "^NoNewPrivs:[[:space:]]+1$" "$d/status" || exit 1; found=$((found+1)); fi; done; test "$found" = 1';
   private scope: CordisScope | null = null;
   private lease: ProviderLease<KataSandboxHost> | null = null;
   async run(): Promise<void> {
@@ -218,7 +218,7 @@ class KataRunnerProgram {
   private transferArguments(fixture: PrivateKataFixture, id: string): string[] {
     const name = fixture.namespace + '-' + CanonicalJson.digest({ id }).slice(0, 24);
     const command =
-      'if test -f /run/treeseed-runner/guest; then stat -c "payload=%s" /run/treeseed-runner/guest; else printf "payload=missing\\n"; fi; stat -f -c "filesystem=%T,block=%S,available=%a" /run/treeseed-runner';
+      'if test -f /opt/treeseed-runner/guest; then stat -c "payload=%s" /opt/treeseed-runner/guest; else printf "payload=missing\\n"; fi; stat -f -c "filesystem=%T,block=%S,available=%a" /opt/treeseed-runner';
     return [
       '--address',
       fixture.socket,
@@ -299,7 +299,7 @@ class KataRunnerProgram {
       name,
       '/bin/sh',
       '-c',
-      'test ! -e /run/treeseed-runner/assignment.json && test ! -d /run/treeseed-runner/credentials && test "$(stat -c %u /run/treeseed-runner/guest.json)" = 65532',
+      'test ! -e /run/treeseed-runner/assignment.json && test ! -d /run/treeseed-runner/credentials && test ! -e /run/treeseed-runner/guest && test "$(stat -c %u /run/treeseed-runner/guest.json)" = 65532 && test "$(stat -c %a /opt/treeseed-runner)" = 700 && test "$(stat -c %u /opt/treeseed-runner/guest)" = 65532',
     ]);
     assert.equal(result, '');
   }
