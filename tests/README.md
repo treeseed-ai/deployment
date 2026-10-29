@@ -111,3 +111,13 @@ Complete tier commands use `bun test ./tests/<tier>` with only non-filtering tim
 empty-tier reporting options. Individual-file selectors and shell wrappers do not prove
 complete discovery. Name-filtered CI matrices must cover each registered case exactly once
 and every partition must be nonempty; the shared layout guard verifies that inventory.
+
+
+Owner dependency selection applies to every executable consumer, not only manifests or unit
+inventory. The built `capacity-contract-program` and the availability consumer must name the
+same reviewed SDK peer, producer and archive as `cordisCandidate`; update exact selection
+expectations together while preserving all runtime assertions and deadlines. Both public Node consumers remain in the existing acceptance inventory; this feature
+does not change workflow scheduling or qualification policy. The .127 runtime archive
+remains frozen: a correction confined to unpublished test specifications/programs and this test
+guide changes candidate source evidence, not the selected package bytes. Recheck archive content
+and mode equality against the new candidate and retain the original archive producer.

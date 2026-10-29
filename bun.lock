@@ -24,7 +24,7 @@
         "typescript": "5.9.3",
       },
       "peerDependencies": {
-        "@treeseed-cordis/sdk": "0.0.0-cordis.42",
+        "@treeseed-cordis/sdk": "0.0.0-cordis.44",
       },
     },
   },
@@ -33,7 +33,7 @@
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
-    "@treeseed-cordis/sdk": ["@treeseed-cordis/sdk@vendor/sdk.tgz", { "dependencies": { "cordis": "4.0.0-rc.12", "jsonc-parser": "3.3.1", "semver": "7.8.5", "zod": "4.6.7" } }, "sha512-HbIKuIY5lnwujYQSKrpHE0j9DMYFtRjUM2TyAtjeqfy5nufQBmIxwtukOtnodkKt1ekSZQJkqjYm601CTnOjlg=="],
+    "@treeseed-cordis/sdk": ["@treeseed-cordis/sdk@vendor/sdk.tgz", { "dependencies": { "cordis": "4.0.0-rc.12", "jsonc-parser": "3.3.1", "semver": "7.8.5", "zod": "4.6.7" } }, "sha512-p+u4ZAJmZxJedXTUenKU6/WVEPYIFKcmGxIn06vgOqtOycT6l3i+nePSUYpraW2WPtGVnc0zavgoY8pDZ+8LJg=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
