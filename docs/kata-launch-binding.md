@@ -49,6 +49,9 @@ destruction invalidates read-back. Local tests never run QEMU/Kata or spoof qual
 Also construct a second genuine native policy with different finite RAM bounds and require it to
 reject the same running process. Validate its distinct policy identity before the attempt, so
 relocated, forged or otherwise invalid custody cannot mask a missing resource comparison.
+During qualification failure investigation, the isolated credential-free daemon's bounded log
+tail may explain the failed fixture operation. This does not change production error output,
+runtime deadlines or the requirement that successful fixture output is exact and empty on stderr.
 
 Actual provider/profile publication, pool ownership/claims/refill, setup/egress, live authority,
 seed coordination, CLI and final assembled admission remain subsequent Task3D gates. Real
