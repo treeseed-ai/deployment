@@ -32,7 +32,10 @@ The acquired object exposes:
   an operation is pending; callers await that operation (including cancellation) before closing.
   Retain failed-close status; a later close cannot turn uncertain cleanup into success.
 
-Each record carries custody format version 1, sequence, previous digest, content and its digest.
+Each record carries custody formatVersion 1, scopeDigest (the namespace marker's digest),
+sequence, previousDigest, content and digest. Sequence starts at one; names use eight decimal
+digits, a hyphen, the record digest and `.json`. Snapshot scope/content before the first
+asynchronous boundary; later caller mutation cannot change accepted bytes or their identity.
 The digest includes namespace/installation receipt binding. Use canonical sequence/digest names,
 maximum 4096 records and one MiB per record; reject noncanonical/duplicate/unknown envelope fields,
 unsafe keys, wrong hashes, gaps, forks and extra entries. API owns content schemas, idempotency,
@@ -54,6 +57,11 @@ as record counts grow. Methods on one custody object are serialized by admission
 read/append calls fail busy. Cancellation fails safely, releases no writer prematurely and cannot
 report an unpublished record as accepted. After any publication uncertainty, reject further writes
 on that custody object; preserve the complete/incomplete bytes for explicit recovery/read-back.
+
+Public failures expose only fixed `INSTALLATION_RECORDS_INVALID`, `INSTALLATION_RECORDS_BUSY`,
+`INSTALLATION_RECORDS_CHANGED`, `INSTALLATION_RECORDS_CANCELLED`, `INSTALLATION_RECORDS_CLOSED`,
+`INSTALLATION_RECORDS_WRITE_FAILED` or `INSTALLATION_RECORDS_CLOSE_FAILED` categories. Missing
+read-only state is invalid; no path, raw error or content is included in the exception message.
 
 ## Verification and delivery
 
