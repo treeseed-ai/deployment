@@ -22,7 +22,7 @@ hashed the terminal descriptor. No generic no-follow policy is relaxed.
 
 Use Linux `O_PATH | O_NOFOLLOW | O_CLOEXEC` to retain each symlink node itself. Parent traversal stays
 descriptor anchored and rejects symlink ancestors. Compare retained `fstat` identity with anchored
-`lstat` before/after `readlink`, then compare normalized targets. Parent/root identities, ownership,
+`lstat` before/after `readlink`, then compare normalized targets. Parent/root identities and captured directory metadata, ownership,
 permissions, component custody and link metadata are rechecked throughout lifetime. Hold the symlink
 descriptor to prevent deletion/recreation from reusing the original live inode. Root and direct
 alias parents must not be group/world writable, including sticky shared parents. Normal trusted
@@ -62,3 +62,7 @@ artifacts, all seven platform operation IDs, existing assertions/timeouts and re
 issues remain open. Full configuration policy, actual kernel/launch and VM-budget binding, native
 profile advertisement, warm pools and installed Agent services remain subsequent Task3D work;
 productive Work/model execution remains Task10.
+
+Final custody review also pins direct directory metadata so a moved-and-restored parent is not
+silently accepted. Qualification must cover missing links and retained-descriptor replacement;
+failed close must not close an unrelated file that reused a withdrawn descriptor number.
