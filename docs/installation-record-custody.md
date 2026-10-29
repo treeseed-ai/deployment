@@ -94,3 +94,6 @@ The helper requires genuine GitHub-hosted flags and root, resolves the path insi
 temporary directory, and checks a regular private single-link marker before chown. No runtime,
 daemon, workstation registration or original installation is involved. Local unprivileged
 verification reports this hosted cross-UID case separately rather than substituting a fake UID.
+After the ownership assertion, unlink only that fixture marker from its still runner-owned
+private parent before shared fixture teardown. Shared teardown chmods its files and cannot chmod
+the deliberately root-owned marker; this cleanup must not obscure the actual rejection assertion.
