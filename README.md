@@ -1679,3 +1679,8 @@ permits baseline replacement, skipped tests or an accepted partial run.
 Native npm-source fixture failures retain their original blocker plus bounded read-only Docker
 prerequisite read-back. The fixed status/timing diagnostics expose no raw host data and change
 no assertions, timeouts or production errors. See [fixture diagnostics](docs/docker-fixture-diagnostics.md).
+
+## Effective runtime policy custody
+
+See [the bounded effective-policy contract](docs/runtime-policy-custody.md). This read-only
+prerequisite does not advertise a native profile or admit a warm sandbox.
