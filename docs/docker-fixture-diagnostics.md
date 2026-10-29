@@ -67,6 +67,9 @@ The existing development-only `DockerPrerequisiteFixture.failed(error, inputFile
 shared safe terminal formatter for built fixture programs. Npm source retains its subsequent
 read-back by passing the existing fixture input file; installed-plugin qualification does not
 add queries. Both preserve fixed blocker identifiers plus the original invocation category/kind.
+When present, append only validated original elapsed milliseconds, bounded exit status and
+recognized signal, so timeout and exit evidence is not lost again. Missing or invalid numeric/
+signal fields report fixed unavailable timing. Read data descriptors without invoking getters.
 Unknown causes, getters/proxy traps and non-identifier codes never enter output; arbitrary
 provider messages/causes remain excluded. Non-planning errors retain their previous propagation.
 
