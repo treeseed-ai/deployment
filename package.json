@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.107",
+  "version": "0.0.0-cordis.109",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -105,7 +105,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.107"
+      "version": "0.0.0-cordis.109"
     },
     "providers": [
       {
@@ -907,6 +907,32 @@
               "required": [
                 "scope",
                 "artifact"
+              ],
+              "additionalProperties": false
+            },
+            "resources": {
+              "type": "object",
+              "properties": {
+                "vcpus": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4096
+                },
+                "memoryMiB": {
+                  "type": "integer",
+                  "minimum": 128,
+                  "maximum": 16777216
+                },
+                "scratchMiB": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16777216
+                }
+              },
+              "required": [
+                "vcpus",
+                "memoryMiB",
+                "scratchMiB"
               ],
               "additionalProperties": false
             },

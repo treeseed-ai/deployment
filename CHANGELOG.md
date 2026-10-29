@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Enforce and read back an opt-in bounded Kata workload resource shape (#1021).
 - Select corrected SDK resource-profile contracts before physical pool qualification (#1021).
 - Export the isolated Kata qualification fixture through an explicit guarded testing interface (#1021).
 
