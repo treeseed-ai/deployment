@@ -1,23 +1,21 @@
 import assert from 'node:assert/strict';
 import { Header, type HeaderData } from 'tar';
 import { zstdCompressSync } from 'node:zlib';
-import { mkdtempSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  realpathSync,
+  rmSync,
+  copyFileSync,
+  chmodSync,
+  lstatSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { RuntimeArchiveCustody } from '@treeseed-cordis/deployment/sandbox';
-export interface KitMembers {
-  readonly formatVersion: number;
-  readonly archive: { readonly sha256: string; readonly size: number };
-  readonly members: readonly {
-    readonly requestedPath: string;
-    readonly path: string;
-    readonly mode: number;
-    readonly size: number;
-    readonly sha256: string;
-    readonly links: readonly { readonly path: string; readonly target: string }[];
-  }[];
-}
+export type { RuntimeKitMembers as KitMembers } from '@treeseed-cordis/deployment/sandbox';
+import type { RuntimeKitMembers as KitMembers } from '@treeseed-cordis/deployment/sandbox';
 export interface KitCustody {
   inspect(paths: unknown, signal: AbortSignal): Promise<KitMembers>;
 }
@@ -30,10 +28,24 @@ export class RuntimeKitFixture {
   static readonly file = 'opt/kata/bin/fixture';
   static readonly link = 'opt/kata/bin/selected';
   static readonly alias = 'opt/kata/bin/alias';
-  constructor(mode = 'valid') {
+  static readonly actualIdentity = {
+    sha256: '3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96',
+    size: 969565384,
+  };
+  constructor(mode = 'valid', source?: string) {
     const bytes = this.bytes(mode);
     writeFileSync(this.path, bytes, { mode: 0o600 });
     this.input = { path: this.path, size: bytes.length, sha256: RuntimeKitFixture.digest(bytes) };
+    if (mode === 'actual') this.actual(source);
+  }
+  private actual(source: string | undefined): void {
+    assert.equal(typeof source, 'string', 'Actual kit inspection requires the pinned archive');
+    const stat = lstatSync(source!);
+    assert(stat.isFile() && !stat.isSymbolicLink());
+    assert.equal(stat.size, RuntimeKitFixture.actualIdentity.size);
+    copyFileSync(source!, this.path);
+    chmodSync(this.path, 0o600);
+    Object.assign(this.input, RuntimeKitFixture.actualIdentity);
   }
   static digest(bytes: Buffer): string {
     return createHash('sha256').update(bytes).digest('hex');
@@ -90,7 +102,7 @@ export class RuntimeKitFixture {
 class RuntimeKitMembersProgram {
   async run(): Promise<void> {
     const mode = process.argv[2] ?? 'valid';
-    const fixture = new RuntimeKitFixture(mode);
+    const fixture = new RuntimeKitFixture(mode, process.argv[3]);
     const custody = await fixture.open();
     try {
       if (mode === 'garbage')
@@ -98,6 +110,7 @@ class RuntimeKitMembersProgram {
           custody.inspect([RuntimeKitFixture.link], new AbortController().signal),
           { code: 'KATA_RUNTIME_KIT_INVALID' },
         );
+      else if (mode === 'actual') await this.actual(custody);
       else await this.valid(custody, fixture);
       custody.verify();
     } finally {
@@ -105,6 +118,77 @@ class RuntimeKitMembersProgram {
       fixture.close();
     }
     process.stdout.write('runtime-kit-members-ok\n');
+  }
+  private static readonly actualMembers = [
+    {
+      requestedPath: 'opt/kata/bin/qemu-system-x86_64',
+      path: 'opt/kata/bin/qemu-system-x86_64',
+      size: 22835352,
+      mode: 493,
+      sha256: 'b94419fca709f2b928a20d7b04d856f87cdfdbc2db357872096f090cc2c58abc',
+      links: [],
+    },
+    {
+      requestedPath: 'opt/kata/libexec/virtiofsd',
+      path: 'opt/kata/libexec/virtiofsd',
+      size: 3303496,
+      mode: 484,
+      sha256: '15b2e72a78cc08a9bd8a6943e89fb69c88cb3cbeb63069efceade835342ac7d4',
+      links: [],
+    },
+    {
+      requestedPath: 'opt/kata/runtime-rs/bin/containerd-shim-kata-v2',
+      path: 'opt/kata/runtime-rs/bin/containerd-shim-kata-v2',
+      size: 48231984,
+      mode: 493,
+      sha256: '3c88c8d7f183b95912974eaa143f1c8a52c57b0a01c5ef4a4c61e22f16364481',
+      links: [],
+    },
+    {
+      requestedPath:
+        'opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml',
+      path: 'opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml',
+      size: 35229,
+      mode: 420,
+      sha256: '870f8157d298a51784d3617854456edf16820bbc1e743b15467e441b63c43673',
+      links: [],
+    },
+    {
+      requestedPath: 'opt/kata/share/kata-containers/kata-containers.img',
+      path: 'opt/kata/share/kata-containers/kata-ubuntu-noble.image',
+      size: 268435456,
+      mode: 420,
+      sha256: '96497f64da1de9c7473fef46c3d29ddd0805d334731cf9d903a21a5b2c33cefb',
+      links: [
+        {
+          path: 'opt/kata/share/kata-containers/kata-containers.img',
+          target: 'opt/kata/share/kata-containers/kata-ubuntu-noble.image',
+        },
+      ],
+    },
+    {
+      requestedPath: 'opt/kata/share/kata-containers/vmlinux.container',
+      path: 'opt/kata/share/kata-containers/vmlinux-6.18.35-202',
+      size: 40855000,
+      mode: 420,
+      sha256: '8e9dbc3a6e4c26adb089d23d31201edebce905c7f3e31aa67b32bdd41df1b86f',
+      links: [
+        {
+          path: 'opt/kata/share/kata-containers/vmlinux.container',
+          target: 'opt/kata/share/kata-containers/vmlinux-6.18.35-202',
+        },
+      ],
+    },
+  ];
+  private async actual(custody: KitCustody): Promise<void> {
+    const paths: string[] = [];
+    for (const member of RuntimeKitMembersProgram.actualMembers) paths.push(member.requestedPath);
+    const proof = await custody.inspect(paths, new AbortController().signal);
+    assert.deepEqual(proof, {
+      formatVersion: 1,
+      archive: RuntimeKitFixture.actualIdentity,
+      members: RuntimeKitMembersProgram.actualMembers,
+    });
   }
   private async valid(custody: KitCustody, fixture: RuntimeKitFixture): Promise<void> {
     const paths = [RuntimeKitFixture.link, RuntimeKitFixture.file];
