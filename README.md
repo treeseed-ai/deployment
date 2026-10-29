@@ -1681,3 +1681,6 @@ no assertions, timeouts or production errors. See [fixture diagnostics](docs/doc
 
 See [the bounded effective-policy contract](docs/runtime-policy-custody.md). This read-only
 prerequisite does not advertise a native profile or admit a warm sandbox.
+
+The effective-policy maximum includes exact retained image-backed NVDIMM address space;
+it keeps that allowance distinct from ordinary startup RAM. See the owner contract (#1067).

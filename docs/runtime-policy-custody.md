@@ -26,20 +26,26 @@ Only these effective `hypervisor.qemu` fields may differ from that template:
 
 - `default_vcpus` and `default_maxvcpus`: the same finite integer ceiling of requested workload
   vCPUs plus the template's declared CPU overhead.
-- `default_memory` and `default_maxmemory`: the same finite workload MiB plus declared overhead.
+- `default_memory`: finite workload MiB plus declared overhead. `default_maxmemory`: that
+  startup RAM plus the exact retained root-image address-space allowance, rounded up to whole MiB.
 - `memory_slots`: one; no unbounded zero sentinel or additional hotplug capacity.
 - `enable_annotations`: empty; callers cannot override runtime policy through annotations.
 
 All other fields, nested tables, lists and scalar types must agree semantically with the complete
 accepted template. Unknown/duplicate keys, added/removed values, unsupported TOML values, changed
 paths/hooks/network/debug/security settings or arbitrary environment configuration fail. Require
-static resource management and positive finite exact workload/VM bounds. Scratch size remains the
+static resource management and positive finite exact workload/VM bounds. The immutable selected
+rootfs member supplies the image size; callers cannot choose an allowance. For the accepted
+268435456-byte image, workload1024MiB plus32MiB overhead yields1056MiB startup RAM and1312MiB
+maximum address space, including256MiB for the image-backed NVDIMM. This maximum is not permission
+for256MiB of additional anonymous RAM. Reject the former RAM-only1056MiB maximum, host-sized
+maxima and any extra allowance. Preserve the complete template comparison and all other overrides. Scratch size remains the
 existing workload policy's bounded tmpfs contract; this proof alone does not verify a mounted tmpfs.
 The complete effective byte digest remains part of the proof even when comments/formatting differ.
 
 The immutable proof records kind `kata-effective-runtime-policy`, formatVersion1, kit and template
 identities, effective configuration digest/size, installation root, component and alias identities,
-workload resources and finite VM startup/max resources, plus its canonical digest. Freeze nested
+workload resources, `rootfsAddressSpaceMiB` and finite VM startup/max resources, plus its canonical digest. Freeze nested
 objects/arrays. No timestamps, live resource reservations or caller mutable objects participate.
 Safe errors use fixed `KATA_RUNTIME_POLICY_INVALID`, `KATA_RUNTIME_POLICY_CHANGED`,
 `KATA_RUNTIME_POLICY_CLOSED`, `KATA_RUNTIME_POLICY_CLOSE_FAILED` or `KATA_CANCELLED`, never private
@@ -70,3 +76,19 @@ tiers, independent exact archive consumer and hosted qualification. Split later 
 profile-advertisement and Agent-pool integration into their own bounded owner slices. No baseline
 or exception additions, legacy changes or production publication. All issues remain open. Real
 Work/model execution remains Task10.
+
+## Exact image-backed address space
+
+[QEMU's NVDIMM contract](https://gitlab.com/qemu-project/qemu/-/blob/v10.2.0/docs/nvdimm.txt)
+requires maximum memory to cover RAM and the NVDIMM image region. The policy proof explicitly
+separates this image-derived address-space allowance from ordinary startup RAM. Byte size comes
+from verified component custody in the pinned kit, never a configuration default or caller claim.
+The policy remains read-only interpretation/custody; actual runtime adjustment, root-image device
+linkage and process/resource read-back must agree before native profile or warm admission. The
+existing inert1056MiB/1312MiB fixture is not a successful VM claim. Full hosted physical binding
+remains a separate gate under Task3D. No ambient scripts, workstation Kata or production effects.
+
+Under #1067: contract first, outside-in built/default-custody negatives and exact-byte/digest
+proof, concise owner implementation and fresh complete verification. Preserve immutable131/132
+artifacts, all issue states and every existing test assertion except the specified maximum-memory
+expectation, which this documented contract intentionally advances. Work/models remain Task10.

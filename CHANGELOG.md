@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Bind effective Kata bounds to exact root-image address space (#1067).
 - Retain bounded effective Kata runtime policy (#1063).
 - Verify installed Kata aliases against retained runtime members (#1061).
 
