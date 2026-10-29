@@ -89,6 +89,7 @@ jobs:
           test "$(stat -c %s "$RUNNER_TEMP/kata.tar.zst")" = 969565384
           echo "3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96  $RUNNER_TEMP/kata.tar.zst" | sha256sum --check --strict
           sudo tar --zstd -xf "$RUNNER_TEMP/kata.tar.zst" -C /
+          sudo install -m 0600 "$RUNNER_TEMP/kata.tar.zst" /opt/kata/kata-static-4.1.0-amd64.tar.zst
       - run: bun run build
       - run: bun scripts/verification.ts smoke ${{ matrix.partition }}
   verify:

@@ -5,10 +5,10 @@
 Deployment selects SDK .42 from accepted source `afdfac7bdd3c9c1f783362cd1d50324181e1d725`,
 archive SHA-256 `0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc`.
 Peer, vendor archive, lock, installed identity and built public Node consumer must agree.
-This .113 dependency closure supplies SDK #506 manager ready-only service envelopes (channel
+The preceding .113 dependency closure supplies SDK #506 manager ready-only service envelopes (channel
 1.1.0-cordis.1) through one exact peer/vendor/lock selection. Existing worker/runner roles and
 all seven platform operations remain intact. It adds no manager runtime, host capability or
-activation; native-kit candidate #1044 and the separate CI proposal remain independent.
+activation. The separate #1029 CI prerequisite proposal remains independent.
 
 SDK #505 integrated the corrected awaited sandbox-profile binding; the retained .40 candidate
 must not be selected because it admitted compatibility mutation during hashing.
@@ -16,8 +16,10 @@ must not be selected because it admitted compatibility mutation during hashing.
 This dependency update preserves the native Kata guest session, scoped private control/runner
 socket, non-activating planning, qualified workload CPU/memory/read-only/scratch limits from .109
 and retained runtime archive identity from .110. Complete component/configuration/isolation
-profile binding and pool admission remain required. It does not include unmerged native-kit
-candidate #1044. Keep all preceding tests, limits and timeouts unchanged.
+profile binding and pool admission remain required. This .115 candidate additionally retains
+the exact runtime kit through native backend lifetime (#1044), under the documented optional
+trusted archive configuration. Component association and complete profile readiness are not claimed.
+Keep all preceding tests, limits and timeouts unchanged.
 
 Deployment's retained real-runner fixture selects the accepted Agent .22 archive. Agent's own
 hosted #555 acceptance additionally qualifies its exact .28 guest and separate default worker
