@@ -1,4 +1,4 @@
-import { Parser, type ReadEntry } from 'tar';
+import { Header, Parser, type ReadEntry } from 'tar';
 import { createHash, type Hash } from 'node:crypto';
 import { createZstdDecompress } from 'node:zlib';
 import { once } from 'node:events';
@@ -31,6 +31,82 @@ interface KitFile {
   hash: Hash;
   count: number;
 }
+/** Raw framing is checked before parser callbacks can omit metadata or ignored headers. */
+class KitTarBoundary {
+  private block = Buffer.alloc(0);
+  private remaining = 0;
+  private zeros = 0;
+  private entries = 0;
+  private ended = false;
+  private readonly controls = new Set<string>();
+  private readonly pending: { type: string; size: number }[] = [];
+  accept(bytes: Buffer): void {
+    let offset = 0;
+    while (offset < bytes.length) {
+      if (this.ended) {
+        KitMemberGraph.require(bytes.subarray(offset).equals(Buffer.alloc(bytes.length - offset)));
+        return;
+      }
+      if (this.remaining) {
+        const count = Math.min(this.remaining, bytes.length - offset);
+        this.remaining -= count;
+        offset += count;
+      } else offset += this.collect(bytes.subarray(offset));
+    }
+  }
+  private collect(bytes: Buffer): number {
+    const count = Math.min(512 - this.block.length, bytes.length);
+    this.block = Buffer.concat([this.block, bytes.subarray(0, count)]);
+    if (this.block.length === 512) {
+      this.header(this.block);
+      this.block = Buffer.alloc(0);
+    }
+    return count;
+  }
+  private header(bytes: Buffer): void {
+    const header = new Header(bytes);
+    if (header.nullBlock) return this.footer();
+    KitMemberGraph.require(header.cksumValid && this.zeros === 0 && ++this.entries <= 4096);
+    const size = header.size;
+    KitMemberGraph.require(
+      typeof size === 'number' && Number.isSafeInteger(size) && size >= 0 && size <= 8 * 1024 ** 3,
+    );
+    if (['NextFileHasLongPath', 'NextFileHasLongLinkpath'].includes(header.type))
+      this.control(header.type, size);
+    else this.ordinary(header, size);
+    this.remaining = Math.ceil(size / 512) * 512;
+  }
+  private ordinary(header: Header, size: number): void {
+    KitMemberGraph.require(['File', 'Directory', 'SymbolicLink'].includes(header.type));
+    KitMemberGraph.require(header.type === 'File' || size === 0);
+    if (this.controls.has('NextFileHasLongLinkpath'))
+      KitMemberGraph.require(header.type === 'SymbolicLink');
+    KitMemberGraph.memberPath(header.path ?? '', header.type);
+    if (header.type === 'SymbolicLink') KitMemberGraph.path(header.linkpath);
+    this.controls.clear();
+  }
+  private control(type: string, size: number): void {
+    KitMemberGraph.require(size > 0 && size <= 4097 && !this.controls.has(type));
+    this.controls.add(type);
+    this.pending.push({ type, size });
+  }
+  metadata(text: string): void {
+    const control = this.pending.shift();
+    KitMemberGraph.require(control && Buffer.byteLength(text) === control.size);
+    KitMemberGraph.require(text.endsWith('\0') && text.indexOf('\0') === text.length - 1);
+    const value = text.slice(0, -1);
+    if (control.type === 'NextFileHasLongPath') KitMemberGraph.memberPath(value, 'Directory');
+    else KitMemberGraph.path(value);
+  }
+  private footer(): void {
+    KitMemberGraph.require(this.controls.size === 0);
+    this.ended = ++this.zeros === 2;
+  }
+  finish(): void {
+    KitMemberGraph.require(this.ended && this.block.length === 0 && this.remaining === 0);
+    KitMemberGraph.require(this.pending.length === 0 && this.controls.size === 0);
+  }
+}
 /** A finite archive namespace; links are data and are never followed on the host. */
 class KitMemberGraph {
   private readonly nodes = new Map<string, KitNode>();
@@ -57,7 +133,7 @@ class KitMemberGraph {
     return paths.sort();
   }
   add(entry: ReadEntry): KitFile | null {
-    const path = this.name(entry);
+    const path = KitMemberGraph.memberPath(entry.path, entry.type);
     KitMemberGraph.require(!this.nodes.has(path) && this.nodes.size < 4096);
     const member = this.metadata(entry, path);
     this.nodes.set(path, member);
@@ -66,11 +142,11 @@ class KitMemberGraph {
     KitMemberGraph.require(this.declared <= 8 * 1024 ** 3);
     return { member, hash: createHash('sha256'), count: 0 };
   }
-  private name(entry: ReadEntry): string {
-    let name = entry.path.startsWith('./') ? entry.path.slice(2) : entry.path;
-    if (entry.type === 'Directory' && name.endsWith('/')) name = name.slice(0, -1);
+  static memberPath(input: string, type: string): string {
+    let name = input.startsWith('./') ? input.slice(2) : input;
+    if (type === 'Directory' && name.endsWith('/')) name = name.slice(0, -1);
     if (['', 'opt', 'opt/kata'].includes(name)) {
-      KitMemberGraph.require(entry.type === 'Directory');
+      KitMemberGraph.require(type === 'Directory');
       return name;
     }
     const path = KitMemberGraph.path(name);
@@ -150,13 +226,17 @@ export class RuntimeKitInspection {
     maxMetaEntrySize: 65536,
   });
   private readonly graph = new KitMemberGraph();
+  private readonly framing = new KitTarBoundary();
   private readonly completion: Promise<unknown>;
   private problem = false;
   private eof = false;
   private decoded = 0;
   private observed = 0;
+  private complete = false;
   constructor(private readonly compressedSize: number) {
     this.parser.on('entry', this.entry.bind(this));
+    this.parser.on('meta', this.metadata.bind(this));
+    this.parser.on('ignoredEntry', this.abort.bind(this));
     this.parser.on('error', this.failed.bind(this));
     this.parser.on('eof', this.footer.bind(this));
     this.completion = once(this.parser, 'end').catch(this.failed.bind(this));
@@ -183,6 +263,7 @@ export class RuntimeKitInspection {
     } finally {
       input.destroy();
       decoder.destroy();
+      if (!this.complete) this.abort();
     }
   }
   private async completed(consumed: number, signal: AbortSignal): Promise<void> {
@@ -191,12 +272,15 @@ export class RuntimeKitInspection {
     await this.completion;
     signal.throwIfAborted();
     KitMemberGraph.require(!this.problem && this.eof);
+    this.framing.finish();
+    this.complete = true;
   }
   private feed(bytes: Buffer): boolean {
     this.decoded += bytes.length;
     KitMemberGraph.require(
       this.decoded <= Math.min(9 * 1024 ** 3, this.compressedSize * 64) && !this.problem,
     );
+    this.framing.accept(bytes);
     const ready = this.parser.write(bytes);
     KitMemberGraph.require(!this.problem);
     return ready;
@@ -209,6 +293,13 @@ export class RuntimeKitInspection {
         entry.on('end', this.finish.bind(this, file));
       }
       entry.resume();
+    } catch {
+      this.abort();
+    }
+  }
+  private metadata(text: string): void {
+    try {
+      this.framing.metadata(text);
     } catch {
       this.abort();
     }
