@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { appendFileSync, chmodSync, symlinkSync, unlinkSync, copyFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  symlinkSync,
+  unlinkSync,
+  copyFileSync,
+  readdirSync,
+  readlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { RuntimeArchiveCustody } from '@treeseed-cordis/deployment/sandbox';
 import {
@@ -17,14 +25,27 @@ class InstalledComponentBoundaries {
       const bindings = this.invalid(fixture, mode);
       const signal = mode === 'cancelled' ? AbortSignal.abort() : this.signal;
       const Constructor = fixture.constructorExport();
+      const retained = this.descriptors(fixture.installed);
       await assert.rejects(Constructor.open.bind(Constructor, archive, bindings, signal), {
         message: mode === 'cancelled' ? 'KATA_CANCELLED' : 'KATA_COMPONENTS_INVALID',
       });
       archive.verify();
+      assert.equal(this.descriptors(fixture.installed), retained);
     } finally {
       archive.close();
       fixture.close();
     }
+  }
+  private descriptors(path: string): number {
+    let count = 0;
+    for (const file of readdirSync('/proc/self/fd')) {
+      try {
+        if (readlinkSync('/proc/self/fd/' + file) === path) count++;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    return count;
   }
   private invalid(fixture: ComponentFixture, mode: string): unknown {
     const bindings = structuredClone(fixture.bindings);

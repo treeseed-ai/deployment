@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { Header, type HeaderData } from 'tar';
 import { zstdCompressSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  lstatSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
@@ -79,11 +87,20 @@ class InstalledComponentsProgram {
         new AbortController().signal,
       );
       await this.exercise(fixture, archive);
+      this.unchanged(fixture);
     } finally {
       archive?.close();
       fixture.close();
     }
     process.stdout.write('runtime-components-public-ok\n');
+  }
+  private unchanged(fixture: ComponentFixture): void {
+    assert.deepEqual(readdirSync(fixture.directory).sort(), [
+      'PRIVATE_COMPONENT_PATH',
+      'fixture.tar.zst',
+    ]);
+    assert.deepEqual(readFileSync(fixture.installed), fixture.bytes);
+    assert.equal(lstatSync(fixture.installed).mode & 0o777, 0o755);
   }
   private async exercise(
     fixture: ComponentFixture,
@@ -121,9 +138,20 @@ class InstalledComponentsProgram {
         },
       ],
     });
-    assert(Object.isFrozen(proof));
+    this.frozen(proof);
     assert(!JSON.stringify(proof).includes(fixture.directory));
     assert(!JSON.stringify(proof).includes('PRIVATE_COMPONENT_PATH'));
+  }
+  private frozen(proof: object): void {
+    assert(Object.isFrozen(proof));
+    const components = Reflect.get(proof, 'components');
+    assert(Object.isFrozen(components));
+    for (const component of components) {
+      assert(Object.isFrozen(component));
+      assert(Object.isFrozen(component.member));
+      assert(Object.isFrozen(component.member.links));
+      for (const link of component.member.links) assert(Object.isFrozen(link));
+    }
   }
 }
 if (import.meta.main) await new InstalledComponentsProgram().run();
