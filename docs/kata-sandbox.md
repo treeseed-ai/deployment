@@ -122,3 +122,42 @@ prove setup precedes verification, repeated requests do not rerun, failed/cancel
 cannot advance, unsafe archives and wrong image/network selections block, output/host-script
 canaries stay absent, and assigned VM teardown is verified. Ordinary workstation tests may
 exercise denial and pure archive/custody boundaries only; never start the venue implicitly.
+
+## Opt-in bounded workload resource shape
+
+The next host-only `resources` configuration selects integer `vcpus`, `memoryMiB` and
+`scratchMiB` using SDK `PoolSchemas.resources`. It is positive, immutable trusted host
+configuration; a worker can neither change it nor provide runtime flags or mount paths.
+An absent shape preserves the preceding configuration and does not advertise pool compatibility.
+
+The native backend translates this shape into OCI CPU quota, memory limit, a read-only image
+root and fixed guest-local tmpfs mounts. `/tmp` is the declared workload scratch limit; `/run`
+has a separate 64 MiB control budget and `/opt` a separate 256 MiB executable budget. The
+latter accommodates the already qualified 110 MiB guest artifact. These explicit fixed control
+budgets are additional to scratch and are charged against guest workload memory. They are not
+unbounded disk, host bind mounts or arbitrary worker-selected paths. Default runtime-managed
+mounts such as `/dev/shm` remain separately bounded by the pinned OCI runtime; this slice does
+not advertise an aggregate writable-storage quota.
+
+`vcpus` is the workload CPU quota and `memoryMiB` the workload cgroup limit, not a claim that
+QEMU has exactly that many CPUs or RAM bytes: Kata's pinned runtime allocates VM overhead.
+Inspection must freshly verify both the saved OCI spec and the actual guest CPU/memory limits,
+read-only root and scratch filesystem type/capacity. Wrong, missing or ambiguous evidence fails
+with a fixed `KATA_RESOURCE_SHAPE_MISMATCH` error before returning a successful receipt. Guest
+output is private. The exact shape joins the inspection digest and is returned as `resources`
+only when configured and verified. No SDK `SandboxResourceProfile` is advertised by this slice;
+full runtime provenance/isolation/generation binding remains required before pool admission.
+
+Implementation sequence for #1021: commit this interface → built public configuration and real
+hosted boundary acceptance → pure policy cases → immutable positive configuration/argument
+translation and fresh read-back → checks/build/all lower tiers/public archive and complete
+hosted acceptance. Preserve every existing case, deadline and archive. Real acceptance constructs
+the default native provider on isolated hosted Ubuntu 26.04/KVM, observes exact limits, proves
+scratch exhaustion and read-only root, then verifies physical task/container/snapshot/QEMU
+teardown. Ordinary workstation verification runs only pure policy and built input rejection.
+
+The [pinned Kata configuration template](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/config/configuration-qemu-runtime-rs.toml.in)
+describes runtime overhead, and its [volume dispatch](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/crates/resource/src/volume/mod.rs)
+distinguishes ordinary OCI tmpfs mounts from special Kubernetes ephemeral volumes. Those sources
+inform the bounded implementation; actual guest qualification decides whether it is accepted.
+Work/models remain Task 10, existing services remain untouched and every issue remains open.
