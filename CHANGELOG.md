@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Keep worker requests responsive during verified package staging (#1052).
+
 ### Added
 - Bind Kata configuration references to verified runtime components (#1021).
 - Bind installed runtime components to exact verified kit member custody (#1021).
