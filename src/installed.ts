@@ -24,12 +24,12 @@ export class InstallationStore {
     mode = 0o600,
     reuse = true,
   ): void {
-    const bytes = this.publicationBytes(value),
+    const bytes = InstallationStore.publicationBytes(value),
       temporary = '.tmp-' + randomUUID();
-    this.writePublication(directory, temporary, bytes, mode);
+    InstallationStore.writePublication(directory, temporary, bytes, mode);
     try {
       directory.verify();
-      this.linkPublication(directory, temporary, name, bytes, mode, reuse);
+      InstallationStore.linkPublication(directory, temporary, name, bytes, mode, reuse);
       fsyncSync(directory.fd);
     } finally {
       unlinkSync(directory.childPath(temporary));
