@@ -10,7 +10,8 @@ An admitted archive is read before any sandbox is created. Its artifact and comp
 bind custody/generation as usual. Create warms one owned Kata sandbox using the configured immutable
 GNU image, stages the verified guest bytes and a credential-free configuration to fixed paths under
 `/run/treeseed-runner`, and launches the actual guest as UID/GID 65532. Private directories/configuration
-are 0700/0600 and owned by that guest identity. The guest gets a bounded explicit environment, with no
+are 0700/0600 and owned by that guest identity. Hosted acceptance must inspect the actual
+runner process: all four UID values 65532, no effective Linux capabilities, and NoNewPrivs=1. The guest gets a bounded explicit environment, with no
 host options, credentials or engine socket. No Agent module or executable runs on the host.
 
 A retained process session sends only SDK runner readiness frames in this slice. Validate strict,
