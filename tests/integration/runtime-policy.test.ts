@@ -34,6 +34,8 @@ class EffectivePolicyMutations {
     if (mode === 'excess-cpu-max') qemu.default_maxvcpus = 4n;
     if (mode === 'missing-overhead') qemu.default_memory = 1024n;
     if (mode === 'zero-memory-max') qemu.default_maxmemory = 0n;
+    if (mode === 'ram-only-max') qemu.default_maxmemory = 1056n;
+    if (mode === 'excess-image-space') qemu.default_maxmemory = 1313n;
     if (mode === 'excess-memory-max') qemu.default_maxmemory = 2048n;
     if (mode === 'slots') qemu.memory_slots = 2n;
     if (mode === 'dynamic-resources')
@@ -240,6 +242,8 @@ for (const mode of [
   'excess-cpu-max',
   'missing-overhead',
   'zero-memory-max',
+  'ram-only-max',
+  'excess-image-space',
   'excess-memory-max',
   'slots',
   'dynamic-resources',
