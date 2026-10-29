@@ -41,6 +41,7 @@ jobs:
         with:
           node-version: 24.19.0
       - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun scripts/docker-prerequisite.ts
       - run: bun run check && bun run build && bun run test:regression && bun run test:integration && bun run test:unit
   smoke:
     runs-on: ubuntu-26.04
@@ -91,6 +92,7 @@ jobs:
           sudo tar --zstd -xf "$RUNNER_TEMP/kata.tar.zst" -C /
           sudo install -m 0600 "$RUNNER_TEMP/kata.tar.zst" /opt/kata/kata-static-4.1.0-amd64.tar.zst
       - run: bun run build
+      - run: bun scripts/docker-prerequisite.ts
       - run: bun scripts/verification.ts smoke ${{ matrix.partition }}
   verify:
     if: always()
