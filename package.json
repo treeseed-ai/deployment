@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.112",
+  "version": "0.0.0-cordis.115",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -72,7 +72,7 @@
     "check:readability": "bun .agents/skills/release-workflow/scripts/source-readability.ts"
   },
   "peerDependencies": {
-    "@treeseed-cordis/sdk": "0.0.0-cordis.41"
+    "@treeseed-cordis/sdk": "0.0.0-cordis.42"
   },
   "devDependencies": {
     "@treeseed-cordis/sdk": "file:vendor/sdk.tgz",
@@ -85,8 +85,8 @@
   "cordisCandidate": {
     "sdk": {
       "repository": "https://github.com/treeseed-ai/sdk.git",
-      "commit": "4bb54954ac6d636309a8312c2bf71536b5aefb73",
-      "sha256": "2bbde1a4ca35fbffaeacb2fbeab40b49f56dc57dca3355e8e47e22ed5f0f822a"
+      "commit": "afdfac7bdd3c9c1f783362cd1d50324181e1d725",
+      "sha256": "0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc"
     }
   },
   "dependencies": {
@@ -105,7 +105,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.112"
+      "version": "0.0.0-cordis.115"
     },
     "providers": [
       {
