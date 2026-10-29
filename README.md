@@ -1,5 +1,10 @@
 # Cordis diagnostics and non-activating planning
 
+Native Kata supports the compatible environment selection and explicit operator task options,
+specified in [the owner configuration reference](docs/kata-task-configuration.md). Task options
+require an unmasked dedicated daemon and exact persisted selection read-back; they do not advertise
+profile readiness or start anything during diagnostics/planning.
+
 Actual process boot-input observation is specified in [the owner reference](docs/kata-boot-observation.md).
 It remains separate from complete installed policy/profile admission.
 
