@@ -90,3 +90,8 @@ limit; only validated numeric/type fields enter the diagnostic. Probe failure ca
 original failure or skip destruction. The [uutils stat contract](https://uutils.org/coreutils/docs/utils/stat.html)
 defines these filesystem fields. This separates an exhausted guest mount from a failed stdin
 transport without exposing files or executing the payload on the host.
+
+Preparation, payload transfer and finalization share one absolute monotonic 120-second staging
+deadline. A phase also keeps its smaller local limit; spending time in an earlier phase cannot
+reset the shared budget. Reject an already expired budget before spawning, and recheck it when
+the process closes. The separate configuration write retains its original ten-second bound.
