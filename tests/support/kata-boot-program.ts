@@ -108,23 +108,26 @@ class BootObserverProgram {
     assert.equal(payload.kind, 'kata-boot-observation');
     assert.equal(payload.formatVersion, 1);
     assert.deepEqual(payload.process, fixture.identity);
-    assert.equal(payload.boot.kernel, BootArguments.kernel);
-    assert.deepEqual(payload.boot.rootfs, {
+    this.inputs(payload.boot);
+    assert.equal(digest, CanonicalJson.digest(payload));
+    assert(Object.isFrozen(first) && Object.isFrozen(payload.process));
+    assert.deepEqual(fixture.read(), first);
+  }
+  private static inputs(boot: BootObservation['boot']): void {
+    assert.equal(boot.kernel, BootArguments.kernel);
+    assert.deepEqual(boot.rootfs, {
       path: BootArguments.rootfs,
       size: 67108864,
       driver: 'nvdimm',
     });
-    assert.deepEqual(payload.boot.resources, {
+    assert.deepEqual(boot.resources, {
       vcpus: 3,
       maximumVcpus: 3,
       memoryMiB: 1056,
       maximumMemoryMiB: 1056,
     });
-    assert.equal(digest, CanonicalJson.digest(payload));
-    assert(Object.isFrozen(first) && Object.isFrozen(payload.process));
-    assert(Object.isFrozen(payload.boot) && Object.isFrozen(payload.boot.rootfs));
-    assert(Object.isFrozen(payload.boot.resources));
-    assert.deepEqual(fixture.read(), first);
+    assert(Object.isFrozen(boot) && Object.isFrozen(boot.rootfs));
+    assert(Object.isFrozen(boot.resources));
   }
   static fixture(): void {
     process.send!('ready');
