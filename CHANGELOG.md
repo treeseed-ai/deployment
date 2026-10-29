@@ -4,6 +4,7 @@
 
 ### Added
 - Read back real guest readiness through the scoped private sandbox runner protocol (#1021).
+- Verify actual native Agent guest readiness inside owned Kata sandboxes (#1021).
 
 ### Added
 - Provide a distinct private service-scoped sandbox control transport (#1021).

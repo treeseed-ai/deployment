@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 export interface KataCommandOptions {
   stdin?: Buffer;
   deadlineMs?: number;
+  deadline?: number;
   outputLimitBytes?: number;
 }
 export class KataSandboxError extends Error {
@@ -39,19 +40,22 @@ export class KataCommand {
   private start(accept: (bytes: Buffer) => void, reject: (error: Error) => void): void {
     this.accept = accept;
     this.reject = reject;
-    if (this.signal.aborted) return this.finish(null);
+    this.deadline = Math.min(
+      performance.now() + (this.options.deadlineMs ?? 120000),
+      this.options.deadline ?? Infinity,
+    );
+    if (this.signal.aborted || performance.now() >= this.deadline) return this.finish(null);
     this.child = spawn(this.executable, this.args, {
       stdio: [this.options.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
     });
-    this.deadline = performance.now() + (this.options.deadlineMs ?? 120000);
     this.input();
     this.child.once('error', this.failed.bind(this));
     this.child.once('close', this.finish.bind(this));
     this.child.stdout!.on('data', this.output.bind(this));
     this.child.stderr!.on('data', this.discard.bind(this));
     this.signal.addEventListener('abort', this.cancellation, { once: true });
-    this.timer = setTimeout(this.timeout.bind(this), this.options.deadlineMs ?? 120000);
+    this.timer = setTimeout(this.timeout.bind(this), this.deadline - performance.now());
   }
   get outputBytes(): number {
     return this.count;
@@ -96,8 +100,7 @@ export class KataCommand {
     if (this.timer) clearTimeout(this.timer);
     if (this.killTimer) clearTimeout(this.killTimer);
     this.signal.removeEventListener('abort', this.cancellation);
-    if (this.deadline > 0 && performance.now() > this.deadline)
-      this.failure = 'KATA_COMMAND_TIMEOUT';
+    if (performance.now() >= this.deadline) this.failure = 'KATA_COMMAND_TIMEOUT';
     if (this.signal.aborted) this.failure = 'KATA_CANCELLED';
     if (this.failure || code !== 0)
       this.reject!(new KataSandboxError(this.failure ?? 'KATA_COMMAND_FAILED'));
