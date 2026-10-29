@@ -49,6 +49,10 @@ directories or canonical relative symbolic links without parent segments beneath
 `opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
 unsafe permissions, malformed/truncated streams and paths beneath a file/symlink ancestor.
 Never expose archive member bytes, caller paths or parser diagnostics in errors.
+Paths use slash-separated ASCII letters/digits, dots, underscores, plus or hyphen; at most
+4096 characters and 64 segments, with no empty, dot or parent components. The structural
+parser/hash/link checks form one coherent artifact-admission invariant that providers cannot
+bypass. Native runtime selection remains the typed Kata sandbox provider seam.
 
 Selection resolves symbolic links only inside the archive's namespace, never the host filesystem.
 Reject missing targets, selected directories, duplicate/empty/noncanonical selections and cycles;
