@@ -161,7 +161,8 @@ export class NativeLaunchMachine {
         !Array.isArray(args) ||
         args.length > 8192 ||
         args.includes('-M') ||
-        args.includes('-accel')
+        args.includes('-accel') ||
+        args.some(NativeLaunchMachine.alternate)
       )
         throw new Error();
       const fields = this.fields(BootFields.one(args, '-machine'));
@@ -173,6 +174,9 @@ export class NativeLaunchMachine {
     } catch {
       throw new Error('KATA_LAUNCH_MACHINE_INVALID');
     }
+  }
+  private static alternate(value: unknown): boolean {
+    return typeof value !== 'string' || value.startsWith('--');
   }
   private fields(value: string): Map<string, string> {
     const [kind, ...entries] = value.split(',');
