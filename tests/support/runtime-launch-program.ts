@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  openSync,
+  fstatSync,
+  readSync,
+  closeSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { parse, stringify } from 'smol-toml';
 import { CanonicalJson, SandboxControlSchemas } from '@treeseed-cordis/sdk';
@@ -152,6 +160,7 @@ class NativeLaunchScenario {
     try {
       await this.exercise();
     } catch (error) {
+      this.explain();
       failures.push(error);
     }
     try {
@@ -160,6 +169,24 @@ class NativeLaunchScenario {
       failures.push(error);
     }
     if (failures.length) throw new AggregateError(failures, 'Native launch qualification failed');
+  }
+  private explain(): void {
+    try {
+      process.stderr.write('Isolated native launch daemon tail:\n' + this.daemonTail() + '\n');
+    } catch {
+      process.stderr.write('Isolated native launch daemon tail unavailable\n');
+    }
+  }
+  private daemonTail(): string {
+    const fd = openSync(join(this.fixture.directory, 'daemon.log'), 'r');
+    try {
+      const size = fstatSync(fd).size,
+        bytes = Buffer.alloc(Math.min(16384, size));
+      const count = readSync(fd, bytes, 0, bytes.length, Math.max(0, size - bytes.length));
+      return bytes.subarray(0, count).toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
   }
   private async exercise(): Promise<void> {
     const path = await this.custody.prepare();
