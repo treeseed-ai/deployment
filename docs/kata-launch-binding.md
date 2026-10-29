@@ -21,7 +21,12 @@ retained installed hypervisor; the observer verifies its owner/hash, start ident
 command digest. Bind the observed kernel/root-image arguments to the exact retained terminal or
 declared alias paths; require the image byte size to agree. Validate the actual unique QEMU
 `-machine` selection as q35 with KVM and NVDIMM enabled, rejecting alternate/duplicate machine or
-accelerator switches. Require observed CPU/startup/max memory to equal the complete image-aware
+accelerator switches. The admitted native command uses canonical single-hyphen options; reject
+double-hyphen aliases anywhere in its argument vector so a second machine, accelerator or boot
+selection cannot evade the bounded projections. QEMU's
+[option lookup](https://github.com/qemu/qemu/blob/v10.2.0/system/vl.c#L1545-L1579)
+accepts both spellings, so checking only literal single-hyphen duplicates is insufficient.
+Require observed CPU/startup/max memory to equal the complete image-aware
 policy. The image-backed allowance is separate from ordinary RAM. This qualifies selected native
 boot inputs, not arbitrary extra command options or a hostile privileged host.
 
