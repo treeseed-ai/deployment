@@ -26,6 +26,10 @@ container label, prior sample, configured generation, shell marker or transport 
 Missing native readiness blocks. Even a grant listing `run` or `cancel` cannot activate those
 operations in this slice; they return operation-denied without assignment, script or guest effects.
 
+Failure projection preserves only an own inert code from a recognized SDK error. Do not read code
+getters; contain exceptions from prototype/descriptor inspection and use the fixed operation-failed
+fallback. Unknown provider details never become a response or an uncaught transport diagnostic.
+
 Keep one request per connection, 64 KiB framing and existing deadline/concurrency bounds. Reject
 duplicate keys, extra frames, malformed/foreign responses, changed/revoked/expired grants, wrong
 credential, unowned/symlinked state and cancellation. Failures expose only SDK safe codes. There is
