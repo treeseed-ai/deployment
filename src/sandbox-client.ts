@@ -6,6 +6,8 @@ import {
   SandboxControlSchemas,
   SandboxControlBinding,
   SandboxControlError,
+  SandboxRunnerSchemas,
+  SandboxRunnerBinding,
   type SandboxControlRequest,
   type SandboxControlResponse,
   type SandboxControlClient,
@@ -15,6 +17,9 @@ import {
   type SandboxAssignment,
   type SandboxPhaseReceipt,
   type SandboxDestructionReceipt,
+  type SandboxRunnerRequest,
+  type SandboxRunnerResponse,
+  type SandboxRunnerClient,
 } from '@treeseed-cordis/sdk';
 import { SafeDirectory, StrictJson } from './filesystem.js';
 import {
@@ -22,7 +27,10 @@ import {
   ControlSchemas,
   ControlAuthority,
   ControlSocketReference,
+  ControlMessages,
   type ControlAuthorityRecord,
+  type ControlRequest,
+  type ControlResponse,
 } from './sandbox-io.js';
 class ControlExchange {
   private readonly target: ControlSocketReference;
@@ -31,12 +39,12 @@ class ControlExchange {
   private bytes = 0;
   private done = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private accept: ((response: SandboxControlResponse) => void) | null = null;
+  private accept: ((response: ControlResponse) => void) | null = null;
   private reject: ((error: Error) => void) | null = null;
   private readonly cancellation: () => void;
   constructor(
     private readonly directory: SafeDirectory,
-    private readonly request: SandboxControlRequest,
+    private readonly request: ControlRequest,
     private readonly authority: ControlAuthority,
     private readonly record: ControlAuthorityRecord,
     private readonly signal: AbortSignal,
@@ -45,19 +53,50 @@ class ControlExchange {
     this.target = new ControlSocketReference(directory);
     this.cancellation = this.cancel.bind(this);
   }
-  run(): Promise<SandboxControlResponse> {
+  static async perform(
+    configuration: z.infer<typeof ControlSchemas.client>,
+    request: ControlRequest,
+    authority: ControlAuthority,
+    record: ControlAuthorityRecord,
+    signal: AbortSignal,
+  ): Promise<ControlResponse> {
+    try {
+      return await this.opened(configuration, request, authority, record, signal);
+    } catch (error) {
+      throw new SandboxControlError(ControlGuard.failure(error));
+    }
+  }
+  private static async opened(
+    configuration: z.infer<typeof ControlSchemas.client>,
+    request: ControlRequest,
+    authority: ControlAuthority,
+    record: ControlAuthorityRecord,
+    signal: AbortSignal,
+  ): Promise<ControlResponse> {
+    const directory = SafeDirectory.open(configuration.endpointDirectory);
+    try {
+      return await new ControlExchange(
+        directory,
+        request,
+        authority,
+        record,
+        signal,
+        configuration.timeoutMs,
+      ).run();
+    } finally {
+      directory.close();
+    }
+  }
+  run(): Promise<ControlResponse> {
     return new Promise(this.start.bind(this));
   }
-  private start(
-    accept: (response: SandboxControlResponse) => void,
-    reject: (error: Error) => void,
-  ): void {
+  private start(accept: (response: ControlResponse) => void, reject: (error: Error) => void): void {
     this.accept = accept;
     this.reject = reject;
     if (this.signal.aborted) return this.cancel();
     this.timer = setTimeout(
       this.failed.bind(this),
-      Math.min(this.timeoutMs, this.record.grant.expiresAtEpochMs - Date.now()),
+      Math.min(this.timeoutMs, ControlMessages.expiresAt(this.request, this.record) - Date.now()),
     );
     this.signal.addEventListener('abort', this.cancellation, { once: true });
     this.socket.once('error', this.failed.bind(this));
@@ -70,7 +109,7 @@ class ControlExchange {
     try {
       this.target.verify();
       this.authority.verify(this.record);
-      SandboxControlBinding.assertRequest(this.request, this.record.grant, Date.now());
+      ControlMessages.request(this.request, this.record, Date.now());
       this.socket.write(
         CanonicalJson.stringify({ credential: this.record.credential, request: this.request }) +
           '\n',
@@ -94,7 +133,7 @@ class ControlExchange {
         bytes.length > 0 && bytes.indexOf(10) === bytes.length - 1,
         'SANDBOX_RESPONSE_MISMATCH',
       );
-      const response = SandboxControlBinding.assertResponse(
+      const response = ControlMessages.response(
         StrictJson.parse(bytes.subarray(0, -1)),
         this.request,
       );
@@ -103,7 +142,7 @@ class ControlExchange {
       this.fail(ControlGuard.failure(error));
     }
   }
-  private accepted(response: SandboxControlResponse): void {
+  private accepted(response: ControlResponse): void {
     this.validate();
     if (!this.finish()) this.reject!(new SandboxControlError('SANDBOX_REPAIR_REQUIRED'));
     else this.accept!(response);
@@ -112,7 +151,7 @@ class ControlExchange {
     ControlGuard.require(!this.signal.aborted, 'SANDBOX_CANCELLED');
     this.target.verify();
     this.authority.verify(this.record);
-    SandboxControlBinding.assertRequest(this.request, this.record.grant, Date.now());
+    ControlMessages.request(this.request, this.record, Date.now());
   }
   private closed(): void {
     if (!this.done) this.failed();
@@ -161,33 +200,12 @@ export class SandboxSocketClient implements SandboxControlClient {
       record.grant,
       Date.now(),
     );
-    const response = await this.exchange(request, authority, record, signal);
+    const response = SandboxControlBinding.assertResponse(
+      await ControlExchange.perform(this.configuration, request, authority, record, signal),
+      request,
+    );
     if (!response.success) throw new SandboxControlError(response.problem.code);
     return response;
-  }
-  private async exchange(
-    request: SandboxControlRequest,
-    authority: ControlAuthority,
-    record: ControlAuthorityRecord,
-    signal: AbortSignal,
-  ): Promise<SandboxControlResponse> {
-    let directory: SafeDirectory | null = null;
-    try {
-      directory = SafeDirectory.open(this.configuration.endpointDirectory);
-      return await new ControlExchange(
-        directory,
-        request,
-        authority,
-        record,
-        signal,
-        this.configuration.timeoutMs,
-      ).run();
-    } catch (error) {
-      if (error instanceof SandboxControlError) throw error;
-      throw new SandboxControlError('SANDBOX_OPERATION_FAILED');
-    } finally {
-      directory?.close();
-    }
   }
   async ready(signal: AbortSignal): Promise<SandboxAvailability> {
     return SandboxControlSchemas.availability.parse(
@@ -227,5 +245,48 @@ export class SandboxSocketClient implements SandboxControlClient {
     return SandboxControlSchemas.destruction.parse(
       (await this.request('destroy', { sandboxId }, signal)).result,
     );
+  }
+}
+
+/** Scoped physical transport only; the actual worker owns native pool/provider composition. */
+export class SandboxRunnerSocketClient implements SandboxRunnerClient {
+  private readonly configuration: z.infer<typeof ControlSchemas.client>;
+  constructor(input: unknown) {
+    this.configuration = ControlSchemas.parse(ControlSchemas.client, input);
+  }
+  async exchange(input: SandboxRunnerRequest, signal: AbortSignal): Promise<SandboxRunnerResponse> {
+    try {
+      ControlGuard.require(!signal.aborted, 'SANDBOX_CANCELLED');
+      const request = ControlSchemas.parse(SandboxRunnerSchemas.request, input);
+      const authority = new ControlAuthority(
+        this.configuration.authorityFile,
+        this.configuration.scope,
+      );
+      const record = authority.read();
+      ControlMessages.request(request, record, Date.now());
+      const response = await ControlExchange.perform(
+        this.configuration,
+        request,
+        authority,
+        record,
+        signal,
+      );
+      return this.accepted(response, request, authority, record, signal);
+    } catch (error) {
+      throw new SandboxControlError(ControlGuard.failure(error));
+    }
+  }
+  private accepted(
+    input: ControlResponse,
+    request: SandboxRunnerRequest,
+    authority: ControlAuthority,
+    record: ControlAuthorityRecord,
+    signal: AbortSignal,
+  ): SandboxRunnerResponse {
+    const response = SandboxRunnerBinding.assertResponse(input, request);
+    authority.verify(record);
+    ControlMessages.request(request, record, Date.now());
+    ControlGuard.require(!signal.aborted, 'SANDBOX_CANCELLED');
+    return response;
   }
 }

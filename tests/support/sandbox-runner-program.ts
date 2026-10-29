@@ -226,6 +226,7 @@ class HostedRunnerChannel {
     const first = await this.ready(this.request(id), signal);
     const repeated = await this.ready(this.request(id, first.generation), signal);
     assert.deepEqual(repeated.generation, first.generation);
+    await this.deniedActivation(id, first.generation, signal);
     await this.denials(id, signal);
     assert.equal((await this.control().inspect(id, signal)).assignment, null);
   }
@@ -249,6 +250,73 @@ class HostedRunnerChannel {
     assert.equal(response.success, false);
     assert(response.problem && /^[A-Z_]+$/.test(response.problem.code));
     for (const state of ['revoked', 'expired', 'absent']) await this.grantDenied(id, state, signal);
+    this.publish(this.authority());
+  }
+  /** Portable synthetic lease is used only to prove that a valid cancel cannot activate a virgin guest. */
+  private probeAuthority(): object {
+    return {
+      issuer: 'https://fixture.invalid',
+      subject: 'fixture-subject',
+      teamId: 'fixture-team',
+      providerId: 'fixture-provider',
+      credentialId: 'fixture-credential',
+      credentialRevision: 1,
+      grantId: 'fixture-grant',
+      grantRevision: 1,
+      capabilities: ['capacity-probe'],
+      state: 'granted',
+      expiresAtEpochMs: Date.now() + 60000,
+    };
+  }
+  private probeLease(id: string, generation: CapacityProcessGeneration) {
+    return CapacitySchemas.lease.parse({
+      schemaVersion: 'treeseed.capacity-lease/v1',
+      operation: 'capacity-probe',
+      id: 'fixture-lease',
+      assignmentId: 'fixture-assignment',
+      sandboxId: id,
+      scope: this.capacityScope,
+      authority: this.probeAuthority(),
+      generations: {
+        manager: generation,
+        worker: generation,
+        runner: generation,
+        pool: this.scope.providerGeneration,
+        sandbox: this.scope.providerGeneration,
+        environment: this.scope.providerGeneration,
+      },
+      compatibilityDigest: this.scope.providerGeneration,
+      fence: 1,
+      expiresAtEpochMs: Date.now() + 30000,
+    });
+  }
+  private cancelRequest(id: string, generation: CapacityProcessGeneration): SandboxRunnerRequest {
+    const request = this.request(id, generation);
+    return SandboxRunnerSchemas.request.parse({
+      ...request,
+      frame: {
+        ...request.frame,
+        operation: 'cancel',
+        parameters: { lease: this.probeLease(id, generation) },
+      },
+    });
+  }
+  private async deniedActivation(
+    id: string,
+    generation: CapacityProcessGeneration,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const record = this.authority() as { runnerGrant: object };
+    record.runnerGrant = { ...record.runnerGrant, operations: ['ready', 'cancel'] };
+    this.publish(record);
+    const request = this.cancelRequest(id, generation);
+    const response = SandboxRunnerBinding.assertResponse(
+      await this.client().exchange(request, signal),
+      request,
+    );
+    assert.equal(response.success, false);
+    assert.equal(response.problem?.code, 'SANDBOX_OPERATION_DENIED');
+    assert.equal((await this.control().inspect(id, signal)).assignment, null);
     this.publish(this.authority());
   }
   private async grantDenied(id: string, state: string, signal: AbortSignal): Promise<void> {

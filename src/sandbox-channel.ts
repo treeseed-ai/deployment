@@ -1,4 +1,4 @@
-export { SandboxSocketClient } from './sandbox-client.js';
+export { SandboxSocketClient, SandboxRunnerSocketClient } from './sandbox-client.js';
 export { UnixSocketPlugin, UnixSocketToken } from './sandbox-io.js';
 import { z } from 'zod';
 import { createServer, type Socket, type Server } from 'node:net';
@@ -11,6 +11,9 @@ import {
   CapabilityToken,
   SandboxControlSchemas,
   SandboxControlBinding,
+  CapacitySchemas,
+  CapacityChannelBinding,
+  SandboxRunnerSchemas,
   SandboxControlError,
   type SandboxControlScope,
   type SandboxControlRequest,
@@ -19,6 +22,8 @@ import {
   type SandboxAvailability,
   type SandboxEvidence,
   type SandboxDestructionReceipt,
+  type SandboxRunnerRequest,
+  type CapacityReadiness,
 } from '@treeseed-cordis/sdk';
 import {
   Context,
@@ -35,10 +40,12 @@ import {
   ControlMethods,
   ControlAuthority,
   ControlSocketIdentity,
+  ControlMessages,
   UnixSocketPlugin,
   UnixSocketToken,
   type ControlAuthorityRecord,
   type SocketFactory,
+  type ControlRequest,
 } from './sandbox-io.js';
 interface ControlEndpoint {
   start(): Promise<void>;
@@ -81,13 +88,48 @@ class ControlDispatch {
       await lease.release();
     }
   }
-  async execute(request: SandboxControlRequest, signal: AbortSignal): Promise<unknown> {
+  async execute(request: ControlRequest, signal: AbortSignal): Promise<unknown> {
     const lease = await CordisServiceLocator.from(this.context).acquire(KataSandboxToken);
     try {
+      if (request.schemaVersion === 'treeseed.sandbox-runner/v1')
+        return await this.runner(lease.value, request, signal);
       return await this.operation(lease.value, request, signal);
     } finally {
       await lease.release();
     }
+  }
+  private async runner(
+    host: KataSandboxHost,
+    request: SandboxRunnerRequest,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    ControlGuard.require(request.frame.operation === 'ready', 'SANDBOX_OPERATION_DENIED');
+    const evidence = await host.inspect(request.sandboxId, signal);
+    ControlGuard.require(evidence.runner, 'SANDBOX_PROVIDER_UNAVAILABLE');
+    const ready = CapacitySchemas.readiness.parse(evidence.runner);
+    ControlGuard.require(
+      ready.role === 'runner' && ready.ready && ready.blockers.length === 0,
+      'SANDBOX_PROVIDER_UNAVAILABLE',
+    );
+    CapacityChannelBinding.assertRequest(request.frame, {
+      role: 'runner',
+      scope: ready.scope,
+      generation: ready.generation,
+    });
+    return this.projection(request, ready);
+  }
+  private projection(request: SandboxRunnerRequest, ready: CapacityReadiness): unknown {
+    return SandboxRunnerSchemas.guestResponse.parse({
+      schemaVersion: request.frame.schemaVersion,
+      requestId: request.requestId,
+      scope: ready.scope,
+      generation: ready.generation,
+      role: 'runner',
+      operation: 'ready',
+      success: true,
+      result: ready,
+      problem: null,
+    });
   }
   private async operation(
     host: KataSandboxHost,
@@ -186,44 +228,38 @@ class ControlConnection {
     }
     await this.admitted(frame.request, record);
   }
-  private async admitted(
-    request: SandboxControlRequest,
-    record: ControlAuthorityRecord,
-  ): Promise<void> {
+  private async admitted(request: ControlRequest, record: ControlAuthorityRecord): Promise<void> {
     const expiry = setTimeout(
       this.cancel.bind(this),
-      Math.max(1, Math.min(120000, record.grant.expiresAtEpochMs - Date.now())),
+      Math.max(1, Math.min(120000, ControlMessages.expiresAt(request, record) - Date.now())),
     );
     try {
       this.endpoint.verify();
-      SandboxControlBinding.assertRequest(request, record.grant, Date.now());
+      ControlMessages.request(request, record, Date.now());
       const result = await this.dispatch.execute(request, this.controller.signal);
       this.endpoint.verify();
       this.authority.verify(record);
-      SandboxControlBinding.assertRequest(request, record.grant, Date.now());
+      ControlMessages.request(request, record, Date.now());
       ControlGuard.require(!this.controller.signal.aborted, 'SANDBOX_CANCELLED');
-      this.respond({ ...this.envelope(request), success: true, result, problem: null });
+      this.respond({ ...ControlMessages.envelope(request), success: true, result, problem: null });
     } catch (error) {
       this.problem(request, ControlGuard.failure(error));
     } finally {
       clearTimeout(expiry);
     }
   }
-  private envelope(request: SandboxControlRequest): object {
-    return {
-      schemaVersion: request.schemaVersion,
-      requestId: request.requestId,
-      scope: request.scope,
-      operation: request.operation,
-    };
-  }
-  private problem(request: SandboxControlRequest, code: SandboxControlCode): void {
-    this.respond({ ...this.envelope(request), success: false, result: null, problem: { code } });
+  private problem(request: ControlRequest, code: SandboxControlCode): void {
+    this.respond({
+      ...ControlMessages.envelope(request),
+      success: false,
+      result: null,
+      problem: { code },
+    });
   }
   private respond(input: unknown): void {
     if (this.finished) return;
     try {
-      const response = SandboxControlSchemas.response.parse(input);
+      const response = ControlSchemas.response.parse(input);
       this.finished = true;
       clearTimeout(this.timer);
       this.socket.end(CanonicalJson.stringify(response) + '\n');
