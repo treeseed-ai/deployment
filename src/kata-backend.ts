@@ -13,6 +13,7 @@ import {
   type KataPreparedEnvironment,
 } from './kata-workloads.js';
 export type { KataAssignment, KataWorkloadPhase, KataWorkloadResult } from './kata-workloads.js';
+import { KataResourcePolicy } from './kata-resources.js';
 import { KataRunnerSession } from './kata-runner.js';
 import { GuestRuntimeArchive, type GuestRuntimeArtifact } from './guest-archive.js';
 import { spawn } from 'node:child_process';
@@ -38,6 +39,7 @@ import {
   ProviderV4Schemas,
   CapacitySchemas,
   type CapacityReadiness,
+  type PoolResourceShape,
 } from '@treeseed-cordis/sdk';
 import { Context } from '@treeseed-cordis/sdk/runtime';
 import { SafeDirectory, StrictJson } from './filesystem.js';
@@ -80,6 +82,7 @@ class KataConfiguration {
     guestRuntime: z
       .strictObject({ scope: CapacitySchemas.scope, artifact: GuestRuntimeArchive.configuration })
       .optional(),
+    resources: KataResourcePolicy.schema.optional(),
     maximumSandboxes: z.number().int().min(1).max(4096).default(64),
   });
   static parse(value: unknown): KataBackendConfiguration {
@@ -125,6 +128,7 @@ export interface KataSandboxEvidence {
   hypervisor: SandboxProcessIdentity;
   assignment: KataAssignment | null;
   runner: CapacityReadiness | null;
+  resources?: PoolResourceShape;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -537,6 +541,9 @@ class KataClient {
         'io.containerd.kata.v2',
         '--label',
         'ai.treeseed.cordis.sandbox=' + binding,
+        ...(this.configuration.resources
+          ? new KataResourcePolicy(this.configuration.resources).arguments()
+          : []),
         this.configuration.image,
         name,
         '/bin/sleep',
@@ -544,6 +551,29 @@ class KataClient {
       ],
       signal,
     );
+  }
+  async resources(
+    name: string,
+    spec: unknown,
+    signal: AbortSignal,
+  ): Promise<PoolResourceShape | undefined> {
+    if (!this.configuration.resources) return undefined;
+    const policy = new KataResourcePolicy(this.configuration.resources);
+    policy.assertSpec(spec);
+    const bytes = await this.text(
+      [
+        'tasks',
+        'exec',
+        '--exec-id',
+        'resources-' + randomUUID(),
+        name,
+        '/bin/sh',
+        '-c',
+        KataResourcePolicy.inspection,
+      ],
+      signal,
+    );
+    return policy.assertGuest(bytes);
   }
   async guestKernel(name: string, signal: AbortSignal): Promise<string> {
     return this.text(
@@ -978,7 +1008,7 @@ export class KataSandboxBackend {
     KataSandboxError.require(!this.custody.destroyed(id), 'KATA_SANDBOX_DESTROYED');
     return this.inspection(this.custody.read(id), signal);
   }
-  private async resource(record: KataIntent, signal: AbortSignal): Promise<void> {
+  private async resource(record: KataIntent, signal: AbortSignal): Promise<unknown> {
     const bytes = await this.client.bytes(['containers', 'info', record.resourceName], signal);
     const info = StrictJson.object(StrictJson.parse(bytes));
     const runtime = StrictJson.object(info.Runtime);
@@ -991,6 +1021,7 @@ export class KataSandboxBackend {
         labels['ai.treeseed.cordis.sandbox'] === CanonicalJson.digest(record),
       'KATA_RESOURCE_CHANGED',
     );
+    return info.Spec;
   }
   private async qualifiedGuest(record: KataIntent, signal: AbortSignal): Promise<string> {
     await this.resource(record, signal);
@@ -1010,6 +1041,8 @@ export class KataSandboxBackend {
     const hypervisor = this.processes.observe(record.resourceName);
     const assignment = this.journal?.assignment(record.id) ?? null;
     const runner = await this.runnerReady(record.id, signal);
+    const resource = await this.resourceShape(record, signal);
+    const identity = { record, kernel, hypervisor, assignment, runner, ...resource };
     return {
       id: record.id,
       resourceName: record.resourceName,
@@ -1017,8 +1050,18 @@ export class KataSandboxBackend {
       hypervisor,
       assignment,
       runner,
-      inspectionDigest: CanonicalJson.digest({ record, kernel, hypervisor, assignment, runner }),
+      ...resource,
+      inspectionDigest: CanonicalJson.digest(identity),
     };
+  }
+  private async resourceShape(
+    record: KataIntent,
+    signal: AbortSignal,
+  ): Promise<{ resources?: PoolResourceShape }> {
+    if (!this.configuration.resources) return {};
+    const spec = await this.resource(record, signal);
+    const resources = await this.client.resources(record.resourceName, spec, signal);
+    return { resources };
   }
   assign(
     id: string,

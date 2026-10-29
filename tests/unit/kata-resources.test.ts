@@ -5,6 +5,11 @@ class KataResourcesTests {
   private readonly shape = { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 };
   private readonly guestText =
     '200000 100000\n1073741824\ntmpfs 4096 16384\ntmpfs 4096 16384\ntmpfs 4096 65536\nro,relatime';
+  private readonly expectedMounts = [
+    'type=tmpfs,src=tmpfs,dst=/tmp,options=size=67108864:mode=1777:nosuid:nodev',
+    'type=tmpfs,src=tmpfs,dst=/run,options=size=67108864:mode=0755:nosuid:nodev',
+    'type=tmpfs,src=tmpfs,dst=/opt,options=size=268435456:mode=0755:nosuid:nodev',
+  ];
   arguments(): void {
     const input = { ...this.shape };
     const policy = new KataResourcePolicy(input);
@@ -18,15 +23,7 @@ class KataResourcesTests {
       '--read-only',
     ]);
     assert.equal(args.filter(KataResourcesTests.mountFlag).length, 3);
-    assert(
-      args.includes('type=tmpfs,src=tmpfs,dst=/tmp,options=size=67108864:mode=1777:nosuid:nodev'),
-    );
-    assert(
-      args.includes('type=tmpfs,src=tmpfs,dst=/run,options=size=67108864:mode=0755:nosuid:nodev'),
-    );
-    assert(
-      args.includes('type=tmpfs,src=tmpfs,dst=/opt,options=size=268435456:mode=0755:nosuid:nodev'),
-    );
+    for (const expected of this.expectedMounts) assert(args.includes(expected));
     args.push('foreign');
     assert(!policy.arguments().includes('foreign'));
   }
@@ -63,15 +60,16 @@ class KataResourcesTests {
       options: ['size=' + row.size, 'mode=' + row.mode, 'nosuid', 'nodev'],
     };
   }
+  private readonly specData = {
+    root: { readonly: true },
+    linux: {
+      resources: { cpu: { quota: 200000, period: 100000 }, memory: { limit: 1073741824 } },
+    },
+    mounts: this.mounts(),
+  };
   spec(): void {
     const policy = new KataResourcePolicy(this.shape);
-    const spec = {
-      root: { readonly: true },
-      linux: {
-        resources: { cpu: { quota: 200000, period: 100000 }, memory: { limit: 1073741824 } },
-      },
-      mounts: this.mounts(),
-    };
+    const spec = this.specData;
     policy.assertSpec(spec);
     for (const wrong of [
       { ...spec, root: { readonly: false } },
