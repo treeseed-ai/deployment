@@ -43,6 +43,12 @@ for (const args of [
   ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '-accel', 'tcg'],
   ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '-M', 'q35'],
   ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '-machine', 'q35'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--machine', 'q35,accel=tcg'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--M', 'q35,accel=tcg'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--accel', 'tcg'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--kernel', '/OTHER_KERNEL'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--m', '4096'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--smp', '8'],
 ])
   test(
     'unit: native launch machine rejects ambiguous or unsupported selection ' +
