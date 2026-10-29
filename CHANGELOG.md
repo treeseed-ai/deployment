@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Provide private installation record custody for seed coordination (#1054).
 - Bind Kata configuration references to verified runtime components (#1021).
 - Bind installed runtime components to exact verified kit member custody (#1021).
 - Bind observed QEMU startup resources to sandbox inspection evidence (#1021).
