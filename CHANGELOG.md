@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Retain bounded effective Kata runtime policy (#1063).
 - Verify installed Kata aliases against retained runtime members (#1061).
 
 ### Changed
