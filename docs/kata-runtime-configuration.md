@@ -52,3 +52,21 @@ All issues remain open; Work/model execution remains Task 10.
 Implementation inventory: this contract, CHANGELOG, package/lock, one configuration module,
 the `/sandbox` export and acceptance/integration/unit/support files. Ten files maximum; no
 shared policy changes. Wait for accepted component custody #1050 before runtime implementation.
+
+## Candidate evidence
+
+The accepted component interface was synchronized from `9a4e47bbbcd187ad871c9dbb816906a7905171e4`.
+The genuine small kit and retained installed components were independently admitted before the
+built public program failed at the intended missing configuration-reader assertion. The pinned
+TOML parser preserves the document's signed 64-bit integer without rounding. An oversized-input
+fixture initially exceeded the archive inspector's expansion-ratio boundary before reaching this
+reader; bounded incompressible comment data now reaches the intended one-MiB reader limit.
+No guard was weakened.
+
+Candidate `.121`, producer `e3384cf9b4a3b4abcacb2c8973f965b4869a6aa7`, has 168 exact
+files/modes and archive SHA-256 `b83f1653a9eedf0e23a2d93fec28443b6b7beeada944be702d3f9a388e278c22`.
+Local checks/build and 18 regression, 222 integration and 82 unit cases pass. The built public
+Node program and an empty-cache, script-disabled strict TypeScript/Node archive consumer pass:
+`deployment121-public-configuration-contract-ok` and `runtime-configuration-public-ok`.
+The actual pinned installed TOML/kit case and full current-head hosted review gates remain
+required before acceptance. No local VM/runtime activation substitutes for those gates.
