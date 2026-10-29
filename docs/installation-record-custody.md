@@ -19,6 +19,11 @@ Records live under `.cordis/artifacts/records/<namespace>`. API selects `seeds`;
 owners may select their own scope. Bind the immutable namespace marker to the exact installation
 receipt digest, installation identity/directory, namespace, owner UID and custody format version.
 An existing empty/incomplete namespace is uncertain state, not something to initialize silently.
+The immutable canonical marker is `scope.json`; its SHA-256 over complete stored bytes is the
+scopeDigest. An acquired writer owns `writer.lock/owner.json`, bound to its PID and random nonce.
+Records are direct namespace children; no other entries are accepted. Read-only inspection
+rejects a writer.lock directory, whether active or stale. Each record digest is CanonicalJson.digest
+of its full envelope excluding digest, and its complete canonical JSON file ends with one newline.
 
 `InstallationRecords.inspect(scope, signal)` reads an existing stable namespace without
 creating state. It rejects any held/stale namespace writer explicitly; it never removes one.
