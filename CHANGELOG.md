@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Read back real guest readiness through the scoped private sandbox runner protocol (#1021).
+
+### Added
 - Provide a distinct private service-scoped sandbox control transport (#1021).
 
 - Preserve shared safe planning evidence in compiled source and installed fixture failures (#1029).
