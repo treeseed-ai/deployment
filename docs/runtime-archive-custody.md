@@ -78,7 +78,8 @@ selected symlinks. Bound the archive to 4096 entries, 8 GiB of declared and obse
 Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Ordinary file, directory and symbolic-link entries plus bounded GNU next-path/next-link controls
 are supported. Each GNU control contains one canonical ASCII value and exactly one terminal NUL,
 fits 4097 bytes, occurs at most once per kind before its target, and must be consumed by an ordinary
-entry. Reject PAX, unknown, empty, oversized, duplicate or dangling metadata controls. Count raw headers
+entry; a link control must target a symbolic link. Reject PAX, unknown, empty, oversized,
+duplicate, wrongly targeted or dangling metadata controls. Count raw headers
 and validate complete body framing and two zero footer blocks before accepting the proof.
 Bytes after the tar footer must be zero padding. Entries use canonical relative symbolic links without parent segments beneath `opt/kata`; only directory ancestors `.` and
 `opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
