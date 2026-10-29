@@ -60,6 +60,35 @@ class PlanningEvidenceUnit {
     assert(message.startsWith('INVALID_SOURCE_BLOCKER '));
     assert(!message.includes('CANARY'));
   }
+  measured(): void {
+    const value = this.message({
+      category: 'engine',
+      kind: 'timeout',
+      elapsedMs: 5001,
+      status: null,
+      signal: 'SIGTERM',
+    });
+    assert(value.includes('docker-invocation(engine:timeout)'));
+    assert(value.includes('docker-timing(5001ms,status:null,signal:SIGTERM)'));
+  }
+  badTiming(): void {
+    for (const fields of [
+      { elapsedMs: 'TIMING_CANARY', status: 1, signal: null },
+      { elapsedMs: 1, status: 'STATUS_CANARY', signal: null },
+      { elapsedMs: 1, status: 1, signal: 'SIGNAL_CANARY' },
+    ]) {
+      const message = this.message({ category: 'engine', kind: 'nonzero-exit', ...fields });
+      assert(message.includes('docker-timing(unavailable)'));
+      assert(!message.includes('CANARY'));
+    }
+  }
+  timingGetters(): void {
+    const canary = new CauseGetterCanary();
+    const cause = { category: 'engine', kind: 'timeout', status: null, signal: null };
+    Object.defineProperty(cause, 'elapsedMs', { get: canary.read.bind(canary) });
+    assert(this.message(cause).includes('docker-timing(unavailable)'));
+    assert.equal(canary.called, false);
+  }
   private message(cause: unknown): string {
     const error = new PlanningBlockedError([
       { code: 'DOCKER_UNAVAILABLE', message: 'BLOCKER_CANARY' },
@@ -99,4 +128,17 @@ test(
 test(
   'unit: npm evidence formatter rejects non-identifier provider blocker codes',
   suite.codes.bind(suite),
+);
+
+test(
+  'unit: shared fixture reports retain validated exact invocation timing exit status and signal',
+  suite.measured.bind(suite),
+);
+test(
+  'unit: shared fixture timing rejects arbitrary provider fields without output leaks',
+  suite.badTiming.bind(suite),
+);
+test(
+  'unit: shared fixture timing never invokes provider field accessors',
+  suite.timingGetters.bind(suite),
 );

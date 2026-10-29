@@ -29,6 +29,10 @@
     "./testing/live": {
       "types": "./dist/tests/support/live-probe-fixture.d.ts",
       "default": "./dist/tests/support/live-probe-fixture.js"
+    },
+    "./sandbox-control": {
+      "types": "./dist/src/sandbox-channel.d.ts",
+      "default": "./dist/src/sandbox-channel.js"
     }
   },
   "files": [

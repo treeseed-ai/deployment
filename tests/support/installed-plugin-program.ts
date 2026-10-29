@@ -1,10 +1,11 @@
+import { DockerPrerequisiteFixture } from './docker-prerequisite-fixture.js';
 import { readFileSync, writeFileSync, existsSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import * as Deployment from '@treeseed-cordis/deployment';
 import { CanonicalJson, PlanningBlockedError, ServiceSchemas, type PluginInstallRequest, type PluginInstallResult } from '@treeseed-cordis/sdk';
 import {InstallationSources} from './git-source-fixture.js';
-class InstalledPluginProgram {
+export class InstalledPluginProgram {
     private static phase = "plan";
     private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
     private static hash(bytes: Buffer | string): string { return createHash('sha256').update(bytes).digest('hex'); }
@@ -54,8 +55,8 @@ class InstalledPluginProgram {
             await registry.close();
         }
     }
-    static failed(error: unknown): never { if (error instanceof PlanningBlockedError) throw new Error(error.blockers.map(this.code).join(',')); throw error; }
+    static failed(error: unknown): never { DockerPrerequisiteFixture.failed(error); }
     private static ambiguous(blocker: { code: string }): boolean { return blocker.code === 'INITIAL_PLAN_AMBIGUOUS'; }
     private static code(blocker: { code: string }): string { return blocker.code; }
 }
-await InstalledPluginProgram.run(process.argv[2]!).catch(InstalledPluginProgram.failed.bind(InstalledPluginProgram));
+if (import.meta.main) await InstalledPluginProgram.run(process.argv[2]!).catch(InstalledPluginProgram.failed.bind(InstalledPluginProgram));

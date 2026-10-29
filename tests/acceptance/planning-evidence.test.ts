@@ -25,7 +25,7 @@ test(
   20000,
 );
 test(
-  'acceptance: built source fixture imports without execution and formats only whitelisted exact failure evidence',
+  'acceptance: built source and installed fixtures import without execution and retain only safe exact failure evidence',
   suite.formatter.bind(suite),
   20000,
 );

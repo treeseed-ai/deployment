@@ -51,8 +51,16 @@ class PlanningEvidenceProgram {
   }
   private async formatter(): Promise<void> {
     const source = await import('./npm-source-program.js');
-    const Program = Reflect.get(source, 'NpmSourceProgram');
-    assert.equal(typeof Program, 'function', 'source fixture must be safely importable');
+    const installed = await import('./installed-plugin-program.js');
+    const Source = Reflect.get(source, 'NpmSourceProgram');
+    const Installed = Reflect.get(installed, 'InstalledPluginProgram');
+    assert.equal(typeof Source, 'function', 'source fixture must be safely importable');
+    assert.equal(typeof Installed, 'function', 'installed fixture must be safely importable');
+    this.failure(Source);
+    this.failure(Installed);
+    process.stdout.write('source-formatter-ok\n');
+  }
+  private failure(Program: { failed(error: unknown): never }): void {
     const error = new PlanningBlockedError([
       { code: 'DOCKER_UNAVAILABLE', message: 'BLOCKER_MESSAGE_CANARY' },
     ]);
@@ -64,7 +72,6 @@ class PlanningEvidenceProgram {
       assert(failure.message.includes('docker-invocation(engine:timeout)'));
       assert(!failure.message.includes('CANARY'));
       assert.equal(failure.cause, undefined);
-      process.stdout.write('source-formatter-ok\n');
       return;
     }
     throw new Error('Expected fixture failure was accepted');

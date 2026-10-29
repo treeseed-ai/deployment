@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Provide a distinct private service-scoped sandbox control transport (#1021).
+
+- Preserve shared safe planning evidence in compiled source and installed fixture failures (#1029).
 
 - Verify exact standalone guest payload archives and ELF requirements before sandbox staging (#1021).
 - Preserve safe exact Docker planning failure causes without changing blocker envelopes (#1029).
