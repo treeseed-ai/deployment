@@ -43,8 +43,9 @@ artifact inspection contract; SDK resource profiles and cross-process messages r
 The complete Zstandard tar stream is inspected without extraction, imports, scripts or runtime
 execution. All regular bytes are hashed while streaming, including targets occurring before
 selected symlinks. Bound the archive to 4096 entries, 8 GiB of declared and observed regular data,
-64 KiB extended metadata and a 64:1 decompression ratio. Entries may be ordinary files,
-directories or relative symbolic links beneath `opt/kata`; only directory ancestors `.` and
+64 KiB extended metadata, 9 GiB of total decoded tar bytes and a 64:1 decompression ratio.
+Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Entries may be ordinary files,
+directories or canonical relative symbolic links without parent segments beneath `opt/kata`; only directory ancestors `.` and
 `opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
 unsafe permissions, malformed/truncated streams and paths beneath a file/symlink ancestor.
 Never expose archive member bytes, caller paths or parser diagnostics in errors.
@@ -68,3 +69,11 @@ the pinned upstream Kata kit also receives read-only Node and Bun inspection, wi
 hash/size/mode and link-edge read-back. No daemon or VM is needed for these inspection cases.
 This adds member provenance only; matching installed components, TOML configuration, kernel/rootfs,
 firmware/isolation and complete SDK profile admission remain required before pool readiness.
+
+Decoder qualification: [Bun documents rejectGarbageAfterEnd](https://bun.com/reference/node/zlib/createZstdDecompress),
+but exact Node 24.22.1 and Bun 1.4.4 probes differ: with one complete sixteen-byte compressed
+frame plus seven trailer bytes, Node rejects with that option while Bun accepts. Both report
+only sixteen consumed bytes through `bytesWritten`. Inspection therefore verifies consumed bytes
+against the pinned archive size instead of relying on the option. The permanent genuine trailer
+case must pass in the actual Node program and Bun integration suite. No stream size option is
+mistaken for a streaming expansion bound; the reader counts all decoded and regular bytes.
