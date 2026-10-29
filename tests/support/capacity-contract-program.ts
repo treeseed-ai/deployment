@@ -40,9 +40,9 @@ class CapacityContractProgram {
   private selection(): void {
     const metadata = JSON.parse(readFileSync('package.json', 'utf8'));
     const digest = createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex');
-    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.42');
-    assert.equal(metadata.cordisCandidate.sdk.commit, 'afdfac7bdd3c9c1f783362cd1d50324181e1d725');
-    assert.equal(digest, '0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc');
+    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.44');
+    assert.equal(metadata.cordisCandidate.sdk.commit, '00be028b92998f8d7039a3906e784c6b8598e730');
+    assert.equal(digest, 'd95c54cf6081c7634498dfb4f3235d42d65b8664a5d62cc87c4dd4e85381f0f3');
     assert.equal(metadata.cordisCandidate.sdk.sha256, digest);
   }
 }
