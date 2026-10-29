@@ -44,6 +44,8 @@ scenario. Retain all prior lifecycle, environment, privilege, read-back and dest
 and timeouts. Exercise unchanged control traffic plus scoped runner readiness, stable generation,
 wrong generation/scope, revoked/changed/expired grant and unsupported operations. Local transport
 fixtures are explicitly protocol controls and do not qualify real Kata or installed service grants.
+Hosted grant-denial cases also use a bounded direct protocol peer, bypassing the typed client's
+preflight, to prove that the actual server enforces absent/revoked/expired runner grants itself.
 
 Run all owner checks/build/tiers and genuine script-free archive consumers, then current-head hosted
 and review gates. Select only the accepted real-guest baseline from #1037 before implementation;
