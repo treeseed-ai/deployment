@@ -2,8 +2,13 @@
 
 ## Host runner contract selection
 
-Deployment selects SDK .42 from accepted source `afdfac7bdd3c9c1f783362cd1d50324181e1d725`,
-archive SHA-256 `0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc`.
+Deployment selects SDK .44 from accepted source `00be028b92998f8d7039a3906e784c6b8598e730`,
+archive SHA-256 `d95c54cf6081c7634498dfb4f3235d42d65b8664a5d62cc87c4dd4e85381f0f3`.
+This .127 dependency-only closure includes the SDK provider availability contracts and public TLS
+client while retaining the accepted .126 private journal custody and bounded archive publication.
+A built acceptance gate checks peer, installed version, archive hash, existing manager channel
+and all seven operation IDs before owner checks. Runtime source and the frozen Agent guest archive
+remain unchanged; actual Agent availability orchestration is a later owner integration.
 Peer, vendor archive, lock, installed identity and built public Node consumer must agree.
 The preceding .113 dependency closure supplies SDK #506 manager ready-only service envelopes (channel
 1.1.0-cordis.1) through one exact peer/vendor/lock selection. Existing worker/runner roles and
