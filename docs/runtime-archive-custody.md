@@ -75,8 +75,10 @@ The complete Zstandard tar stream is inspected without extraction, imports, scri
 execution. All regular bytes are hashed while streaming, including targets occurring before
 selected symlinks. Bound the archive to 4096 entries, 8 GiB of declared and observed regular data,
 9 GiB of total decoded tar bytes and a 64:1 decompression ratio.
-Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Only ordinary USTAR file, directory and symbolic-link entries are supported; auxiliary
-PAX/GNU metadata forms are rejected, including empty and oversized records. Count raw headers
+Require complete compressed-byte consumption; ignored bytes after a Zstandard frame fail. Ordinary file, directory and symbolic-link entries plus bounded GNU next-path/next-link controls
+are supported. Each GNU control contains one canonical ASCII value and exactly one terminal NUL,
+fits 4097 bytes, occurs at most once per kind before its target, and must be consumed by an ordinary
+entry. Reject PAX, unknown, empty, oversized, duplicate or dangling metadata controls. Count raw headers
 and validate complete body framing and two zero footer blocks before accepting the proof.
 Bytes after the tar footer must be zero padding. Entries use canonical relative symbolic links without parent segments beneath `opt/kata`; only directory ancestors `.` and
 `opt` are additionally allowed. Reject duplicate/unsafe names, special entries, hardlinks,
@@ -114,3 +116,10 @@ only sixteen consumed bytes through `bytesWritten`. Inspection therefore verifie
 against the pinned archive size instead of relying on the option. The permanent genuine trailer
 case must pass in the actual Node program and Bun integration suite. No stream size option is
 mistaken for a streaming expansion bound; the reader counts all decoded and regular bytes.
+
+The pinned upstream kit contains 171 ordinary entries and two GNU long-path controls for the
+NVIDIA SNP/TDX configuration filenames. A strict read-only tar@7.5.22 / Node 24.22.1 probe
+records both controls and no ignored entries. Preserve these real required forms; rejecting
+all metadata would incorrectly reject the exact qualified kit. A shared-header framing guard
+counts ordinary and control entries, checks complete 512-byte framing and footer padding, and
+only then feeds the same upstream tar parser. GNU controls cannot override payload sizes.
