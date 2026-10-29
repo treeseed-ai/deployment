@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Select corrected SDK resource-profile contracts before physical pool qualification (#1021).
 - Export the isolated Kata qualification fixture through an explicit guarded testing interface (#1021).
 
 ### Added
