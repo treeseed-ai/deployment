@@ -27,7 +27,7 @@ import {
 } from '@treeseed-cordis/sdk';
 import * as Deployment from '@treeseed-cordis/deployment/sandbox-control';
 import { KataSandboxPlugin } from '@treeseed-cordis/deployment/sandbox';
-import { PrivateKataFixture } from './kata-backend-program.js';
+import { PrivateKataFixture } from '@treeseed-cordis/deployment/testing/kata';
 interface RunnerClientConstructor {
   new (configuration: unknown): SandboxRunnerClient;
 }
