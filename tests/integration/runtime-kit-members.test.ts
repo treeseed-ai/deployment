@@ -97,6 +97,11 @@ for (const mode of [
   'truncated-zstd',
   'ratio',
   'entries',
+  'metadata',
+  'metadata-excess',
+  'oversized-metadata',
+  'ignored',
+  'tar-tail',
 ])
   test('integration: retained kit inspection refuses ' + mode, suite.rejects.bind(suite, mode));
 for (const paths of [

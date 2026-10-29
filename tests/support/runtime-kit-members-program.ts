@@ -54,6 +54,7 @@ export class RuntimeKitFixture {
     const parts = this.members(mode);
     if (mode === 'checksum') parts[0]![0] = parts[0]![0]! ^ 1;
     if (mode !== 'truncated') parts.push(Buffer.alloc(1024));
+    if (mode === 'tar-tail') parts.push(Buffer.from('PRIVATE_KIT_CANARY'));
     const bytes = zstdCompressSync(Buffer.concat(parts));
     if (mode === 'truncated-zstd') return bytes.subarray(0, -1);
     return mode === 'garbage' ? Buffer.concat([bytes, Buffer.from('PRIVATE_KIT_CANARY')]) : bytes;
@@ -76,7 +77,7 @@ export class RuntimeKitFixture {
       parts.push(this.entry({ path: 'opt/kata/device', type: 'CharacterDevice' }));
     if (mode === 'permissions') parts.push(this.entry({ path: 'opt/kata/writable', mode: 0o666 }));
     if (mode === 'ancestor') parts.push(this.entry({ path: RuntimeKitFixture.link + '/child' }));
-    parts.push(...this.expansion(mode));
+    parts.push(...this.expansion(mode), ...this.auxiliary(mode));
     return parts;
   }
   private expansion(mode: string): Buffer[] {
@@ -86,6 +87,26 @@ export class RuntimeKitFixture {
     if (mode === 'entries')
       for (let index = 0; index < 4096; index++)
         parts.push(this.entry({ path: 'opt/kata/file-' + index }, randomBytes(32)));
+    return parts;
+  }
+  private auxiliary(mode: string): Buffer[] {
+    const parts: Buffer[] = [];
+    if (mode === 'metadata')
+      parts.push(this.entry({ path: 'opt/kata/metadata', type: 'ExtendedHeader' }));
+    if (mode === 'oversized-metadata')
+      parts.push(
+        this.entry({ path: 'opt/kata/metadata', type: 'ExtendedHeader' }, randomBytes(65537)),
+      );
+    if (mode === 'ignored')
+      parts.push(this.entry({ path: 'opt/kata/ignored', type: 'SolarisACL' }));
+    if (mode === 'metadata-excess')
+      for (let index = 0; index < 4096; index++)
+        parts.push(
+          this.entry({
+            path: 'opt/kata/meta-' + randomBytes(16).toString('hex'),
+            type: 'ExtendedHeader',
+          }),
+        );
     return parts;
   }
   private entry(input: HeaderData, bytes = Buffer.alloc(0)): Buffer {
