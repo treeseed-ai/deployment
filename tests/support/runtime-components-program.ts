@@ -11,6 +11,7 @@ import {
   readdirSync,
   lstatSync,
   chmodSync,
+  copyFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,6 +75,13 @@ export class ComponentFixture {
       | undefined;
     assert(value && typeof value.open === 'function', 'Public installed component custody missing');
     return value;
+  }
+  actual(source: string): void {
+    assert(lstatSync(source).isFile() && !lstatSync(source).isSymbolicLink());
+    copyFileSync(source, this.input.path);
+    chmodSync(this.input.path, 0o600);
+    this.input.size = 969565384;
+    this.input.sha256 = '3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96';
   }
   close(): void {
     rmSync(this.directory, { recursive: true, force: true });
@@ -156,4 +164,80 @@ class InstalledComponentsProgram {
     }
   }
 }
-if (import.meta.main) await new InstalledComponentsProgram().run();
+/** Actual pinned kit and read-only installed files only; never a VM or runtime activation. */
+class ActualInstalledComponentsProgram {
+  private static readonly bindings: readonly Sandbox.RuntimeComponentBinding[] = [
+    {
+      role: 'hypervisor',
+      member: 'opt/kata/bin/qemu-system-x86_64',
+      path: '/opt/kata/bin/qemu-system-x86_64',
+    },
+    {
+      role: 'shim',
+      member: 'opt/kata/runtime-rs/bin/containerd-shim-kata-v2',
+      path: '/opt/kata/runtime-rs/bin/containerd-shim-kata-v2',
+    },
+    {
+      role: 'configuration',
+      member:
+        'opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml',
+      path: '/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml',
+    },
+    { role: 'virtiofs', member: 'opt/kata/libexec/virtiofsd', path: '/opt/kata/libexec/virtiofsd' },
+    {
+      role: 'kernel',
+      member: 'opt/kata/share/kata-containers/vmlinux.container',
+      path: '/opt/kata/share/kata-containers/vmlinux-6.18.35-202',
+    },
+    {
+      role: 'rootfs',
+      member: 'opt/kata/share/kata-containers/kata-containers.img',
+      path: '/opt/kata/share/kata-containers/kata-ubuntu-noble.image',
+    },
+  ];
+  async run(): Promise<void> {
+    const fixture = new ComponentFixture();
+    let archive: Sandbox.RuntimeArchiveCustody | null = null;
+    try {
+      fixture.actual(process.argv[3]!);
+      archive = await Sandbox.RuntimeArchiveCustody.open(
+        fixture.input,
+        new AbortController().signal,
+      );
+      await this.inspect(archive);
+    } finally {
+      archive?.close();
+      fixture.close();
+    }
+    process.stdout.write('runtime-components-upstream-ok\n');
+  }
+  private async inspect(archive: Sandbox.RuntimeArchiveCustody): Promise<void> {
+    const components = await Sandbox.RuntimeComponentCustody.open(
+      archive,
+      ActualInstalledComponentsProgram.bindings,
+      new AbortController().signal,
+    );
+    try {
+      assert.equal(components.proof.components.length, 6);
+      assert.deepEqual(components.proof.components.map(this.role), [
+        'configuration',
+        'hypervisor',
+        'kernel',
+        'rootfs',
+        'shim',
+        'virtiofs',
+      ]);
+      components.verify();
+      archive.verify();
+    } finally {
+      components.close();
+    }
+  }
+  private role(component: Sandbox.RuntimeComponentProof['components'][number]): string {
+    return component.role;
+  }
+}
+if (import.meta.main) {
+  if (process.argv[2] === 'actual') await new ActualInstalledComponentsProgram().run();
+  else await new InstalledComponentsProgram().run();
+}
