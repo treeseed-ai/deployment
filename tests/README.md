@@ -116,8 +116,8 @@ and every partition must be nonempty; the shared layout guard verifies that inve
 Owner dependency selection applies to every executable consumer, not only manifests or unit
 inventory. The built `capacity-contract-program` and the availability consumer must name the
 same reviewed SDK peer, producer and archive as `cordisCandidate`; update exact selection
-expectations together while preserving all runtime assertions and deadlines. Run both public
-Node consumers locally before awaiting physical hosted qualification. The .127 runtime archive
+expectations together while preserving all runtime assertions and deadlines. Both public Node consumers remain in the existing acceptance inventory; this feature
+does not change workflow scheduling or qualification policy. The .127 runtime archive
 remains frozen: a correction confined to unpublished test specifications/programs and this test
 guide changes candidate source evidence, not the selected package bytes. Recheck archive content
 and mode equality against the new candidate and retain the original archive producer.
