@@ -71,12 +71,17 @@ export class RuntimeKitFixture {
   }
   async open(): Promise<RuntimeArchiveCustody & KitCustody> {
     const custody = await RuntimeArchiveCustody.open(this.input, new AbortController().signal);
-    assert.equal(
-      typeof Reflect.get(custody, 'inspect'),
-      'function',
-      'public retained kit inspection missing',
-    );
-    return custody as RuntimeArchiveCustody & KitCustody;
+    try {
+      assert.equal(
+        typeof Reflect.get(custody, 'inspect'),
+        'function',
+        'public retained kit inspection missing',
+      );
+      return custody as RuntimeArchiveCustody & KitCustody;
+    } catch (error) {
+      custody.close();
+      throw error;
+    }
   }
   close(): void {
     rmSync(this.directory, { recursive: true, force: true });
@@ -84,20 +89,29 @@ export class RuntimeKitFixture {
 }
 class RuntimeKitMembersProgram {
   async run(): Promise<void> {
-    const fixture = new RuntimeKitFixture();
+    const mode = process.argv[2] ?? 'valid';
+    const fixture = new RuntimeKitFixture(mode);
     const custody = await fixture.open();
     try {
-      const paths = [RuntimeKitFixture.link, RuntimeKitFixture.file];
-      const proof = await custody.inspect(paths, new AbortController().signal);
-      this.proof(proof, fixture);
-      const repeated = await custody.inspect(paths.reverse(), new AbortController().signal);
-      assert.deepEqual(repeated, proof);
+      if (mode === 'garbage')
+        await assert.rejects(
+          custody.inspect([RuntimeKitFixture.link], new AbortController().signal),
+          { code: 'KATA_RUNTIME_KIT_INVALID' },
+        );
+      else await this.valid(custody, fixture);
       custody.verify();
     } finally {
       custody.close();
       fixture.close();
     }
     process.stdout.write('runtime-kit-members-ok\n');
+  }
+  private async valid(custody: KitCustody, fixture: RuntimeKitFixture): Promise<void> {
+    const paths = [RuntimeKitFixture.link, RuntimeKitFixture.file];
+    const proof = await custody.inspect(paths, new AbortController().signal);
+    this.proof(proof, fixture);
+    const repeated = await custody.inspect(paths.reverse(), new AbortController().signal);
+    assert.deepEqual(repeated, proof);
   }
   private members(proof: KitMembers): void {
     const common = {
