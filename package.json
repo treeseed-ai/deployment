@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.113",
+  "version": "0.0.0-cordis.115",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -105,7 +105,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.113"
+      "version": "0.0.0-cordis.115"
     },
     "providers": [
       {
@@ -525,6 +525,30 @@
                   "required": [
                     "path",
                     "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "archive": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^\\/"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 4,
+                      "maximum": 2147483648
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256",
+                    "size"
                   ],
                   "additionalProperties": false
                 }
