@@ -1,6 +1,6 @@
-import { constants, openSync, closeSync, fstatSync, lstatSync, readSync, readdirSync, mkdirSync, fsyncSync, writeFileSync, linkSync, unlinkSync, type Stats } from 'node:fs';
+import { createReadStream, constants, openSync, closeSync, fstatSync, lstatSync, readSync, readdirSync, mkdirSync, fsyncSync, writeFileSync, linkSync, unlinkSync, type Stats } from 'node:fs';
 import { resolve, join, basename, dirname } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, type Hash } from 'node:crypto';
 import { parse, visit, type ParseError } from 'jsonc-parser';
 import { PlatformSchemas, CanonicalJson, PlanningBlockedError, type DeploymentPlan, type DeploymentConfiguration } from '@treeseed-cordis/sdk';
 
@@ -87,23 +87,149 @@ export class SafeDirectory {
     }catch(error){if(error instanceof PlanningBlockedError)throw error;return PlanningFailure.block('UNSAFE_FILE');}
     finally{if(directory!==this)directory.close();}
   }
-  hash(path:string,expected:string,size?:number,privateMode=false):void {
-    const parts=SafeDirectory.relative(path),name=parts.pop()!;let directory:SafeDirectory=this;
+  hash(path: string, expected: string, size?: number, privateMode = false): void {
+    let file: VerifiedDescriptor | null = null;
     try {
-      if(parts.length)directory=this.directory(parts.join('/'));
-      const fd=openSync(directory.childPath(name),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
-      try {
-        const before=fstatSync(fd);SafeDirectory.owner(before,privateMode);PlanningFailure.require(before.isFile()&&before.nlink===1&&(size===undefined||size===before.size),'OCI_SIZE');
-        const hash=createHash('sha256'),buffer=Buffer.alloc(1024*1024);let position=0,count=0;
-        while((count=readSync(fd,buffer,0,buffer.length,position))>0){position+=count;hash.update(buffer.subarray(0,count));}
-        const after=fstatSync(fd),linked=lstatSync(directory.childPath(name));
-        PlanningFailure.require(position===before.size&&after.size===before.size&&after.mtimeMs===before.mtimeMs&&after.ctimeMs===before.ctimeMs&&linked.ino===before.ino&&linked.dev===before.dev,'FILE_CHANGED');
-        PlanningFailure.require(hash.digest('hex')===expected,'ARTIFACT_INTEGRITY');directory.verify();
-      }finally{closeSync(fd);}
-    }catch(error){if(error instanceof PlanningBlockedError)throw error;return PlanningFailure.block('UNSAFE_FILE');}
-    finally{if(directory!==this)directory.close();}
+      file = VerifiedDescriptor.open(this, path, privateMode);
+      file.hash(expected, size);
+    } catch (error) {
+      if (error instanceof PlanningBlockedError) throw error;
+      return PlanningFailure.block('UNSAFE_FILE');
+    } finally {
+      file?.close();
+    }
   }
   close():void {if(!this.closed){closeSync(this.fd);this.closed=true;}}
+}
+
+/** Shared file custody; hashing never changes the anchored pathname or releases its descriptor. */
+export class VerifiedDescriptor {
+  private closed = false;
+  private readonly before: Stats;
+  private static readonly identity = [
+    'dev',
+    'ino',
+    'size',
+    'mtimeMs',
+    'ctimeMs',
+    'uid',
+    'gid',
+    'mode',
+    'nlink',
+  ] as const;
+  private constructor(
+    private readonly fd: number,
+    private readonly directory: SafeDirectory,
+    private readonly name: string,
+    private readonly privateMode: boolean,
+    private readonly ownsDirectory: boolean,
+  ) {
+    this.before = fstatSync(fd);
+    this.valid(this.before);
+    this.verify();
+  }
+  static open(root: SafeDirectory, path: string, privateMode = false): VerifiedDescriptor {
+    const parts = SafeDirectory.relative(path),
+      name = parts.pop()!;
+    const directory = parts.length ? root.directory(parts.join('/')) : root;
+    let fd = -1;
+    try {
+      fd = openSync(
+        directory.childPath(name),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      return new VerifiedDescriptor(fd, directory, name, privateMode, directory !== root);
+    } catch (error) {
+      if (fd !== -1) closeSync(fd);
+      if (directory !== root) directory.close();
+      throw error;
+    }
+  }
+  private valid(stat: Stats): void {
+    SafeDirectory.owner(stat, this.privateMode);
+    PlanningFailure.require(stat.isFile() && stat.nlink === 1, 'OCI_SIZE');
+  }
+  verify(): void {
+    PlanningFailure.require(!this.closed, 'FILE_CLOSED');
+    this.directory.verify();
+    const actual = fstatSync(this.fd),
+      linked = lstatSync(this.directory.childPath(this.name));
+    for (const key of VerifiedDescriptor.identity)
+      PlanningFailure.require(
+        actual[key] === this.before[key] && linked[key] === this.before[key],
+        'FILE_CHANGED',
+      );
+    this.valid(actual);
+    this.valid(linked);
+    PlanningFailure.require(!linked.isSymbolicLink(), 'FILE_CHANGED');
+  }
+  prefix(size: number): Buffer {
+    PlanningFailure.require(Number.isInteger(size) && size > 0 && size <= 4096, 'UNSAFE_FILE');
+    this.verify();
+    const bytes = Buffer.alloc(size),
+      count = readSync(this.fd, bytes, 0, size, 0);
+    this.verify();
+    return bytes.subarray(0, count);
+  }
+  private begin(size?: number): Hash {
+    this.verify();
+    PlanningFailure.require(size === undefined || size === this.before.size, 'OCI_SIZE');
+    return createHash('sha256');
+  }
+  private finish(hash: Hash, expected: string, size: number): void {
+    this.verify();
+    PlanningFailure.require(size === this.before.size, 'FILE_CHANGED');
+    PlanningFailure.require(hash.digest('hex') === expected, 'ARTIFACT_INTEGRITY');
+  }
+  hash(expected: string, size?: number): void {
+    const hash = this.begin(size),
+      buffer = Buffer.alloc(1024 * 1024);
+    let position = 0,
+      count = 0;
+    while ((count = readSync(this.fd, buffer, 0, buffer.length, position)) > 0) {
+      position += count;
+      hash.update(buffer.subarray(0, count));
+    }
+    this.finish(hash, expected, position);
+  }
+  async hashAsync(expected: string, size: number, signal: AbortSignal): Promise<void> {
+    const hash = this.begin(size);
+    PlanningFailure.require(size > 0, 'OCI_SIZE');
+    signal.throwIfAborted();
+    const stream = this.stream(size, signal);
+    let count = 0;
+    for await (const chunk of stream) {
+      count += chunk.length;
+      hash.update(chunk);
+    }
+    signal.throwIfAborted();
+    this.finish(hash, expected, count);
+  }
+  private stream(size: number, signal: AbortSignal): import('node:fs').ReadStream {
+    const fd = openSync('/proc/self/fd/' + this.fd, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      return createReadStream('', {
+        fd,
+        autoClose: true,
+        start: 0,
+        end: size - 1,
+        highWaterMark: 1024 * 1024,
+        signal,
+      });
+    } catch (error) {
+      closeSync(fd);
+      throw error;
+    }
+  }
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      closeSync(this.fd);
+    } finally {
+      if (this.ownsDirectory) this.directory.close();
+    }
+  }
 }
 
 /** Accepted plan bytes are the only Task 2 lifecycle records. No active-state transitions. */
