@@ -27,16 +27,16 @@ export interface RuntimeAliasProof {
   readonly digest: string;
 }
 /** An anchor with stricter direct-parent permissions than shared ancestor traversal. */
-class AliasDirectory {
+export class RuntimeDirectoryAnchor {
   private closed = false;
   private readonly identity: Stats;
   private constructor(readonly directory: SafeDirectory) {
     this.identity = fstatSync(directory.fd);
   }
-  static open(path: string): AliasDirectory {
+  static open(path: string): RuntimeDirectoryAnchor {
     const directory = SafeDirectory.open(path);
     try {
-      const anchor = new AliasDirectory(directory);
+      const anchor = new RuntimeDirectoryAnchor(directory);
       anchor.verify();
       return anchor;
     } catch (error) {
@@ -84,13 +84,13 @@ class AliasDirectory {
 class AliasDescriptor {
   private closed = false;
   private constructor(
-    private readonly parent: AliasDirectory,
+    private readonly parent: RuntimeDirectoryAnchor,
     private readonly fd: number,
     private readonly selected: RuntimeAlias,
     private readonly identity: Stats,
   ) {}
   static open(selected: RuntimeAlias): AliasDescriptor {
-    const parent = AliasDirectory.open(dirname(selected.path));
+    const parent = RuntimeDirectoryAnchor.open(dirname(selected.path));
     let fd = -1;
     try {
       fd = openSync(
@@ -165,7 +165,7 @@ export class RuntimeAliasCustody {
   private closeFailed = false;
   private constructor(
     private readonly components: RuntimeComponentCustody,
-    private readonly root: AliasDirectory,
+    private readonly root: RuntimeDirectoryAnchor,
     readonly proof: RuntimeAliasProof,
   ) {}
   static async open(
@@ -177,7 +177,11 @@ export class RuntimeAliasCustody {
     try {
       signal.throwIfAborted();
       const proof = this.projection(components, installationRoot);
-      custody = new RuntimeAliasCustody(components, AliasDirectory.open(installationRoot), proof);
+      custody = new RuntimeAliasCustody(
+        components,
+        RuntimeDirectoryAnchor.open(installationRoot),
+        proof,
+      );
       await custody.capture(signal);
       return custody;
     } catch {
