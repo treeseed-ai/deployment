@@ -25,6 +25,7 @@ export interface EffectivePolicyProof {
   readonly archive: { sha256: string; size: number };
   readonly configuration: { sha256: string; size: number };
   readonly resources: PoolResourceShape;
+  readonly rootfsAddressSpaceMiB: number;
   readonly vmResources: {
     vcpus: number;
     maximumVcpus: number;
@@ -150,7 +151,7 @@ export class RuntimePolicyFixture {
     ['virtiofs', 'opt/kata/libexec/virtiofsd'],
   ] as const;
   static type(): EffectivePolicyConstructor {
-    const Constructor = Reflect.get(Sandbox, 'EffectiveRuntimePolicy') as
+    const Constructor = Reflect.get(Sandbox, 'EffectiveRuntimePolicy') as unknown as
       | EffectivePolicyConstructor
       | undefined;
     assert(
@@ -199,7 +200,7 @@ export class RuntimePolicyFixture {
     qemu.default_vcpus = 3n;
     qemu.default_maxvcpus = 3n;
     qemu.default_memory = 1056n;
-    qemu.default_maxmemory = 1056n;
+    qemu.default_maxmemory = 1312n;
     qemu.memory_slots = 1n;
     qemu.enable_annotations = [];
     return stringify(document);
@@ -276,11 +277,12 @@ class EffectivePolicyProgram {
     assert.equal(payload.kind, 'kata-effective-runtime-policy');
     assert.equal(payload.configuration.sha256, fixture.configuration.sha256);
     assert.deepEqual(payload.resources, fixture.resources);
+    assert.equal(payload.rootfsAddressSpaceMiB, 256);
     assert.deepEqual(payload.vmResources, {
       vcpus: 3,
       maximumVcpus: 3,
       memoryMiB: 1056,
-      maximumMemoryMiB: 1056,
+      maximumMemoryMiB: 1312,
     });
     assert.equal(digest, CanonicalJson.digest(payload));
     assert(Object.isFrozen(proof) && Object.isFrozen(payload.vmResources));
