@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Bind observed QEMU startup resources to sandbox inspection evidence (#1021).
 - Retain the exact Kata runtime kit throughout native backend lifetime (#1021).
 - Select the exact manager-readiness SDK closure (#1021).
 - Retain verified runtime archive descriptors through bounded artifact custody (#1021).
