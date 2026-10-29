@@ -44,32 +44,40 @@ for (const args of [
   ['-smp', '2', '-m'],
   ['-smp', '2', '-smp', '2', '-m', '1G'],
   ['-smp', '2', '-m', '1G', '-m', '1G'],
-  ...[
-    '0',
-    '-1',
-    '1.5',
-    '2,maxcpus=1',
-    '2,cpus=2',
-    '2,maxcpus=3,maxcpus=4',
-    '2,unknown=3',
-    '2,sockets=0',
-    '999999999999999999999',
-  ].map((cpu) => ['-smp', cpu, '-m', '1G']),
-  ...[
-    '0',
-    '-1',
-    '1.5G',
-    '1023K',
-    '1GB',
-    '1G,maxmem=512M',
-    '1G,size=1G',
-    '1G,slots=0',
-    '1G,unknown=2',
-    '1G,maxmem=2G,maxmem=3G',
-    '999999999999999999T',
-  ].map((memory) => ['-smp', '2', '-m', memory]),
 ])
   test(
-    'unit: QEMU startup rejects ambiguous or unsupported shape ' + JSON.stringify(args),
+    'unit: QEMU startup rejects ambiguous argument structure ' + JSON.stringify(args),
     suite.rejected.bind(suite, args),
+  );
+for (const cpu of [
+  '0',
+  '-1',
+  '1.5',
+  '2,maxcpus=1',
+  '2,cpus=2',
+  '2,maxcpus=3,maxcpus=4',
+  '2,unknown=3',
+  '2,sockets=0',
+  '999999999999999999999',
+])
+  test(
+    'unit: QEMU startup rejects unsupported CPU shape ' + cpu,
+    suite.rejected.bind(suite, ['-smp', cpu, '-m', '1G']),
+  );
+for (const memory of [
+  '0',
+  '-1',
+  '1.5G',
+  '1023K',
+  '1GB',
+  '1G,maxmem=512M',
+  '1G,size=1G',
+  '1G,slots=0',
+  '1G,unknown=2',
+  '1G,maxmem=2G,maxmem=3G',
+  '999999999999999999T',
+])
+  test(
+    'unit: QEMU startup rejects unsupported memory shape ' + memory,
+    suite.rejected.bind(suite, ['-smp', '2', '-m', memory]),
   );

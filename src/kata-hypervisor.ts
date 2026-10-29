@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, readlinkSync, lstatSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { QemuStartupShape, type SandboxVmStartupShape } from './kata-vm-shape.js';
+export { QemuStartupShape, type SandboxVmStartupShape } from './kata-vm-shape.js';
 
 export interface SandboxProcessIdentity {
   pid: number;
@@ -22,7 +24,12 @@ export class SandboxProcessObserver {
     const rows = this.matches(name);
     if (rows.length !== 1) throw new Error('SANDBOX_PROCESS_AMBIGUOUS');
     const row = rows[0]!;
-    const path = '/proc/' + row.pid;
+    const executableDigest = this.executableIdentity(row.pid);
+    if (this.startTime(row.pid) !== row.startTime) throw new Error('SANDBOX_PROCESS_IDENTITY');
+    return { ...row, executableDigest };
+  }
+  private executableIdentity(pid: number): string {
+    const path = '/proc/' + pid;
     if (
       lstatSync(path).uid !== this.ownerUid ||
       readlinkSync(path + '/exe') !== this.executable.path
@@ -30,12 +37,35 @@ export class SandboxProcessObserver {
       throw new Error('SANDBOX_PROCESS_IDENTITY');
     const bytes = readFileSync(path + '/exe');
     const executableDigest = createHash('sha256').update(bytes).digest('hex');
-    if (executableDigest !== this.executable.sha256 || this.startTime(row.pid) !== row.startTime)
-      throw new Error('SANDBOX_PROCESS_IDENTITY');
-    return { ...row, executableDigest };
+    if (executableDigest !== this.executable.sha256) throw new Error('SANDBOX_PROCESS_IDENTITY');
+    return executableDigest;
   }
   capture(name: string): SandboxProcessIdentity | null {
     return this.absent(name) ? null : this.observe(name);
+  }
+  startup(expected: SandboxProcessIdentity): SandboxVmStartupShape {
+    try {
+      const bytes = this.startupCommand(expected);
+      const result = new QemuStartupShape().parse(bytes.toString('utf8').split('\0'));
+      if (this.startTime(expected.pid) !== expected.startTime) throw new Error();
+      return result;
+    } catch {
+      throw new Error('SANDBOX_VM_SHAPE_UNVERIFIED');
+    }
+  }
+  private startupCommand(expected: SandboxProcessIdentity): Buffer {
+    if (
+      this.startTime(expected.pid) !== expected.startTime ||
+      this.executableIdentity(expected.pid) !== expected.executableDigest
+    )
+      throw new Error();
+    const bytes = readFileSync('/proc/' + expected.pid + '/cmdline');
+    if (
+      bytes.length > 1024 * 1024 ||
+      createHash('sha256').update(bytes).digest('hex') !== expected.commandDigest
+    )
+      throw new Error();
+    return bytes;
   }
   absent(name: string): boolean {
     return this.matches(name).length === 0;

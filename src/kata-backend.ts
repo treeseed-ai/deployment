@@ -46,7 +46,12 @@ import {
 import { Context } from '@treeseed-cordis/sdk/runtime';
 import { SafeDirectory, StrictJson } from './filesystem.js';
 import { InstallationStore } from './installed.js';
-import { SandboxProcessObserver, type SandboxProcessIdentity } from './kata-hypervisor.js';
+import {
+  SandboxProcessObserver,
+  type SandboxProcessIdentity,
+  type SandboxVmStartupShape,
+} from './kata-hypervisor.js';
+export type { SandboxVmStartupShape } from './kata-hypervisor.js';
 
 class KataConfiguration {
   static readonly file = z.strictObject({
@@ -129,6 +134,7 @@ export interface KataSandboxEvidence {
   kernel: string;
   inspectionDigest: string;
   hypervisor: SandboxProcessIdentity;
+  startupShape: SandboxVmStartupShape;
   assignment: KataAssignment | null;
   runner: CapacityReadiness | null;
   resources?: PoolResourceShape;
@@ -1069,15 +1075,17 @@ export class KataSandboxBackend {
   private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
     const kernel = await this.qualifiedGuest(record, signal);
     const hypervisor = this.processes.observe(record.resourceName);
+    const startupShape = this.processes.startup(hypervisor);
     const assignment = this.journal?.assignment(record.id) ?? null;
     const runner = await this.runnerReady(record.id, signal);
     const resource = await this.resourceShape(record, signal);
-    const identity = { record, kernel, hypervisor, assignment, runner, ...resource };
+    const identity = { record, kernel, hypervisor, startupShape, assignment, runner, ...resource };
     return {
       id: record.id,
       resourceName: record.resourceName,
       kernel,
       hypervisor,
+      startupShape,
       assignment,
       runner,
       ...resource,
