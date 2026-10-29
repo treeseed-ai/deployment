@@ -59,6 +59,18 @@ class KataRunnerTransportTests {
       child.kill('SIGKILL');
     }
   }
+  async replyCancellation(): Promise<void> {
+    const child = this.child('normal');
+    const controller = new AbortController();
+    const session = new KataRunnerSession(child, this.scope);
+    child.stdout.on('data', controller.abort.bind(controller));
+    try {
+      await assert.rejects(session.readiness(controller.signal), this.safe.bind(this));
+      await assert.rejects(session.close(), this.safe.bind(this));
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }
   private safe(error: unknown): boolean {
     assert(error instanceof Error);
     assert.match(error.message, /^KATA_RUNNER_[A-Z_]+$/);
@@ -80,6 +92,10 @@ for (const mode of ['foreign', 'malformed', 'stderr', 'generation', 'exit', 'dup
 test(
   'integration: cancelled runner exchange remains fenced through disposal',
   suite.cancelled.bind(suite),
+);
+test(
+  'integration: cancellation during a complete runner reply fences acceptance and disposal',
+  suite.replyCancellation.bind(suite),
 );
 
 /** Genuine executable bytes are inert stdin data in this host-only pipe control. */
@@ -129,14 +145,16 @@ class KataRunnerPayloadTests {
 
 class KataCommandDeadlineTests {
   async expired(): Promise<void> {
-    const options = { deadlineMs: 10000, deadline: performance.now() - 1 };
-    const command = new KataCommand(
-      '/fixture/must-not-start',
-      [],
-      new AbortController().signal,
-      options,
-    );
-    await assert.rejects(command.run(), { code: 'KATA_COMMAND_TIMEOUT' });
+    for (const deadline of [-1, 0, performance.now() - 1]) {
+      const options = { deadlineMs: 10000, deadline };
+      const command = new KataCommand(
+        '/fixture/must-not-start',
+        [],
+        new AbortController().signal,
+        options,
+      );
+      await assert.rejects(command.run(), { code: 'KATA_COMMAND_TIMEOUT' });
+    }
   }
   async shared(): Promise<void> {
     const located = spawnSync(
