@@ -42,7 +42,8 @@ sequence, previousDigest, content and digest. Sequence starts at one; names use 
 digits, a hyphen, the record digest and `.json`. Snapshot scope/content before the first
 asynchronous boundary; later caller mutation cannot change accepted bytes or their identity.
 The digest includes namespace/installation receipt binding. Use canonical sequence/digest names,
-maximum 4096 records and one MiB per record; reject noncanonical/duplicate/unknown envelope fields,
+maximum 4096 records, one MiB per record and 64 MiB per complete chain; JSON values have at most
+65536 nodes and depth 64. Reject noncanonical/duplicate/unknown envelope fields,
 unsafe keys, wrong hashes, gaps, forks and extra entries. API owns content schemas, idempotency,
 receipts, partial/recovery meanings and authority checks. The storage helper performs no domain
 reconciliation and must never log content, credentials, paths or raw exceptions.
@@ -81,3 +82,10 @@ owner builds independent. Inventory: this document, CHANGELOG, one custody modul
 package identity, acceptance/integration/unit/support specifications (at most ten files). Full
 owner/public archive/hosted/review gates precede acceptance; API integration remains a separate
 owner slice. No legacy/production change or Work/model execution. Every issue remains open.
+
+The hosted Ubuntu acceptance tier also changes only the fixture's exact temporary scope marker
+to root ownership through a bounded sudo Node helper, then requires ordinary-user rejection.
+The helper requires genuine GitHub-hosted flags and root, resolves the path inside the fixture
+temporary directory, and checks a regular private single-link marker before chown. No runtime,
+daemon, workstation registration or original installation is involved. Local unprivileged
+verification reports this hosted cross-UID case separately rather than substituting a fake UID.
