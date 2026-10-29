@@ -20,6 +20,8 @@ owners may select their own scope. Bind the immutable namespace marker to the ex
 receipt digest, installation identity/directory, namespace, owner UID and custody format version.
 An existing empty/incomplete namespace is uncertain state, not something to initialize silently.
 
+`InstallationRecords.inspect(scope, signal)` reads an existing stable namespace without
+creating state. It rejects any held/stale namespace writer explicitly; it never removes one.
 The acquired object exposes:
 - `read(): Promise<readonly InstallationRecord[]>`: verify and return the complete immutable
   canonical chain, without reopening original release/seed bundles.
