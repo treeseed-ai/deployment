@@ -340,22 +340,45 @@ class KataClient {
     signal: AbortSignal,
   ): Promise<void> {
     await this.offline(name, signal);
+    const deadline = performance.now() + 120000;
+    await this.prepareRunner(name, deadline, signal);
+    await this.transferRunner(name, artifact, deadline, signal);
+    await this.finalizeRunner(name, artifact, deadline, signal);
+    await this.configureRunner(name, signal);
+  }
+  private async prepareRunner(name: string, deadline: number, signal: AbortSignal): Promise<void> {
     const prepare =
       'umask 077; test ! -L /run && mkdir -p -m 0755 /run && test ! -e /run/treeseed-runner && mkdir -m 0700 /run/treeseed-runner';
-    await this.writeRunner(name, { command: prepare, deadlineMs: 10000, phase: 'PREPARE' }, signal);
+    await this.writeRunner(
+      name,
+      { command: prepare, deadlineMs: 10000, deadline, phase: 'PREPARE' },
+      signal,
+    );
+  }
+  private async transferRunner(
+    name: string,
+    artifact: GuestRuntimeArtifact,
+    deadline: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     const transfer =
       'umask 077; test ! -e /run/treeseed-runner/guest && cat > /run/treeseed-runner/guest';
     await this.writeRunner(
       name,
-      { command: transfer, bytes: artifact.executable, deadlineMs: 120000, phase: 'TRANSFER' },
+      {
+        command: transfer,
+        bytes: artifact.executable,
+        deadlineMs: 120000,
+        deadline,
+        phase: 'TRANSFER',
+      },
       signal,
     );
-    await this.finalizeRunner(name, artifact, signal);
-    await this.configureRunner(name, signal);
   }
   private async finalizeRunner(
     name: string,
     artifact: GuestRuntimeArtifact,
+    deadline: number,
     signal: AbortSignal,
   ): Promise<void> {
     const command =
@@ -366,6 +389,7 @@ class KataClient {
         command,
         parameters: [String(artifact.executable.length), artifact.manifest.executable.sha256],
         deadlineMs: 10000,
+        deadline,
         phase: 'FINALIZE',
       },
       signal,
@@ -397,6 +421,7 @@ class KataClient {
       bytes?: Buffer;
       parameters?: string[];
       deadlineMs: number;
+      deadline?: number;
       phase: 'PREPARE' | 'TRANSFER' | 'FINALIZE' | 'CONFIGURATION';
     },
     signal: AbortSignal,
@@ -405,7 +430,12 @@ class KataClient {
       await this.guest(
         name,
         ['/bin/sh', '-c', input.command, 'cordis', ...(input.parameters ?? [])],
-        { stdin: input.bytes, deadlineMs: input.deadlineMs, outputLimitBytes: 1024 },
+        {
+          stdin: input.bytes,
+          deadlineMs: input.deadlineMs,
+          deadline: input.deadline,
+          outputLimitBytes: 1024,
+        },
         signal,
       );
     } catch {
