@@ -126,6 +126,48 @@ class KataRunnerPayloadTests {
     }
   }
 }
+
+class KataCommandDeadlineTests {
+  async expired(): Promise<void> {
+    const options = { deadlineMs: 10000, deadline: performance.now() - 1 };
+    const command = new KataCommand(
+      '/fixture/must-not-start',
+      [],
+      new AbortController().signal,
+      options,
+    );
+    await assert.rejects(command.run(), { code: 'KATA_COMMAND_TIMEOUT' });
+  }
+  async shared(): Promise<void> {
+    const located = spawnSync(
+      'node',
+      ['dist/tests/support/kata-runner-program.js', '--node-path'],
+      {
+        encoding: 'utf8',
+        timeout: 10000,
+      },
+    );
+    assert.equal(located.status, 0, located.stderr);
+    const options = { deadlineMs: 10000, deadline: performance.now() + 250 };
+    const command = new KataCommand(
+      located.stdout,
+      [resolve('dist/tests/support/kata-runner-program.js'), '--wait-fixture'],
+      new AbortController().signal,
+      options,
+    );
+    await assert.rejects(command.run(), { code: 'KATA_COMMAND_TIMEOUT' });
+  }
+}
+const deadlines = new KataCommandDeadlineTests();
+test(
+  'integration: expired shared command budget refuses spawn before any executable runs',
+  deadlines.expired.bind(deadlines),
+);
+test(
+  'integration: actual child obeys shared absolute deadline before its local timeout',
+  deadlines.shared.bind(deadlines),
+  5000,
+);
 const payload = new KataRunnerPayloadTests();
 test(
   'integration: actual runner bytes cross the bounded host process pipe without execution or truncation',

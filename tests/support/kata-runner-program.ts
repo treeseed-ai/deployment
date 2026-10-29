@@ -3,6 +3,7 @@ import { mkdirSync, copyFileSync, chmodSync, statSync, readFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   CapacitySchemas,
   CapacityChannelSchemas,
@@ -63,6 +64,10 @@ class KataRunnerProgram {
     if (process.argv[2] === '--interface') return this.interface();
     if (process.argv[2] === '--io-fixture') return new RunnerTransportFixture().run();
     if (process.argv[2] === '--stdin-fixture') return this.inputDigest();
+    if (process.argv[2] === '--wait-fixture') {
+      await delay(10000);
+      return;
+    }
     if (process.argv[2] === '--node-path') {
       process.stdout.write(process.execPath);
       return;
