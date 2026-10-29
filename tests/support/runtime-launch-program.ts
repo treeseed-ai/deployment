@@ -166,13 +166,29 @@ class NativeLaunchScenario {
       policy = this.custody.policy!;
     this.attestation = await Constructor.open(policy, created.resourceName, this.custody.signal);
     this.attestation.verify();
-    const repeated = await Constructor.open(policy, created.resourceName, this.custody.signal);
+    this.proof(created);
+    await this.repeated(created);
+    await this.refused(created);
+    this.attestation.verify();
+  }
+  private async repeated(created: Sandbox.KataSandboxEvidence): Promise<void> {
+    const repeated = await LaunchCapability.type().open(
+      this.custody.policy!,
+      created.resourceName,
+      this.custody.signal,
+    );
     try {
-      assert.deepEqual(repeated.proof, this.attestation.proof);
+      assert.deepEqual(repeated.proof, this.attestation!.proof);
     } finally {
       repeated.close();
     }
-    this.proof(created);
+    assert.throws(repeated.verify.bind(repeated), { message: 'KATA_LAUNCH_CLOSED' });
+    repeated.close();
+    this.custody.policy!.verify();
+  }
+  private async refused(created: Sandbox.KataSandboxEvidence): Promise<void> {
+    const Constructor = LaunchCapability.type(),
+      policy = this.custody.policy!;
     await assert.rejects(
       Constructor.open.bind(Constructor, policy, created.resourceName, AbortSignal.abort()),
       { message: 'KATA_CANCELLED' },
@@ -181,7 +197,6 @@ class NativeLaunchScenario {
       Constructor.open.bind(Constructor, policy, '../PRIVATE_NAME', this.custody.signal),
       { message: 'KATA_LAUNCH_INVALID' },
     );
-    this.attestation.verify();
   }
   private proof(created: Sandbox.KataSandboxEvidence): void {
     const proof = this.attestation!.proof,
