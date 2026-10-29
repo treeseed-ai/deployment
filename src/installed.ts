@@ -331,7 +331,9 @@ class ArchiveOutput {
   private failed(): void {
     if (this.settled) return;
     this.settled = true;
-    this.current?.abort();
+    try {
+      this.current?.abort();
+    } catch {}
     try {
       this.parser.abort(new Error('Verified package staging failed'));
     } catch {}
