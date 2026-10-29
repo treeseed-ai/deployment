@@ -36,3 +36,9 @@ test(
   suite.program.bind(suite, 'actual'),
   125000,
 );
+
+for (const mode of ['long-path', 'long-link'])
+  test(
+    'acceptance: built public kit inspection preserves bounded GNU control ' + mode,
+    suite.program.bind(suite, mode),
+  );

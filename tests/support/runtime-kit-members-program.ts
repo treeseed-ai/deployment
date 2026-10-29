@@ -60,17 +60,7 @@ export class RuntimeKitFixture {
     return mode === 'garbage' ? Buffer.concat([bytes, Buffer.from('PRIVATE_KIT_CANARY')]) : bytes;
   }
   private members(mode: string): Buffer[] {
-    const parts = [
-      this.entry({ path: RuntimeKitFixture.file, mode: 0o755 }, RuntimeKitFixture.content),
-    ];
-    const target =
-      mode === 'escape' ? '../../../../outside' : mode === 'cycle' ? 'alias' : 'fixture';
-    parts.push(
-      this.entry({ path: RuntimeKitFixture.link, type: 'SymbolicLink', linkpath: target }),
-    );
-    parts.push(
-      this.entry({ path: RuntimeKitFixture.alias, type: 'SymbolicLink', linkpath: 'selected' }),
-    );
+    const parts = [...this.baseline(mode), ...this.links(mode)];
     if (mode === 'duplicate') parts.push(parts[0]!);
     if (mode === 'unsafe') parts.push(this.entry({ path: 'opt/kata/../outside' }));
     if (mode === 'special')
@@ -78,6 +68,32 @@ export class RuntimeKitFixture {
     if (mode === 'permissions') parts.push(this.entry({ path: 'opt/kata/writable', mode: 0o666 }));
     if (mode === 'ancestor') parts.push(this.entry({ path: RuntimeKitFixture.link + '/child' }));
     parts.push(...this.expansion(mode), ...this.auxiliary(mode));
+    return parts;
+  }
+  private baseline(mode: string): Buffer[] {
+    const path = mode === 'long-path' ? 'opt/kata/raw-placeholder' : RuntimeKitFixture.file;
+    const file = this.entry({ path, mode: 0o755 }, RuntimeKitFixture.content);
+    if (mode !== 'long-path') return [file];
+    return [this.control('NextFileHasLongPath', './' + RuntimeKitFixture.file + '\0'), file];
+  }
+  private control(type: HeaderData['type'], value: string): Buffer {
+    return this.entry({ path: '././@LongLink', type }, Buffer.from(value));
+  }
+  private links(mode: string): Buffer[] {
+    const parts: Buffer[] = [];
+    const target =
+      mode === 'escape' ? '../../../../outside' : mode === 'cycle' ? 'alias' : 'fixture';
+    if (mode === 'long-link') parts.push(this.control('NextFileHasLongLinkpath', 'fixture\0'));
+    parts.push(
+      this.entry({
+        path: RuntimeKitFixture.link,
+        type: 'SymbolicLink',
+        linkpath: mode === 'long-link' ? 'placeholder' : target,
+      }),
+    );
+    parts.push(
+      this.entry({ path: RuntimeKitFixture.alias, type: 'SymbolicLink', linkpath: 'selected' }),
+    );
     return parts;
   }
   private expansion(mode: string): Buffer[] {
