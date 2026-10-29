@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import {
   appendFileSync,
+  openSync,
+  fstatSync,
   chmodSync,
   closeSync,
   renameSync,
@@ -33,6 +35,7 @@ class AliasBoundaries {
     if (mode === 'noncanonical') return fixture.root + '/.';
     if (mode === 'wrong-root') return fixture.directory;
     if (mode === 'target') fixture.replace();
+    if (mode === 'missing') rmSync(fixture.alias);
     if (mode === 'regular') {
       rmSync(fixture.alias);
       writeFileSync(fixture.alias, fixture.bytes);
@@ -66,6 +69,14 @@ class AliasBoundaries {
     if (mode === 'parent') {
       renameSync(fixture.parent, fixture.parent + '-old');
       symlinkSync(fixture.parent + '-old', fixture.parent);
+    }
+    if (mode === 'parent-restore') {
+      renameSync(fixture.parent, fixture.parent + '-held');
+      renameSync(fixture.parent + '-held', fixture.parent);
+    }
+    if (mode === 'root-restore') {
+      renameSync(fixture.root, fixture.root + '-held');
+      renameSync(fixture.root + '-held', fixture.root);
     }
     if (mode === 'parent-mode') chmodSync(fixture.parent, 0o777);
     if (mode === 'root-mode') chmodSync(fixture.root, 0o1777);
@@ -129,6 +140,24 @@ class AliasBoundaries {
       fixture.close();
     }
   }
+  async reusedDescriptor(): Promise<void> {
+    const fixture = new AliasFixture();
+    let borrowed = -1;
+    try {
+      await fixture.prepare();
+      const custody = await fixture.open(), withdrawn = fixture.descriptor();
+      closeSync(withdrawn);
+      borrowed = openSync(fixture.terminal, 'r');
+      assert.equal(borrowed, withdrawn);
+      assert.throws(custody.close.bind(custody), /KATA_RUNTIME_ALIASES_CLOSE_FAILED/);
+      fixture.held.length = 0;
+      assert(fstatSync(borrowed).isFile());
+      fixture.components!.verify();
+    } finally {
+      if (borrowed !== -1) closeSync(borrowed);
+      fixture.close();
+    }
+  }
   async failedClose(): Promise<void> {
     const fixture = new AliasFixture();
     try {
@@ -156,6 +185,7 @@ for (const mode of [
   'noncanonical',
   'wrong-root',
   'target',
+  'missing',
   'regular',
   'parent-mode',
   'root-mode',
@@ -171,6 +201,8 @@ for (const mode of [
   'same-target',
   'target',
   'parent',
+  'parent-restore',
+  'root-restore',
   'parent-mode',
   'root-mode',
   'bytes',
@@ -200,3 +232,5 @@ test(
   'integration: failed alias disposal drains remaining descriptors and stays failed',
   suite.failedClose.bind(suite),
 );
+
+test('integration: alias close refuses an unrelated file that reused its withdrawn descriptor', suite.reusedDescriptor.bind(suite));
