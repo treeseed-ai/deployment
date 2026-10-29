@@ -1,8 +1,43 @@
 import assert from 'node:assert/strict';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync, lstatSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'bun:test';
 import { ParallelPackageFixture } from '../support/parallel-package-program.js';
 class ParallelPublicationBoundaries {
+  async conflict(mode: 'conflict' | 'symlink'): Promise<void> {
+    const fixture = new ParallelPackageFixture();
+    fixture.mutation = mode;
+    try {
+      await assert.rejects(fixture.run.bind(fixture), {
+        message: 'Verified package staging failed',
+      });
+      this.preservedMember(fixture, mode);
+      assert.equal(
+        readdirSync(fixture.target).some(ParallelPublicationBoundaries.temporary),
+        false,
+      );
+      const snapshot = fixture.snapshot();
+      await this.turns();
+      assert.deepEqual(fixture.snapshot(), snapshot);
+    } finally {
+      fixture.close();
+    }
+  }
+  private preservedMember(fixture: ParallelPackageFixture, mode: 'conflict' | 'symlink'): void {
+    const file = join(fixture.target, 'file-511.txt');
+    assert.equal(
+      readFileSync(file, 'utf8'),
+      mode === 'conflict' ? 'EXISTING_MEMBER_CANARY' : 'OUTSIDE_MEMBER_CANARY',
+    );
+    assert.equal(lstatSync(file).isSymbolicLink(), mode === 'symlink');
+  }
+  async descriptors(): Promise<void> {
+    await this.readable();
+    const before = readdirSync('/proc/self/fd').length;
+    for (let count = 0; count < 3; count++) await this.malformed('duplicate');
+    await this.turns();
+    assert.equal(readdirSync('/proc/self/fd').length, before);
+  }
   async readable(): Promise<void> {
     const fixture = new ParallelPackageFixture();
     try {
@@ -57,6 +92,17 @@ class ParallelPublicationBoundaries {
   }
 }
 const suite = new ParallelPublicationBoundaries();
+for (const mode of ['conflict', 'symlink'] as const)
+  test(
+    'integration: asynchronous publication refuses a raced ' + mode + ' without overwriting it',
+    suite.conflict.bind(suite, mode),
+    15000,
+  );
+test(
+  'integration: repeated failed archive publication closes all owned descriptors before rejection',
+  suite.descriptors.bind(suite),
+  15000,
+);
 test(
   'integration: readable durable publication retains bounded overlap and exact bytes/modes',
   suite.readable.bind(suite),

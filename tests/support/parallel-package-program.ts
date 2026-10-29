@@ -6,6 +6,7 @@ import {
   renameSync,
   mkdirSync,
   writeFileSync,
+  symlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { CooperativePackageFixture } from './cooperative-package-program.js';
@@ -14,6 +15,8 @@ export class ParallelPackageFixture extends CooperativePackageFixture {
   private observing = false;
   maximum = 0;
   replaced = false;
+  mutation: 'none' | 'conflict' | 'symlink' = 'none';
+  private mutated = false;
   readonly displaced = this.target + '-original';
   async run(readable = false, replace = false): Promise<void> {
     this.observing = true;
@@ -29,6 +32,7 @@ export class ParallelPackageFixture extends CooperativePackageFixture {
     const count = readdirSync(this.target).filter(ParallelPackageFixture.temporary).length;
     this.maximum = Math.max(this.maximum, count);
     if (replace && count && !this.replaced) this.replace();
+    if (count && !this.mutated && this.mutation !== 'none') this.interfere();
     setImmediate(this.observePublications.bind(this, replace));
   }
   private static temporary(name: string): boolean {
@@ -41,6 +45,17 @@ export class ParallelPackageFixture extends CooperativePackageFixture {
       mode: 0o600,
     });
     this.replaced = true;
+  }
+  private interfere(): void {
+    const file = join(this.target, 'file-511.txt');
+    if (this.mutation === 'conflict')
+      writeFileSync(file, 'EXISTING_MEMBER_CANARY', { mode: 0o600, flag: 'wx' });
+    else {
+      const outside = join(this.root, 'OUTSIDE');
+      writeFileSync(outside, 'OUTSIDE_MEMBER_CANARY', { mode: 0o600 });
+      symlinkSync(outside, file);
+    }
+    this.mutated = true;
   }
   verified(readable = false): void {
     assert(this.maximum > 1, 'Durable archive publication remained serial');
