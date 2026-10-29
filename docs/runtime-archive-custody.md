@@ -37,8 +37,8 @@ Work/models remain Task 10 and every issue stays open.
 `await custody.inspect(paths, signal)` resolves at most sixteen unique canonical `opt/kata/…`
 member paths in the retained archive and returns immutable, sorted owner data:
 `{formatVersion:1, archive:{sha256,size}, members:[{requestedPath,path,size,mode,sha256,links}]}`.
-Each link is `{path,target}` and the terminal path must be a regular file. This is an owner
-artifact inspection contract; SDK resource profiles and cross-process messages remain SDK-owned.
+Each link is `{path,target}` and the terminal path must be a regular file. The same public sandbox entry exports `RuntimeKitMember` and `RuntimeKitMembers` types.
+This is an owner artifact inspection contract; SDK resource profiles and cross-process messages remain SDK-owned.
 
 The complete Zstandard tar stream is inspected without extraction, imports, scripts or runtime
 execution. All regular bytes are hashed while streaming, including targets occurring before
