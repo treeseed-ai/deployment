@@ -57,6 +57,9 @@ relocated, forged or otherwise invalid custody cannot mask a missing resource co
 During qualification failure investigation, the isolated credential-free daemon's bounded log
 tail may explain the failed fixture operation. This does not change production error output,
 runtime deadlines or the requirement that successful fixture output is exact and empty on stderr.
+Temporary fixture instrumentation may retain the creation command's bounded stderr while
+delegating unchanged byte accounting to its original method and restoring that method before
+cleanup. Remove that instrumentation and rerun the untouched production path before qualification.
 
 Actual provider/profile publication, pool ownership/claims/refill, setup/egress, live authority,
 seed coordination, CLI and final assembled admission remain subsequent Task3D gates. Real
