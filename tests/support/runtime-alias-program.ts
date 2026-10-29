@@ -145,10 +145,10 @@ export class AliasFixture {
   static descriptors(): number {
     return readdirSync('/proc/self/fd').length;
   }
-  descriptor(): number {
+  descriptor(path = this.alias): number {
     for (const entry of readdirSync('/proc/self/fd')) {
       try {
-        if (readlinkSync('/proc/self/fd/' + entry) === this.alias) return Number(entry);
+        if (readlinkSync('/proc/self/fd/' + entry) === path) return Number(entry);
       } catch {
         /* The proc directory's transient reader is already closed. */
       }

@@ -140,13 +140,13 @@ class AliasBoundaries {
       fixture.close();
     }
   }
-  async reusedDescriptor(): Promise<void> {
+  async reusedDescriptor(kind = 'link'): Promise<void> {
     const fixture = new AliasFixture();
     let borrowed = -1;
     try {
       await fixture.prepare();
       const custody = await fixture.open(),
-        withdrawn = fixture.descriptor();
+        withdrawn = fixture.descriptor(kind === 'root' ? fixture.root : kind === 'parent' ? fixture.parent : fixture.alias);
       closeSync(withdrawn);
       borrowed = openSync(fixture.terminal, 'r');
       assert.equal(borrowed, withdrawn);
@@ -238,3 +238,5 @@ test(
   'integration: alias close refuses an unrelated file that reused its withdrawn descriptor',
   suite.reusedDescriptor.bind(suite),
 );
+
+for (const kind of ['root','parent']) test('integration: alias close preserves unrelated files reusing withdrawn ' + kind + ' anchors', suite.reusedDescriptor.bind(suite, kind));
