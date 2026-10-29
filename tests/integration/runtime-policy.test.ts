@@ -264,7 +264,14 @@ for (const mode of [
       ' without admitting unused options',
     suite.configuration.bind(suite, mode),
   );
-for (const mode of ['bytes', 'mode', 'special-mode', 'parent-mode', 'parent-special-mode', 'symlink'])
+for (const mode of [
+  'bytes',
+  'mode',
+  'special-mode',
+  'parent-mode',
+  'parent-special-mode',
+  'symlink',
+])
   test(
     'integration: effective runtime file custody rejects ' + mode + ' without leaking descriptors',
     suite.filesystem.bind(suite, mode),
