@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Keep worker requests responsive during verified package staging (#1052).
+
 ### Added
 - Bind installed runtime components to exact verified kit member custody (#1021).
 - Bind observed QEMU startup resources to sandbox inspection evidence (#1021).
