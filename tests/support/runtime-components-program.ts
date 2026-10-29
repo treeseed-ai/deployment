@@ -1,0 +1,243 @@
+import assert from 'node:assert/strict';
+import { Header, type HeaderData } from 'tar';
+import { zstdCompressSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
+import {
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  lstatSync,
+  chmodSync,
+  copyFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
+export interface ComponentCustody {
+  readonly proof: object;
+  verify(): void;
+  close(): void;
+}
+export interface ComponentBindings {
+  role: string;
+  member: string;
+  path: string;
+}
+interface ComponentConstructor {
+  open(
+    archive: Sandbox.RuntimeArchiveCustody,
+    bindings: unknown,
+    signal: AbortSignal,
+  ): Promise<ComponentCustody>;
+}
+/** Genuine small kit and installed regular data; no executable runtime or extraction. */
+export class ComponentFixture {
+  readonly directory = realpathSync(mkdtempSync(join(tmpdir(), 'runtime-components-')));
+  readonly installed = join(this.directory, 'PRIVATE_COMPONENT_PATH');
+  readonly bytes = Buffer.from('explicit installed component fixture\n');
+  readonly input: { path: string; sha256: string; size: number };
+  readonly bindings: ComponentBindings[];
+  constructor() {
+    writeFileSync(this.installed, this.bytes, { mode: 0o755 });
+    chmodSync(this.installed, 0o755);
+    const archive = zstdCompressSync(this.tar());
+    const path = join(this.directory, 'fixture.tar.zst');
+    writeFileSync(path, archive, { mode: 0o600 });
+    this.input = { path, sha256: this.digest(archive), size: archive.length };
+    this.bindings = [{ role: 'hypervisor', member: 'opt/kata/bin/alias', path: this.installed }];
+  }
+  private tar(): Buffer {
+    return Buffer.concat([
+      this.entry({ path: 'opt/kata/bin/component', mode: 0o755 }, this.bytes),
+      this.entry({
+        path: 'opt/kata/bin/alias',
+        type: 'SymbolicLink',
+        linkpath: 'component',
+        mode: 0o777,
+      }),
+      Buffer.alloc(1024),
+    ]);
+  }
+  private entry(input: HeaderData, bytes = Buffer.alloc(0)): Buffer {
+    const header = Buffer.alloc(512);
+    new Header({ type: 'File', mode: 0o644, size: bytes.length, ...input }).encode(header);
+    return Buffer.concat([header, bytes, Buffer.alloc((512 - (bytes.length % 512)) % 512)]);
+  }
+  digest(bytes: Buffer): string {
+    return createHash('sha256').update(bytes).digest('hex');
+  }
+  constructorExport(): ComponentConstructor {
+    const value = Reflect.get(Sandbox, 'RuntimeComponentCustody') as
+      | ComponentConstructor
+      | undefined;
+    assert(value && typeof value.open === 'function', 'Public installed component custody missing');
+    return value;
+  }
+  actual(source: string): void {
+    assert(lstatSync(source).isFile() && !lstatSync(source).isSymbolicLink());
+    copyFileSync(source, this.input.path);
+    chmodSync(this.input.path, 0o600);
+    this.input.size = 969565384;
+    this.input.sha256 = '3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96';
+  }
+  close(): void {
+    rmSync(this.directory, { recursive: true, force: true });
+  }
+}
+class InstalledComponentsProgram {
+  async run(): Promise<void> {
+    const fixture = new ComponentFixture();
+    let archive: Sandbox.RuntimeArchiveCustody | null = null;
+    try {
+      archive = await Sandbox.RuntimeArchiveCustody.open(
+        fixture.input,
+        new AbortController().signal,
+      );
+      await this.exercise(fixture, archive);
+      this.unchanged(fixture);
+    } finally {
+      archive?.close();
+      fixture.close();
+    }
+    process.stdout.write('runtime-components-public-ok\n');
+  }
+  private unchanged(fixture: ComponentFixture): void {
+    assert.deepEqual(readdirSync(fixture.directory).sort(), [
+      'PRIVATE_COMPONENT_PATH',
+      'fixture.tar.zst',
+    ]);
+    assert.deepEqual(readFileSync(fixture.installed), fixture.bytes);
+    assert.equal(lstatSync(fixture.installed).mode & 0o777, 0o755);
+  }
+  private async exercise(
+    fixture: ComponentFixture,
+    archive: Sandbox.RuntimeArchiveCustody,
+  ): Promise<void> {
+    const components = await fixture
+      .constructorExport()
+      .open(archive, fixture.bindings, new AbortController().signal);
+    try {
+      this.proof(fixture, components.proof);
+      components.verify();
+      components.close();
+      components.close();
+      archive.verify();
+      assert.throws(components.verify.bind(components), { message: 'KATA_COMPONENTS_CLOSED' });
+    } finally {
+      components.close();
+    }
+  }
+  private proof(fixture: ComponentFixture, proof: object): void {
+    assert.deepEqual(proof, {
+      formatVersion: 1,
+      archive: { sha256: fixture.input.sha256, size: fixture.input.size },
+      components: [
+        {
+          role: 'hypervisor',
+          member: {
+            requestedPath: 'opt/kata/bin/alias',
+            path: 'opt/kata/bin/component',
+            sha256: fixture.digest(fixture.bytes),
+            size: fixture.bytes.length,
+            mode: 0o755,
+            links: [{ path: 'opt/kata/bin/alias', target: 'opt/kata/bin/component' }],
+          },
+        },
+      ],
+    });
+    this.frozen(proof);
+    assert(!JSON.stringify(proof).includes(fixture.directory));
+    assert(!JSON.stringify(proof).includes('PRIVATE_COMPONENT_PATH'));
+  }
+  private frozen(proof: object): void {
+    assert(Object.isFrozen(proof));
+    const components = Reflect.get(proof, 'components');
+    assert(Object.isFrozen(components));
+    for (const component of components) {
+      assert(Object.isFrozen(component));
+      assert(Object.isFrozen(component.member));
+      assert(Object.isFrozen(component.member.links));
+      for (const link of component.member.links) assert(Object.isFrozen(link));
+    }
+  }
+}
+/** Actual pinned kit and read-only installed files only; never a VM or runtime activation. */
+class ActualInstalledComponentsProgram {
+  private static readonly bindings: readonly Sandbox.RuntimeComponentBinding[] = [
+    {
+      role: 'hypervisor',
+      member: 'opt/kata/bin/qemu-system-x86_64',
+      path: '/opt/kata/bin/qemu-system-x86_64',
+    },
+    {
+      role: 'shim',
+      member: 'opt/kata/runtime-rs/bin/containerd-shim-kata-v2',
+      path: '/opt/kata/runtime-rs/bin/containerd-shim-kata-v2',
+    },
+    {
+      role: 'configuration',
+      member:
+        'opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml',
+      path: '/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml',
+    },
+    { role: 'virtiofs', member: 'opt/kata/libexec/virtiofsd', path: '/opt/kata/libexec/virtiofsd' },
+    {
+      role: 'kernel',
+      member: 'opt/kata/share/kata-containers/vmlinux.container',
+      path: '/opt/kata/share/kata-containers/vmlinux-6.18.35-202',
+    },
+    {
+      role: 'rootfs',
+      member: 'opt/kata/share/kata-containers/kata-containers.img',
+      path: '/opt/kata/share/kata-containers/kata-ubuntu-noble.image',
+    },
+  ];
+  async run(): Promise<void> {
+    const fixture = new ComponentFixture();
+    let archive: Sandbox.RuntimeArchiveCustody | null = null;
+    try {
+      fixture.actual(process.argv[3]!);
+      archive = await Sandbox.RuntimeArchiveCustody.open(
+        fixture.input,
+        new AbortController().signal,
+      );
+      await this.inspect(archive);
+    } finally {
+      archive?.close();
+      fixture.close();
+    }
+    process.stdout.write('runtime-components-upstream-ok\n');
+  }
+  private async inspect(archive: Sandbox.RuntimeArchiveCustody): Promise<void> {
+    const components = await Sandbox.RuntimeComponentCustody.open(
+      archive,
+      ActualInstalledComponentsProgram.bindings,
+      new AbortController().signal,
+    );
+    try {
+      assert.equal(components.proof.components.length, 6);
+      assert.deepEqual(components.proof.components.map(this.role), [
+        'configuration',
+        'hypervisor',
+        'kernel',
+        'rootfs',
+        'shim',
+        'virtiofs',
+      ]);
+      components.verify();
+      archive.verify();
+    } finally {
+      components.close();
+    }
+  }
+  private role(component: Sandbox.RuntimeComponentProof['components'][number]): string {
+    return component.role;
+  }
+}
+if (import.meta.main) {
+  if (process.argv[2] === 'actual') await new ActualInstalledComponentsProgram().run();
+  else await new InstalledComponentsProgram().run();
+}
