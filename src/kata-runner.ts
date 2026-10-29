@@ -81,7 +81,18 @@ export class KataRunnerSession {
       'KATA_RUNNER_UNAVAILABLE',
     );
     KataSandboxError.require(!signal.aborted, 'KATA_RUNNER_CANCELLED');
-    const request = CapacityChannelSchemas.request.parse({
+    const result = await new Promise<CapacityReadiness>(
+      this.begin.bind(this, this.readyRequest(), signal),
+    );
+    if (signal.aborted) this.fail('KATA_RUNNER_CANCELLED');
+    KataSandboxError.require(
+      !this.failure && !this.ended && !this.closing,
+      'KATA_RUNNER_UNAVAILABLE',
+    );
+    return result;
+  }
+  private readyRequest(): CapacityChannelRequest {
+    return CapacityChannelSchemas.request.parse({
       schemaVersion: 'treeseed.capacity-channel/v1',
       requestId: 'ready.' + randomUUID(),
       scope: this.scope,
@@ -90,9 +101,6 @@ export class KataRunnerSession {
       expectedGeneration: this.generation,
       parameters: {},
     });
-    const result = await new Promise<CapacityReadiness>(this.begin.bind(this, request, signal));
-    KataSandboxError.require(!this.failure && !this.ended, 'KATA_RUNNER_UNAVAILABLE');
-    return result;
   }
   private begin(
     request: CapacityChannelRequest,

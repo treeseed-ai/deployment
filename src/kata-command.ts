@@ -100,8 +100,7 @@ export class KataCommand {
     if (this.timer) clearTimeout(this.timer);
     if (this.killTimer) clearTimeout(this.killTimer);
     this.signal.removeEventListener('abort', this.cancellation);
-    if (this.deadline > 0 && performance.now() >= this.deadline)
-      this.failure = 'KATA_COMMAND_TIMEOUT';
+    if (performance.now() >= this.deadline) this.failure = 'KATA_COMMAND_TIMEOUT';
     if (this.signal.aborted) this.failure = 'KATA_CANCELLED';
     if (this.failure || code !== 0)
       this.reject!(new KataSandboxError(this.failure ?? 'KATA_COMMAND_FAILED'));
