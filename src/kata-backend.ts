@@ -342,10 +342,9 @@ class KataClient {
     await this.offline(name, signal);
     const command =
       'umask 077; test ! -e /run/treeseed-runner && mkdir -m 0700 /run/treeseed-runner && cat > /run/treeseed-runner/guest && chmod 0755 /run/treeseed-runner/guest && chown -R 65532:65532 /run/treeseed-runner';
-    await this.guest(
+    await this.writeRunner(
       name,
-      ['/bin/sh', '-c', command],
-      { stdin: artifact.executable, deadlineMs: 120000, outputLimitBytes: 1024 },
+      { command, bytes: artifact.executable, deadlineMs: 120000, phase: 'BINARY' },
       signal,
     );
     await this.configureRunner(name, signal);
@@ -358,16 +357,39 @@ class KataClient {
     };
     const publish =
       'umask 077; test ! -e /run/treeseed-runner/guest.json && cat > /run/treeseed-runner/guest.json && chmod 0600 /run/treeseed-runner/guest.json && chown 65532:65532 /run/treeseed-runner/guest.json';
-    await this.guest(
+    await this.writeRunner(
       name,
-      ['/bin/sh', '-c', publish],
       {
-        stdin: Buffer.from(CanonicalJson.stringify(configuration)),
+        command: publish,
+        bytes: Buffer.from(CanonicalJson.stringify(configuration)),
         deadlineMs: 10000,
-        outputLimitBytes: 1024,
+        phase: 'CONFIGURATION',
       },
       signal,
     );
+  }
+  private async writeRunner(
+    name: string,
+    input: {
+      command: string;
+      bytes: Buffer;
+      deadlineMs: number;
+      phase: 'BINARY' | 'CONFIGURATION';
+    },
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.guest(
+        name,
+        ['/bin/sh', '-c', input.command],
+        { stdin: input.bytes, deadlineMs: input.deadlineMs, outputLimitBytes: 1024 },
+        signal,
+      );
+    } catch {
+      throw new KataSandboxError(
+        signal.aborted ? 'KATA_CANCELLED' : 'KATA_RUNNER_' + input.phase + '_STAGE_FAILED',
+      );
+    }
   }
   runner(name: string): KataRunnerSession {
     this.endpoint.verify();
