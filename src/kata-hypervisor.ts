@@ -1,9 +1,13 @@
-import { readdirSync, readFileSync, readlinkSync, lstatSync } from 'node:fs';
+import { readdirSync, readFileSync, readlinkSync, lstatSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { QemuStartupShape, type SandboxVmStartupShape } from './kata-vm-shape.js';
 import { resolve } from 'node:path';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
+import { setImmediate } from 'node:timers/promises';
+import { EffectiveRuntimePolicy, type EffectiveRuntimePolicyProof } from './runtime-policy.js';
+import { KataSandboxError } from './kata-command.js';
+import type { RuntimeKitMember } from './runtime-kit.js';
 export { QemuStartupShape, type SandboxVmStartupShape } from './kata-vm-shape.js';
 
 export interface SandboxBootInputs {
@@ -145,6 +149,196 @@ export class QemuBootProjection {
       objects.push(fields);
     }
     return objects;
+  }
+}
+
+/** Internal pure projection, independently tested; not a configurable accelerator fallback. */
+export class NativeLaunchMachine {
+  private static readonly required = { accel: 'kvm', nvdimm: 'on', kernel_irqchip: 'on' };
+  parse(args: readonly string[]): Readonly<{ type: 'q35'; accelerator: 'kvm' }> {
+    try {
+      if (
+        !Array.isArray(args) ||
+        args.length > 8192 ||
+        args.includes('-M') ||
+        args.includes('-accel')
+      )
+        throw new Error();
+      const fields = this.fields(BootFields.one(args, '-machine'));
+      for (const [key, value] of Object.entries(NativeLaunchMachine.required))
+        if (fields.get(key) !== value) throw new Error();
+      if (fields.has('memory-backend') && fields.get('memory-backend') !== 'entire-guest-memory')
+        throw new Error();
+      return Object.freeze({ type: 'q35', accelerator: 'kvm' });
+    } catch {
+      throw new Error('KATA_LAUNCH_MACHINE_INVALID');
+    }
+  }
+  private fields(value: string): Map<string, string> {
+    const [kind, ...entries] = value.split(',');
+    if (kind !== 'q35') throw new Error();
+    const result = new Map<string, string>();
+    const allowed = ['accel', 'nvdimm', 'kernel_irqchip', 'memory-backend'];
+    for (const entry of entries) {
+      const [key, field, extra] = entry.split('=');
+      if (!key || !field || extra !== undefined || !allowed.includes(key) || result.has(key))
+        throw new Error();
+      result.set(key, field);
+    }
+    return result;
+  }
+}
+export interface KataLaunchProof {
+  readonly kind: 'kata-launch-binding';
+  readonly formatVersion: 1;
+  readonly policyDigest: string;
+  readonly boot: SandboxBootObservation;
+  readonly machine: Readonly<{ type: 'q35'; accelerator: 'kvm' }>;
+  readonly digest: string;
+}
+class NativeLaunchProjection {
+  constructor(private readonly policy: EffectiveRuntimePolicy) {
+    if (
+      !(policy instanceof EffectiveRuntimePolicy) ||
+      process.platform !== 'linux' ||
+      process.arch !== 'x64' ||
+      policy.proof.installationRoot !== '/'
+    )
+      throw new Error();
+    policy.verify();
+  }
+  get digest(): string {
+    return this.policy.proof.digest;
+  }
+  observer(): SandboxProcessObserver {
+    const binding = this.binding('hypervisor'),
+      member = this.member('hypervisor');
+    return new SandboxProcessObserver(
+      { path: binding.path, sha256: member.sha256 },
+      process.getuid!(),
+    );
+  }
+  private binding(role: string): EffectiveRuntimePolicyProof['bindings'][number] {
+    for (const binding of this.policy.proof.bindings) if (binding.role === role) return binding;
+    throw new Error();
+  }
+  private member(role: string): RuntimeKitMember {
+    for (const component of this.policy.proof.components)
+      if (component.role === role) return component.member;
+    throw new Error();
+  }
+  read(
+    observer: SandboxProcessObserver,
+    expected: SandboxProcessIdentity,
+  ): Pick<KataLaunchProof, 'boot' | 'machine'> {
+    this.policy.verify();
+    const boot = observer.boot(expected);
+    this.binary(boot.process);
+    this.path('kernel', boot.boot.kernel);
+    this.path('rootfs', boot.boot.rootfs.path);
+    if (
+      boot.boot.rootfs.size !== this.member('rootfs').size ||
+      CanonicalJson.stringify(boot.boot.resources) !==
+        CanonicalJson.stringify(this.policy.proof.vmResources)
+    )
+      throw new Error();
+    const machine = this.machine(boot.process);
+    this.policy.verify();
+    if (observer.boot(expected).digest !== boot.digest) throw new Error();
+    return { boot, machine };
+  }
+  private path(role: string, observed: string): void {
+    const member = this.member(role),
+      paths = new Set([member.requestedPath, member.path]);
+    for (const link of member.links) paths.add(link.path);
+    if (!paths.has(observed.slice(1)) || !observed.startsWith('/')) throw new Error();
+  }
+  private binary(identity: SandboxProcessIdentity): void {
+    const path = '/proc/' + identity.pid + '/exe',
+      selected = this.binding('hypervisor').path;
+    if (readlinkSync(path) !== selected) throw new Error();
+    const actual = statSync(path),
+      retained = lstatSync(selected);
+    if (
+      !actual.isFile() ||
+      !retained.isFile() ||
+      actual.dev !== retained.dev ||
+      actual.ino !== retained.ino
+    )
+      throw new Error();
+  }
+  private machine(identity: SandboxProcessIdentity): KataLaunchProof['machine'] {
+    const bytes = readFileSync('/proc/' + identity.pid + '/cmdline');
+    if (
+      bytes.length > 1048576 ||
+      createHash('sha256').update(bytes).digest('hex') !== identity.commandDigest
+    )
+      throw new Error();
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new NativeLaunchMachine().parse(text.split('\0'));
+  }
+}
+/** Borrowed retained custody and actual process observation, never activation or profile publication. */
+export class KataLaunchAttestation {
+  private closed = false;
+  private constructor(
+    private readonly projection: NativeLaunchProjection,
+    private readonly observer: SandboxProcessObserver,
+    private readonly expected: SandboxProcessIdentity,
+    readonly proof: KataLaunchProof,
+  ) {}
+  static async open(
+    policy: EffectiveRuntimePolicy,
+    name: string,
+    signal: AbortSignal,
+  ): Promise<KataLaunchAttestation> {
+    let attestation: KataLaunchAttestation | null = null;
+    try {
+      if (!(signal instanceof AbortSignal)) throw new Error();
+      signal.throwIfAborted();
+      attestation = this.capture(policy, name);
+      await setImmediate();
+      signal.throwIfAborted();
+      attestation.verify();
+      return attestation;
+    } catch {
+      attestation?.close();
+      const cancelled = signal instanceof AbortSignal && signal.aborted;
+      throw new KataSandboxError(cancelled ? 'KATA_CANCELLED' : 'KATA_LAUNCH_INVALID');
+    }
+  }
+  private static capture(policy: EffectiveRuntimePolicy, name: string): KataLaunchAttestation {
+    const projection = new NativeLaunchProjection(policy);
+    if (typeof name !== 'string' || !/^cordis-sandbox-[a-f0-9]{24}-[a-f0-9]{24}$/.test(name))
+      throw new Error();
+    const observer = projection.observer(),
+      expected = observer.observe(name);
+    const observed = projection.read(observer, expected);
+    const payload = Object.freeze({
+      kind: 'kata-launch-binding' as const,
+      formatVersion: 1 as const,
+      policyDigest: projection.digest,
+      ...observed,
+    });
+    const proof = Object.freeze({ ...payload, digest: CanonicalJson.digest(payload) });
+    return new KataLaunchAttestation(projection, observer, proof.boot.process, proof);
+  }
+  verify(): void {
+    KataSandboxError.require(!this.closed, 'KATA_LAUNCH_CLOSED');
+    try {
+      const observed = this.projection.read(this.observer, this.expected);
+      if (
+        observed.boot.digest !== this.proof.boot.digest ||
+        this.projection.digest !== this.proof.policyDigest ||
+        CanonicalJson.stringify(observed.machine) !== CanonicalJson.stringify(this.proof.machine)
+      )
+        throw new Error();
+    } catch {
+      throw new KataSandboxError('KATA_LAUNCH_CHANGED');
+    }
+  }
+  close(): void {
+    this.closed = true;
   }
 }
 
