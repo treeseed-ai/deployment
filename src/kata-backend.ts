@@ -264,7 +264,7 @@ class KataClient {
     'PATH=/usr/bin:/bin',
     'HOME=/run/treeseed-runner',
     'TMPDIR=/tmp',
-    '/run/treeseed-runner/guest',
+    '/opt/treeseed-runner/guest',
     '--config',
     '/run/treeseed-runner/guest.json',
   ];
@@ -348,7 +348,7 @@ class KataClient {
   }
   private async prepareRunner(name: string, deadline: number, signal: AbortSignal): Promise<void> {
     const prepare =
-      'umask 077; test ! -L /run && mkdir -p -m 0755 /run && test ! -e /run/treeseed-runner && mkdir -m 0700 /run/treeseed-runner';
+      'umask 077; test ! -L /run && test ! -L /opt && mkdir -p -m 0755 /run /opt && test ! -e /run/treeseed-runner && test ! -e /opt/treeseed-runner && mkdir -m 0700 /run/treeseed-runner /opt/treeseed-runner';
     await this.writeRunner(
       name,
       { command: prepare, deadlineMs: 10000, deadline, phase: 'PREPARE' },
@@ -362,7 +362,7 @@ class KataClient {
     signal: AbortSignal,
   ): Promise<void> {
     const transfer =
-      'umask 077; test ! -e /run/treeseed-runner/guest && cat > /run/treeseed-runner/guest';
+      'umask 077; test ! -e /opt/treeseed-runner/guest && cat > /opt/treeseed-runner/guest';
     await this.writeRunner(
       name,
       {
@@ -382,7 +382,7 @@ class KataClient {
     signal: AbortSignal,
   ): Promise<void> {
     const command =
-      'test "$(stat -c %s /run/treeseed-runner/guest)" = "$1" && printf "%s  /run/treeseed-runner/guest\\n" "$2" | sha256sum --status --check && chmod 0755 /run/treeseed-runner/guest && chown 65532:65532 /run/treeseed-runner/guest /run/treeseed-runner';
+      'test "$(stat -c %s /opt/treeseed-runner/guest)" = "$1" && printf "%s  /opt/treeseed-runner/guest\\n" "$2" | sha256sum --status --check && chmod 0755 /opt/treeseed-runner/guest && chown 65532:65532 /opt/treeseed-runner/guest /opt/treeseed-runner /run/treeseed-runner';
     await this.writeRunner(
       name,
       {
