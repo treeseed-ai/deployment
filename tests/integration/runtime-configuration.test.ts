@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { appendFileSync, copyFileSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { ConfigurationFixture } from '../support/runtime-configuration-program.js';
 class RuntimeConfigurationBoundaries {
   async rejected(mode: string): Promise<void> {
@@ -33,7 +34,7 @@ class RuntimeConfigurationBoundaries {
     if (mode === 'other-agent') return base.replace('agent_name = "kata"', 'agent_name = "other"');
     if (mode === 'missing-table') return base.replace('[agent.kata.mem_agent]', '[other]');
     if (mode === 'bad-utf8') return Buffer.concat([Buffer.from(base), Buffer.from([0xff])]);
-    if (mode === 'oversized') return base + '#' + 'x'.repeat(1024 * 1024);
+    if (mode === 'oversized') return base + '#' + randomBytes(600000).toString('hex');
     if (mode === 'deep-inline')
       return base + '\n[unused]\na = ' + '['.repeat(33) + '1' + ']'.repeat(33);
     return base;

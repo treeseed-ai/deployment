@@ -2,16 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import * as Configuration from '../../src/kata-configuration.js';
 import { ConfigurationFixture } from '../support/runtime-configuration-program.js';
-interface Projection {
-  parse(text: string, proof: unknown): Record<string, unknown>;
-}
 class ConfigurationProjectionTests {
-  private projection(): Projection {
+  private projection(): Configuration.RuntimeConfigurationProjection {
     const Type = Reflect.get(Configuration, 'RuntimeConfigurationProjection');
     assert.equal(typeof Type, 'function', 'Production configuration projection missing');
-    return new Type() as Projection;
+    return new Type();
   }
-  private proof(): object {
+  private proof(): import('../../src/runtime-components.js').RuntimeComponentProof {
     const components = [];
     for (const [role, path] of [
       ['configuration', 'config/runtime.toml'],
@@ -19,7 +16,7 @@ class ConfigurationProjectionTests {
       ['kernel', 'kernel'],
       ['rootfs', 'rootfs'],
       ['virtiofs', 'bin/virtiofs'],
-    ])
+    ] as const)
       components.push({
         role,
         member: {
@@ -47,7 +44,7 @@ class ConfigurationProjectionTests {
     const proof = this.proof();
     const result = this.projection().parse(ConfigurationFixture.text, proof);
     const original = JSON.stringify(result);
-    Reflect.get(proof, 'archive').sha256 = 'c'.repeat(64);
+    assert(Reflect.set(proof.archive, 'sha256', 'c'.repeat(64)));
     assert.equal(JSON.stringify(result), original);
     assert(Object.isFrozen(Reflect.get(result, 'archive')));
     assert(Object.isFrozen(Reflect.get(result, 'resources')));

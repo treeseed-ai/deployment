@@ -2,15 +2,19 @@ import assert from 'node:assert/strict';
 import { Header } from 'tar';
 import { zstdCompressSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, realpathSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+  copyFileSync,
+  lstatSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
-interface ComponentCustody {
-  readonly proof: object;
-  verify(): void;
-  close(): void;
-}
+type ComponentCustody = Sandbox.RuntimeComponentCustody;
 interface ComponentConstructor {
   open(
     archive: Sandbox.RuntimeArchiveCustody,
@@ -18,13 +22,7 @@ interface ComponentConstructor {
     signal: AbortSignal,
   ): Promise<ComponentCustody>;
 }
-interface ConfigurationReader {
-  inspect(
-    file: unknown,
-    components: ComponentCustody,
-    signal: AbortSignal,
-  ): Promise<Record<string, unknown>>;
-}
+type ConfigurationReader = typeof Sandbox.KataRuntimeConfiguration;
 /** Genuine small kit, installed files and TOML data. Never an executable runtime. */
 export class ConfigurationFixture {
   readonly directory = realpathSync(mkdtempSync(join(tmpdir(), 'runtime-configuration-')));
@@ -83,6 +81,16 @@ compact_force_times = 9223372036854775807
   private digest(bytes: Buffer): string {
     return createHash('sha256').update(bytes).digest('hex');
   }
+  actual(source: string): void {
+    assert(lstatSync(source).isFile() && !lstatSync(source).isSymbolicLink());
+    copyFileSync(source, this.input.path);
+    chmodSync(this.input.path, 0o600);
+    this.input.sha256 = '3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96';
+    this.input.size = 969565384;
+    this.bindings.splice(0, this.bindings.length, ...ActualConfigurationProgram.bindings);
+    this.file.path = ActualConfigurationProgram.configuration;
+    this.file.sha256 = '870f8157d298a51784d3617854456edf16820bbc1e743b15467e441b63c43673';
+  }
   async start(): Promise<void> {
     this.archive = await Sandbox.RuntimeArchiveCustody.open(
       this.input,
@@ -140,7 +148,7 @@ class ConfigurationProgram {
     }
     process.stdout.write('runtime-configuration-public-ok\n');
   }
-  private proof(result: Record<string, unknown>): void {
+  private proof(result: Sandbox.KataRuntimeReferences): void {
     assert.equal(result.kind, 'kata-runtime-references');
     assert.equal(result.formatVersion, 1);
     assert(Object.isFrozen(result));
@@ -156,4 +164,67 @@ class ConfigurationProgram {
     });
   }
 }
-if (import.meta.main) await new ConfigurationProgram().run();
+/** Hosted installed upstream bytes only. No extraction, process or VM activation. */
+class ActualConfigurationProgram {
+  static readonly configuration =
+    '/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml';
+  static readonly bindings = [
+    { role: 'configuration', member: this.configuration.slice(1), path: this.configuration },
+    {
+      role: 'hypervisor',
+      member: 'opt/kata/bin/qemu-system-x86_64',
+      path: '/opt/kata/bin/qemu-system-x86_64',
+    },
+    {
+      role: 'kernel',
+      member: 'opt/kata/share/kata-containers/vmlinux.container',
+      path: '/opt/kata/share/kata-containers/vmlinux-6.18.35-202',
+    },
+    {
+      role: 'rootfs',
+      member: 'opt/kata/share/kata-containers/kata-containers.img',
+      path: '/opt/kata/share/kata-containers/kata-ubuntu-noble.image',
+    },
+    { role: 'virtiofs', member: 'opt/kata/libexec/virtiofsd', path: '/opt/kata/libexec/virtiofsd' },
+  ];
+  async run(): Promise<void> {
+    const fixture = new ConfigurationFixture();
+    try {
+      fixture.actual(process.argv[3]!);
+      await fixture.start();
+      const proof = await fixture
+        .reader()
+        .inspect(fixture.file, fixture.components!, new AbortController().signal);
+      this.proof(proof);
+      fixture.components!.verify();
+    } finally {
+      fixture.close();
+    }
+    process.stdout.write('runtime-configuration-upstream-ok\n');
+  }
+  private proof(proof: Sandbox.KataRuntimeReferences): void {
+    assert.equal(
+      proof.configuration.sha256,
+      '870f8157d298a51784d3617854456edf16820bbc1e743b15467e441b63c43673',
+    );
+    assert.deepEqual(proof.resources, {
+      defaultVcpus: 1,
+      maximumVcpus: 0,
+      defaultMemoryMiB: 2048,
+      maximumMemoryMiB: 0,
+      overheadVcpus: 0.2,
+      overheadMemoryMiB: 32,
+      memorySlots: 10,
+      staticSandboxResourceManagement: true,
+    });
+    assert.equal(proof.references.length, 4);
+    assert(proof.references.some(this.linked));
+  }
+  private linked(reference: Sandbox.KataRuntimeReferences['references'][number]): boolean {
+    return reference.member.links.length > 0;
+  }
+}
+if (import.meta.main) {
+  if (process.argv[2] === 'actual') await new ActualConfigurationProgram().run();
+  else await new ConfigurationProgram().run();
+}

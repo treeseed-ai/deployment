@@ -1,4 +1,5 @@
 import { RuntimeArchiveCustody } from './runtime-archive.js';
+export { KataRuntimeConfiguration, type KataRuntimeReferences } from './kata-configuration.js';
 export {
   RuntimeComponentCustody,
   type RuntimeComponentBinding,

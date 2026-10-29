@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.120",
+  "version": "0.0.0-cordis.121",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -94,10 +94,11 @@
     "ajv-formats": "3.0.1",
     "cordis": "4.0.0-rc.12",
     "jsonc-parser": "3.3.1",
+    "postgres": "3.4.9",
     "semver": "7.8.5",
+    "smol-toml": "1.9.1",
     "tar": "7.5.22",
-    "zod": "4.6.7",
-    "postgres": "3.4.9"
+    "zod": "4.6.7"
   },
   "cordisPackage": {
     "formatVersion": 4,
@@ -105,7 +106,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.120"
+      "version": "0.0.0-cordis.121"
     },
     "providers": [
       {
