@@ -61,8 +61,12 @@ import {
   type SandboxBootObservation,
 } from './kata-hypervisor.js';
 export type { SandboxVmStartupShape } from './kata-hypervisor.js';
-export { QemuBootProjection, SandboxProcessObserver, type SandboxBootInputs,
-  type SandboxBootObservation } from './kata-hypervisor.js';
+export {
+  QemuBootProjection,
+  SandboxProcessObserver,
+  type SandboxBootInputs,
+  type SandboxBootObservation,
+} from './kata-hypervisor.js';
 
 class KataConfiguration {
   static readonly file = z.strictObject({
@@ -1102,7 +1106,9 @@ export class KataSandboxBackend {
       inspectionDigest: CanonicalJson.digest(identity),
     };
   }
-  private observedBoot(record: KataIntent): Pick<KataSandboxEvidence, 'hypervisor' | 'startupShape' | 'boot'> {
+  private observedBoot(
+    record: KataIntent,
+  ): Pick<KataSandboxEvidence, 'hypervisor' | 'startupShape' | 'boot'> {
     const hypervisor = this.processes.observe(record.resourceName);
     const boot = this.processes.boot(hypervisor);
     return { hypervisor, startupShape: boot.boot.resources, boot };
