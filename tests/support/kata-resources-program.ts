@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
 import {
   CordisScope,
@@ -132,6 +133,7 @@ class KataResourcesProgram {
       await this.inspect(host, fixture, id, signal);
     } catch (error) {
       failures.push(error);
+      failures.push(this.resourceEvidence(fixture, id));
     }
     try {
       await host.destroy(id, signal);
@@ -143,6 +145,40 @@ class KataResourcesProgram {
     assert.equal(fixture.run(['containers', 'list', '--quiet']), '');
     const name = fixture.namespace + '-' + CanonicalJson.digest({ id }).slice(0, 24);
     assert(!fixture.run(['snapshots', '--snapshotter', 'native', 'list']).includes(name));
+  }
+  private resourceEvidence(fixture: PrivateKataFixture, id: string): Error {
+    const result = spawnSync('/usr/bin/ctr', this.resourceArguments(fixture, id), {
+      encoding: 'utf8',
+      timeout: 10000,
+      maxBuffer: 4096,
+    });
+    const safe = result.status === 0 && /^[a-zA-Z0-9_.,:/= \n-]{1,4096}$/.test(result.stdout ?? '');
+    return new Error(
+      JSON.stringify({
+        phase: 'fixture-resource-readback',
+        status: result.status,
+        evidence: safe ? result.stdout.trim() : 'unavailable',
+      }),
+    );
+  }
+  private resourceArguments(fixture: PrivateKataFixture, id: string): string[] {
+    const name = fixture.namespace + '-' + CanonicalJson.digest({ id }).slice(0, 24);
+    const command =
+      'printf "membership="; cat /proc/self/cgroup; for p in /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/cpu/cpu.cfs_quota_us /sys/fs/cgroup/memory/memory.limit_in_bytes; do if test -r "$p"; then printf "%s=" "$p"; cat "$p"; fi; done; stat -f -c "%T %S %b" /tmp /run /opt; awk \'$5 == "/" { print "root=" $6 }\' /proc/self/mountinfo';
+    return [
+      '--address',
+      fixture.socket,
+      '--namespace',
+      fixture.namespace,
+      'tasks',
+      'exec',
+      '--exec-id',
+      'resource-failure-' + randomUUID(),
+      name,
+      '/bin/sh',
+      '-c',
+      command,
+    ];
   }
   private async inspect(
     host: KataSandboxHost,
