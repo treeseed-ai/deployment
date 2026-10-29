@@ -54,8 +54,10 @@ for actual kit bytes. Those remaining associations are required before profile a
 
 Hosted positive qualification must use the real 969565384-byte Kata 4.1.0 amd64 Zstandard kit,
 SHA-256 `3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96`.
-Copy the runner-owned download into the root fixture's private directory, set mode 0600 and let
-the backend hash it. Do not weaken ownership or pretend the runner checkout is root-private.
+CI stages one root-owned mode-0600 copy at
+`/opt/kata/kata-static-4.1.0-amd64.tar.zst` after checking the download hash/size. Each backend
+independently hashes that exact disk file. Keep this large shared artifact out of the per-case
+`/run` directories; repeated gigabyte copies could exhaust tmpfs. Let the backend enforce custody. Do not weaken ownership or pretend the runner checkout is root-private.
 Every preceding actual Kata/setup/guest/resource/teardown gate remains enabled. Built public
 configuration acceptance runs without a VM; real native lifetime qualification runs only on
 trusted exact-head hosted Ubuntu/KVM. Delivery follows documentation, outside-in tests,
