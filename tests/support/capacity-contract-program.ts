@@ -32,15 +32,17 @@ class CapacityContractProgram {
   private contracts(): void {
     assert.equal(typeof Reflect.get(sdk, 'CapacitySchemas'), 'function');
     assert.equal(typeof Reflect.get(sdk, 'SeedSchemas'), 'function');
+    assert.equal(sdk.CapacityChannelSchemas.context.shape.role.safeParse('manager').success, true);
+    assert.equal(sdk.CapacityChannelSchemas.version, '1.1.0-cordis.1');
     for (const name of CapacityContractSymbols)
       assert.equal(typeof Reflect.get(sdk, name), 'function');
   }
   private selection(): void {
     const metadata = JSON.parse(readFileSync('package.json', 'utf8'));
     const digest = createHash('sha256').update(readFileSync('vendor/sdk.tgz')).digest('hex');
-    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.41');
-    assert.equal(metadata.cordisCandidate.sdk.commit, '4bb54954ac6d636309a8312c2bf71536b5aefb73');
-    assert.equal(digest, '2bbde1a4ca35fbffaeacb2fbeab40b49f56dc57dca3355e8e47e22ed5f0f822a');
+    assert.equal(metadata.peerDependencies['@treeseed-cordis/sdk'], '0.0.0-cordis.42');
+    assert.equal(metadata.cordisCandidate.sdk.commit, 'afdfac7bdd3c9c1f783362cd1d50324181e1d725');
+    assert.equal(digest, '0ecfe599916fe8ef364fc4b73203c810981f163109fbe71a0dd4c01a9dfb7bbc');
     assert.equal(metadata.cordisCandidate.sdk.sha256, digest);
   }
 }
