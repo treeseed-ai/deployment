@@ -102,3 +102,8 @@ a distinct fixed 0700 directory on the guest root filesystem, rejecting symlink 
 entries. Small configuration and future assignment records remain under `/run`; both directories
 belong to UID/GID 65532 after verified size/hash read-back. This changes no runtime mount, host path,
 image identity, test timeout or application authority. No Agent payload executes on the host.
+
+Readiness acceptance rechecks cancellation after resolving a complete reply. A caller aborting
+during the same stdout event must fence the session before its promise returns; later cleanup
+cannot turn that cancelled exchange into an accepted ready result. Zero and negative absolute
+deadlines are expired budgets and must also refuse spawning.
