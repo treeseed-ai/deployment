@@ -10,7 +10,6 @@ import {
   chmodSync,
   realpathSync,
   existsSync,
-  copyFileSync,
   readdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -202,9 +201,7 @@ export class PrivateKataFixture {
     };
   }
   private archive(): object {
-    const path = join(this.directory, 'kata-runtime.tar.zst');
-    copyFileSync(join(process.env.RUNNER_TEMP!, 'kata.tar.zst'), path);
-    chmodSync(path, 0o600);
+    const path = '/opt/kata/kata-static-4.1.0-amd64.tar.zst';
     return {
       path,
       size: 969565384,
