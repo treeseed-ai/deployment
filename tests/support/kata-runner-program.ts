@@ -61,7 +61,15 @@ class KataRunnerProgram {
   async run(): Promise<void> {
     if (process.argv[2] === '--interface') return this.interface();
     if (process.argv[2] === '--io-fixture') return new RunnerTransportFixture().run();
+    if (process.argv[2] === '--stdin-fixture') return this.inputDigest();
+    if (process.argv[2] === '--node-path') {
+      process.stdout.write(process.execPath);
+      return;
+    }
     this.host();
+    await this.qualify();
+  }
+  private async qualify(): Promise<void> {
     const fixture = new PrivateKataFixture();
     const failures: unknown[] = [];
     try {
@@ -76,6 +84,15 @@ class KataRunnerProgram {
     if (failures.length)
       throw new AggregateError(failures, 'Actual guest readiness qualification failed');
     process.stdout.write('kata-native-runner-ok\n');
+  }
+  private async inputDigest(): Promise<void> {
+    const digest = createHash('sha256');
+    let size = 0;
+    for await (const bytes of process.stdin) {
+      size += bytes.length;
+      digest.update(bytes);
+    }
+    process.stdout.write(JSON.stringify({ size, sha256: digest.digest('hex') }));
   }
   private async disposeNative(): Promise<void> {
     await this.lease?.release();

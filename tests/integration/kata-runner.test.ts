@@ -1,6 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, copyFileSync, chmodSync, statSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { GuestRuntimeArchive } from '@treeseed-cordis/deployment/sandbox';
+import { KataCommand } from '../../src/kata-command.js';
 import { CapacitySchemas } from '@treeseed-cordis/sdk';
 import { KataRunnerSession } from '../../src/kata-runner.js';
 /** Process protocol fixtures only: actual Kata/Agent construction is a separate acceptance gate. */
@@ -75,4 +80,55 @@ for (const mode of ['foreign', 'malformed', 'stderr', 'generation', 'exit', 'dup
 test(
   'integration: cancelled runner exchange remains fenced through disposal',
   suite.cancelled.bind(suite),
+);
+
+/** Genuine executable bytes are inert stdin data in this host-only pipe control. */
+class KataRunnerPayloadTests {
+  private readonly directory = mkdtempSync(join(tmpdir(), 'runner-pipe-'));
+  private artifact() {
+    copyFileSync('vendor/agent-guest.tgz', join(this.directory, 'agent.tgz'));
+    chmodSync(join(this.directory, 'agent.tgz'), 0o600);
+    return new GuestRuntimeArchive({
+      directory: this.directory,
+      archive: {
+        path: 'agent.tgz',
+        sha256: '3ebf0257ae72ce921672d016e5bc7530515069a2994ce77660f2c27751f8b0aa',
+        size: statSync('vendor/agent-guest.tgz').size,
+      },
+      package: { name: '@treeseed-cordis/agent', version: '0.0.0-cordis.22' },
+    });
+  }
+  private receiver(): { executable: string; arguments: string[] } {
+    const program = resolve('dist/tests/support/kata-runner-program.js');
+    const located = spawnSync('node', [program, '--node-path'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    assert.equal(located.status, 0, located.stderr);
+    return { executable: located.stdout, arguments: [program, '--stdin-fixture'] };
+  }
+  async transfer(): Promise<void> {
+    const signal = new AbortController().signal;
+    try {
+      const artifact = await this.artifact().read(signal);
+      const receiver = this.receiver();
+      const output = await new KataCommand(receiver.executable, receiver.arguments, signal, {
+        stdin: artifact.executable,
+        deadlineMs: 30000,
+        outputLimitBytes: 1024,
+      }).run();
+      assert.deepEqual(JSON.parse(output.toString()), {
+        size: artifact.manifest.executable.size,
+        sha256: artifact.manifest.executable.sha256,
+      });
+    } finally {
+      rmSync(this.directory, { recursive: true });
+    }
+  }
+}
+const payload = new KataRunnerPayloadTests();
+test(
+  'integration: actual runner bytes cross the bounded host process pipe without execution or truncation',
+  payload.transfer.bind(payload),
+  40000,
 );
