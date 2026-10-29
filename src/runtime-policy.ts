@@ -36,6 +36,7 @@ export interface EffectiveRuntimePolicyProof {
   readonly bindings: RuntimeComponentCustody['bindings'];
   readonly aliasesDigest: string;
   readonly resources: PoolResourceShape;
+  readonly rootfsAddressSpaceMiB: number;
   readonly vmResources: Readonly<{
     vcpus: number;
     maximumVcpus: number;
@@ -249,25 +250,33 @@ class EffectivePolicyProjection {
     resources: PoolResourceShape,
   ): EffectiveRuntimePolicyProof {
     this.kit(components, aliases);
-    const template = this.templateMember(components);
-    const original = this.readTemplate(components, template);
-    const references = new RuntimeConfigurationProjection().parse(original, components.proof);
-    const vmResources = this.vm(resources, references.resources);
-    this.compare(original, bytes, vmResources);
+    const qualified = this.qualified(bytes, components, resources);
     const payload = Object.freeze({
       kind: 'kata-effective-runtime-policy' as const,
       formatVersion: 1 as const,
       archive: components.proof.archive,
-      template,
+      ...qualified,
       configuration: this.configuration(bytes),
       installationRoot: aliases.proof.installationRoot,
       components: components.proof.components,
       bindings: components.bindings,
       aliasesDigest: aliases.proof.digest,
       resources: Object.freeze({ ...resources }),
-      vmResources,
     });
     return Object.freeze({ ...payload, digest: CanonicalJson.digest(payload) });
+  }
+  private static qualified(
+    bytes: Buffer,
+    components: RuntimeComponentCustody,
+    resources: PoolResourceShape,
+  ): Pick<EffectiveRuntimePolicyProof, 'template' | 'vmResources' | 'rootfsAddressSpaceMiB'> {
+    const template = this.templateMember(components);
+    const original = this.readTemplate(components, template);
+    const references = new RuntimeConfigurationProjection().parse(original, components.proof);
+    const rootfsAddressSpaceMiB = this.imageAddressSpace(components);
+    const vmResources = this.vm(resources, references.resources, rootfsAddressSpaceMiB);
+    this.compare(original, bytes, vmResources);
+    return { template, vmResources, rootfsAddressSpaceMiB };
   }
   private static configuration(bytes: Buffer): EffectiveRuntimePolicyProof['configuration'] {
     return Object.freeze({
@@ -317,20 +326,39 @@ class EffectivePolicyProjection {
   private static vm(
     resources: PoolResourceShape,
     template: ReturnType<RuntimeConfigurationProjection['parse']>['resources'],
+    rootfsAddressSpaceMiB: number,
   ): EffectiveRuntimePolicyProof['vmResources'] {
     if (!template.staticSandboxResourceManagement) throw new Error();
     const vcpus = Math.ceil(resources.vcpus + template.overheadVcpus);
     const memoryMiB = resources.memoryMiB + template.overheadMemoryMiB;
+    const maximumMemoryMiB = memoryMiB + rootfsAddressSpaceMiB;
+    this.bounds(vcpus, memoryMiB, maximumMemoryMiB);
+    return Object.freeze({ vcpus, maximumVcpus: vcpus, memoryMiB, maximumMemoryMiB });
+  }
+  private static bounds(vcpus: number, memoryMiB: number, maximumMemoryMiB: number): void {
     if (
       !Number.isSafeInteger(vcpus) ||
       vcpus < 1 ||
       vcpus > 4096 ||
       !Number.isSafeInteger(memoryMiB) ||
       memoryMiB < 128 ||
-      memoryMiB > 16 * 1024 * 1024
+      memoryMiB > 16 * 1024 * 1024 ||
+      !Number.isSafeInteger(maximumMemoryMiB) ||
+      maximumMemoryMiB > 16 * 1024 * 1024
     )
       throw new Error();
-    return Object.freeze({ vcpus, maximumVcpus: vcpus, memoryMiB, maximumMemoryMiB: memoryMiB });
+  }
+  private static imageAddressSpace(components: RuntimeComponentCustody): number {
+    let member: RuntimeKitMember | null = null;
+    for (const component of components.proof.components)
+      if (component.role === 'rootfs') {
+        if (member) throw new Error();
+        member = component.member;
+      }
+    if (!member || !Number.isSafeInteger(member.size) || member.size < 1) throw new Error();
+    const memoryMiB = Math.ceil(member.size / 1048576);
+    if (memoryMiB > 16 * 1024 * 1024) throw new Error();
+    return memoryMiB;
   }
   private static document(text: string): Table {
     const document = parse(text, {

@@ -1687,3 +1687,5 @@ prerequisite does not advertise a native profile or admit a warm sandbox.
 
 Retained policy and actual native boot binding are specified in [the launch reference](docs/kata-launch-binding.md).
 Host profile publication and warm admission still require their owner integration.
+The effective-policy maximum includes exact retained image-backed NVDIMM address space;
+it keeps that allowance distinct from ordinary startup RAM. See the owner contract (#1067).
