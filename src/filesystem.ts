@@ -171,6 +171,10 @@ export class VerifiedDescriptor {
     this.verify();
     return bytes.subarray(0, count);
   }
+  metadata(): Readonly<{ size: number; mode: number }> {
+    this.verify();
+    return Object.freeze({ size: this.before.size, mode: this.before.mode & 0o777 });
+  }
   private begin(size?: number): Hash {
     this.verify();
     PlanningFailure.require(size === undefined || size === this.before.size, 'OCI_SIZE');
