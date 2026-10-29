@@ -58,8 +58,11 @@ import {
   SandboxProcessObserver,
   type SandboxProcessIdentity,
   type SandboxVmStartupShape,
+  type SandboxBootObservation,
 } from './kata-hypervisor.js';
 export type { SandboxVmStartupShape } from './kata-hypervisor.js';
+export { QemuBootProjection, SandboxProcessObserver, type SandboxBootInputs,
+  type SandboxBootObservation } from './kata-hypervisor.js';
 
 class KataConfiguration {
   static readonly file = z.strictObject({
@@ -143,6 +146,7 @@ export interface KataSandboxEvidence {
   inspectionDigest: string;
   hypervisor: SandboxProcessIdentity;
   startupShape: SandboxVmStartupShape;
+  boot: SandboxBootObservation;
   assignment: KataAssignment | null;
   runner: CapacityReadiness | null;
   resources?: PoolResourceShape;
@@ -1082,23 +1086,26 @@ export class KataSandboxBackend {
   }
   private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
     const kernel = await this.qualifiedGuest(record, signal);
-    const hypervisor = this.processes.observe(record.resourceName);
-    const startupShape = this.processes.startup(hypervisor);
+    const observed = this.observedBoot(record);
     const assignment = this.journal?.assignment(record.id) ?? null;
     const runner = await this.runnerReady(record.id, signal);
     const resource = await this.resourceShape(record, signal);
-    const identity = { record, kernel, hypervisor, startupShape, assignment, runner, ...resource };
+    const identity = { record, kernel, ...observed, assignment, runner, ...resource };
     return {
       id: record.id,
       resourceName: record.resourceName,
       kernel,
-      hypervisor,
-      startupShape,
+      ...observed,
       assignment,
       runner,
       ...resource,
       inspectionDigest: CanonicalJson.digest(identity),
     };
+  }
+  private observedBoot(record: KataIntent): Pick<KataSandboxEvidence, 'hypervisor' | 'startupShape' | 'boot'> {
+    const hypervisor = this.processes.observe(record.resourceName);
+    const boot = this.processes.boot(hypervisor);
+    return { hypervisor, startupShape: boot.boot.resources, boot };
   }
   private async resourceShape(
     record: KataIntent,
