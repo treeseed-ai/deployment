@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse, stringify } from 'smol-toml';
-import { CanonicalJson } from '@treeseed-cordis/sdk';
+import { CanonicalJson, SandboxControlSchemas } from '@treeseed-cordis/sdk';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { RuntimePolicyFixture } from './runtime-policy-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
@@ -146,6 +146,7 @@ class NativeLaunchScenario {
   private attestation: LaunchAttestation | null = null;
   private active = false;
   private readonly previous = process.env.KATA_CONF_FILE;
+  constructor(private readonly id: string) {}
   async run(): Promise<void> {
     const failures = [];
     try {
@@ -171,7 +172,7 @@ class NativeLaunchScenario {
       resources: this.custody.resources,
     });
     this.active = true;
-    const created = await this.backend.create('launch-policy', this.custody.signal);
+    const created = await this.backend.create(this.id, this.custody.signal);
     await this.attest(created);
     await this.destroy();
     assert.throws(this.attestation!.verify.bind(this.attestation), {
@@ -249,7 +250,7 @@ class NativeLaunchScenario {
   }
   private async destroy(): Promise<void> {
     if (!this.backend || !this.active) return;
-    await this.backend.destroy('launch-policy', this.custody.signal);
+    await this.backend.destroy(this.id, this.custody.signal);
     this.active = false;
   }
   private closeAttestation(): void {
@@ -283,6 +284,7 @@ class NativeLaunchScenario {
 class LaunchProgram {
   static async run(): Promise<void> {
     const Constructor = LaunchCapability.type();
+    const id = SandboxControlSchemas.sandboxId.parse('sandbox-' + randomUUID());
     if (process.argv[2] === '--interface') {
       await assert.rejects(
         Constructor.open.bind(Constructor, {}, 'fixture', new AbortController().signal),
@@ -290,7 +292,7 @@ class LaunchProgram {
       );
       process.stdout.write('kata-launch-interface-ok\n');
     } else {
-      await new NativeLaunchScenario().run();
+      await new NativeLaunchScenario(id).run();
       process.stdout.write('kata-launch-binding-public-ok\n');
     }
   }
