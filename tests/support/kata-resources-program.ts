@@ -187,15 +187,32 @@ class KataResourcesProgram {
     signal: AbortSignal,
   ): Promise<void> {
     const first = await host.create(id, signal);
+    this.startup(first);
     assert.deepEqual(Reflect.get(first, 'resources'), KataResourcesProgram.resources);
     assert.equal(first.assignment, null);
     const second = await host.inspect(id, signal);
+    assert.deepEqual(Reflect.get(second, 'startupShape'), Reflect.get(first, 'startupShape'));
     assert.deepEqual(Reflect.get(second, 'resources'), KataResourcesProgram.resources);
     this.scratchCanary(fixture, first.resourceName);
     assert.deepEqual(
       Reflect.get(await host.inspect(id, signal), 'resources'),
       KataResourcesProgram.resources,
     );
+  }
+  private startup(evidence: object): void {
+    const shape = Reflect.get(evidence, 'startupShape');
+    assert(shape && typeof shape === 'object', 'Actual QEMU startup shape missing');
+    const vcpus = this.dimension(shape, 'vcpus');
+    const memory = this.dimension(shape, 'memoryMiB');
+    assert(vcpus >= KataResourcesProgram.resources.vcpus);
+    assert(memory >= KataResourcesProgram.resources.memoryMiB);
+    assert(this.dimension(shape, 'maximumVcpus') >= vcpus);
+    assert(this.dimension(shape, 'maximumMemoryMiB') >= memory);
+  }
+  private dimension(shape: object, key: string): number {
+    const value = Object.getOwnPropertyDescriptor(shape, key)?.value;
+    assert(typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+    return value;
   }
   private scratchCanary(fixture: PrivateKataFixture, name: string): void {
     const command =
