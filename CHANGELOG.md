@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Read back real guest readiness through scoped private sandbox protocols with safe provider errors (#1021, #1038).
 - Verify actual native Agent guest readiness inside owned Kata sandboxes (#1021).
 
 ### Added

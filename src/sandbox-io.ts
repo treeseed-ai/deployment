@@ -18,9 +18,16 @@ import {
   ProviderV4Schemas,
   CapabilityToken,
   SandboxControlSchemas,
+  SandboxControlBinding,
+  SandboxRunnerSchemas,
+  SandboxRunnerBinding,
   SandboxControlError,
   type SandboxControlScope,
   type SandboxControlCode,
+  type SandboxControlRequest,
+  type SandboxControlResponse,
+  type SandboxRunnerRequest,
+  type SandboxRunnerResponse,
 } from '@treeseed-cordis/sdk';
 import { Context } from '@treeseed-cordis/sdk/runtime';
 import { SafeDirectory, StrictJson } from './filesystem.js';
@@ -29,11 +36,15 @@ export class ControlGuard {
     if (!value) throw new SandboxControlError(code);
   }
   static failure(error: unknown): SandboxControlCode {
-    if (
-      error instanceof SandboxControlError &&
-      SandboxControlSchemas.code.safeParse(error.code).success
-    )
-      return error.code;
+    try {
+      if (error instanceof SandboxControlError) {
+        const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+        const parsed = SandboxControlSchemas.code.safeParse(code);
+        if (parsed.success) return parsed.data;
+      }
+    } catch {
+      /* Hostile inspection cannot escape the safe transport error boundary. */
+    }
     return 'SANDBOX_OPERATION_FAILED';
   }
 }
@@ -51,11 +62,16 @@ export class ControlSchemas {
   static readonly authority = z.strictObject({
     credential: z.string().regex(/^[a-f0-9]{64}$/),
     grant: SandboxControlSchemas.grant,
+    runnerGrant: SandboxRunnerSchemas.grant.optional(),
   });
   static readonly frame = z.strictObject({
     credential: this.authority.shape.credential,
-    request: SandboxControlSchemas.request,
+    request: z.union([SandboxControlSchemas.request, SandboxRunnerSchemas.request]),
   });
+  static readonly response = z.union([
+    SandboxControlSchemas.response,
+    SandboxRunnerSchemas.response,
+  ]);
   static parse<T>(schema: z.ZodType<T>, input: unknown): T {
     const parsed = schema.safeParse(input);
     ControlGuard.require(parsed.success, 'INVALID_SANDBOX_CONTROL_CONTRACT');
@@ -63,6 +79,43 @@ export class ControlSchemas {
   }
 }
 export type ControlAuthorityRecord = z.infer<typeof ControlSchemas.authority>;
+export type ControlRequest = SandboxControlRequest | SandboxRunnerRequest;
+export type ControlResponse = SandboxControlResponse | SandboxRunnerResponse;
+/** Pure wire/authority data validation; never resolves or caches runtime providers. */
+export class ControlMessages {
+  static request(
+    input: ControlRequest,
+    record: ControlAuthorityRecord,
+    now: number,
+  ): ControlRequest {
+    if (input.schemaVersion === 'treeseed.sandbox-control/v1')
+      return SandboxControlBinding.assertRequest(input, record.grant, now);
+    ControlGuard.require(record.grant.state === 'granted', 'SANDBOX_GRANT_REVOKED');
+    ControlGuard.require(now < record.grant.expiresAtEpochMs, 'SANDBOX_GRANT_EXPIRED');
+    ControlGuard.require(record.runnerGrant, 'SANDBOX_OPERATION_DENIED');
+    return SandboxRunnerBinding.assertGrant(input, record.runnerGrant, now);
+  }
+  static response(input: unknown, request: ControlRequest): ControlResponse {
+    return request.schemaVersion === 'treeseed.sandbox-control/v1'
+      ? SandboxControlBinding.assertResponse(input, request)
+      : SandboxRunnerBinding.assertResponse(input, request);
+  }
+  static expiresAt(request: ControlRequest, record: ControlAuthorityRecord): number {
+    return request.schemaVersion === 'treeseed.sandbox-control/v1'
+      ? record.grant.expiresAtEpochMs
+      : Math.min(record.grant.expiresAtEpochMs, record.runnerGrant?.expiresAtEpochMs ?? 0);
+  }
+  static envelope(request: ControlRequest): object {
+    const common = {
+      schemaVersion: request.schemaVersion,
+      requestId: request.requestId,
+      scope: request.scope,
+    };
+    return request.schemaVersion === 'treeseed.sandbox-control/v1'
+      ? { ...common, operation: request.operation }
+      : { ...common, sandboxId: request.sandboxId };
+  }
+}
 export interface SocketFactory {
   bind(directory: SafeDirectory): Promise<number>;
   close(): void;
@@ -271,10 +324,7 @@ export class ControlAuthority {
       SafeDirectory.owner(fstatSync(directory.fd), true);
       const bytes = directory.file(basename(this.path), undefined, 65536, true);
       const record = ControlSchemas.parse(ControlSchemas.authority, StrictJson.parse(bytes));
-      ControlGuard.require(
-        CanonicalJson.stringify(record.grant.scope) === CanonicalJson.stringify(this.scope),
-        'SANDBOX_SCOPE_MISMATCH',
-      );
+      this.scopeBinding(record);
       return record;
     } catch (error) {
       if (error instanceof SandboxControlError) throw error;
@@ -282,6 +332,14 @@ export class ControlAuthority {
     } finally {
       directory.close();
     }
+  }
+  private scopeBinding(record: ControlAuthorityRecord): void {
+    const expected = CanonicalJson.stringify(this.scope);
+    ControlGuard.require(
+      CanonicalJson.stringify(record.grant.scope) === expected &&
+        (!record.runnerGrant || CanonicalJson.stringify(record.runnerGrant.scope) === expected),
+      'SANDBOX_SCOPE_MISMATCH',
+    );
   }
   verify(record: ControlAuthorityRecord): void {
     ControlGuard.require(
