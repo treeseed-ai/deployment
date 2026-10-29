@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { appendFileSync, chmodSync, closeSync, copyFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, chmodSync, closeSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
 import { AliasFixture } from '../support/runtime-alias-program.js';
 class AliasBoundaries {
@@ -82,7 +81,7 @@ class AliasBoundaries {
         { path: fixture.alias, target: fixture.terminal },
       ]);
       assert(Object.isFrozen(payload.bindings[0]) && Object.isFrozen(payload.aliases[0]));
-      assert.throws(Reflect.set.bind(Reflect, payload.bindings[0]!, 'path', '/PRIVATE_CHANGE'));
+      assert.equal(Reflect.set(payload.bindings[0]!, 'path', '/PRIVATE_CHANGE'), false);
     } finally { fixture.close(); }
   }
   async disposal(): Promise<void> {
