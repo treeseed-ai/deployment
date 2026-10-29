@@ -26,7 +26,26 @@ interface ManagerClient {
     inspect?(requestId: string): Promise<PluginInstallResult>;
 }
 
-class NpmSourceProgram {
+export class NpmSourceProgram {
+    private static readonly failureCategories = ['context', 'engine', 'compose', 'other'];
+    private static readonly failureKinds = [
+        'missing-executable', 'timeout', 'output-limit', 'spawn-failed', 'nonzero-exit',
+    ];
+    private static invocation(error: Error): string {
+        try {
+            const cause = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
+            if (!cause || typeof cause !== 'object') return 'docker-invocation(unavailable)';
+            const category = Object.getOwnPropertyDescriptor(cause, 'category')?.value;
+            const kind = Object.getOwnPropertyDescriptor(cause, 'kind')?.value;
+            if (typeof category !== 'string' || !NpmSourceProgram.failureCategories.includes(category))
+                return 'docker-invocation(unavailable)';
+            if (typeof kind !== 'string' || !NpmSourceProgram.failureKinds.includes(kind))
+                return 'docker-invocation(unavailable)';
+            return 'docker-invocation(' + category + ':' + kind + ')';
+        } catch {
+            return 'docker-invocation(unavailable)';
+        }
+    }
     private static notAddition(change: ServicePlan['changes'][number]): boolean { return change.kind !== 'add'; }
     private static fixtureBytes(path: string, bytes: Buffer): void { chmodSync(path, 0o600); writeFileSync(path, bytes); chmodSync(path, 0o400); }
     private static async rewrittenPrepared(runtime: SourceRuntime, record: PluginRequestRecord, graph: ServiceGraph, configuration: ServicePlan['configuration']): Promise<void> {
@@ -48,13 +67,13 @@ class NpmSourceProgram {
         if (error instanceof PlanningBlockedError) {
             const codes = error.blockers.map(NpmSourceProgram.code).join(',');
             const diagnostics = DockerPrerequisiteFixture.report(process.argv[2] ?? '');
-            throw new Error(codes + ' ' + diagnostics);
+            throw new Error(codes + ' ' + diagnostics + ' ' + NpmSourceProgram.invocation(error));
         }
         throw error;
     }
     private static code(blocker: {
         code: string;
-    }): string { return blocker.code; }
+    }): string { return /^[A-Z][A-Z0-9_]{0,62}$/.test(blocker.code) ? blocker.code : 'INVALID_SOURCE_BLOCKER'; }
     static async run(file: string): Promise<void> {
         const constructor = Reflect.get(Deployment, 'NpmSourceRuntime') as {
             start(plan: ServicePlan): Promise<SourceRuntime>;
@@ -349,4 +368,4 @@ class NpmSourceProgram {
     private static delay(done: (value: void) => void): void { setTimeout(done, 50); }
     private static request(id: string, result: PluginInstallResult): boolean { return result.requestId === id; }
 }
-await NpmSourceProgram.run(process.argv[2]!).catch(NpmSourceProgram.failed);
+if (import.meta.main) await NpmSourceProgram.run(process.argv[2]!).catch(NpmSourceProgram.failed);
