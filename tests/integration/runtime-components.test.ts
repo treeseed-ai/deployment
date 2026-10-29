@@ -16,7 +16,8 @@ class InstalledComponentBoundaries {
     try {
       const bindings = this.invalid(fixture, mode);
       const signal = mode === 'cancelled' ? AbortSignal.abort() : this.signal;
-      await assert.rejects(fixture.constructorExport().open.bind(null, archive, bindings, signal), {
+      const Constructor = fixture.constructorExport();
+      await assert.rejects(Constructor.open.bind(Constructor, archive, bindings, signal), {
         message: mode === 'cancelled' ? 'KATA_CANCELLED' : 'KATA_COMPONENTS_INVALID',
       });
       archive.verify();
