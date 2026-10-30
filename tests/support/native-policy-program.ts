@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, readlinkSync } from 'node:fs';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
+import { CanonicalJson } from '@treeseed-cordis/sdk';
 import { TASK_CONFIGURATION_INPUT, NativePolicyFixture } from './runtime-task-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
 import {
@@ -36,6 +37,34 @@ export class NativePolicyInput {
   }
   static selected() {
     return structuredClone(this.input);
+  }
+}
+class NativeNetworkAssertions {
+  static observed(record: Sandbox.KataSandboxEvidence): void {
+    const network = Reflect.get(record, 'network');
+    const content = {
+      kind: 'kata-offline-network',
+      formatVersion: 1,
+      mode: 'offline',
+      namespace: 'private',
+      bootDigest: record.boot.digest,
+    };
+    assert.deepEqual(network, { ...content, digest: CanonicalJson.digest(content) });
+    assert(Object.isFrozen(network));
+  }
+  static interface(): void {
+    const Type = Reflect.get(Sandbox, 'NativeNetworkProjection');
+    assert.equal(typeof Type, 'function', 'Public native network projection missing');
+    const projection = new Type();
+    const spec = { linux: { namespaces: [{ type: 'network' }] } };
+    const evidence = projection.read(spec, 'a'.repeat(64), '/sys/class/net/lo\n');
+    assert.equal(evidence.bootDigest, 'a'.repeat(64));
+    assert.equal(evidence.mode, 'offline');
+    assert(Object.isFrozen(evidence));
+    spec.linux.namespaces.push({ type: 'network' });
+    assert.throws(projection.read.bind(projection, spec, 'a'.repeat(64), '/sys/class/net/lo\n'), {
+      message: 'KATA_NATIVE_NETWORK_INVALID',
+    });
   }
 }
 class NativePolicyScenario {
@@ -75,6 +104,7 @@ class NativePolicyScenario {
       message: 'KATA_RUNTIME_POLICY_CLOSED',
     });
     const inspected = await this.lease!.value.inspect(this.id, this.custody.signal);
+    NativeNetworkAssertions.observed(inspected);
     assert.deepEqual(inspected.boot, created.boot);
     await this.destroy();
     await this.changed();
@@ -147,6 +177,7 @@ class NativePolicyScenario {
     return metadata.name + '@' + metadata.version;
   }
   private observed(created: Sandbox.KataSandboxEvidence): void {
+    NativeNetworkAssertions.observed(created);
     assert.deepEqual(created.boot.boot.resources, {
       vcpus: 3,
       maximumVcpus: 3,
@@ -238,6 +269,7 @@ class NativePolicyProgram {
     } else await this.run();
   }
   static async run(): Promise<void> {
+    NativeNetworkAssertions.interface();
     const selected = NativePolicyInput.selected();
     const parsed = Sandbox.KataSandboxPlugin.Config.parse(selected);
     assert.deepEqual(Reflect.get(parsed.runtime, 'policy'), {
