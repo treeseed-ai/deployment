@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, readdirSync, readlinkSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  readlinkSync,
+  lstatSync,
+  statSync,
+} from 'node:fs';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
 import { TASK_CONFIGURATION_INPUT, NativePolicyFixture } from './runtime-task-program.js';
@@ -150,6 +157,17 @@ class NativeFilesystemAssertions {
     assert.equal(matches[0]![4], '0001');
     assert.equal(matches[0]![5], '03');
     assert.equal(binding.socket.pathDigest, createHash('sha256').update(path).digest('hex'));
+    this.sharedNamespace(record.resourceName, binding);
+  }
+  private static sharedNamespace(name: string, binding: FilesystemBinding): void {
+    const path = '/run/kata-containers/shared/sandboxes/' + name + '/ro';
+    const source = lstatSync('/proc/' + binding.daemon.pid + '/root' + path);
+    const root = statSync('/proc/' + binding.server.pid + '/root');
+    assert(source.isDirectory() && !source.isSymbolicLink());
+    assert.equal(source.uid, 0);
+    assert.equal(source.mode & 0o022, 0);
+    assert.deepEqual({ device: source.dev, inode: source.ino }, binding.shared);
+    assert.deepEqual({ device: root.dev, inode: root.ino }, binding.shared);
   }
   private static virtiofs(value: { role: string }): boolean {
     return value.role === 'virtiofs';
