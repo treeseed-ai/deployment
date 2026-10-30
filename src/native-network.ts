@@ -28,8 +28,7 @@ export class NativeNetworkProjection {
     try {
       const spec = NativeNetworkProjection.spec.parse(input);
       const rows = spec.linux.namespaces.filter(NativeNetworkProjection.network);
-      if (rows.length !== 1 || (rows[0]!.path !== undefined && rows[0]!.path !== ''))
-        throw new Error();
+      if (rows.length !== 1 || rows[0]!.path !== undefined) throw new Error();
     } catch {
       throw new KataSandboxError('KATA_NATIVE_NETWORK_INVALID');
     }
