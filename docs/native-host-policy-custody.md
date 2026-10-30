@@ -25,6 +25,16 @@ omission. An optional compatibility mode is never enough for later pool admissio
 
 ## Lifetime and effects
 
+The public `/sandbox` library exports `NativePolicyCustody.open(configuration, archive, signal)`
+for the trusted host owner. It borrows a genuine `RuntimeArchiveCustody`, verifies its exact
+declared hash/size, and owns only newly opened components, aliases and private effective policy.
+It returns `null` when policy mode is absent. `verify()` rechecks held custody; `close()` releases
+only owned descriptors and is idempotent after success. Neither operation creates a VM or closes
+the borrowed archive. Fixed errors are `KATA_NATIVE_POLICY_INVALID`, `KATA_NATIVE_POLICY_CLOSED`,
+`KATA_NATIVE_POLICY_CLOSE_FAILED`, `KATA_CANCELLED` or the existing safe retained-policy failures.
+This coherent filesystem invariant sits beneath the selected provider; it is not another plugin
+registry or lifecycle scheduler. Its successful construction alone proves no runtime readiness.
+
 After endpoint qualification, borrow its retained immutable archive, capture the selected
 installed components and aliases, and open the private effective policy using the configured
 workload resources. Keep that custody for the backend's entire active lifetime. Construction
