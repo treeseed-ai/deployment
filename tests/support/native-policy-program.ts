@@ -9,7 +9,11 @@ import {
   statSync,
 } from 'node:fs';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
-import { CanonicalJson } from '@treeseed-cordis/sdk';
+import {
+  CanonicalJson,
+  SandboxProfileBinding,
+  type SandboxResourceProfile,
+} from '@treeseed-cordis/sdk';
 import { TASK_CONFIGURATION_INPUT, NativePolicyFixture } from './runtime-task-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
 import {
@@ -372,11 +376,73 @@ class NativeRuntimeFixture {
       throw new AggregateError(failures, 'Native runtime fixture disposal failed');
   }
 }
+class NativeProfileAssertions {
+  private saved: SandboxResourceProfile | null = null;
+  static interface(): void {
+    assert.equal(typeof Reflect.get(Sandbox, 'NativeImageTargetProjection'), 'function');
+    assert.equal(typeof Reflect.get(Sandbox.KataSandboxPlugin.prototype, 'profile'), 'function');
+  }
+  async before(host: Sandbox.KataSandboxHost): Promise<void> {
+    const reader = Reflect.get(host, 'profile');
+    assert(typeof reader === 'function');
+    assert.equal(await reader.call(host), null, 'Readiness cannot qualify a native profile');
+  }
+  async qualified(host: Sandbox.KataSandboxHost, input: object): Promise<void> {
+    const selected = Sandbox.KataSandboxPlugin.Config.parse(input);
+    const profile = await this.read(host);
+    assert.deepEqual(profile.runtime, {
+      name: 'kata',
+      version: '4.1.0',
+      archiveDigest: selected.runtime.archive!.sha256,
+    });
+    assert.deepEqual(profile.image, {
+      reference: selected.image,
+      manifestDigest: selected.image.slice(selected.image.lastIndexOf(':') + 1),
+      os: 'linux',
+      architecture: 'amd64',
+    });
+    assert.deepEqual(profile.resources, selected.resources);
+    assert.deepEqual(profile.network, { mode: 'offline', destinations: [] });
+    this.saved = structuredClone(profile);
+    profile.resources.vcpus++;
+    profile.network.destinations.push({ protocol: 'tcp', host: 'PRIVATE_INVALID', port: 443 });
+    await this.stable(host);
+  }
+  async stable(host: Sandbox.KataSandboxHost): Promise<void> {
+    assert(this.saved);
+    assert.deepEqual(await this.read(host), this.saved);
+  }
+  private async read(host: Sandbox.KataSandboxHost): Promise<SandboxResourceProfile> {
+    try {
+      const reader = Reflect.get(host, 'profile');
+      assert(typeof reader === 'function');
+      const profile = await reader.call(host);
+      assert(profile, 'Explicit native qualification must expose an SDK profile');
+      await SandboxProfileBinding.assert(profile);
+      return profile as SandboxResourceProfile;
+    } catch (error) {
+      throw new Error('Native profile fixture read-back failed', { cause: error });
+    }
+  }
+  async changed(host: Sandbox.KataSandboxHost): Promise<void> {
+    const reader = host.profile;
+    assert(reader);
+    await assert.rejects(reader.bind(host), {
+      message: 'KATA_RUNTIME_POLICY_CHANGED',
+    });
+  }
+  async missingImage(host: Sandbox.KataSandboxHost): Promise<void> {
+    const reader = host.profile;
+    assert(reader);
+    await assert.rejects(reader.bind(host), { message: 'KATA_IMAGE_TARGET_INVALID' });
+  }
+}
 class NativePolicyScenario {
   private readonly fixture = new PrivateKataFixture();
   private readonly custody = new NativePolicyFixture(this.fixture.directory);
   private readonly runtime = new NativeRuntimeFixture();
-  private readonly id = 'sandbox-' + randomUUID();
+  private readonly profiles = new NativeProfileAssertions();
+  private id = 'sandbox-' + randomUUID();
   private readonly previous = process.env.KATA_CONF_FILE;
   private scope: CordisScope | null = null;
   private lease: ProviderLease<Sandbox.KataSandboxHost> | null = null;
@@ -403,21 +469,68 @@ class NativePolicyScenario {
     const configuration = await this.prepare();
     await this.native(configuration);
     await this.runtime.prepare(configuration);
-    this.active = true;
-    const created = await this.lease!.value.create(this.id, this.custody.signal);
-    this.observed(created);
+    const created = await this.created(configuration);
     await this.runtime.admitted(created);
     this.custody.close();
     assert.throws(this.custody.policy!.verify.bind(this.custody.policy), {
       message: 'KATA_RUNTIME_POLICY_CLOSED',
     });
-    const inspected = await this.lease!.value.inspect(this.id, this.custody.signal);
+    await this.inspected(created);
+    await this.destroy();
+    this.runtime.destroyed();
+    await this.profiles.stable(this.lease!.value);
+    await this.repeatedProfile();
+    await this.changedImage(configuration);
+    await this.nativeDispose();
+    await this.native(configuration);
+    await this.changed();
+  }
+  private async repeatedProfile(): Promise<void> {
+    this.id = 'sandbox-' + randomUUID();
+    this.active = true;
+    const created = await this.operation(
+      'repeat-create',
+      this.lease!.value.create.bind(this.lease!.value, this.id, this.custody.signal),
+    );
+    this.observed(created);
+    await this.profiles.stable(this.lease!.value);
+    await this.destroy();
+    await this.profiles.stable(this.lease!.value);
+  }
+  private async changedImage(configuration: object): Promise<void> {
+    const selected = Sandbox.KataSandboxPlugin.Config.parse(configuration);
+    const backup = 'fixture/profile-' + randomUUID() + ':retained';
+    this.fixture.run(['images', 'tag', '--local', selected.image, backup]);
+    try {
+      this.fixture.run(['images', 'delete', selected.image]);
+      await this.profiles.missingImage(this.lease!.value);
+      this.fixture.run(['images', 'tag', '--local', backup, selected.image]);
+      await this.profiles.before(this.lease!.value);
+      await this.repeatedProfile();
+    } finally {
+      this.fixture.run(['images', 'tag', '--local', '--force', backup, selected.image]);
+      this.fixture.run(['images', 'delete', backup]);
+    }
+  }
+  private async created(configuration: object): Promise<Sandbox.KataSandboxEvidence> {
+    this.active = true;
+    const created = await this.operation(
+      'initial-create',
+      this.lease!.value.create.bind(this.lease!.value, this.id, this.custody.signal),
+    );
+    this.observed(created);
+    await this.profiles.qualified(this.lease!.value, configuration);
+    return created;
+  }
+  private async inspected(created: Sandbox.KataSandboxEvidence): Promise<void> {
+    const inspected = await this.operation(
+      'inspect',
+      this.lease!.value.inspect.bind(this.lease!.value, this.id, this.custody.signal),
+    );
     this.observed(inspected);
     this.runtime.observed();
     assert.deepEqual(inspected.boot, created.boot);
-    await this.destroy();
-    this.runtime.destroyed();
-    await this.changed();
+    await this.profiles.stable(this.lease!.value);
   }
   private async prepare(): Promise<object> {
     await this.fixture.start('task-options');
@@ -455,7 +568,8 @@ class NativePolicyScenario {
       resourceScope: this.fixture.namespaceScope.installationId,
     });
     this.lease = await this.scope.acquire(Sandbox.KataSandboxToken);
-    await this.lease.value.ready();
+    await this.operation('host-ready', this.lease.value.ready.bind(this.lease.value));
+    await this.profiles.before(this.lease.value);
   }
   private composition(scopeId: string, configuration: object): CompositionDescriptor {
     return {
@@ -505,15 +619,28 @@ class NativePolicyScenario {
     await assert.rejects(this.lease!.value.ready.bind(this.lease!.value), {
       message: 'KATA_RUNTIME_POLICY_CHANGED',
     });
+    await this.profiles.changed(this.lease!.value);
     writeFileSync(this.path, this.bytes!);
     await assert.rejects(this.lease!.value.ready.bind(this.lease!.value), {
       message: 'KATA_RUNTIME_POLICY_CHANGED',
     });
+    await this.profiles.changed(this.lease!.value);
   }
   private async destroy(): Promise<void> {
     if (!this.active || !this.lease) return;
-    assert.equal((await this.lease.value.destroy(this.id, this.custody.signal)).destroyed, true);
+    const result = await this.operation(
+      'destroy',
+      this.lease.value.destroy.bind(this.lease.value, this.id, this.custody.signal),
+    );
+    assert.equal(result.destroyed, true);
     this.active = false;
+  }
+  private async operation<T>(stage: string, action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      throw new Error('Native policy fixture operation ' + stage + ' failed', { cause: error });
+    }
   }
   private restore(): void {
     if (this.tampered && this.bytes) writeFileSync(this.path, this.bytes);
@@ -582,6 +709,7 @@ class NativePolicyProgram {
     } else await this.run();
   }
   static async run(): Promise<void> {
+    NativeProfileAssertions.interface();
     NativeFilesystemAssertions.interface();
     NativeShimAssertions.interface();
     NativeNetworkAssertions.interface();
