@@ -67,8 +67,10 @@ export type { SandboxVmStartupShape } from './kata-hypervisor.js';
 export {
   QemuBootProjection,
   SandboxProcessObserver,
+  KataLaunchAttestation,
   type SandboxBootInputs,
   type SandboxBootObservation,
+  type KataLaunchProof,
 } from './kata-hypervisor.js';
 
 class KataConfiguration {
