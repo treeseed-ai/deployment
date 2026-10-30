@@ -45,17 +45,17 @@ class NativeNetworkCases {
   }
 }
 const suite = new NativeNetworkCases();
-for (const path of [undefined, ''])
-  test(
-    'unit: native network accepts exact private loopback ' + String(path),
-    suite.accepted.bind(suite, path),
-  );
+test(
+  'unit: native network accepts exact private loopback undefined',
+  suite.accepted.bind(suite, undefined),
+);
 for (const spec of [
   null,
   {},
   { linux: {} },
   { linux: { namespaces: [] } },
   { linux: { namespaces: [{ type: 'pid' }] } },
+  { linux: { namespaces: [{ type: 'network', path: '' }] } },
   { linux: { namespaces: [{ type: 'network', path: '/proc/1/ns/net' }] } },
   { linux: { namespaces: [{ type: 'network', path: '/PRIVATE_NAMESPACE' }] } },
   { linux: { namespaces: [{ type: 'network', path: ' ' }] } },
