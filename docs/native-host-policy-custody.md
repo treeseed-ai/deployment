@@ -37,6 +37,9 @@ generation, command, executable, kernel, root image and finite VM bounds. Reject
 never accept a caller's boot snapshot or saved proof as current liveness. Close each temporary
 attestation without closing its borrowed policy or the sandbox. An unsuccessful create may leave
 an owned intent/resource requiring bounded cleanup; it cannot return an accepted sandbox.
+Attest the newly created base before staging the TreeSeed guest runner or issuing guest inspection
+commands. Readiness freshly verifies retained custody without creating a sandbox. Restoring the
+bytes of a changed private policy does not re-admit its previously retained file identity.
 
 Keep resources and retained descriptors alive through verified destruction. Backend disposal
 first verifies its namespace is empty, then releases private policy, alias and component custody
