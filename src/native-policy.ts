@@ -20,8 +20,19 @@ interface NativePolicyConfiguration {
 }
 /** Host-owned descriptor admission; native Cordis owns provider selection and lifecycle. */
 export class NativePolicyCustody {
-  static readonly Config = z.strictObject({ components: RuntimeComponentCustody.Config });
-  private static readonly roles = 'configuration,hypervisor,kernel,rootfs,shim,virtiofs';
+  private static readonly roles = [
+    'configuration',
+    'hypervisor',
+    'kernel',
+    'rootfs',
+    'shim',
+    'virtiofs',
+  ] as const;
+  static readonly Config = z.strictObject({
+    components: z
+      .array(RuntimeComponentCustody.Config.element.extend({ role: z.enum(this.roles) }))
+      .length(this.roles.length),
+  });
   private components: RuntimeComponentCustody | null = null;
   private aliases: RuntimeAliasCustody | null = null;
   private policy: EffectiveRuntimePolicy | null = null;
@@ -64,7 +75,7 @@ export class NativePolicyCustody {
       members.add(binding.member);
       paths.add(binding.path);
     }
-    if (roles.sort().join(',') !== this.roles) throw new Error();
+    if (roles.sort().join(',') !== this.roles.join(',')) throw new Error();
   }
   private static files(
     selected: RuntimeComponentBinding[],
