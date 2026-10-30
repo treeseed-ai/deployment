@@ -155,6 +155,7 @@ export class QemuBootProjection {
 /** Internal pure projection, independently tested; not a configurable accelerator fallback. */
 export class NativeLaunchMachine {
   private static readonly required = { accel: 'kvm', nvdimm: 'on', kernel_irqchip: 'on' };
+  private static readonly backends = new Set(['entire-guest-memory', 'entire-guest-memory-share']);
   parse(args: readonly string[]): Readonly<{ type: 'q35'; accelerator: 'kvm' }> {
     try {
       if (
@@ -168,8 +169,8 @@ export class NativeLaunchMachine {
       const fields = this.fields(BootFields.one(args, '-machine'));
       for (const [key, value] of Object.entries(NativeLaunchMachine.required))
         if (fields.get(key) !== value) throw new Error();
-      if (fields.has('memory-backend') && fields.get('memory-backend') !== 'entire-guest-memory')
-        throw new Error();
+      const backend = fields.get('memory-backend');
+      if (backend && !NativeLaunchMachine.backends.has(backend)) throw new Error();
       return Object.freeze({ type: 'q35', accelerator: 'kvm' });
     } catch {
       throw new Error('KATA_LAUNCH_MACHINE_INVALID');
