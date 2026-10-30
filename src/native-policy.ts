@@ -5,7 +5,7 @@ import { RuntimeComponentCustody, type RuntimeComponentBinding } from './runtime
 import { KataSandboxError } from './kata-command.js';
 import { RuntimeArchiveCustody } from './runtime-archive.js';
 import { RuntimeAliasCustody } from './runtime-aliases.js';
-import { EffectiveRuntimePolicy, type EffectiveRuntimePolicyInput } from './runtime-policy.js';
+import { EffectiveRuntimePolicy, type EffectiveRuntimePolicyInput, type EffectiveRuntimePolicyProof } from './runtime-policy.js';
 import { KataLaunchAttestation } from './kata-hypervisor.js';
 import { NativeRuntimeAttestation } from './native-shim.js';
 import { NativeFilesystemAttestation } from './native-filesystem.js';
@@ -154,6 +154,10 @@ export class NativePolicyCustody {
   verify(): void {
     KataSandboxError.require(!this.closed && this.policy, 'KATA_NATIVE_POLICY_CLOSED');
     this.policy.verify();
+  }
+  get proof(): EffectiveRuntimePolicyProof {
+    this.verify();
+    return this.policy!.proof;
   }
   async launch(name: string, signal: AbortSignal): Promise<KataLaunchAttestation> {
     this.verify();

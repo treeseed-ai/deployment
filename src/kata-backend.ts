@@ -1,6 +1,8 @@
 export { EffectiveRuntimePolicy, type EffectiveRuntimePolicyProof, type EffectiveRuntimePolicyInput } from './runtime-policy.js';
 export { NativePolicyCustody } from './native-policy.js';
 import { NativePolicyCustody } from './native-policy.js';
+import { NativeImageTargetProjection, NativeSandboxProfile } from './native-profile.js';
+export { NativeImageTargetProjection } from './native-profile.js';
 import { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { NativeRuntimeAttestation, NativeShimProjection, type NativeRuntimeProof } from './native-shim.js';
@@ -60,6 +62,7 @@ import {
   CapacitySchemas,
   type CapacityReadiness,
   type PoolResourceShape,
+  type SandboxResourceProfile,
 } from '@treeseed-cordis/sdk';
 import { Context } from '@treeseed-cordis/sdk/runtime';
 import { SafeDirectory, StrictJson } from './filesystem.js';
@@ -180,6 +183,7 @@ export interface KataSandboxDestruction {
 }
 export interface KataSandboxHost {
   ready(): Promise<void>;
+  profile?(): Promise<SandboxResourceProfile | null>;
   assign(
     id: string,
     assignmentId: string,
@@ -200,6 +204,10 @@ class KataHostAdapter {
         typeof Reflect.get(value, method) === 'function',
         'KATA_PROVIDER_INVALID',
       );
+    KataSandboxError.require(
+      Reflect.get(value, 'profile') === undefined || typeof Reflect.get(value, 'profile') === 'function',
+      'KATA_PROVIDER_INVALID',
+    );
     return value as KataSandboxHost;
   }
 }
@@ -588,6 +596,10 @@ class KataClient {
       'KATA_ARCHITECTURE',
     );
   }
+  async selectedImage(signal: AbortSignal): Promise<void> {
+    const table = await this.text(['images', 'list'], signal);
+    new NativeImageTargetProjection().parse(table, this.configuration.image);
+  }
   private async content(digest: string, signal: AbortSignal): Promise<Buffer> {
     const bytes = await this.bytes(['content', 'get', 'sha256:' + digest], signal);
     KataSandboxError.require(
@@ -927,6 +939,9 @@ export class KataSandboxPlugin implements KataSandboxHost {
   async ready(): Promise<void> {
     await (await this.active()).ready();
   }
+  async profile(): Promise<SandboxResourceProfile | null> {
+    return (await this.active()).profile();
+  }
   async create(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     return (await this.active()).create(id, signal);
   }
@@ -983,6 +998,7 @@ export class KataSandboxBackend {
   private closing = false;
   private closed = false;
   private disposal: Promise<void> | null = null;
+  private qualification: NativeSandboxProfile | null = null;
   private constructor(
     private readonly configuration: KataBackendConfiguration,
     private readonly client: KataClient,
@@ -1084,8 +1100,35 @@ export class KataSandboxBackend {
     await this.client.preparedImage(signal);
     this.admit(signal);
   }
+  profile(): Promise<SandboxResourceProfile | null> {
+    return this.queue.run(this.profileRead.bind(this, new AbortController().signal));
+  }
+  private async profileRead(signal: AbortSignal): Promise<SandboxResourceProfile | null> {
+    try {
+      this.admit(signal);
+      if (!this.nativePolicy || !this.qualification) return null;
+      await this.client.preparedImage(signal);
+      await this.client.selectedImage(signal);
+      const value = await this.qualification.read(this.profileGeneration());
+      this.admit(signal);
+      return value;
+    } catch (error) {
+      this.qualification = null;
+      throw error;
+    }
+  }
+  private profileGeneration(): string {
+    return CanonicalJson.digest({
+      policy: this.nativePolicy!.proof.digest,
+      scope: this.configuration.scope,
+      endpoint: this.client.endpoint.identity(),
+      image: this.configuration.image,
+    });
+  }
   private async createOwned(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     this.admit(signal);
+    this.qualification = null;
+    if (this.nativePolicy) await this.client.selectedImage(signal);
     KataSandboxError.require(
       this.custody.active().length < this.configuration.maximumSandboxes,
       'KATA_CAPACITY_LIMIT',
@@ -1096,7 +1139,22 @@ export class KataSandboxBackend {
     await this.client.prewarm(record.resourceName, CanonicalJson.digest(record), signal);
     await this.attest(record, signal);
     await this.warmRunner(record, signal);
-    return this.inspection(record, signal);
+    const evidence = await this.inspection(record, signal);
+    await this.qualifyProfile(evidence, signal);
+    return evidence;
+  }
+  private async qualifyProfile(evidence: KataSandboxEvidence, signal: AbortSignal): Promise<void> {
+    if (!this.nativePolicy) return;
+    await this.client.preparedImage(signal);
+    await this.client.selectedImage(signal);
+    const qualification = await NativeSandboxProfile.qualified(
+      this.configuration,
+      this.nativePolicy.proof,
+      evidence,
+      this.profileGeneration(),
+    );
+    this.admit(signal);
+    this.qualification = qualification;
   }
   private async attest(record: KataIntent, signal: AbortSignal): Promise<void> {
     const launch = await this.nativePolicy?.filesystemLaunch(record.resourceName, signal);
@@ -1343,7 +1401,14 @@ export class KataSandboxBackend {
     });
   }
   destroy(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
-    return this.queue.run(this.destroyOwned.bind(this, id, signal));
+    return this.queue.run(this.destroyQualified.bind(this, id, signal));
+  }
+  private async destroyQualified(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
+    const qualification = this.qualification;
+    this.qualification = null;
+    const result = await this.destroyOwned(id, signal);
+    this.qualification = qualification;
+    return result;
   }
   private async destroyOwned(id: string, signal: AbortSignal): Promise<KataSandboxDestruction> {
     this.admit(signal);
@@ -1400,6 +1465,7 @@ export class KataSandboxBackend {
     return this.disposal;
   }
   private async dispose(): Promise<void> {
+    this.qualification = null;
     try {
       await this.client.emptyNamespace(new AbortController().signal);
       this.custody.close();
