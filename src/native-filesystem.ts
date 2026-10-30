@@ -43,7 +43,8 @@ export class NativeFilesystemProjection {
       this.qemu(this.arguments(qemu), selected.socketPath);
       this.daemon(this.arguments(daemon), selected);
       return selected;
-    } catch {
+    } catch (error) {
+      FilesystemDiagnostic.trace(error);
       throw new KataSandboxError('KATA_FILESYSTEM_ARGUMENTS_INVALID');
     }
   }
@@ -128,7 +129,8 @@ export class NativeFilesystemProjection {
         pathDigest: createHash('sha256').update(path).digest('hex'),
         state: 'connected' as const,
       });
-    } catch {
+    } catch (error) {
+      FilesystemDiagnostic.trace(error);
       throw new KataSandboxError('KATA_FILESYSTEM_ARGUMENTS_INVALID');
     }
   }
@@ -438,7 +440,8 @@ export class NativeFilesystemAttestation {
       signal.throwIfAborted();
       admission.verify();
       return admission;
-    } catch {
+    } catch (error) {
+      FilesystemDiagnostic.trace(error);
       admission?.close();
       const cancelled = signal instanceof AbortSignal && signal.aborted;
       throw new KataSandboxError(cancelled ? 'KATA_CANCELLED' : 'KATA_FILESYSTEM_INVALID');
@@ -469,5 +472,19 @@ export class NativeFilesystemAttestation {
   close(): void {
     this.closed = true;
     this.admission.close();
+  }
+}
+/** Temporary failed-hosted qualification trace; remove before any accepted artifact. */
+class FilesystemDiagnostic {
+  static trace(error: unknown): void {
+    if (!(error instanceof Error)) return;
+    let count = 0;
+    for (const line of error.stack?.split('\n') ?? []) {
+      if (!line.includes('/native-filesystem.js:')) continue;
+      const match = /^\s*at ([A-Za-z0-9_.]+).*:(\d+):\d+\)?$/.exec(line);
+      if (!match || ++count > 4) continue;
+      const frame = { symbol: match[1], line: Number(match[2]) };
+      process.stderr.write('DIAGNOSTIC_FILESYSTEM_FRAME ' + JSON.stringify(frame) + '\n');
+    }
   }
 }
