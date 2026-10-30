@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Bounded native task removal and physical cleanup are specified in
+[the owner cleanup reference](docs/native-task-removal.md).
+
 Native shared-filesystem process/socket qualification is specified in
 [the owner filesystem reference](docs/native-filesystem-binding.md).
 
