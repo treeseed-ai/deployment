@@ -70,6 +70,9 @@ to one MiB and 16,384 rows, reject NULs and malformed headers, and return fixed
 `KATA_IMAGE_TARGET_INVALID` errors without private input. Existing content/config checks establish
 the native architecture. The accepted filesystem prerequisite is `cordis`
 `366709a04a994a1825c878376acb369089bd5a0f`.
+The projected `manifestDigest` is the SDK's 64-character hexadecimal digest, without `sha256:`;
+the actual image-store column must still equal the full `sha256:<hex>` target. Test that projection
+directly with SDK profile creation/read-back before hosted physical qualification.
 The existing content hash and config architecture checks still apply.
 
 Pinned [containerd list output](https://github.com/containerd/containerd/blob/v2.4.2/cmd/ctr/commands/images/images.go#L63-L148)
