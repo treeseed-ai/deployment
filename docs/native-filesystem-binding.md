@@ -15,6 +15,9 @@ bounded pinned native filesystem selection. Require one `vhost-user-fs-pci` devi
 `--socket-path`/`--shared-dir` selectors. Bind paths to the owned native sandbox, never caller
 paths. Reject duplicates, aliases, unsupported device/options, malformed/oversized arguments and
 foreign values. Pure syntax carries no authority; other process bytes remain command-digest bound.
+Support the pinned template's exact daemon argument order, cache `auto`, thread-pool size 1 and
+`-o announce_submounts`; the device's queue size is 1024. Different runtime policy requires separate
+qualification rather than silently widening this admission.
 The frozen projection is `{ socketPath, sharedDirectory }`. Pure
 `connection(unixTable, descriptorTargets, socketPath)` projects bounded Linux Unix-table text and
 descriptor-link strings into the frozen socket record below. Require exactly one connected stream
