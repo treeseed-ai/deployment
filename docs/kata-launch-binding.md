@@ -29,6 +29,11 @@ accepts both spellings, so checking only literal single-hyphen duplicates is ins
 Require observed CPU/startup/max memory to equal the complete image-aware
 policy. The image-backed allowance is separate from ordinary RAM. This qualifies selected native
 boot inputs, not arbitrary extra command options or a hostile privileged host.
+The optional machine `memory-backend` selects only Kata's exact upstream IDs
+`entire-guest-memory` (ordinary RAM) or `entire-guest-memory-share` (virtio-fs shared RAM).
+The [4.1.0 generator](https://github.com/kata-containers/kata-containers/blob/4.1.0/src/runtime-rs/crates/hypervisor/src/qemu/cmdline_generator.rs#L2794-L2869)
+defines both; the real private-policy launch selected the latter. Unknown IDs, suffix variants
+and duplicate selectors remain invalid. Keep every existing machine/accelerator rejection.
 
 Recheck policy and the same process generation before/after interpretation and after an async
 cancellation boundary. The proof is deeply immutable: kind `kata-launch-binding`, formatVersion1,
