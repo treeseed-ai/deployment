@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Qualify native virtiofs process and socket binding (#1080).
 - Bind native QEMU to the retained active Kata shim (#1078).
 - Qualify native virgin sandbox network isolation (#1076).
 - Retain native policy through the selected host lifecycle (#1073).

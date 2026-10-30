@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Native shared-filesystem process/socket qualification is specified in
+[the owner filesystem reference](docs/native-filesystem-binding.md).
+
 Active native shim selection and generation binding are specified in
 [the owner shim reference](docs/native-shim-binding.md).
 
