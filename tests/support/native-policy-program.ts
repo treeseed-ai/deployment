@@ -240,7 +240,9 @@ class NativeRuntimeFixture {
   private async filesystemAdmitted(record: Sandbox.KataSandboxEvidence): Promise<void> {
     this.filesystem = await this.owner!.filesystemLaunch(record.resourceName, this.signal);
     this.filesystem.verify();
-    NativeFilesystemAssertions.same(this.filesystem.binding, Reflect.get(record, 'filesystem'));
+    const observed = Reflect.get(record, 'filesystem') as FilesystemBinding;
+    assert(observed);
+    NativeFilesystemAssertions.same(this.filesystem.binding, observed);
     assert.deepEqual(this.filesystem.runtime, this.admission!.binding);
     await this.filesystemRefused(record.resourceName);
     await this.filesystemRepeated(record.resourceName);

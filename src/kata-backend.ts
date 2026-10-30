@@ -5,6 +5,8 @@ import { NativeNetworkProjection, type NativeNetworkEvidence } from './native-ne
 export { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { NativeRuntimeAttestation, NativeShimProjection, type NativeRuntimeProof } from './native-shim.js';
 import type { NativeRuntimeProof } from './native-shim.js';
+export { NativeFilesystemAttestation, NativeFilesystemProjection, type NativeFilesystemProof } from './native-filesystem.js';
+import type { NativeFilesystemAttestation, NativeFilesystemProof } from './native-filesystem.js';
 export { RuntimeAliasCustody, type RuntimeAliasProof } from './runtime-aliases.js';
 import { RuntimeArchiveCustody } from './runtime-archive.js';
 export { KataRuntimeConfiguration, type KataRuntimeReferences } from './kata-configuration.js';
@@ -169,6 +171,7 @@ export interface KataSandboxEvidence {
   resources?: PoolResourceShape;
   network?: NativeNetworkEvidence;
   runtime?: NativeRuntimeProof;
+  filesystem?: NativeFilesystemProof;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -1096,7 +1099,7 @@ export class KataSandboxBackend {
     return this.inspection(record, signal);
   }
   private async attest(record: KataIntent, signal: AbortSignal): Promise<void> {
-    const launch = await this.nativePolicy?.runtimeLaunch(record.resourceName, signal);
+    const launch = await this.nativePolicy?.filesystemLaunch(record.resourceName, signal);
     try {
       launch?.verify();
       if (launch) await this.nativeNetwork(record, signal, launch.proof.boot.digest);
@@ -1169,24 +1172,31 @@ export class KataSandboxBackend {
     return kernel;
   }
   private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
-    const launch = await this.nativePolicy?.runtimeLaunch(record.resourceName, signal);
+    const launch = await this.nativePolicy?.filesystemLaunch(record.resourceName, signal);
     try {
       const evidence = await this.evidence(record, signal);
       launch?.verify();
-      KataSandboxError.require(
-        !launch || evidence.boot.digest === launch.proof.boot.digest,
-        'KATA_LAUNCH_CHANGED',
-      );
-      if (!launch) return evidence;
-      const runtime = launch.binding;
-      return {
-        ...evidence,
-        runtime,
-        inspectionDigest: CanonicalJson.digest({ inspection: evidence.inspectionDigest, runtime }),
-      };
+      return launch ? this.nativeEvidence(evidence, launch) : evidence;
     } finally {
       launch?.close();
     }
+  }
+  private nativeEvidence(
+    evidence: KataSandboxEvidence,
+    launch: NativeFilesystemAttestation,
+  ): KataSandboxEvidence {
+    KataSandboxError.require(
+      evidence.boot.digest === launch.proof.boot.digest,
+      'KATA_LAUNCH_CHANGED',
+    );
+    const runtime = launch.runtime;
+    const filesystem = launch.binding;
+    const inspectionDigest = CanonicalJson.digest({
+      inspection: evidence.inspectionDigest,
+      runtime,
+      filesystem,
+    });
+    return { ...evidence, runtime, filesystem, inspectionDigest };
   }
   private async evidence(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
     const kernel = await this.qualifiedGuest(record, signal);
