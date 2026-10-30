@@ -25,6 +25,7 @@ import {
 } from './kata-workloads.js';
 export type { KataAssignment, KataWorkloadPhase, KataWorkloadResult } from './kata-workloads.js';
 import { KataResourcePolicy } from './kata-resources.js';
+import { KataTaskOptions } from './kata-task-options.js';
 import { KataRunnerSession } from './kata-runner.js';
 import { GuestRuntimeArchive, type GuestRuntimeArtifact } from './guest-archive.js';
 import { spawn } from 'node:child_process';
@@ -93,6 +94,7 @@ class KataConfiguration {
     client: this.file,
     runtime: z.strictObject({
       version: z.literal('4.1.0'),
+      configurationMode: z.enum(['environment', 'task-options']).default('environment'),
       guestKernel: z.string().regex(/^[0-9][a-zA-Z0-9._+-]{0,127}$/),
       shim: this.file,
       hypervisor: this.file,
@@ -280,10 +282,8 @@ class KataEndpoint {
   private runtimeConfiguration(): void {
     const root = '/proc/' + this.configuration.daemon.pid;
     const environment = readFileSync(root + '/environ', 'utf8').split('\0');
-    KataSandboxError.require(
-      environment.includes('KATA_CONF_FILE=' + this.configuration.runtime.configuration.path),
-      'KATA_RUNTIME_CONFIGURATION',
-    );
+    const selected = this.configuration.runtime;
+    new KataTaskOptions(selected.configurationMode, selected.configuration.path).assertEnvironment(environment);
   }
   path(): string {
     this.verify();
@@ -302,6 +302,14 @@ class KataEndpoint {
 }
 
 class KataClient {
+  private static readonly sandboxRuntime = [
+    'run',
+    '--detach',
+    '--snapshotter',
+    'native',
+    '--runtime',
+    'io.containerd.kata.v2',
+  ];
   private static readonly runnerCommand = [
     '/usr/bin/env',
     '-i',
@@ -571,26 +579,25 @@ class KataClient {
     );
   }
   async prewarm(name: string, binding: string, signal: AbortSignal): Promise<void> {
-    await this.text(
-      [
-        'run',
-        '--detach',
-        '--snapshotter',
-        'native',
-        '--runtime',
-        'io.containerd.kata.v2',
-        '--label',
-        'ai.treeseed.cordis.sandbox=' + binding,
-        ...(this.configuration.resources
-          ? new KataResourcePolicy(this.configuration.resources).arguments()
-          : []),
-        this.configuration.image,
-        name,
-        '/bin/sleep',
-        '86400',
-      ],
-      signal,
-    );
+    await this.text(this.prewarmArguments(name, binding), signal);
+  }
+  private prewarmArguments(name: string, binding: string): string[] {
+    const selected = this.configuration.runtime;
+    const selection = new KataTaskOptions(selected.configurationMode, selected.configuration.path);
+    const resources = this.configuration.resources
+      ? new KataResourcePolicy(this.configuration.resources).arguments()
+      : [];
+    return [
+      ...KataClient.sandboxRuntime,
+      ...selection.arguments(),
+      '--label',
+      'ai.treeseed.cordis.sandbox=' + binding,
+      ...resources,
+      this.configuration.image,
+      name,
+      '/bin/sleep',
+      '86400',
+    ];
   }
   async resources(
     name: string,
@@ -1076,6 +1083,8 @@ export class KataSandboxBackend {
         labels['ai.treeseed.cordis.sandbox'] === CanonicalJson.digest(record),
       'KATA_RESOURCE_CHANGED',
     );
+    const selected = this.configuration.runtime;
+    new KataTaskOptions(selected.configurationMode, selected.configuration.path).assertOptions(runtime.Options);
     return info.Spec;
   }
   private async qualifiedGuest(record: KataIntent, signal: AbortSignal): Promise<string> {
