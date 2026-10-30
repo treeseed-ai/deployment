@@ -64,8 +64,9 @@ isolation/network policy and freshly qualified owned launches. Used sandboxes re
 ## Delivery and verification
 
 Part of Deployment #1073 and the approved seed-driven Task 3D architecture. Reconcile launch
-attestation #1069/#1070 only after its accepted `origin/cordis` commit; do not merge its unaccepted
-feature branch into this candidate. Keep earlier immutable archives intact.
+attestation #1069/#1070 from accepted `origin/cordis` commit
+`eb307a40f3bdf86b484ab852ddf9df235908980e`; its full hosted qualification passed before this
+integration. Keep earlier immutable archives intact.
 
 1. Commit this contract before acceptance, integration/unit cases and implementation.
 2. Start with a built public program that detects the optional schema and rejects incomplete
