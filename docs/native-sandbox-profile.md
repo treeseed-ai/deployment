@@ -99,6 +99,11 @@ The genuine fixture labels failed host operations and profile read-back with fix
 preserving their original safe causes. Successful program output stays exact; diagnostics contain
 no raw command arguments, private paths or new production logging. Mixed hosted results block merge
 and require operation-specific diagnosis, with no timeout or assertion relaxation.
+Bounded cleanup correction #1086/#1087 is consumed only from accepted `cordis`
+`2c151402cff01bde80efa5b6abf3e44065752907`. It removes the redundant preceding kill and uses
+containerd's wait-and-force-delete contract, retaining every final physical read-back assertion.
+The expanded profile lifecycle must qualify independently after that sync; earlier mixed results
+remain recorded and do not become passing evidence retroactively.
 
 Run checks/build/all tiers, an exact safe-mode archive and independent scripts-disabled strict public
 Node consumer, both complete hosted closures and review. Keep ten-file/twenty-line gates. No local

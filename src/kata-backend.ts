@@ -3,6 +3,7 @@ export { NativePolicyCustody } from './native-policy.js';
 import { NativePolicyCustody } from './native-policy.js';
 import { NativeImageTargetProjection, NativeSandboxProfile } from './native-profile.js';
 export { NativeImageTargetProjection } from './native-profile.js';
+import { NativeTaskRemoval } from './native-task-removal.js';
 import { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { NativeRuntimeAttestation, NativeShimProjection, type NativeRuntimeProof } from './native-shim.js';
@@ -1452,11 +1453,7 @@ export class KataSandboxBackend {
   }
   private async remove(record: KataIntent, signal: AbortSignal): Promise<void> {
     await this.resource(record, signal);
-    if ((await this.client.list('tasks', signal)).includes(record.resourceName)) {
-      await this.client.text(['tasks', 'kill', '--signal', 'SIGKILL', record.resourceName], signal);
-      await this.client.text(['tasks', 'delete', '--force', record.resourceName], signal);
-    }
-    await this.client.text(['containers', 'delete', record.resourceName], signal);
+    await new NativeTaskRemoval(this.client).remove(record.resourceName, signal);
   }
   close(): Promise<void> {
     if (this.closed) return Promise.resolve();
