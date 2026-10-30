@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { TASK_CONFIGURATION_INPUT } from './runtime-task-program.js';
 
-class NativePolicyInput {
+export class NativePolicyInput {
   static component(role: string): { role: string; member: string; path: string } {
     return { role, member: 'opt/kata/' + role, path: '/opt/kata/' + role };
   }
-  static selected(): object {
+  static selected() {
     return {
       ...TASK_CONFIGURATION_INPUT,
       resources: { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 },
@@ -19,7 +19,7 @@ class NativePolicyInput {
           ...TASK_CONFIGURATION_INPUT.runtime.hypervisor,
           path: '/opt/kata/hypervisor',
         },
-        policy: { components: COMPONENTS },
+        policy: { components: structuredClone(COMPONENTS) },
       },
     };
   }
