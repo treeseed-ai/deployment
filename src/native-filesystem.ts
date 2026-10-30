@@ -43,8 +43,7 @@ export class NativeFilesystemProjection {
       this.qemu(this.arguments(qemu), selected.socketPath);
       this.daemon(this.arguments(daemon), selected);
       return selected;
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       throw new KataSandboxError('KATA_FILESYSTEM_ARGUMENTS_INVALID');
     }
   }
@@ -129,8 +128,7 @@ export class NativeFilesystemProjection {
         pathDigest: createHash('sha256').update(path).digest('hex'),
         state: 'connected' as const,
       });
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       throw new KataSandboxError('KATA_FILESYSTEM_ARGUMENTS_INVALID');
     }
   }
@@ -176,7 +174,11 @@ interface FilesystemProcess {
 }
 /** Actual selected executable and stable direct ancestry, including namespace-mode serving fork. */
 class NativeFilesystemProcesses {
-  private readonly executable: Readonly<{ path: string; sha256: string; size: number }>;
+  private readonly executable: Readonly<{
+    path: string;
+    sha256: string;
+    size: number;
+  }>;
   constructor(policy: EffectiveRuntimePolicy) {
     policy.verify();
     const binding = policy.proof.bindings.find(NativeFilesystemProcesses.virtiofs);
@@ -318,12 +320,13 @@ class NativeFilesystemSocket {
   read(
     server: FilesystemProcess,
     qemu: number,
+    shim: number,
     selected: FilesystemSelection,
   ): Pick<NativeFilesystemProof, 'socket' | 'shared'> {
     const table = readFileSync('/proc/' + qemu + '/net/unix', 'utf8');
     const targets = this.targets(server.row.pid);
     const socket = new NativeFilesystemProjection().connection(table, targets, selected.socketPath);
-    const shared = this.shared(server, selected.sharedDirectory);
+    const shared = this.shared(server, shim, selected.sharedDirectory);
     return { socket, shared };
   }
   private targets(pid: number): string[] {
@@ -341,8 +344,12 @@ class NativeFilesystemSocket {
     }
     return targets;
   }
-  private shared(server: FilesystemProcess, path: string): NativeFilesystemProof['shared'] {
-    const selected = lstatSync('/proc/' + server.row.parent + '/root' + path),
+  private shared(
+    server: FilesystemProcess,
+    shim: number,
+    path: string,
+  ): NativeFilesystemProof['shared'] {
+    const selected = lstatSync('/proc/' + shim + '/root' + path),
       actual = statSync('/proc/' + server.row.pid + '/root');
     if (
       !selected.isDirectory() ||
@@ -373,10 +380,10 @@ class NativeFilesystemObserver {
     const qemu = this.qemu(runtime.proof);
     const selected = new NativeFilesystemProjection().parse(qemu, family.daemon.args, this.name);
     new NativeFilesystemProjection().parse(qemu, family.server.args, this.name);
-    FilesystemDiagnostic.snapshot(runtime, family, selected.sharedDirectory, this.name);
     const state = new NativeFilesystemSocket().read(
       family.server,
       runtime.proof.boot.process.pid,
+      runtime.binding.shim.pid,
       selected,
     );
     this.processes.same(family.daemon);
@@ -441,8 +448,7 @@ export class NativeFilesystemAttestation {
       signal.throwIfAborted();
       admission.verify();
       return admission;
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       admission?.close();
       const cancelled = signal instanceof AbortSignal && signal.aborted;
       throw new KataSandboxError(cancelled ? 'KATA_CANCELLED' : 'KATA_FILESYSTEM_INVALID');
@@ -466,92 +472,12 @@ export class NativeFilesystemAttestation {
     KataSandboxError.require(!this.closed, 'KATA_FILESYSTEM_CLOSED');
     try {
       if (this.observer.read(this.admission).digest !== this.binding.digest) throw new Error();
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       throw new KataSandboxError('KATA_FILESYSTEM_CHANGED');
     }
   }
   close(): void {
     this.closed = true;
     this.admission.close();
-  }
-}
-/** Temporary complete bounded root-view evidence; remove before an accepted artifact. */
-class FilesystemDiagnostic {
-  static trace(error: unknown): void {
-    if (!(error instanceof Error)) return;
-    let count = 0;
-    for (const line of error.stack?.split('\n') ?? []) {
-      if (!line.includes('/native-filesystem.js:')) continue;
-      const match = /^\s*at ([A-Za-z0-9_.]+).*:(\d+):\d+\)?$/.exec(line);
-      if (!match || ++count > 4) continue;
-      process.stderr.write(
-        'DIAGNOSTIC_FILESYSTEM_FRAME ' +
-          JSON.stringify({ symbol: match[1], line: Number(match[2]) }) +
-          '\n',
-      );
-    }
-  }
-  static snapshot(
-    runtime: NativeRuntimeAttestation,
-    family: { daemon: FilesystemProcess; server: FilesystemProcess },
-    path: string,
-    name: string,
-  ): void {
-    const roles = {
-      daemon: family.daemon.row.pid,
-      shim: runtime.binding.shim.pid,
-      server: family.server.row.pid,
-    };
-    const views: Record<string, unknown> = { host: this.view('', path) };
-    const mounts: Record<string, unknown> = {};
-    for (const [role, pid] of Object.entries(roles)) {
-      views[role] = this.view('/proc/' + pid + '/root', path);
-      mounts[role] = this.mounts(pid, path, name);
-    }
-    const root = this.metadata('/proc/' + family.server.row.pid + '/root', true);
-    process.stderr.write(
-      'DIAGNOSTIC_FILESYSTEM_VIEWS ' + JSON.stringify({ views, root, mounts }) + '\n',
-    );
-  }
-  private static view(prefix: string, path: string): object {
-    return {
-      ro: this.metadata(prefix + path, false),
-      rw: this.metadata(prefix + path.slice(0, -2) + 'rw', false),
-    };
-  }
-  private static metadata(path: string, follow: boolean): object {
-    try {
-      const s = follow ? statSync(path) : lstatSync(path);
-      return {
-        directory: s.isDirectory(),
-        link: s.isSymbolicLink(),
-        uid: s.uid,
-        mode: s.mode & 0o7777,
-        device: s.dev,
-        inode: s.ino,
-      };
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      return { error: ['ENOENT', 'ESRCH', 'EACCES'].includes(code ?? '') ? code : 'UNKNOWN' };
-    }
-  }
-  private static mounts(pid: number, path: string, name: string): object[] {
-    const text = readFileSync('/proc/' + pid + '/mountinfo', 'utf8');
-    if (text.length > 1048576) return [{ error: 'BOUNDED' }];
-    const rows = [];
-    for (const line of text.split('\n')) {
-      const f = line.split(' '),
-        target = f[4];
-      if (!['/', path, path.slice(0, -2) + 'rw'].includes(target ?? '') || rows.length >= 12)
-        continue;
-      rows.push({
-        target: target === '/' ? 'root' : target === path ? 'ro' : 'rw',
-        readonly: f[5]?.split(',').includes('ro'),
-        sourceRW: f[3]?.endsWith('/' + name + '/rw'),
-        sourceRO: f[3]?.endsWith('/' + name + '/ro'),
-      });
-    }
-    return rows;
   }
 }
