@@ -18,6 +18,16 @@ class NativePolicySelections {
     selection.assertConfiguration(TASK_CONFIGURATION_INPUT);
     selection.assertConfiguration(NativePolicyInput.selected());
   }
+  async schema(): Promise<void> {
+    const module = await import('../../src/native-policy.js');
+    const schema = module.NativePolicyCustody.Config;
+    const policy = NativePolicyInput.selected().runtime.policy;
+    assert.equal(schema.safeParse(policy).success, true);
+    assert.equal(schema.safeParse({ components: policy.components.slice(1) }).success, false);
+    const foreign = structuredClone(policy);
+    foreign.components[0]!.role = 'foreign';
+    assert.equal(schema.safeParse(foreign).success, false);
+  }
   private changed(path: readonly string[], value: unknown): object {
     const input = NativePolicyInput.selected();
     let target: object = input;
@@ -37,6 +47,10 @@ const suite = new NativePolicySelections();
 test(
   'unit: native policy admission preserves compatible mode and complete explicit selection',
   suite.compatible.bind(suite),
+);
+test(
+  'unit: native policy metadata schema requires exactly the six pinned component roles',
+  suite.schema.bind(suite),
 );
 for (const [path, value] of [
   [['runtime', 'configurationMode'], 'environment'],
