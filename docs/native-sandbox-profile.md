@@ -26,6 +26,10 @@ attestation as liveness or adding another artifact/service lifecycle owner. Fres
 custody, endpoint/daemon, provider generation and image prerequisites before returning the profile.
 Every subsequent create/inspect still physically attests. Failed/changed authority or uncertain
 cleanup cannot produce a successful qualified read-back; explicit recovery remains required.
+Starting a new explicit creation clears the previous witness until qualification succeeds. Failed
+destruction or disposal clears it; verified destruction retains the demonstrated capability.
+Generation mismatch returns `KATA_PROFILE_CHANGED`; incomplete physical evidence returns
+`KATA_PROFILE_INVALID`. Existing custody/runtime errors remain fixed and safe.
 
 Read-back validates and returns independent SDK data, so caller mutation cannot change retained
 qualification. A verified destroyed qualification VM does not erase demonstrated capability, nor
