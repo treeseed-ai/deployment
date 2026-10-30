@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, readlinkSync } from 'node:fs';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { TASK_CONFIGURATION_INPUT, NativePolicyFixture } from './runtime-task-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
@@ -48,6 +48,7 @@ class NativePolicyScenario {
   private path = '';
   private bytes: Buffer | null = null;
   private tampered = false;
+  private before: string[] | null = null;
   private active = false;
   async run(): Promise<void> {
     const failures = [];
@@ -79,18 +80,12 @@ class NativePolicyScenario {
     await this.changed();
   }
   private async prepare(): Promise<object> {
+    await this.fixture.start('task-options');
+    this.before = this.descriptors();
     this.path = await this.custody.prepare();
     process.env.KATA_CONF_FILE = this.path;
     this.bytes = readFileSync(this.path);
-    await this.fixture.start('task-options');
-    const configuration = (await this.fixture.configuration()) as Record<string, unknown>;
-    this.fixture.run([
-      'images',
-      'pull',
-      '--platform',
-      'linux/amd64',
-      configuration.image as string,
-    ]);
+    const configuration = await this.prepareImage();
     return {
       ...configuration,
       resources: this.custody.resources,
@@ -99,6 +94,17 @@ class NativePolicyScenario {
         policy: { components: this.custody.policy!.proof.bindings },
       },
     };
+  }
+  private async prepareImage(): Promise<Record<string, unknown>> {
+    const configuration = (await this.fixture.configuration()) as Record<string, unknown>;
+    this.fixture.run([
+      'images',
+      'pull',
+      '--platform',
+      'linux/amd64',
+      configuration.image as string,
+    ]);
+    return configuration;
   }
   private async native(configuration: object): Promise<void> {
     const scopeId = 'installation:' + this.fixture.namespaceScope.installationId + ':host';
@@ -185,14 +191,36 @@ class NativePolicyScenario {
     }
     if (failures.length) throw new AggregateError(failures, 'Native policy root disposal failed');
   }
+  private descriptors(): string[] {
+    const paths = [];
+    for (const fd of readdirSync('/proc/self/fd'))
+      try {
+        const path = readlinkSync('/proc/self/fd/' + fd);
+        if (
+          path === '/' ||
+          path === '/opt/kata' ||
+          path.startsWith('/opt/kata/') ||
+          path === this.fixture.directory ||
+          path.startsWith(this.fixture.directory + '/')
+        )
+          paths.push(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    return paths.sort();
+  }
+  private released(): void {
+    if (this.before) assert.deepEqual(this.descriptors(), this.before);
+  }
   private async dispose(): Promise<void> {
     const failures = [];
     for (const release of [
       this.restore.bind(this),
       this.destroy.bind(this),
-      this.nativeDispose.bind(this),
-      this.fixture.stop.bind(this.fixture),
       this.custody.close.bind(this.custody),
+      this.nativeDispose.bind(this),
+      this.released.bind(this),
+      this.fixture.stop.bind(this.fixture),
     ])
       try {
         await release();
