@@ -24,6 +24,7 @@ const suite = new NativeMachineCases();
 for (const value of [
   'q35,accel=kvm,nvdimm=on,kernel_irqchip=on',
   'q35,nvdimm=on,memory-backend=entire-guest-memory,kernel_irqchip=on,accel=kvm',
+  'q35,accel=kvm,nvdimm=on,kernel_irqchip=on,memory-backend=entire-guest-memory-share',
 ])
   test(
     'unit: native launch machine accepts exact unambiguous KVM selection ' + value,
@@ -49,6 +50,15 @@ for (const args of [
   ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--kernel', '/OTHER_KERNEL'],
   ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--m', '4096'],
   ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on', '--smp', '8'],
+  ['-machine', 'q35,accel=kvm,nvdimm=on,kernel_irqchip=on,memory-backend=foreign'],
+  [
+    '-machine',
+    'q35,accel=kvm,nvdimm=on,kernel_irqchip=on,memory-backend=entire-guest-memory-share-other',
+  ],
+  [
+    '-machine',
+    'q35,accel=kvm,nvdimm=on,kernel_irqchip=on,memory-backend=entire-guest-memory-share,memory-backend=entire-guest-memory',
+  ],
 ])
   test(
     'unit: native launch machine rejects ambiguous or unsupported selection ' +
