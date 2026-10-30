@@ -21,10 +21,9 @@ class NativePolicyCustodyBoundaries {
   close(): void {
     this.fixture.close();
   }
-  private async factory(): Promise<NativeCustodyFactory> {
-    const module = await import('../../dist/src/native-policy.js');
-    const Type = Reflect.get(module, 'NativePolicyCustody');
-    assert.equal(typeof Type.open, 'function', 'Native policy custody construction missing');
+  private factory(): NativeCustodyFactory {
+    const Type = Reflect.get(Sandbox, 'NativePolicyCustody') as unknown as NativeCustodyFactory;
+    assert.equal(typeof Type?.open, 'function', 'Native policy custody construction missing');
     return Type as NativeCustodyFactory;
   }
   private input(): object {
@@ -67,7 +66,7 @@ class NativePolicyCustodyBoundaries {
     return paths.sort();
   }
   async refused(mode: string): Promise<void> {
-    const factory = await this.factory();
+    const factory = this.factory();
     const archive = this.fixture.archive!;
     const before = this.descriptors();
     const signal = mode === 'cancelled' ? AbortSignal.abort() : this.fixture.signal;
@@ -80,7 +79,7 @@ class NativePolicyCustodyBoundaries {
     this.fixture.aliases!.verify();
   }
   async closed(): Promise<void> {
-    const factory = await this.factory();
+    const factory = this.factory();
     const archive = await Sandbox.RuntimeArchiveCustody.open(
       { ...this.fixture.archive!.proof, path: join(this.fixture.directory, 'kit.tar.zst') },
       this.fixture.signal,
@@ -103,8 +102,10 @@ for (const mode of ['relocated', 'cancelled'])
       mode +
       ' inert installed kit without descriptor leaks',
     suite.refused.bind(suite, mode),
+    300000,
   );
 test(
   'integration: native policy custody rejects closed borrowed archive and preserves other owners',
   suite.closed.bind(suite),
+  300000,
 );

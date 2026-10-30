@@ -3,14 +3,18 @@ import { z } from 'zod';
 import type { PoolResourceShape } from '@treeseed-cordis/sdk';
 import { RuntimeComponentCustody, type RuntimeComponentBinding } from './runtime-components.js';
 import { KataSandboxError } from './kata-command.js';
+import { RuntimeArchiveCustody } from './runtime-archive.js';
+import { RuntimeAliasCustody } from './runtime-aliases.js';
+import { EffectiveRuntimePolicy, type EffectiveRuntimePolicyInput } from './runtime-policy.js';
 
 interface NativePolicyConfiguration {
   runtime: {
     configurationMode?: 'environment' | 'task-options';
     policy?: { components: RuntimeComponentBinding[] };
     archive?: unknown;
-    shim: { path: string };
-    hypervisor: { path: string };
+    configuration?: { path: string; sha256: string };
+    shim: { path: string; sha256?: string };
+    hypervisor: { path: string; sha256?: string };
   };
   resources?: PoolResourceShape;
 }
@@ -18,6 +22,17 @@ interface NativePolicyConfiguration {
 export class NativePolicyCustody {
   static readonly Config = z.strictObject({ components: RuntimeComponentCustody.Config });
   private static readonly roles = 'configuration,hypervisor,kernel,rootfs,shim,virtiofs';
+  private components: RuntimeComponentCustody | null = null;
+  private aliases: RuntimeAliasCustody | null = null;
+  private policy: EffectiveRuntimePolicy | null = null;
+  private closed = false;
+  private closeFailed = false;
+  private constructor(
+    private readonly archive: RuntimeArchiveCustody,
+    private readonly input: NativePolicyConfiguration,
+    private readonly selected: RuntimeComponentBinding[],
+    private readonly policyInput: EffectiveRuntimePolicyInput,
+  ) {}
   static assertConfiguration(input: NativePolicyConfiguration): void {
     try {
       if (!input.runtime.policy) return;
@@ -61,5 +76,81 @@ export class NativePolicyCustody {
         binding.path !== runtime[binding.role].path
       )
         throw new Error();
+  }
+  static async open(
+    input: NativePolicyConfiguration,
+    archive: RuntimeArchiveCustody | null,
+    signal: AbortSignal,
+  ): Promise<NativePolicyCustody | null> {
+    let custody: NativePolicyCustody | null = null;
+    try {
+      this.assertConfiguration(input);
+      if (!input.runtime.policy) return null;
+      signal.throwIfAborted();
+      custody = this.selected(input, archive);
+      await custody.capture(signal);
+      return custody;
+    } catch {
+      custody?.close();
+      throw new KataSandboxError(signal.aborted ? 'KATA_CANCELLED' : 'KATA_NATIVE_POLICY_INVALID');
+    }
+  }
+  private static selected(
+    input: NativePolicyConfiguration,
+    archive: RuntimeArchiveCustody | null,
+  ): NativePolicyCustody {
+    const declared = RuntimeArchiveCustody.Config.parse(input.runtime.archive);
+    if (
+      !(archive instanceof RuntimeArchiveCustody) ||
+      archive.proof.sha256 !== declared.sha256 ||
+      archive.proof.size !== declared.size
+    )
+      throw new Error();
+    archive.verify();
+    const selected = this.Config.parse(input.runtime.policy).components;
+    const policyInput = EffectiveRuntimePolicy.Config.parse({
+      configuration: input.runtime.configuration,
+      resources: input.resources,
+    });
+    return new NativePolicyCustody(archive, input, selected, policyInput);
+  }
+  private async capture(signal: AbortSignal): Promise<void> {
+    this.components = await RuntimeComponentCustody.open(this.archive, this.selected, signal);
+    this.executables();
+    this.aliases = await RuntimeAliasCustody.open(this.components, '/', signal);
+    this.policy = await EffectiveRuntimePolicy.open(
+      this.policyInput,
+      this.components,
+      this.aliases,
+      signal,
+    );
+    this.verify();
+    signal.throwIfAborted();
+  }
+  private executables(): void {
+    for (const component of this.components!.proof.components) {
+      const role = component.role;
+      if (
+        (role === 'shim' || role === 'hypervisor') &&
+        component.member.sha256 !== this.input.runtime[role].sha256
+      )
+        throw new Error();
+    }
+  }
+  verify(): void {
+    KataSandboxError.require(!this.closed && this.policy, 'KATA_NATIVE_POLICY_CLOSED');
+    this.policy.verify();
+  }
+  close(): void {
+    if (!this.closed) {
+      this.closed = true;
+      for (const owned of [this.policy, this.aliases, this.components])
+        try {
+          owned?.close();
+        } catch {
+          this.closeFailed = true;
+        }
+    }
+    KataSandboxError.require(!this.closeFailed, 'KATA_NATIVE_POLICY_CLOSE_FAILED');
   }
 }
