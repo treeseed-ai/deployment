@@ -95,6 +95,10 @@ Hosted Ubuntu 26.04 must prove null before explicit create, real qualification a
 repeat/verified destruction, fresh refusal after tampering, independence from mutated returned data
 and exact cleanup. Retain all previous resource/network/runtime/descriptor assertions and deadlines.
 Pure image vectors are syntax coverage; they cannot substitute for actual native qualification.
+The genuine fixture labels failed host operations and profile read-back with fixed stage names,
+preserving their original safe causes. Successful program output stays exact; diagnostics contain
+no raw command arguments, private paths or new production logging. Mixed hosted results block merge
+and require operation-specific diagnosis, with no timeout or assertion relaxation.
 
 Run checks/build/all tiers, an exact safe-mode archive and independent scripts-disabled strict public
 Node consumer, both complete hosted closures and review. Keep ten-file/twenty-line gates. No local
