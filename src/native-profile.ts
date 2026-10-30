@@ -38,7 +38,11 @@ export class NativeImageTargetProjection {
         fields[2] !== digest
       )
         throw new Error();
-      return Object.freeze({ reference: selected, manifestDigest: digest, mediaType: fields[1]! });
+      return Object.freeze({
+        reference: selected,
+        manifestDigest: digest.slice(7),
+        mediaType: fields[1]!,
+      });
     } catch {
       throw new KataSandboxError('KATA_IMAGE_TARGET_INVALID');
     }
@@ -114,7 +118,7 @@ export class NativeSandboxProfile {
       },
       image: {
         reference: configuration.image,
-        manifestDigest: configuration.image.slice(configuration.image.lastIndexOf('@') + 1),
+        manifestDigest: configuration.image.slice(configuration.image.lastIndexOf(':') + 1),
         os: 'linux',
         architecture: 'amd64',
       },
