@@ -397,7 +397,7 @@ class NativeProfileAssertions {
     });
     assert.deepEqual(profile.image, {
       reference: selected.image,
-      manifestDigest: selected.image.slice(selected.image.lastIndexOf('@') + 1),
+      manifestDigest: selected.image.slice(selected.image.lastIndexOf(':') + 1),
       os: 'linux',
       architecture: 'amd64',
     });

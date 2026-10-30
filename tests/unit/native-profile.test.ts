@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
+import { SandboxProfileBinding } from '@treeseed-cordis/sdk';
 
 interface ImageProjection {
   parse(
@@ -29,7 +30,7 @@ class NativeImageTargetCases {
     const result = this.projection().parse(table, NativeImageTargetCases.reference);
     assert.deepEqual(result, {
       reference: NativeImageTargetCases.reference,
-      manifestDigest: NativeImageTargetCases.digest,
+      manifestDigest: NativeImageTargetCases.digest.slice(7),
       mediaType,
     });
     assert(Object.isFrozen(result));
@@ -54,9 +55,35 @@ class NativeImageTargetCases {
         message: 'KATA_PROVIDER_INVALID',
       });
   }
+  async sdkProfile(): Promise<void> {
+    const target = this.projection().parse(
+      NativeImageTargetCases.header + NativeImageTargetCases.row,
+      NativeImageTargetCases.reference,
+    );
+    const profile = await SandboxProfileBinding.create({
+      schemaVersion: 'treeseed.sandbox-profile/v1',
+      id: 'native:fixture',
+      runtime: { name: 'kata', version: '4.1.0', archiveDigest: 'b'.repeat(64) },
+      image: {
+        reference: target.reference,
+        manifestDigest: target.manifestDigest,
+        os: 'linux',
+        architecture: 'amd64',
+      },
+      resources: { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 },
+      network: { mode: 'offline', destinations: [] },
+      isolationPolicyDigest: 'c'.repeat(64),
+    });
+    assert.equal(profile.image.manifestDigest, 'a'.repeat(64));
+    assert.deepEqual(await SandboxProfileBinding.assert(profile), profile);
+  }
 }
 const suite = new NativeImageTargetCases();
 const cases = NativeImageTargetCases;
+test(
+  'unit: native image projection round-trips the SDK profile contract',
+  suite.sdkProfile.bind(suite),
+);
 for (const type of [cases.oci, cases.docker])
   test(
     'unit: native image target binds exact manifest edge ' + type,
