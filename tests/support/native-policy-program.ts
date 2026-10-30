@@ -493,15 +493,15 @@ class NativePolicyScenario {
   private async changedImage(configuration: object): Promise<void> {
     const selected = Sandbox.KataSandboxPlugin.Config.parse(configuration);
     const backup = 'fixture/profile-' + randomUUID() + ':retained';
-    this.fixture.run(['images', 'tag', selected.image, backup]);
+    this.fixture.run(['images', 'tag', '--local', selected.image, backup]);
     try {
       this.fixture.run(['images', 'delete', selected.image]);
       await this.profiles.missingImage(this.lease!.value);
-      this.fixture.run(['images', 'tag', backup, selected.image]);
+      this.fixture.run(['images', 'tag', '--local', backup, selected.image]);
       await this.profiles.before(this.lease!.value);
       await this.repeatedProfile();
     } finally {
-      this.fixture.run(['images', 'tag', '--force', backup, selected.image]);
+      this.fixture.run(['images', 'tag', '--local', '--force', backup, selected.image]);
       this.fixture.run(['images', 'delete', backup]);
     }
   }
