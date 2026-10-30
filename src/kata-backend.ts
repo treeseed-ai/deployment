@@ -1,6 +1,8 @@
 export { EffectiveRuntimePolicy, type EffectiveRuntimePolicyProof, type EffectiveRuntimePolicyInput } from './runtime-policy.js';
 export { NativePolicyCustody } from './native-policy.js';
 import { NativePolicyCustody } from './native-policy.js';
+import { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
+export { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { RuntimeAliasCustody, type RuntimeAliasProof } from './runtime-aliases.js';
 import { RuntimeArchiveCustody } from './runtime-archive.js';
 export { KataRuntimeConfiguration, type KataRuntimeReferences } from './kata-configuration.js';
@@ -163,6 +165,7 @@ export interface KataSandboxEvidence {
   assignment: KataAssignment | null;
   runner: CapacityReadiness | null;
   resources?: PoolResourceShape;
+  network?: NativeNetworkEvidence;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -373,6 +376,22 @@ class KataClient {
       {},
       signal,
     );
+  }
+  async nativeNetwork(name: string, signal: AbortSignal): Promise<string> {
+    const bytes = await this.bytes(
+      [
+        'tasks',
+        'exec',
+        '--exec-id',
+        'network-' + randomUUID(),
+        name,
+        '/bin/sh',
+        '-c',
+        "printf '%s\\n' /sys/class/net/*",
+      ],
+      signal,
+    );
+    return bytes.toString('utf8');
   }
   async stage(
     name: string,
@@ -1077,9 +1096,24 @@ export class KataSandboxBackend {
     const launch = await this.nativePolicy?.launch(record.resourceName, signal);
     try {
       launch?.verify();
+      if (launch) await this.nativeNetwork(record, signal, launch.proof.boot.digest);
+      launch?.verify();
     } finally {
       launch?.close();
     }
+  }
+  private async nativeNetwork(
+    record: KataIntent,
+    signal: AbortSignal,
+    bootDigest: string,
+  ): Promise<{ network?: NativeNetworkEvidence }> {
+    if (!this.nativePolicy) return {};
+    const spec = await this.resource(record, signal);
+    const projection = new NativeNetworkProjection();
+    projection.assertSpec(spec);
+    const interfaces = await this.client.nativeNetwork(record.resourceName, signal);
+    this.nativePolicy.verify();
+    return { network: projection.read(spec, bootDigest, interfaces) };
   }
   private async warmRunner(record: KataIntent, signal: AbortSignal): Promise<void> {
     if (!this.guestRuntime) return;
@@ -1148,10 +1182,11 @@ export class KataSandboxBackend {
   private async evidence(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
     const kernel = await this.qualifiedGuest(record, signal);
     const observed = this.observedBoot(record);
+    const network = await this.nativeNetwork(record, signal, observed.boot.digest);
     const assignment = this.journal?.assignment(record.id) ?? null;
     const runner = await this.runnerReady(record.id, signal);
     const resource = await this.resourceShape(record, signal);
-    const identity = { record, kernel, ...observed, assignment, runner, ...resource };
+    const identity = { record, kernel, ...observed, assignment, runner, ...resource, ...network };
     return {
       id: record.id,
       resourceName: record.resourceName,
@@ -1160,6 +1195,7 @@ export class KataSandboxBackend {
       assignment,
       runner,
       ...resource,
+      ...network,
       inspectionDigest: CanonicalJson.digest(identity),
     };
   }
