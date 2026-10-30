@@ -75,6 +75,7 @@ export class PrivateKataFixture {
   readonly namespace = 'cordis-sandbox-' + CanonicalJson.digest(this.namespaceScope).slice(0, 24);
   private daemon: ChildProcess | null = null;
   private log: number | null = null;
+  private mode: 'environment' | 'task-options' = 'environment';
   private static qualifiedDirectory(): string {
     if (
       typeof Bun === 'undefined' ||
@@ -108,7 +109,8 @@ export class PrivateKataFixture {
       .trim()
       .split(/\s+/)[19]!;
   }
-  async start(): Promise<void> {
+  async start(mode: 'environment' | 'task-options' = 'environment'): Promise<void> {
+    this.mode = mode;
     const config = join(this.directory, 'config.toml');
     writeFileSync(config, 'version = 2\ndisabled_plugins = ["io.containerd.grpc.v1.cri"]\n', {
       mode: 0o600,
@@ -116,14 +118,17 @@ export class PrivateKataFixture {
     this.log = openSync(join(this.directory, 'daemon.log'), 'wx', 0o600);
     this.daemon = spawn('/usr/bin/containerd', this.daemonArguments, {
       stdio: ['ignore', this.log, this.log],
-      env: {
-        ...process.env,
-        KATA_CONF_FILE: realpathSync(process.env.KATA_CONF_FILE!),
-      },
+      env: this.environment(),
     });
     this.daemon.on('error', this.failed.bind(this));
     await this.ready();
     chmodSync(this.socket, 0o600);
+  }
+  private environment(): NodeJS.ProcessEnv {
+    const environment = { ...process.env };
+    if (this.mode === 'task-options') delete environment.KATA_CONF_FILE;
+    else environment.KATA_CONF_FILE = realpathSync(process.env.KATA_CONF_FILE!);
+    return environment;
   }
   private failed(error: Error): void {
     throw error;
@@ -192,6 +197,7 @@ export class PrivateKataFixture {
   }
   private runtime(): object {
     return {
+      configurationMode: this.mode,
       version: '4.1.0',
       archive: this.archive(),
       guestKernel: '6.18.35',
