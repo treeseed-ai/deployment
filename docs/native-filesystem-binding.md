@@ -33,7 +33,8 @@ separate deeply immutable filesystem `binding`.
 Require the actual selected virtiofs executable path, device/inode, size and SHA-256 for both the
 shim's daemon child and its serving child. Require live root-owned stable generations, exact
 parent relationships and command digests. The serving child's root must match the owned shared
-directory by device/inode. Observe its actual socket descriptors and the QEMU network namespace's
+directory by device/inode in its verified daemon parent's filesystem view. Observe its actual
+socket descriptors and the QEMU network namespace's
 Unix socket table; require one connected stream endpoint at the exact selected socket path.
 Bind that endpoint inode and a digest of the path. This is correlation inside the trusted pinned
 runtime, not a claim of security against privileged host root or an arbitrary peer-authentication API.
@@ -72,6 +73,14 @@ and [process network tables reflect that process's namespace](https://www.man7.o
 Read the already-attested QEMU's table and correlate the retained serving descriptor there. Never
 substitute an arbitrary caller PID or scan unrelated namespaces as a fallback. The physical fixture
 must independently locate the proof's connected endpoint in that QEMU table before acceptance.
+
+Kata's shared-directory bind mount belongs to its runtime mount view. Reading the same absolute
+path from the observer's host namespace can yield the underlying unmounted directory's inode.
+Use the verified daemon's `/proc/<pid>/root` view for its declared shared path, then compare the
+serving child's root device/inode. Linux [documents this process-specific filesystem view](https://www.man7.org/linux/man-pages/man5/proc_pid_root.5.html).
+The PID comes from verified executable/ancestry/generation observation, never caller input. This
+read-only kernel view is intentional; final shared-path symlinks, non-root ownership, unsafe modes
+and changed identities still fail. It adds no arbitrary filesystem access or private-state write.
 
 ## Verification and recovery
 
