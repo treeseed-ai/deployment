@@ -80,7 +80,7 @@ class CheckoutHistoryRegression {
   gates(): void {
     assert(
       this.workflow.includes(
-        'partition: [foundation, transitions, sources, runtime, git-installed, registered, build-registered]',
+        'partition: [foundation, kata, transitions, sources, runtime, git-installed, registered, build-registered]',
       ),
     );
     assert.equal(this.workflow.match(/timeout-minutes: 15/g)?.length, 2);
