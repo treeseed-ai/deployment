@@ -59,6 +59,13 @@ actual containerd image-name-to-target edge before native creation/read-back. Pu
 table to frozen `{ reference, manifestDigest, mediaType }`; it establishes no authority by itself.
 Require one exact reference, a native image manifest media type and the digest embedded in that
 reference. Reject missing/duplicate/foreign/mutable/unsupported records and malformed/oversized data.
+Other shared image rows may remain present; they do not qualify the selected image. Admit only its
+exact row, with an OCI image manifest or Docker schema-2 image manifest target. Parse the first three
+stable columns; human-readable size/labels do not establish identity or architecture. Bound input
+to one MiB and 16,384 rows, reject NULs and malformed headers, and return fixed
+`KATA_IMAGE_TARGET_INVALID` errors without private input. Existing content/config checks establish
+the native architecture. The accepted filesystem prerequisite is `cordis`
+`366709a04a994a1825c878376acb369089bd5a0f`.
 The existing content hash and config architecture checks still apply.
 
 Pinned [containerd list output](https://github.com/containerd/containerd/blob/v2.4.2/cmd/ctr/commands/images/images.go#L63-L148)
