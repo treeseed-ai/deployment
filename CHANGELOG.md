@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Select pinned native Kata policy through bounded task options (#1071).
 - Bind effective Kata bounds to exact root-image address space (#1067).
 - Observe generation-bound Kata boot inputs (#1065).
 - Retain bounded effective Kata runtime policy (#1063).

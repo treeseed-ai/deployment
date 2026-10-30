@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.133",
+  "version": "0.0.0-cordis.136",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -106,7 +106,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.133"
+      "version": "0.0.0-cordis.136"
     },
     "providers": [
       {
@@ -470,6 +470,14 @@
                 "version": {
                   "type": "string",
                   "const": "4.1.0"
+                },
+                "configurationMode": {
+                  "default": "environment",
+                  "type": "string",
+                  "enum": [
+                    "environment",
+                    "task-options"
+                  ]
                 },
                 "guestKernel": {
                   "type": "string",
