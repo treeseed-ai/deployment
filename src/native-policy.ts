@@ -8,6 +8,7 @@ import { RuntimeAliasCustody } from './runtime-aliases.js';
 import { EffectiveRuntimePolicy, type EffectiveRuntimePolicyInput } from './runtime-policy.js';
 import { KataLaunchAttestation } from './kata-hypervisor.js';
 import { NativeRuntimeAttestation } from './native-shim.js';
+import { NativeFilesystemAttestation } from './native-filesystem.js';
 
 interface NativePolicyConfiguration {
   runtime: {
@@ -161,6 +162,10 @@ export class NativePolicyCustody {
   async runtimeLaunch(name: string, signal: AbortSignal): Promise<NativeRuntimeAttestation> {
     this.verify();
     return NativeRuntimeAttestation.open(this.policy!, name, signal);
+  }
+  async filesystemLaunch(name: string, signal: AbortSignal): Promise<NativeFilesystemAttestation> {
+    this.verify();
+    return NativeFilesystemAttestation.open(this.policy!, name, signal);
   }
   close(): void {
     if (!this.closed) {
