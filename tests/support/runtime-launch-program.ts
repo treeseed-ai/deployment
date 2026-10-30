@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { CanonicalJson, SandboxControlSchemas } from '@treeseed-cordis/sdk';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { NativePolicyFixture } from './runtime-task-program.js';
@@ -75,7 +76,7 @@ class NativeLaunchScenario {
     const Constructor = LaunchCapability.type(),
       policy = this.custody.policy!;
     this.observed(created);
-    this.attestation = await this.open(Constructor, policy, created.resourceName);
+    this.attestation = await this.open(Constructor, policy, created);
     this.attestation.verify();
     this.proof(created);
     await this.repeated(created);
@@ -86,12 +87,13 @@ class NativeLaunchScenario {
   private async open(
     Constructor: LaunchConstructor,
     policy: Sandbox.EffectiveRuntimePolicy,
-    name: string,
+    created: Sandbox.KataSandboxEvidence,
   ): Promise<LaunchAttestation> {
     try {
-      return await Constructor.open(policy, name, this.custody.signal);
+      return await Constructor.open(policy, created.resourceName, this.custody.signal);
     } catch (error) {
-      this.diagnose(Constructor, policy, name);
+      this.diagnose(Constructor, policy, created.resourceName);
+      this.machine(created);
       throw error;
     }
   }
@@ -108,6 +110,28 @@ class NativeLaunchScenario {
         error instanceof Error ? (error.stack ?? error.message) : 'Unknown capture failure';
       process.stderr.write('Native capture diagnostic: ' + text.slice(0, 4096) + '\n');
     }
+  }
+  private machine(created: Sandbox.KataSandboxEvidence): void {
+    const expected = created.boot.process;
+    const bytes = readFileSync('/proc/' + expected.pid + '/cmdline');
+    assert(bytes.length <= 1048576);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), expected.commandDigest);
+    const args = new TextDecoder('utf-8', { fatal: true }).decode(bytes).split('\0');
+    const fields = this.machineFields(args);
+    process.stderr.write(
+      'Native machine selection: ' + JSON.stringify(fields).slice(0, 2048) + '\n',
+    );
+  }
+  private machineFields(args: string[]): string[] {
+    const fields = [];
+    for (let index = 0; index < args.length; index++) {
+      const flag = args[index]!;
+      if (['-machine', '-M', '-accel'].includes(flag)) {
+        const value = args[index + 1] ?? '';
+        fields.push(flag + ':' + (/^[A-Za-z0-9,=_.:-]+$/.test(value) ? value : 'nonpublic'));
+      } else if (flag.startsWith('--')) fields.push(flag.slice(0, 128));
+    }
+    return fields;
   }
   private async mismatched(created: Sandbox.KataSandboxEvidence): Promise<void> {
     const alternate = await this.custody.mismatch(),
