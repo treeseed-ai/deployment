@@ -3,35 +3,40 @@ import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { TASK_CONFIGURATION_INPUT } from './runtime-task-program.js';
 
 export class NativePolicyInput {
+  static readonly components = [
+    'configuration',
+    'hypervisor',
+    'kernel',
+    'rootfs',
+    'shim',
+    'virtiofs',
+  ].map(NativePolicyInput.component);
+  private static readonly input = {
+    ...TASK_CONFIGURATION_INPUT,
+    resources: { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 },
+    runtime: {
+      ...TASK_CONFIGURATION_INPUT.runtime,
+      configurationMode: 'task-options',
+      archive: { path: '/PRIVATE_ARCHIVE', size: 4, sha256: 'a'.repeat(64) },
+      shim: { ...TASK_CONFIGURATION_INPUT.runtime.shim, path: '/opt/kata/shim' },
+      hypervisor: { ...TASK_CONFIGURATION_INPUT.runtime.hypervisor, path: '/opt/kata/hypervisor' },
+      policy: { components: NativePolicyInput.components },
+    },
+  };
   static component(role: string): { role: string; member: string; path: string } {
     return { role, member: 'opt/kata/' + role, path: '/opt/kata/' + role };
   }
   static selected() {
-    return {
-      ...TASK_CONFIGURATION_INPUT,
-      resources: { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 },
-      runtime: {
-        ...TASK_CONFIGURATION_INPUT.runtime,
-        configurationMode: 'task-options',
-        archive: { path: '/PRIVATE_ARCHIVE', size: 1, sha256: 'a'.repeat(64) },
-        shim: { ...TASK_CONFIGURATION_INPUT.runtime.shim, path: '/opt/kata/shim' },
-        hypervisor: {
-          ...TASK_CONFIGURATION_INPUT.runtime.hypervisor,
-          path: '/opt/kata/hypervisor',
-        },
-        policy: { components: structuredClone(COMPONENTS) },
-      },
-    };
+    return structuredClone(this.input);
   }
 }
-const COMPONENTS = ['configuration', 'hypervisor', 'kernel', 'rootfs', 'shim', 'virtiofs'].map(
-  NativePolicyInput.component,
-);
 class NativePolicyProgram {
   static async run(): Promise<void> {
     const selected = NativePolicyInput.selected();
     const parsed = Sandbox.KataSandboxPlugin.Config.parse(selected);
-    assert.deepEqual(Reflect.get(parsed.runtime, 'policy'), { components: COMPONENTS });
+    assert.deepEqual(Reflect.get(parsed.runtime, 'policy'), {
+      components: NativePolicyInput.components,
+    });
     await this.incomplete(selected);
     process.stdout.write('native-policy-interface-ok\n');
   }
