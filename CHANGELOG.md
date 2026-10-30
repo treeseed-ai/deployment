@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Remove native tasks through bounded force-delete (#1086).
+
 ### Added
 - Qualify native virtiofs process and socket binding (#1080).
 - Bind native QEMU to the retained active Kata shim (#1078).
