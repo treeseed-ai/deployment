@@ -11,8 +11,7 @@ class KataTaskSelectionCases {
     mode: 'environment' | 'task-options',
     path = '/private/runtime.toml',
   ): Promise<Selection> {
-    const modulePath = '../../src/kata-task-options.js';
-    const module = await import(modulePath);
+    const module = await import('../../src/kata-task-options.js');
     const Type = Reflect.get(module, 'KataTaskOptions');
     assert.equal(typeof Type, 'function', 'Native task selection invariant missing');
     return new Type(mode, path);
