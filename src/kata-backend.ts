@@ -3,6 +3,8 @@ export { NativePolicyCustody } from './native-policy.js';
 import { NativePolicyCustody } from './native-policy.js';
 import { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
 export { NativeNetworkProjection, type NativeNetworkEvidence } from './native-network.js';
+export { NativeRuntimeAttestation, NativeShimProjection, type NativeRuntimeProof } from './native-shim.js';
+import type { NativeRuntimeProof } from './native-shim.js';
 export { RuntimeAliasCustody, type RuntimeAliasProof } from './runtime-aliases.js';
 import { RuntimeArchiveCustody } from './runtime-archive.js';
 export { KataRuntimeConfiguration, type KataRuntimeReferences } from './kata-configuration.js';
@@ -166,6 +168,7 @@ export interface KataSandboxEvidence {
   runner: CapacityReadiness | null;
   resources?: PoolResourceShape;
   network?: NativeNetworkEvidence;
+  runtime?: NativeRuntimeProof;
 }
 export interface KataSandboxDestruction {
   id: string;
@@ -1093,7 +1096,7 @@ export class KataSandboxBackend {
     return this.inspection(record, signal);
   }
   private async attest(record: KataIntent, signal: AbortSignal): Promise<void> {
-    const launch = await this.nativePolicy?.launch(record.resourceName, signal);
+    const launch = await this.nativePolicy?.runtimeLaunch(record.resourceName, signal);
     try {
       launch?.verify();
       if (launch) await this.nativeNetwork(record, signal, launch.proof.boot.digest);
@@ -1166,7 +1169,7 @@ export class KataSandboxBackend {
     return kernel;
   }
   private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
-    const launch = await this.nativePolicy?.launch(record.resourceName, signal);
+    const launch = await this.nativePolicy?.runtimeLaunch(record.resourceName, signal);
     try {
       const evidence = await this.evidence(record, signal);
       launch?.verify();
@@ -1174,7 +1177,13 @@ export class KataSandboxBackend {
         !launch || evidence.boot.digest === launch.proof.boot.digest,
         'KATA_LAUNCH_CHANGED',
       );
-      return evidence;
+      if (!launch) return evidence;
+      const runtime = launch.binding;
+      return {
+        ...evidence,
+        runtime,
+        inspectionDigest: CanonicalJson.digest({ inspection: evidence.inspectionDigest, runtime }),
+      };
     } finally {
       launch?.close();
     }
