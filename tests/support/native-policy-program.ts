@@ -156,6 +156,10 @@ class NativePolicyScenario {
     await assert.rejects(this.lease!.value.ready.bind(this.lease!.value), {
       message: 'KATA_RUNTIME_POLICY_CHANGED',
     });
+    writeFileSync(this.path, this.bytes!);
+    await assert.rejects(this.lease!.value.ready.bind(this.lease!.value), {
+      message: 'KATA_RUNTIME_POLICY_CHANGED',
+    });
   }
   private async destroy(): Promise<void> {
     if (!this.active || !this.lease) return;

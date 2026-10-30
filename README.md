@@ -1,5 +1,10 @@
 # Cordis diagnostics and non-activating planning
 
+Native host policy lifetime and its public descriptor-custody API are specified in
+[the owner reference](docs/native-host-policy-custody.md). Retained custody and actual launch
+binding belong beneath the selected native host provider; they do not create a profile or pool
+readiness claim.
+
 Native Kata supports the compatible environment selection and explicit operator task options,
 specified in [the owner configuration reference](docs/kata-task-configuration.md). Task options
 require an unmasked dedicated daemon and exact persisted selection read-back; they do not advertise
