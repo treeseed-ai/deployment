@@ -15,6 +15,11 @@ bounded pinned native filesystem selection. Require one `vhost-user-fs-pci` devi
 `--socket-path`/`--shared-dir` selectors. Bind paths to the owned native sandbox, never caller
 paths. Reject duplicates, aliases, unsupported device/options, malformed/oversized arguments and
 foreign values. Pure syntax carries no authority; other process bytes remain command-digest bound.
+The frozen projection is `{ socketPath, sharedDirectory }`. Pure
+`connection(unixTable, descriptorTargets, socketPath)` projects bounded Linux Unix-table text and
+descriptor-link strings into the frozen socket record below. Require exactly one connected stream
+row at the owned path and its inode in the serving process's descriptor targets; listening-only,
+foreign, missing, duplicate or malformed matches fail. Supplied text never proves a live process.
 
 `await NativeFilesystemAttestation.open(policy, sandboxName, signal)` requires genuine retained
 `EffectiveRuntimePolicy`, native root `/`, and internally constructs `NativeRuntimeAttestation`.
