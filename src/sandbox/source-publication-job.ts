@@ -1,6 +1,7 @@
 import type { SandboxAssignment, SourceWorkspaceAuthorization } from '@treeseed/sdk/capacity-provider/sandbox';
 import type { WorkspaceDisk } from './workspace-block-store.js';
 import { verifyWorkspaceCandidate, type CandidateOperations } from './workspace-candidate.js';
+import { sourceGitFailureDetail } from './source-git-transport.js';
 
 export interface SourcePublicationOperations extends CandidateOperations {
 	current(): { leaseId: string; authorization: SourceWorkspaceAuthorization; disk: WorkspaceDisk };
@@ -21,7 +22,8 @@ export class SourcePublicationJob {
 		private readonly operations: SourcePublicationOperations) {
 		this.pending = this.prepare(maximum, executionStopped).catch(async (error: unknown) => {
 			this.state = 'retained';
-			this.failure = error instanceof Error ? error.message.slice(0, 768) : 'Unknown source publication failure.';
+			const diagnostic = sourceGitFailureDetail(error);
+			this.failure = error instanceof Error ? `${error.message}${diagnostic ? ` (${diagnostic})` : ''}`.slice(0, 768) : 'Unknown source publication failure.';
 			await operations.journal({ ...(this.verifiedJournal ?? {}), state: this.state, assignmentId: assignment.assignmentId,
 				reason: 'source_publication_failed', detail: this.failure });
 		});

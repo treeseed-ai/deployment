@@ -1,11 +1,35 @@
 import { expect, it } from 'vitest';
 import { nativePublicationFixture } from './publication-native-fixture.js';
 import { randomBytes } from 'node:crypto';
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { verifySourceCandidate } from '../../../src/sandbox/workspace-candidate-guest.js';
 import { publishVerifiedSourceBranch } from '../../../src/sandbox/source-branch-publication.js';
 import { SourcePublicationJob } from '../../../src/sandbox/source-publication-job.js';
+
+it('retains a real failed publication with a safe Git stage and no invented result or ref', async () => {
+	const f = await nativePublicationFixture();
+	try {
+		const before = f.snapshot();
+		await rm(f.baseBundlePath);
+		let observedExit: unknown;
+		try { f.git(f.root, 'bundle', 'unbundle', f.baseBundlePath); }
+		catch (error) { observedExit = (error as { status?: unknown }).status; }
+		expect(observedExit).toBe(1);
+		const job = f.start(); await job.drain();
+		expect(job.status()).toMatchObject({ state: 'retained',
+			failure: expect.stringContaining('source_git_bundle_unbundle_exit_1') });
+		expect(job.publishedReference()).toBeUndefined();
+		expect(f.journals.at(-1)).toMatchObject({ state: 'retained', reason: 'source_publication_failed',
+			detail: expect.stringContaining('source_git_bundle_unbundle_exit_1') });
+		expect(f.counts()).toEqual({ verified: 1, published: 0 });
+		expect(f.snapshot()).toEqual(before); expect(f.refs()).toBe('');
+		expect(f.git(f.root, 'rev-parse', 'HEAD')).toBe(f.commit);
+		expect(f.git(f.root, 'status', '--porcelain')).toBe('');
+		expect(await readFile(join(f.root, 'code.ts'), 'utf8')).toBe('export const value = 2;\n');
+		expect((await stat(join(f.directory, 'candidate-0.bundle'))).size).toBeGreaterThan(0);
+	} finally { await f.close(); }
+});
 
 it('retains real empty-bundle diagnostics and source custody through the publication job without inventing a commit', async () => {
 	const f = await nativePublicationFixture();
