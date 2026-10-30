@@ -384,7 +384,7 @@ class NativeProfileAssertions {
   }
   async before(host: Sandbox.KataSandboxHost): Promise<void> {
     const reader = Reflect.get(host, 'profile');
-    assert.equal(typeof reader, 'function');
+    assert(typeof reader === 'function');
     assert.equal(await reader.call(host), null, 'Readiness cannot qualify a native profile');
   }
   async qualified(host: Sandbox.KataSandboxHost, input: object): Promise<void> {
@@ -414,16 +414,23 @@ class NativeProfileAssertions {
   }
   private async read(host: Sandbox.KataSandboxHost): Promise<SandboxResourceProfile> {
     const reader = Reflect.get(host, 'profile');
-    assert.equal(typeof reader, 'function');
+    assert(typeof reader === 'function');
     const profile = await reader.call(host);
     assert(profile, 'Explicit native qualification must expose an SDK profile');
     await SandboxProfileBinding.assert(profile);
     return profile as SandboxResourceProfile;
   }
   async changed(host: Sandbox.KataSandboxHost): Promise<void> {
-    await assert.rejects(Reflect.get(host, 'profile').bind(host), {
+    const reader = host.profile;
+    assert(reader);
+    await assert.rejects(reader.bind(host), {
       message: 'KATA_RUNTIME_POLICY_CHANGED',
     });
+  }
+  async missingImage(host: Sandbox.KataSandboxHost): Promise<void> {
+    const reader = host.profile;
+    assert(reader);
+    await assert.rejects(reader.bind(host), { message: 'KATA_IMAGE_TARGET_INVALID' });
   }
 }
 class NativePolicyScenario {
@@ -431,7 +438,7 @@ class NativePolicyScenario {
   private readonly custody = new NativePolicyFixture(this.fixture.directory);
   private readonly runtime = new NativeRuntimeFixture();
   private readonly profiles = new NativeProfileAssertions();
-  private readonly id = 'sandbox-' + randomUUID();
+  private id = 'sandbox-' + randomUUID();
   private readonly previous = process.env.KATA_CONF_FILE;
   private scope: CordisScope | null = null;
   private lease: ProviderLease<Sandbox.KataSandboxHost> | null = null;
@@ -468,7 +475,35 @@ class NativePolicyScenario {
     await this.destroy();
     this.runtime.destroyed();
     await this.profiles.stable(this.lease!.value);
+    await this.repeatedProfile();
+    await this.changedImage(configuration);
+    await this.nativeDispose();
+    await this.native(configuration);
     await this.changed();
+  }
+  private async repeatedProfile(): Promise<void> {
+    this.id = 'sandbox-' + randomUUID();
+    this.active = true;
+    const created = await this.lease!.value.create(this.id, this.custody.signal);
+    this.observed(created);
+    await this.profiles.stable(this.lease!.value);
+    await this.destroy();
+    await this.profiles.stable(this.lease!.value);
+  }
+  private async changedImage(configuration: object): Promise<void> {
+    const selected = Sandbox.KataSandboxPlugin.Config.parse(configuration);
+    const backup = 'fixture/profile-' + randomUUID() + ':retained';
+    this.fixture.run(['images', 'tag', selected.image, backup]);
+    try {
+      this.fixture.run(['images', 'delete', selected.image]);
+      await this.profiles.missingImage(this.lease!.value);
+      this.fixture.run(['images', 'tag', backup, selected.image]);
+      await this.profiles.before(this.lease!.value);
+      await this.repeatedProfile();
+    } finally {
+      this.fixture.run(['images', 'tag', '--force', backup, selected.image]);
+      this.fixture.run(['images', 'delete', backup]);
+    }
   }
   private async created(configuration: object): Promise<Sandbox.KataSandboxEvidence> {
     this.active = true;

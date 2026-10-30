@@ -45,6 +45,15 @@ class NativeImageTargetCases {
     assert(!String(error).includes('PRIVATE_'));
     return true;
   }
+  provider(value: unknown, accepted: boolean): void {
+    const provider = Object.create(Sandbox.KataSandboxPlugin.prototype) as object;
+    Object.defineProperty(provider, 'profile', { value });
+    if (accepted) assert.equal(Sandbox.KataSandboxToken.parse(provider), provider);
+    else
+      assert.throws(Sandbox.KataSandboxToken.parse.bind(Sandbox.KataSandboxToken, provider), {
+        message: 'KATA_PROVIDER_INVALID',
+      });
+  }
 }
 const suite = new NativeImageTargetCases();
 const cases = NativeImageTargetCases;
@@ -78,11 +87,22 @@ for (const table of [
   cases.header + cases.reference + ' ' + cases.oci + ' ' + cases.digest + '\n',
   cases.header + cases.row + '\0PRIVATE_INPUT',
   'x'.repeat(1048577),
+  cases.header + cases.row + '🙂'.repeat(262144),
   cases.header + cases.row + 'other\n'.repeat(16384),
 ])
   test(
     'unit: native image target refuses uncertain edge ' + JSON.stringify(table).slice(0, 150),
     suite.rejected.bind(suite, table, cases.reference),
+  );
+for (const value of [undefined, Sandbox.KataSandboxPlugin.prototype.profile])
+  test(
+    'unit: sandbox contract preserves absent or callable profile ' + typeof value,
+    suite.provider.bind(suite, value, true),
+  );
+for (const value of [null, 0, 'PRIVATE_PROFILE', {}])
+  test(
+    'unit: sandbox contract refuses malformed profile ' + JSON.stringify(value),
+    suite.provider.bind(suite, value, false),
   );
 for (const reference of [
   null,
