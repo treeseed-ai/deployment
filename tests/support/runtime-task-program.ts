@@ -254,6 +254,7 @@ class NativeTaskScenario {
       message: 'KATA_RUNTIME_CONFIGURATION',
     });
     assert.deepEqual(readdirSync(fixture.directory).sort(), before);
+    assert.deepEqual(readdirSync(input.custody as string), []);
     assert.equal(fixture.run(['containers', 'list', '--quiet']), '');
     assert.equal(fixture.run(['tasks', 'list', '--quiet']), '');
   }
@@ -273,6 +274,7 @@ class NativeTaskScenario {
       maximumMemoryMiB: 1312,
     });
     assert.equal(created.boot.boot.rootfs.size, 268435456);
+    assert.equal(realpathSync(created.boot.boot.rootfs.path), '/' + this.member('rootfs').path);
     assert.equal(realpathSync(created.boot.boot.kernel), '/' + this.member('kernel').path);
     assert.equal(created.boot.process.executableDigest, this.member('hypervisor').sha256);
     assert.equal(created.assignment, null);
