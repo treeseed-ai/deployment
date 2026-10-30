@@ -1,5 +1,6 @@
 export { EffectiveRuntimePolicy, type EffectiveRuntimePolicyProof, type EffectiveRuntimePolicyInput } from './runtime-policy.js';
 export { NativePolicyCustody } from './native-policy.js';
+import { NativePolicyCustody } from './native-policy.js';
 export { RuntimeAliasCustody, type RuntimeAliasProof } from './runtime-aliases.js';
 import { RuntimeArchiveCustody } from './runtime-archive.js';
 export { KataRuntimeConfiguration, type KataRuntimeReferences } from './kata-configuration.js';
@@ -101,6 +102,7 @@ class KataConfiguration {
       hypervisor: this.file,
       configuration: this.file,
       archive: RuntimeArchiveCustody.Config.optional(),
+      policy: NativePolicyCustody.Config.optional(),
     }),
     image: z
       .string()
@@ -117,6 +119,7 @@ class KataConfiguration {
   static parse(value: unknown): KataBackendConfiguration {
     const result = this.schema.safeParse(value);
     KataSandboxError.require(result.success, 'KATA_CONFIGURATION_INVALID');
+    NativePolicyCustody.assertConfiguration(result.data);
     if (result.data.workloads) new KataEnvironmentArchive(result.data.workloads);
     if (result.data.guestRuntime) {
       const runtime = result.data.guestRuntime;
@@ -897,7 +900,7 @@ export class KataSandboxPlugin implements KataSandboxHost {
     return this.backend;
   }
   async ready(): Promise<void> {
-    await this.active();
+    await (await this.active()).ready();
   }
   async create(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     return (await this.active()).create(id, signal);
@@ -960,6 +963,7 @@ export class KataSandboxBackend {
     private readonly client: KataClient,
     private readonly custody: KataCustody,
     private readonly guestRuntime: GuestRuntimeArtifact | null,
+    private readonly nativePolicy: NativePolicyCustody | null,
   ) {
     this.workloads = configuration.workloads
       ? new KataEnvironmentArchive(configuration.workloads)
@@ -991,7 +995,7 @@ export class KataSandboxBackend {
       : null;
     try {
       const endpoint = new KataEndpoint(directory, configuration, archive);
-      return await this.connected(configuration, endpoint, signal);
+      return await this.connected(configuration, endpoint, archive, signal);
     } catch (error) {
       archive?.close();
       throw error;
@@ -1000,6 +1004,7 @@ export class KataSandboxBackend {
   private static async connected(
     configuration: KataBackendConfiguration,
     endpoint: KataEndpoint,
+    archive: RuntimeArchiveCustody | null,
     signal: AbortSignal,
   ): Promise<KataSandboxBackend> {
     const client = new KataClient(configuration, endpoint);
@@ -1008,13 +1013,20 @@ export class KataSandboxBackend {
     const runtime = configuration.guestRuntime
       ? await new GuestRuntimeArchive(configuration.guestRuntime.artifact).read(signal)
       : null;
-    return this.owned(configuration, client, digest, runtime);
+    const policy = await NativePolicyCustody.open(configuration, archive, signal);
+    try {
+      return this.owned(configuration, client, digest, runtime, policy);
+    } catch (error) {
+      policy?.close();
+      throw error;
+    }
   }
   private static owned(
     configuration: KataBackendConfiguration,
     client: KataClient,
     digest: string,
     runtime: GuestRuntimeArtifact | null,
+    policy: NativePolicyCustody | null,
   ): KataSandboxBackend {
     const custody = KataCustody.open(
       configuration.custody,
@@ -1023,7 +1035,7 @@ export class KataSandboxBackend {
       configuration.workloads !== undefined,
     );
     try {
-      return new KataSandboxBackend(configuration, client, custody, runtime);
+      return new KataSandboxBackend(configuration, client, custody, runtime, policy);
     } catch (error) {
       custody.abandon();
       throw error;
@@ -1032,11 +1044,20 @@ export class KataSandboxBackend {
   private admit(signal: AbortSignal): void {
     KataSandboxError.require(!this.closed && !this.closing, 'KATA_BACKEND_CLOSED');
     KataSandboxError.require(!signal.aborted, 'KATA_CANCELLED');
+    this.nativePolicy?.verify();
     this.custody.verify();
     this.client.endpoint.verify();
   }
   create(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     return this.queue.run(this.createOwned.bind(this, id, signal));
+  }
+  async ready(): Promise<void> {
+    await this.queue.run(this.readiness.bind(this, new AbortController().signal));
+  }
+  private async readiness(signal: AbortSignal): Promise<void> {
+    this.admit(signal);
+    await this.client.preparedImage(signal);
+    this.admit(signal);
   }
   private async createOwned(id: string, signal: AbortSignal): Promise<KataSandboxEvidence> {
     this.admit(signal);
@@ -1048,8 +1069,17 @@ export class KataSandboxBackend {
     const existing = await this.client.list('containers', signal);
     KataSandboxError.require(!existing.includes(record.resourceName), 'KATA_FOREIGN_RESOURCE');
     await this.client.prewarm(record.resourceName, CanonicalJson.digest(record), signal);
+    await this.attest(record, signal);
     await this.warmRunner(record, signal);
     return this.inspection(record, signal);
+  }
+  private async attest(record: KataIntent, signal: AbortSignal): Promise<void> {
+    const launch = await this.nativePolicy?.launch(record.resourceName, signal);
+    try {
+      launch?.verify();
+    } finally {
+      launch?.close();
+    }
   }
   private async warmRunner(record: KataIntent, signal: AbortSignal): Promise<void> {
     if (!this.guestRuntime) return;
@@ -1102,6 +1132,20 @@ export class KataSandboxBackend {
     return kernel;
   }
   private async inspection(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
+    const launch = await this.nativePolicy?.launch(record.resourceName, signal);
+    try {
+      const evidence = await this.evidence(record, signal);
+      launch?.verify();
+      KataSandboxError.require(
+        !launch || evidence.boot.digest === launch.proof.boot.digest,
+        'KATA_LAUNCH_CHANGED',
+      );
+      return evidence;
+    } finally {
+      launch?.close();
+    }
+  }
+  private async evidence(record: KataIntent, signal: AbortSignal): Promise<KataSandboxEvidence> {
     const kernel = await this.qualifiedGuest(record, signal);
     const observed = this.observedBoot(record);
     const assignment = this.journal?.assignment(record.id) ?? null;
@@ -1305,6 +1349,7 @@ export class KataSandboxBackend {
       await this.client.emptyNamespace(new AbortController().signal);
       this.custody.close();
       this.journal?.close();
+      this.nativePolicy?.close();
       this.client.endpoint.close();
       this.closed = true;
     } catch (error) {
