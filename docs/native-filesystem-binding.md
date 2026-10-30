@@ -33,7 +33,7 @@ separate deeply immutable filesystem `binding`.
 Require the actual selected virtiofs executable path, device/inode, size and SHA-256 for both the
 shim's daemon child and its serving child. Require live root-owned stable generations, exact
 parent relationships and command digests. The serving child's root must match the owned shared
-directory by device/inode. Observe its actual socket descriptors and the shim network namespace's
+directory by device/inode. Observe its actual socket descriptors and the QEMU network namespace's
 Unix socket table; require one connected stream endpoint at the exact selected socket path.
 Bind that endpoint inode and a digest of the path. This is correlation inside the trusted pinned
 runtime, not a claim of security against privileged host root or an arbitrary peer-authentication API.
@@ -65,6 +65,13 @@ connects the matching client chardev and filesystem device. Kata 4.1.0 pins virt
 That daemon [creates its socket before entering isolation](https://gitlab.com/virtio-fs/virtiofsd/-/blob/v1.14.0/src/main.rs)
 and [forks a separate serving child](https://gitlab.com/virtio-fs/virtiofsd/-/blob/v1.14.0/src/sandbox.rs).
 These support a qualification hypothesis; actual hosted default construction must prove it.
+
+The initial hosted candidate reached socket correlation but inspected the wrong network namespace.
+Linux [creates the accepted Unix stream endpoint in the connecting socket's namespace](https://github.com/torvalds/linux/blob/v6.18/net/unix/af_unix.c#L1645-L1685),
+and [process network tables reflect that process's namespace](https://www.man7.org/linux/man-pages/man5/proc_pid_net.5.html).
+Read the already-attested QEMU's table and correlate the retained serving descriptor there. Never
+substitute an arbitrary caller PID or scan unrelated namespaces as a fallback. The physical fixture
+must independently locate the proof's connected endpoint in that QEMU table before acceptance.
 
 ## Verification and recovery
 
