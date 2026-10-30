@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, readlinkSync } from 'node:fs';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
@@ -132,7 +132,24 @@ class NativeFilesystemAssertions {
     this.process(binding.daemon, selected.member.sha256);
     this.process(binding.server, selected.member.sha256);
     assert.notEqual(binding.daemon.pid, binding.server.pid);
+    this.socketNamespace(record, binding);
     this.immutable(binding);
+  }
+  private static socketNamespace(
+    record: Sandbox.KataSandboxEvidence,
+    binding: FilesystemBinding,
+  ): void {
+    const path = '/run/kata/' + record.resourceName + '/root/virtiofsd.sock';
+    const table = readFileSync('/proc/' + record.boot.process.pid + '/net/unix', 'utf8');
+    const matches = [];
+    for (const line of table.split('\n')) {
+      const fields = line.trim().split(/\s+/);
+      if (fields[6] === binding.socket.inode && fields[7] === path) matches.push(fields);
+    }
+    assert.equal(matches.length, 1, 'Connected filesystem endpoint absent from QEMU namespace');
+    assert.equal(matches[0]![4], '0001');
+    assert.equal(matches[0]![5], '03');
+    assert.equal(binding.socket.pathDigest, createHash('sha256').update(path).digest('hex'));
   }
   private static virtiofs(value: { role: string }): boolean {
     return value.role === 'virtiofs';
