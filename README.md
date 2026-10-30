@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Native virgin-base network qualification and bounded observation evidence are specified in
+[the owner network reference](docs/native-network-isolation.md).
+
 Native host policy lifetime and its public descriptor-custody API are specified in
 [the owner reference](docs/native-host-policy-custody.md). Retained custody and actual launch
 binding belong beneath the selected native host provider; they do not create a profile or pool
