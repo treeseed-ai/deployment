@@ -1,6 +1,6 @@
 {
   "name": "@treeseed-cordis/deployment",
-  "version": "0.0.0-cordis.138",
+  "version": "0.0.0-cordis.139",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -106,7 +106,7 @@
     "pluginId": "deployment",
     "package": {
       "name": "@treeseed-cordis/deployment",
-      "version": "0.0.0-cordis.138"
+      "version": "0.0.0-cordis.139"
     },
     "providers": [
       {
@@ -558,6 +558,51 @@
                     "path",
                     "sha256",
                     "size"
+                  ],
+                  "additionalProperties": false
+                },
+                "policy": {
+                  "type": "object",
+                  "properties": {
+                    "components": {
+                      "minItems": 6,
+                      "maxItems": 6,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "configuration",
+                              "hypervisor",
+                              "kernel",
+                              "rootfs",
+                              "shim",
+                              "virtiofs"
+                            ]
+                          },
+                          "member": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          },
+                          "path": {
+                            "type": "string",
+                            "pattern": "^\\/"
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "member",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "components"
                   ],
                   "additionalProperties": false
                 }
