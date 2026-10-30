@@ -75,13 +75,39 @@ class NativeLaunchScenario {
     const Constructor = LaunchCapability.type(),
       policy = this.custody.policy!;
     this.observed(created);
-    this.attestation = await Constructor.open(policy, created.resourceName, this.custody.signal);
+    this.attestation = await this.open(Constructor, policy, created.resourceName);
     this.attestation.verify();
     this.proof(created);
     await this.repeated(created);
     await this.refused(created);
     await this.mismatched(created);
     this.attestation.verify();
+  }
+  private async open(
+    Constructor: LaunchConstructor,
+    policy: Sandbox.EffectiveRuntimePolicy,
+    name: string,
+  ): Promise<LaunchAttestation> {
+    try {
+      return await Constructor.open(policy, name, this.custody.signal);
+    } catch (error) {
+      this.diagnose(Constructor, policy, name);
+      throw error;
+    }
+  }
+  /** Temporary observation only: preserve the public failure and never replace its production path. */
+  private diagnose(Constructor: LaunchConstructor, policy: object, name: string): void {
+    try {
+      const capture = Reflect.get(Constructor, 'capture');
+      assert.equal(typeof capture, 'function');
+      const diagnostic = capture.call(Constructor, policy, name) as LaunchAttestation;
+      diagnostic.close();
+      process.stderr.write('Native capture succeeded after public admission failed\n');
+    } catch (error) {
+      const text =
+        error instanceof Error ? (error.stack ?? error.message) : 'Unknown capture failure';
+      process.stderr.write('Native capture diagnostic: ' + text.slice(0, 4096) + '\n');
+    }
   }
   private async mismatched(created: Sandbox.KataSandboxEvidence): Promise<void> {
     const alternate = await this.custody.mismatch(),
