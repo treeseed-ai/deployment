@@ -1511,6 +1511,21 @@ verifiers:
     ownerPackage: "@treeseed/deployment"
     testFile: tests/sandbox/architecture/candidate-delta.test.ts
     testName: "publishes a small real Git contribution below its unchanged ceiling despite substantial pre-base project history"
+  deployment.golden.source-git-failure-category-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-git-transport.test.ts
+    testName: "retains the generic external category and exposes only a safe operation and observed child outcome"
+  deployment.golden.source-git-failure-denials-unit:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/source-git-transport.test.ts
+    testName: "rejects malformed or untrusted diagnostic values and keeps successful output unchanged"
+  deployment.golden.source-git-failure-retention-native:
+    kind: vitestCase
+    ownerPackage: "@treeseed/deployment"
+    testFile: tests/sandbox/architecture/candidate-delta.test.ts
+    testName: "retains a real failed publication with a safe Git stage and no invented result or ref"
   deployment.golden.candidate-delta-ceiling-native:
     kind: vitestCase
     ownerPackage: "@treeseed/deployment"

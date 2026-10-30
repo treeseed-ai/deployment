@@ -12,12 +12,16 @@ it('retains a real failed publication with a safe Git stage and no invented resu
 	try {
 		const before = f.snapshot();
 		await rm(f.baseBundlePath);
+		let observedExit: unknown;
+		try { f.git(f.root, 'bundle', 'unbundle', f.baseBundlePath); }
+		catch (error) { observedExit = (error as { status?: unknown }).status; }
+		expect(observedExit).toBe(1);
 		const job = f.start(); await job.drain();
 		expect(job.status()).toMatchObject({ state: 'retained',
-			failure: expect.stringContaining('source_git_bundle_unbundle_exit_128') });
+			failure: expect.stringContaining('source_git_bundle_unbundle_exit_1') });
 		expect(job.publishedReference()).toBeUndefined();
 		expect(f.journals.at(-1)).toMatchObject({ state: 'retained', reason: 'source_publication_failed',
-			detail: expect.stringContaining('source_git_bundle_unbundle_exit_128') });
+			detail: expect.stringContaining('source_git_bundle_unbundle_exit_1') });
 		expect(f.counts()).toEqual({ verified: 1, published: 0 });
 		expect(f.snapshot()).toEqual(before); expect(f.refs()).toBe('');
 		expect(f.git(f.root, 'rev-parse', 'HEAD')).toBe(f.commit);

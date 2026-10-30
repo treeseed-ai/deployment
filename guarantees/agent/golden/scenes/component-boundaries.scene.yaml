@@ -918,6 +918,15 @@ workflow:
   - id: candidate-delta-history-native
     action: { verifier: deployment.golden.candidate-delta-history-native }
     expect: { status: passed }
+  - id: source-git-failure-category-unit
+    action: { verifier: deployment.golden.source-git-failure-category-unit }
+    expect: { status: passed }
+  - id: source-git-failure-denials-unit
+    action: { verifier: deployment.golden.source-git-failure-denials-unit }
+    expect: { status: passed }
+  - id: source-git-failure-retention-native
+    action: { verifier: deployment.golden.source-git-failure-retention-native }
+    expect: { status: passed }
   - id: candidate-delta-ceiling-native
     action: { verifier: deployment.golden.candidate-delta-ceiling-native }
     expect: { status: passed }
