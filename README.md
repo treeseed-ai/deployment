@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Qualified resource profile forwarding over the authenticated private sandbox socket is specified in
+[the owner transport reference](docs/sandbox-profile-channel.md).
+
 Native shared-filesystem process/socket qualification is specified in
 [the owner filesystem reference](docs/native-filesystem-binding.md).
 

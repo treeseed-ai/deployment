@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Forward qualified native resource profiles over private sandbox control (#1083).
 - Qualify native virtiofs process and socket binding (#1080).
 - Bind native QEMU to the retained active Kata shim (#1078).
 - Qualify native virgin sandbox network isolation (#1076).
