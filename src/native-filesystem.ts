@@ -43,8 +43,7 @@ export class NativeFilesystemProjection {
       this.qemu(this.arguments(qemu), selected.socketPath);
       this.daemon(this.arguments(daemon), selected);
       return selected;
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       throw new KataSandboxError('KATA_FILESYSTEM_ARGUMENTS_INVALID');
     }
   }
@@ -129,8 +128,7 @@ export class NativeFilesystemProjection {
         pathDigest: createHash('sha256').update(path).digest('hex'),
         state: 'connected' as const,
       });
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       throw new KataSandboxError('KATA_FILESYSTEM_ARGUMENTS_INVALID');
     }
   }
@@ -317,10 +315,10 @@ class NativeFilesystemProcesses {
 class NativeFilesystemSocket {
   read(
     server: FilesystemProcess,
-    shim: number,
+    qemu: number,
     selected: FilesystemSelection,
   ): Pick<NativeFilesystemProof, 'socket' | 'shared'> {
-    const table = readFileSync('/proc/' + shim + '/net/unix', 'utf8');
+    const table = readFileSync('/proc/' + qemu + '/net/unix', 'utf8');
     const targets = this.targets(server.row.pid);
     const socket = new NativeFilesystemProjection().connection(table, targets, selected.socketPath);
     const shared = this.shared(server.row.pid, selected.sharedDirectory);
@@ -375,7 +373,7 @@ class NativeFilesystemObserver {
     new NativeFilesystemProjection().parse(qemu, family.server.args, this.name);
     const state = new NativeFilesystemSocket().read(
       family.server,
-      runtime.binding.shim.pid,
+      runtime.proof.boot.process.pid,
       selected,
     );
     this.processes.same(family.daemon);
@@ -440,8 +438,7 @@ export class NativeFilesystemAttestation {
       signal.throwIfAborted();
       admission.verify();
       return admission;
-    } catch (error) {
-      FilesystemDiagnostic.trace(error);
+    } catch {
       admission?.close();
       const cancelled = signal instanceof AbortSignal && signal.aborted;
       throw new KataSandboxError(cancelled ? 'KATA_CANCELLED' : 'KATA_FILESYSTEM_INVALID');
@@ -472,19 +469,5 @@ export class NativeFilesystemAttestation {
   close(): void {
     this.closed = true;
     this.admission.close();
-  }
-}
-/** Temporary failed-hosted qualification trace; remove before any accepted artifact. */
-class FilesystemDiagnostic {
-  static trace(error: unknown): void {
-    if (!(error instanceof Error)) return;
-    let count = 0;
-    for (const line of error.stack?.split('\n') ?? []) {
-      if (!line.includes('/native-filesystem.js:')) continue;
-      const match = /^\s*at ([A-Za-z0-9_.]+).*:(\d+):\d+\)?$/.exec(line);
-      if (!match || ++count > 4) continue;
-      const frame = { symbol: match[1], line: Number(match[2]) };
-      process.stderr.write('DIAGNOSTIC_FILESYSTEM_FRAME ' + JSON.stringify(frame) + '\n');
-    }
   }
 }
