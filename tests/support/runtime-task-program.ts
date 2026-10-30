@@ -6,6 +6,12 @@ import { parse, stringify } from 'smol-toml';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
 import { RuntimePolicyFixture } from './runtime-policy-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
+import {
+  CordisScope,
+  type ProviderLease,
+  type ProviderRegistration,
+  type CompositionDescriptor,
+} from '@treeseed-cordis/sdk/runtime';
 
 export const TASK_CONFIGURATION_INPUT = {
   scope: { installationId: 'fixture', serviceId: 'worker', providerGeneration: 'a'.repeat(64) },
@@ -134,7 +140,9 @@ class NativeTaskScenario {
   private readonly custody = new NativePolicyFixture(this.fixture.directory);
   private readonly id = 'sandbox-' + randomUUID();
   private readonly previous = process.env.KATA_CONF_FILE;
-  private backend: Sandbox.KataSandboxBackend | null = null;
+  private backend: Sandbox.KataSandboxHost | null = null;
+  private scope: CordisScope | null = null;
+  private lease: ProviderLease<Sandbox.KataSandboxHost> | null = null;
   private active = false;
   async run(): Promise<void> {
     const failures = [];
@@ -156,7 +164,10 @@ class NativeTaskScenario {
     const created = await this.create();
     this.observed(created);
     this.selection(created);
-    assert.deepEqual((await this.backend!.inspect(this.id, this.custody.signal)).boot, created.boot);
+    assert.deepEqual(
+      (await this.backend!.inspect(this.id, this.custody.signal)).boot,
+      created.boot,
+    );
     await this.destroy();
     await assert.rejects(this.backend!.inspect.bind(this.backend, this.id, this.custody.signal), {
       message: 'KATA_SANDBOX_DESTROYED',
@@ -173,12 +184,51 @@ class NativeTaskScenario {
       'linux/amd64',
       configuration.image as string,
     ]);
-    this.backend = await Sandbox.KataSandboxBackend.open({
+    this.backend = await this.native({
       ...configuration,
       resources: this.custody.resources,
     });
     this.active = true;
     return this.backend.create(this.id, this.custody.signal);
+  }
+  private async native(configuration: unknown): Promise<Sandbox.KataSandboxHost> {
+    const scopeId = 'installation:' + this.fixture.namespaceScope.installationId + ':host';
+    this.scope = await CordisScope.start(this.composition(scopeId, configuration), {
+      scopeId,
+      target: 'deployment',
+      principalId: 'uid:0',
+      resourceScope: this.fixture.namespaceScope.installationId,
+    });
+    this.lease = await this.scope.acquire(Sandbox.KataSandboxToken);
+    await this.lease.value.ready();
+    return this.lease.value;
+  }
+  private composition(scopeId: string, configuration: unknown): CompositionDescriptor {
+    return {
+      registrations: [this.registration(configuration)],
+      selections: [
+        {
+          scopeId,
+          capability: Sandbox.KataSandboxToken.id,
+          providerId: Sandbox.KataSandboxPlugin.declaration.id,
+        },
+      ],
+    };
+  }
+  private registration(configuration: unknown): ProviderRegistration {
+    const metadata = JSON.parse(
+      readFileSync(
+        new URL('../../package.json', import.meta.resolve('@treeseed-cordis/deployment/sandbox')),
+        'utf8',
+      ),
+    );
+    return {
+      token: Sandbox.KataSandboxToken,
+      plugin: Sandbox.KataSandboxPlugin,
+      declaration: Sandbox.KataSandboxPlugin.declaration,
+      configuration,
+      artifact: { kind: 'bundled', identity: metadata.name + '@' + metadata.version },
+    };
   }
   private async masked(): Promise<void> {
     const fixture = new PrivateKataFixture(),
@@ -248,8 +298,19 @@ class NativeTaskScenario {
     assert.equal((await this.backend.destroy(this.id, this.custody.signal)).destroyed, true);
     this.active = false;
   }
-  private async closeBackend(): Promise<void> {
-    await this.backend?.close();
+  private async disposeNative(): Promise<void> {
+    const failures = [];
+    try {
+      await this.lease?.release();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await this.scope?.dispose();
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length) throw new AggregateError(failures, 'Native host disposal failed');
   }
   private restore(): void {
     if (this.previous === undefined) delete process.env.KATA_CONF_FILE;
@@ -259,7 +320,7 @@ class NativeTaskScenario {
     const failures = [];
     for (const release of [
       this.destroy.bind(this),
-      this.closeBackend.bind(this),
+      this.disposeNative.bind(this),
       this.fixture.stop.bind(this.fixture),
       this.custody.close.bind(this.custody),
       this.restore.bind(this),
