@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { parse, stringify } from 'smol-toml';
+import { randomUUID } from 'node:crypto';
 import { CanonicalJson, SandboxControlSchemas } from '@treeseed-cordis/sdk';
 import * as Sandbox from '@treeseed-cordis/deployment/sandbox';
-import { RuntimePolicyFixture } from './runtime-policy-program.js';
+import { NativePolicyFixture } from './runtime-task-program.js';
 import { PrivateKataFixture } from './kata-backend-program.js';
 
 interface LaunchProof {
@@ -34,114 +31,9 @@ export class LaunchCapability {
     return Constructor;
   }
 }
-/** Hosted fixture retains installed members; it never extracts or edits the installed kit. */
-class InstalledPolicyFixture {
-  private archive: Sandbox.RuntimeArchiveCustody | null = null;
-  private components: Sandbox.RuntimeComponentCustody | null = null;
-  private aliases: Sandbox.RuntimeAliasCustody | null = null;
-  policy: Sandbox.EffectiveRuntimePolicy | null = null;
-  readonly resources = { vcpus: 2, memoryMiB: 1024, scratchMiB: 64 };
-  readonly signal = new AbortController().signal;
-  constructor(readonly directory: string) {}
-  async prepare(): Promise<string> {
-    await this.retain();
-    const prepared = await this.effective();
-    this.policy = prepared.policy;
-    return prepared.path;
-  }
-  private async retain(): Promise<void> {
-    const path = '/opt/kata/kata-static-4.1.0-amd64.tar.zst';
-    this.archive = await Sandbox.RuntimeArchiveCustody.open(
-      {
-        path,
-        size: 969565384,
-        sha256: '3dc6b69c4acb787b967b04b64599a20d02a8beb1a8eaab3084110df9d0b08c96',
-      },
-      this.signal,
-    );
-    const members = [];
-    for (const [, member] of RuntimePolicyFixture.selections) members.push(member);
-    const inspected = await this.archive.inspect(members, this.signal);
-    this.components = await Sandbox.RuntimeComponentCustody.open(
-      this.archive,
-      this.bindings(inspected),
-      this.signal,
-    );
-    this.aliases = await Sandbox.RuntimeAliasCustody.open(this.components, '/', this.signal);
-  }
-  private bindings(inspected: Sandbox.RuntimeKitMembers): Sandbox.RuntimeComponentBinding[] {
-    const bindings = [];
-    for (const [role, requested] of RuntimePolicyFixture.selections) {
-      const member = inspected.members.find(InstalledPolicyFixture.requested.bind(null, requested));
-      assert(member);
-      bindings.push({ role, member: requested, path: '/' + member.path });
-    }
-    return bindings;
-  }
-  private static requested(path: string, member: Sandbox.RuntimeKitMember): boolean {
-    return member.requestedPath === path;
-  }
-  private document(memoryMiB: number): string {
-    const template = '/' + RuntimePolicyFixture.selections[0][1];
-    const document = parse(readFileSync(template, 'utf8'), { integersAsBigInt: true });
-    const qemu = (document.hypervisor as Record<string, unknown>).qemu as Record<string, unknown>;
-    Object.assign(qemu, {
-      default_vcpus: 3n,
-      default_maxvcpus: 3n,
-      default_memory: BigInt(memoryMiB + 32),
-      default_maxmemory: BigInt(memoryMiB + 32 + 256),
-      memory_slots: 1n,
-      enable_annotations: [],
-    });
-    return stringify(document);
-  }
-  private async effective(
-    name = 'launch-policy',
-    memoryMiB = 1024,
-  ): Promise<{
-    path: string;
-    policy: Sandbox.EffectiveRuntimePolicy;
-  }> {
-    const parent = join(this.directory, name);
-    mkdirSync(parent, { mode: 0o700 });
-    const path = join(parent, 'effective.toml'),
-      bytes = Buffer.from(this.document(memoryMiB));
-    writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
-    const policy = await Sandbox.EffectiveRuntimePolicy.open(
-      {
-        configuration: {
-          path,
-          sha256: createHash('sha256').update(bytes).digest('hex'),
-        },
-        resources: { ...this.resources, memoryMiB },
-      },
-      this.components!,
-      this.aliases!,
-      this.signal,
-    );
-    return { path, policy };
-  }
-  async mismatch(): Promise<Sandbox.EffectiveRuntimePolicy> {
-    const alternate = await this.effective('mismatch-policy', 1025);
-    assert.notEqual(alternate.policy.proof.digest, this.policy!.proof.digest);
-    assert.equal(alternate.policy.proof.resources.memoryMiB, 1025);
-    return alternate.policy;
-  }
-  close(): void {
-    const failures = [];
-    for (const resource of [this.policy, this.aliases, this.components, this.archive])
-      try {
-        resource?.close();
-      } catch (error) {
-        failures.push(error);
-      }
-    if (failures.length)
-      throw new AggregateError(failures, 'Installed policy fixture disposal failed');
-  }
-}
 class NativeLaunchScenario {
   private readonly fixture = new PrivateKataFixture();
-  private readonly custody = new InstalledPolicyFixture(this.fixture.directory);
+  private readonly custody = new NativePolicyFixture(this.fixture.directory);
   private backend: Sandbox.KataSandboxBackend | null = null;
   private attestation: LaunchAttestation | null = null;
   private active = false;
@@ -164,7 +56,7 @@ class NativeLaunchScenario {
   private async exercise(): Promise<void> {
     const path = await this.custody.prepare();
     process.env.KATA_CONF_FILE = path;
-    await this.fixture.start();
+    await this.fixture.start('task-options');
     const selected = (await this.fixture.configuration()) as Record<string, unknown>;
     this.fixture.run(['images', 'pull', '--platform', 'linux/amd64', selected.image as string]);
     this.backend = await Sandbox.KataSandboxBackend.open({

@@ -55,9 +55,10 @@ Also construct a second genuine native policy with different finite RAM bounds a
 reject the same running process. Validate its distinct policy identity before the attempt, so
 relocated, forged or otherwise invalid custody cannot mask a missing resource comparison.
 The pinned Kata loader refuses private configuration paths selected through `KATA_CONF_FILE`.
-[The task-option selection candidate](https://github.com/treeseed-ai/deployment/pull/1072)
-provides its supported operator boundary. Reconcile that accepted owner dependency before the
-actual finite launch can qualify; a rejected configuration is not evidence about VM resource limits.
+[The accepted task-option selection](https://github.com/treeseed-ai/deployment/pull/1072)
+provides its supported operator boundary at `400e5339e447d28944ea6ee70ef98979326a7ccd`.
+The launch candidate consumes that accepted baseline; its own fresh finite launch must still
+qualify. A rejected configuration is not evidence about VM resource limits.
 
 The native launch fixture uses that owner's shared installed-policy fixture and explicitly selects
 `task-options` on its dedicated daemon. Its `KATA_CONF_FILE` override must be absent; retain the
