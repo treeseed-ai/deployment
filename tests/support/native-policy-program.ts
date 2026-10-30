@@ -157,17 +157,31 @@ class NativeFilesystemAssertions {
     assert.equal(matches[0]![4], '0001');
     assert.equal(matches[0]![5], '03');
     assert.equal(binding.socket.pathDigest, createHash('sha256').update(path).digest('hex'));
-    this.sharedNamespace(record.resourceName, binding);
+    this.sharedNamespace(record, binding);
   }
-  private static sharedNamespace(name: string, binding: FilesystemBinding): void {
-    const path = '/run/kata-containers/shared/sandboxes/' + name + '/ro';
-    const source = lstatSync('/proc/' + binding.daemon.pid + '/root' + path);
+  private static sharedNamespace(
+    record: Sandbox.KataSandboxEvidence,
+    binding: FilesystemBinding,
+  ): void {
+    const path = '/run/kata-containers/shared/sandboxes/' + record.resourceName + '/ro';
+    const runtime = Reflect.get(record, 'runtime') as RuntimeBinding;
+    const source = lstatSync('/proc/' + runtime.shim.pid + '/root' + path);
     const root = statSync('/proc/' + binding.server.pid + '/root');
     assert(source.isDirectory() && !source.isSymbolicLink());
     assert.equal(source.uid, 0);
     assert.equal(source.mode & 0o022, 0);
     assert.deepEqual({ device: source.dev, inode: source.ino }, binding.shared);
     assert.deepEqual({ device: root.dev, inode: root.ino }, binding.shared);
+    this.readonlyRoot(binding.server.pid);
+  }
+  private static readonlyRoot(pid: number): void {
+    const roots = [];
+    for (const line of readFileSync('/proc/' + pid + '/mountinfo', 'utf8').split('\n')) {
+      const fields = line.split(' ');
+      if (fields[4] === '/') roots.push(fields);
+    }
+    assert.equal(roots.length, 1);
+    assert(roots[0]![5]!.split(',').includes('ro'), 'Native shared root must be read-only');
   }
   private static virtiofs(value: { role: string }): boolean {
     return value.role === 'virtiofs';
