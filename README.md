@@ -1,5 +1,8 @@
 # Cordis diagnostics and non-activating planning
 
+Active native shim selection and generation binding are specified in
+[the owner shim reference](docs/native-shim-binding.md).
+
 Native virgin-base network qualification and bounded observation evidence are specified in
 [the owner network reference](docs/native-network-isolation.md).
 
