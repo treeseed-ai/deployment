@@ -59,6 +59,14 @@ The pinned Kata loader refuses private configuration paths selected through `KAT
 provides its supported operator boundary. Reconcile that accepted owner dependency before the
 actual finite launch can qualify; a rejected configuration is not evidence about VM resource limits.
 
+The native launch fixture uses that owner's shared installed-policy fixture and explicitly selects
+`task-options` on its dedicated daemon. Its `KATA_CONF_FILE` override must be absent; retain the
+selected private file and all installed component/alias descriptors before creating the task.
+Do not duplicate the policy constructor or reintroduce temporary daemon/command tracing. Keep
+the independent configuration-selection scenario and every attestation assertion: repeated proof,
+alternate genuine policy rejection, cancellation, close semantics and invalidation on destruction.
+Only fresh hosted execution of the reconciled owner head can qualify this launch path.
+
 Actual provider/profile publication, pool ownership/claims/refill, setup/egress, live authority,
 seed coordination, CLI and final assembled admission remain subsequent Task3D gates. Real
 Work/model execution remains Task10. Keep all issues open and retain immutable prior artifacts.
