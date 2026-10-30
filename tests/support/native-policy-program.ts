@@ -85,8 +85,83 @@ interface RuntimeAdmission {
 }
 interface RuntimePolicyOwner {
   runtimeLaunch(name: string, signal: AbortSignal): Promise<RuntimeAdmission>;
+  filesystemLaunch(name: string, signal: AbortSignal): Promise<FilesystemAdmission>;
   verify(): void;
   close(): void;
+}
+interface FilesystemBinding {
+  kind: string;
+  formatVersion: number;
+  policyDigest: string;
+  runtimeDigest: string;
+  bootDigest: string;
+  daemon: RuntimeBinding['shim'];
+  server: RuntimeBinding['shim'];
+  socket: Readonly<{ inode: string; pathDigest: string; state: string }>;
+  shared: Readonly<{ device: number; inode: number }>;
+  digest: string;
+}
+interface FilesystemAdmission {
+  readonly proof: Sandbox.KataLaunchProof;
+  readonly runtime: RuntimeBinding;
+  readonly binding: FilesystemBinding;
+  verify(): void;
+  close(): void;
+}
+class NativeFilesystemAssertions {
+  static interface(): void {
+    const Type = Reflect.get(Sandbox, 'NativeFilesystemProjection');
+    assert.equal(typeof Type, 'function', 'Public native filesystem projection missing');
+    const Admission = Reflect.get(Sandbox, 'NativeFilesystemAttestation');
+    assert.equal(typeof Admission?.open, 'function', 'Public native filesystem admission missing');
+  }
+  static observed(
+    record: Sandbox.KataSandboxEvidence,
+    policy: Sandbox.EffectiveRuntimePolicyProof,
+  ): void {
+    const binding = Reflect.get(record, 'filesystem') as FilesystemBinding;
+    const runtime = Reflect.get(record, 'runtime') as RuntimeBinding;
+    assert(binding, 'Native filesystem binding missing');
+    assert.equal(binding.kind, 'kata-filesystem-binding');
+    assert.equal(binding.formatVersion, 1);
+    assert.equal(binding.bootDigest, record.boot.digest);
+    assert.equal(binding.runtimeDigest, runtime.digest);
+    assert.equal(binding.policyDigest, runtime.policyDigest);
+    const selected = policy.components.find(NativeFilesystemAssertions.virtiofs);
+    assert(selected);
+    this.process(binding.daemon, selected.member.sha256);
+    this.process(binding.server, selected.member.sha256);
+    assert.notEqual(binding.daemon.pid, binding.server.pid);
+    this.immutable(binding);
+  }
+  private static virtiofs(value: { role: string }): boolean {
+    return value.role === 'virtiofs';
+  }
+  private static process(value: RuntimeBinding['shim'], digest: string): void {
+    assert(Number.isSafeInteger(value.pid) && value.pid > 1);
+    assert.match(value.startTime, /^[0-9]+$/);
+    assert.match(value.commandDigest, /^[a-f0-9]{64}$/);
+    assert.equal(value.executableDigest, digest);
+    assert(Object.isFrozen(value));
+  }
+  private static immutable(binding: FilesystemBinding): void {
+    assert.equal(binding.socket.state, 'connected');
+    assert.match(binding.socket.inode, /^[1-9][0-9]*$/);
+    assert.match(binding.socket.pathDigest, /^[a-f0-9]{64}$/);
+    assert(Number.isSafeInteger(binding.shared.device));
+    assert(Number.isSafeInteger(binding.shared.inode) && binding.shared.inode > 0);
+    for (const value of [binding, binding.socket, binding.shared]) assert(Object.isFrozen(value));
+    const { digest, ...content } = binding;
+    assert.equal(digest, CanonicalJson.digest(content));
+    assert(!JSON.stringify(binding).includes('/run/'));
+  }
+  static same(actual: FilesystemBinding, expected: FilesystemBinding): void {
+    assert.equal(actual.bootDigest, expected.bootDigest);
+    assert.deepEqual(actual.daemon, expected.daemon);
+    assert.deepEqual(actual.server, expected.server);
+    assert.deepEqual(actual.socket, expected.socket);
+    assert.deepEqual(actual.shared, expected.shared);
+  }
 }
 class NativeShimAssertions {
   static interface(): void {
@@ -135,6 +210,7 @@ class NativeRuntimeFixture {
   private archive: Sandbox.RuntimeArchiveCustody | null = null;
   private owner: RuntimePolicyOwner | null = null;
   private admission: RuntimeAdmission | null = null;
+  private filesystem: FilesystemAdmission | null = null;
   private readonly signal = new AbortController().signal;
   async prepare(input: object): Promise<void> {
     const configuration = Sandbox.KataSandboxPlugin.Config.parse(input);
@@ -149,6 +225,7 @@ class NativeRuntimeFixture {
       this.signal,
     )) as unknown as RuntimePolicyOwner;
     assert(this.owner && typeof this.owner.runtimeLaunch === 'function');
+    assert.equal(typeof this.owner.filesystemLaunch, 'function');
   }
   async admitted(record: Sandbox.KataSandboxEvidence): Promise<void> {
     this.admission = await this.owner!.runtimeLaunch(record.resourceName, this.signal);
@@ -158,6 +235,39 @@ class NativeRuntimeFixture {
     assert.deepEqual(this.admission.binding.shim, binding.shim);
     await this.refused(record.resourceName);
     await this.repeated(record.resourceName);
+    await this.filesystemAdmitted(record);
+  }
+  private async filesystemAdmitted(record: Sandbox.KataSandboxEvidence): Promise<void> {
+    this.filesystem = await this.owner!.filesystemLaunch(record.resourceName, this.signal);
+    this.filesystem.verify();
+    NativeFilesystemAssertions.same(this.filesystem.binding, Reflect.get(record, 'filesystem'));
+    assert.deepEqual(this.filesystem.runtime, this.admission!.binding);
+    await this.filesystemRefused(record.resourceName);
+    await this.filesystemRepeated(record.resourceName);
+  }
+  private async filesystemRefused(name: string): Promise<void> {
+    await assert.rejects(this.owner!.filesystemLaunch.bind(this.owner, name, AbortSignal.abort()), {
+      message: 'KATA_CANCELLED',
+    });
+    const suffix = name.endsWith('0'.repeat(24)) ? '1' : '0';
+    const other = name.slice(0, -24) + suffix.repeat(24);
+    await assert.rejects(this.owner!.filesystemLaunch.bind(this.owner, other, this.signal), {
+      message: 'KATA_FILESYSTEM_INVALID',
+    });
+    this.filesystem!.verify();
+  }
+  private async filesystemRepeated(name: string): Promise<void> {
+    const repeated = await this.owner!.filesystemLaunch(name, this.signal);
+    try {
+      repeated.verify();
+      assert.deepEqual(repeated.binding, this.filesystem!.binding);
+    } finally {
+      repeated.close();
+    }
+    assert.throws(repeated.verify.bind(repeated), { message: 'KATA_FILESYSTEM_CLOSED' });
+    this.owner!.verify();
+    this.filesystem!.verify();
+    this.admission!.verify();
   }
   private async refused(name: string): Promise<void> {
     await assert.rejects(this.owner!.runtimeLaunch.bind(this.owner, name, AbortSignal.abort()), {
@@ -184,16 +294,24 @@ class NativeRuntimeFixture {
   }
   observed(): void {
     this.admission!.verify();
+    this.filesystem!.verify();
   }
   destroyed(): void {
     assert.throws(this.admission!.verify.bind(this.admission), { message: 'KATA_RUNTIME_CHANGED' });
+    assert.throws(this.filesystem!.verify.bind(this.filesystem), {
+      message: 'KATA_FILESYSTEM_CHANGED',
+    });
+    this.filesystem!.close();
+    assert.throws(this.filesystem!.verify.bind(this.filesystem), {
+      message: 'KATA_FILESYSTEM_CLOSED',
+    });
     this.admission!.close();
     assert.throws(this.admission!.verify.bind(this.admission), { message: 'KATA_RUNTIME_CLOSED' });
     this.close();
   }
   close(): void {
     const failures = [];
-    for (const owned of [this.admission, this.owner, this.archive])
+    for (const owned of [this.filesystem, this.admission, this.owner, this.archive])
       try {
         owned?.close();
       } catch (error) {
@@ -320,6 +438,7 @@ class NativePolicyScenario {
   private observed(created: Sandbox.KataSandboxEvidence): void {
     NativeNetworkAssertions.observed(created);
     NativeShimAssertions.observed(created, this.custody.policy!.proof);
+    NativeFilesystemAssertions.observed(created, this.custody.policy!.proof);
     assert.deepEqual(created.boot.boot.resources, {
       vcpus: 3,
       maximumVcpus: 3,
@@ -412,6 +531,7 @@ class NativePolicyProgram {
     } else await this.run();
   }
   static async run(): Promise<void> {
+    NativeFilesystemAssertions.interface();
     NativeShimAssertions.interface();
     NativeNetworkAssertions.interface();
     const selected = NativePolicyInput.selected();
