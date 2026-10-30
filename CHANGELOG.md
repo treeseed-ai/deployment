@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Bind native Kata launch to retained runtime policy (#1069).
 - Split native Kata smoke into exhaustive bounded CI partitions (#954).
 - Select pinned native Kata policy through bounded task options (#1071).
 - Bind effective Kata bounds to exact root-image address space (#1067).
