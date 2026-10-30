@@ -1,5 +1,9 @@
 # Cordis diagnostics and non-activating planning
 
+Qualified native sandbox profile semantics are specified in
+[the owner profile reference](docs/native-sandbox-profile.md); implementation requires accepted
+physical filesystem qualification before an actual profile is advertised.
+
 Active native shim selection and generation binding are specified in
 [the owner shim reference](docs/native-shim-binding.md).
 
