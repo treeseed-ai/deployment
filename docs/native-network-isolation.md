@@ -6,9 +6,12 @@ owns warm-pool policy and admission. Enable the additional check through the exi
 selects namespace paths, interfaces or raw runtime flags.
 
 Before accepting an unassigned native base, read its owned container's actual OCI specification.
-Require exactly one network namespace, with an absent or empty `path`; a missing namespace would
+Require exactly one network namespace, with an absent `path`; a missing namespace would
 inherit networking, while a nonempty path selects an external namespace. Reject duplicate network
-entries and malformed namespace data. Independently inspect interface names inside the actual
+entries and malformed namespace data. Reject even an empty explicit path: the
+[OCI namespace contract](https://github.com/opencontainers/runtime-spec/blob/v1.2.1/config-linux.md#namespaces)
+requires any supplied path to be absolute, while omission creates a new namespace. Independently
+inspect interface names inside the actual
 guest and require exactly `lo`. A configured intention or caller-provided snapshot alone does not
 qualify the default host.
 
