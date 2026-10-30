@@ -413,12 +413,16 @@ class NativeProfileAssertions {
     assert.deepEqual(await this.read(host), this.saved);
   }
   private async read(host: Sandbox.KataSandboxHost): Promise<SandboxResourceProfile> {
-    const reader = Reflect.get(host, 'profile');
-    assert(typeof reader === 'function');
-    const profile = await reader.call(host);
-    assert(profile, 'Explicit native qualification must expose an SDK profile');
-    await SandboxProfileBinding.assert(profile);
-    return profile as SandboxResourceProfile;
+    try {
+      const reader = Reflect.get(host, 'profile');
+      assert(typeof reader === 'function');
+      const profile = await reader.call(host);
+      assert(profile, 'Explicit native qualification must expose an SDK profile');
+      await SandboxProfileBinding.assert(profile);
+      return profile as SandboxResourceProfile;
+    } catch (error) {
+      throw new Error('Native profile fixture read-back failed', { cause: error });
+    }
   }
   async changed(host: Sandbox.KataSandboxHost): Promise<void> {
     const reader = host.profile;
@@ -484,7 +488,10 @@ class NativePolicyScenario {
   private async repeatedProfile(): Promise<void> {
     this.id = 'sandbox-' + randomUUID();
     this.active = true;
-    const created = await this.lease!.value.create(this.id, this.custody.signal);
+    const created = await this.operation(
+      'repeat-create',
+      this.lease!.value.create.bind(this.lease!.value, this.id, this.custody.signal),
+    );
     this.observed(created);
     await this.profiles.stable(this.lease!.value);
     await this.destroy();
@@ -507,13 +514,19 @@ class NativePolicyScenario {
   }
   private async created(configuration: object): Promise<Sandbox.KataSandboxEvidence> {
     this.active = true;
-    const created = await this.lease!.value.create(this.id, this.custody.signal);
+    const created = await this.operation(
+      'initial-create',
+      this.lease!.value.create.bind(this.lease!.value, this.id, this.custody.signal),
+    );
     this.observed(created);
     await this.profiles.qualified(this.lease!.value, configuration);
     return created;
   }
   private async inspected(created: Sandbox.KataSandboxEvidence): Promise<void> {
-    const inspected = await this.lease!.value.inspect(this.id, this.custody.signal);
+    const inspected = await this.operation(
+      'inspect',
+      this.lease!.value.inspect.bind(this.lease!.value, this.id, this.custody.signal),
+    );
     this.observed(inspected);
     this.runtime.observed();
     assert.deepEqual(inspected.boot, created.boot);
@@ -555,7 +568,7 @@ class NativePolicyScenario {
       resourceScope: this.fixture.namespaceScope.installationId,
     });
     this.lease = await this.scope.acquire(Sandbox.KataSandboxToken);
-    await this.lease.value.ready();
+    await this.operation('host-ready', this.lease.value.ready.bind(this.lease.value));
     await this.profiles.before(this.lease.value);
   }
   private composition(scopeId: string, configuration: object): CompositionDescriptor {
@@ -615,8 +628,19 @@ class NativePolicyScenario {
   }
   private async destroy(): Promise<void> {
     if (!this.active || !this.lease) return;
-    assert.equal((await this.lease.value.destroy(this.id, this.custody.signal)).destroyed, true);
+    const result = await this.operation(
+      'destroy',
+      this.lease.value.destroy.bind(this.lease.value, this.id, this.custody.signal),
+    );
+    assert.equal(result.destroyed, true);
     this.active = false;
+  }
+  private async operation<T>(stage: string, action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      throw new Error('Native policy fixture operation ' + stage + ' failed', { cause: error });
+    }
   }
   private restore(): void {
     if (this.tampered && this.bytes) writeFileSync(this.path, this.bytes);
