@@ -32,8 +32,10 @@ integration gate; a schema or stored option alone proves no VM health or workloa
 
 Begin with built public mode/default/invalid-input checks, then a hosted Ubuntu 26.04 fixture that
 holds the actual installed kit, aliases and complete private effective policy before creation.
-Start only its dedicated daemon with the environment override absent. The actual default backend
-must create one harmless sandbox, read back the exact task option and observe three vCPUs,
+Start only its dedicated daemon with the environment override absent. A real native Cordis scope
+selects the default `KataSandboxPlugin`, holds its provider lease through verified destruction and
+disposes through native lifecycle. Its actual backend must create one harmless sandbox,
+read back the exact task option and observe three vCPUs,
 1056 MiB startup RAM and 1312 MiB maximum address space for the selected workload. Inspect a second
 time, then verify destruction and retain no assigned sandbox. A masked-mode attempt must fail
 before resource creation. Successful output follows all cleanup; cleanup failure cannot pass.
