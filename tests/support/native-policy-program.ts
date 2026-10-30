@@ -67,9 +67,146 @@ class NativeNetworkAssertions {
     });
   }
 }
+interface RuntimeBinding {
+  kind: string;
+  formatVersion: number;
+  policyDigest: string;
+  bootDigest: string;
+  sandboxName: string;
+  namespace: string;
+  shim: Sandbox.KataSandboxEvidence['hypervisor'];
+  digest: string;
+}
+interface RuntimeAdmission {
+  readonly proof: Sandbox.KataLaunchProof;
+  readonly binding: RuntimeBinding;
+  verify(): void;
+  close(): void;
+}
+interface RuntimePolicyOwner {
+  runtimeLaunch(name: string, signal: AbortSignal): Promise<RuntimeAdmission>;
+  verify(): void;
+  close(): void;
+}
+class NativeShimAssertions {
+  static interface(): void {
+    const Type = Reflect.get(Sandbox, 'NativeShimProjection');
+    assert.equal(typeof Type, 'function', 'Public native shim projection missing');
+    assert.equal(typeof Reflect.get(Sandbox, 'NativeRuntimeAttestation')?.open, 'function');
+    const name = 'cordis-sandbox-' + 'a'.repeat(24) + '-' + 'b'.repeat(24);
+    const namespace = name.slice(0, -25);
+    const args = ['shim', '-id', name, '-namespace', namespace];
+    assert.deepEqual(new Type().parse(args, name), { sandboxName: name, namespace });
+  }
+  static observed(
+    record: Sandbox.KataSandboxEvidence,
+    policy: Sandbox.EffectiveRuntimePolicyProof,
+  ): void {
+    const binding = Reflect.get(record, 'runtime') as RuntimeBinding;
+    assert(binding && typeof binding === 'object', 'Native runtime binding missing');
+    assert.equal(binding.kind, 'kata-runtime-binding');
+    assert.equal(binding.formatVersion, 1);
+    assert.match(binding.policyDigest, /^[a-f0-9]{64}$/);
+    assert.equal(binding.bootDigest, record.boot.digest);
+    assert.equal(binding.sandboxName, record.resourceName);
+    assert.equal(binding.namespace, record.resourceName.slice(0, -25));
+    const selected = policy.components.find(NativeShimAssertions.shim);
+    assert(selected);
+    this.process(binding.shim, selected.member.sha256);
+    this.immutable(binding);
+  }
+  private static shim(value: { role: string }): boolean {
+    return value.role === 'shim';
+  }
+  private static process(value: RuntimeBinding['shim'], digest: string): void {
+    assert(Number.isSafeInteger(value.pid) && value.pid > 1);
+    assert.match(value.startTime, /^[0-9]+$/);
+    assert.match(value.commandDigest, /^[a-f0-9]{64}$/);
+    assert.equal(value.executableDigest, digest);
+    assert(Object.isFrozen(value));
+  }
+  private static immutable(binding: RuntimeBinding): void {
+    const { digest, ...content } = binding;
+    assert.equal(digest, CanonicalJson.digest(content));
+    assert(Object.isFrozen(binding));
+  }
+}
+class NativeRuntimeFixture {
+  private archive: Sandbox.RuntimeArchiveCustody | null = null;
+  private owner: RuntimePolicyOwner | null = null;
+  private admission: RuntimeAdmission | null = null;
+  private readonly signal = new AbortController().signal;
+  async prepare(input: object): Promise<void> {
+    const configuration = Sandbox.KataSandboxPlugin.Config.parse(input);
+    assert(configuration.runtime.archive);
+    this.archive = await Sandbox.RuntimeArchiveCustody.open(
+      configuration.runtime.archive,
+      this.signal,
+    );
+    this.owner = (await Sandbox.NativePolicyCustody.open(
+      configuration,
+      this.archive,
+      this.signal,
+    )) as unknown as RuntimePolicyOwner;
+    assert(this.owner && typeof this.owner.runtimeLaunch === 'function');
+  }
+  async admitted(record: Sandbox.KataSandboxEvidence): Promise<void> {
+    this.admission = await this.owner!.runtimeLaunch(record.resourceName, this.signal);
+    this.admission.verify();
+    const binding = Reflect.get(record, 'runtime') as RuntimeBinding;
+    assert.equal(this.admission.binding.bootDigest, record.boot.digest);
+    assert.deepEqual(this.admission.binding.shim, binding.shim);
+    await this.refused(record.resourceName);
+    await this.repeated(record.resourceName);
+  }
+  private async refused(name: string): Promise<void> {
+    await assert.rejects(this.owner!.runtimeLaunch.bind(this.owner, name, AbortSignal.abort()), {
+      message: 'KATA_CANCELLED',
+    });
+    const suffix = name.endsWith('0'.repeat(24)) ? '1' : '0';
+    const other = name.slice(0, -24) + suffix.repeat(24);
+    await assert.rejects(this.owner!.runtimeLaunch.bind(this.owner, other, this.signal), {
+      message: 'KATA_RUNTIME_INVALID',
+    });
+    this.admission!.verify();
+  }
+  private async repeated(name: string): Promise<void> {
+    const repeated = await this.owner!.runtimeLaunch(name, this.signal);
+    try {
+      repeated.verify();
+      assert.deepEqual(repeated.binding, this.admission!.binding);
+    } finally {
+      repeated.close();
+    }
+    assert.throws(repeated.verify.bind(repeated), { message: 'KATA_RUNTIME_CLOSED' });
+    this.owner!.verify();
+    this.admission!.verify();
+  }
+  observed(): void {
+    this.admission!.verify();
+  }
+  destroyed(): void {
+    assert.throws(this.admission!.verify.bind(this.admission), { message: 'KATA_RUNTIME_CHANGED' });
+    this.admission!.close();
+    assert.throws(this.admission!.verify.bind(this.admission), { message: 'KATA_RUNTIME_CLOSED' });
+    this.close();
+  }
+  close(): void {
+    const failures = [];
+    for (const owned of [this.admission, this.owner, this.archive])
+      try {
+        owned?.close();
+      } catch (error) {
+        failures.push(error);
+      }
+    if (failures.length)
+      throw new AggregateError(failures, 'Native runtime fixture disposal failed');
+  }
+}
 class NativePolicyScenario {
   private readonly fixture = new PrivateKataFixture();
   private readonly custody = new NativePolicyFixture(this.fixture.directory);
+  private readonly runtime = new NativeRuntimeFixture();
   private readonly id = 'sandbox-' + randomUUID();
   private readonly previous = process.env.KATA_CONF_FILE;
   private scope: CordisScope | null = null;
@@ -96,17 +233,21 @@ class NativePolicyScenario {
   private async exercise(): Promise<void> {
     const configuration = await this.prepare();
     await this.native(configuration);
+    await this.runtime.prepare(configuration);
     this.active = true;
     const created = await this.lease!.value.create(this.id, this.custody.signal);
     this.observed(created);
+    await this.runtime.admitted(created);
     this.custody.close();
     assert.throws(this.custody.policy!.verify.bind(this.custody.policy), {
       message: 'KATA_RUNTIME_POLICY_CLOSED',
     });
     const inspected = await this.lease!.value.inspect(this.id, this.custody.signal);
-    NativeNetworkAssertions.observed(inspected);
+    this.observed(inspected);
+    this.runtime.observed();
     assert.deepEqual(inspected.boot, created.boot);
     await this.destroy();
+    this.runtime.destroyed();
     await this.changed();
   }
   private async prepare(): Promise<object> {
@@ -178,6 +319,7 @@ class NativePolicyScenario {
   }
   private observed(created: Sandbox.KataSandboxEvidence): void {
     NativeNetworkAssertions.observed(created);
+    NativeShimAssertions.observed(created, this.custody.policy!.proof);
     assert.deepEqual(created.boot.boot.resources, {
       vcpus: 3,
       maximumVcpus: 3,
@@ -248,6 +390,7 @@ class NativePolicyScenario {
     for (const release of [
       this.restore.bind(this),
       this.destroy.bind(this),
+      this.runtime.close.bind(this.runtime),
       this.custody.close.bind(this.custody),
       this.nativeDispose.bind(this),
       this.released.bind(this),
@@ -269,6 +412,7 @@ class NativePolicyProgram {
     } else await this.run();
   }
   static async run(): Promise<void> {
+    NativeShimAssertions.interface();
     NativeNetworkAssertions.interface();
     const selected = NativePolicyInput.selected();
     const parsed = Sandbox.KataSandboxPlugin.Config.parse(selected);
