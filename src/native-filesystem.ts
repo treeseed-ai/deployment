@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { readFileSync, readlinkSync, readdirSync, lstatSync, statSync } from 'node:fs';
+import { readFileSync, readlinkSync, readdirSync, lstatSync, statSync, type Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { setImmediate } from 'node:timers/promises';
 import { CanonicalJson } from '@treeseed-cordis/sdk';
@@ -344,6 +344,7 @@ class NativeFilesystemSocket {
   private shared(pid: number, path: string): NativeFilesystemProof['shared'] {
     const selected = lstatSync(path),
       actual = statSync('/proc/' + pid + '/root');
+    FilesystemDiagnostic.root(selected, actual);
     if (
       !selected.isDirectory() ||
       selected.isSymbolicLink() ||
@@ -477,6 +478,18 @@ export class NativeFilesystemAttestation {
 }
 /** Temporary bounded hosted evidence; remove before final source/artifact qualification. */
 class FilesystemDiagnostic {
+  static root(selected: Stats, actual: Stats): void {
+    const rows = [];
+    for (const value of [selected, actual])
+      rows.push({
+        directory: value.isDirectory(),
+        uid: value.uid,
+        mode: value.mode & 0o7777,
+        device: value.dev,
+        inode: value.ino,
+      });
+    process.stderr.write('DIAGNOSTIC_FILESYSTEM_ROOT ' + JSON.stringify(rows) + '\n');
+  }
   static trace(error: unknown): void {
     if (!(error instanceof Error)) return;
     let count = 0;
