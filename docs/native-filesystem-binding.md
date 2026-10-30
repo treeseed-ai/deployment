@@ -33,7 +33,7 @@ separate deeply immutable filesystem `binding`.
 Require the actual selected virtiofs executable path, device/inode, size and SHA-256 for both the
 shim's daemon child and its serving child. Require live root-owned stable generations, exact
 parent relationships and command digests. The serving child's root must match the owned shared
-directory by device/inode in its verified daemon parent's filesystem view. Observe its actual
+directory by device/inode in its verified Kata shim's filesystem view. Observe its actual
 socket descriptors and the QEMU network namespace's
 Unix socket table; require one connected stream endpoint at the exact selected socket path.
 Bind that endpoint inode and a digest of the path. This is correlation inside the trusted pinned
@@ -76,11 +76,15 @@ must independently locate the proof's connected endpoint in that QEMU table befo
 
 Kata's shared-directory bind mount belongs to its runtime mount view. Reading the same absolute
 path from the observer's host namespace can yield the underlying unmounted directory's inode.
-Use the verified daemon's `/proc/<pid>/root` view for its declared shared path, then compare the
+Use the verified shim's `/proc/<pid>/root` view for the daemon's declared shared path, then compare the
 serving child's root device/inode. Linux [documents this process-specific filesystem view](https://www.man7.org/linux/man-pages/man5/proc_pid_root.5.html).
 The PID comes from verified executable/ancestry/generation observation, never caller input. This
 read-only kernel view is intentional; final shared-path symlinks, non-root ownership, unsafe modes
 and changed identities still fail. It adds no arbitrary filesystem access or private-state write.
+Actual hosted observation places both virtiofs processes inside the exported root, so their own
+root views cannot resolve the runtime's original absolute path. The shim view retains the selected
+read-only bind mount and matches the serving root. The physical fixture independently checks both
+the exact identity and the serving root's read-only mount before accepting this configuration.
 
 ## Verification and recovery
 
