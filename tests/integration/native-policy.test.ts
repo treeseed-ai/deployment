@@ -92,6 +92,27 @@ class NativePolicyCustodyBoundaries {
     assert.deepEqual(this.descriptors(), before);
     this.fixture.archive!.verify();
   }
+  async compatible(): Promise<void> {
+    const factory = this.factory();
+    const before = this.descriptors();
+    assert.equal(await factory.open(TASK_CONFIGURATION_INPUT, null, this.fixture.signal), null);
+    assert.deepEqual(this.descriptors(), before);
+    this.fixture.archive!.verify();
+  }
+  async mismatched(): Promise<void> {
+    const factory = this.factory();
+    const input = this.input() as { runtime: { archive: { sha256: string } } };
+    input.runtime.archive.sha256 = '0'.repeat(64);
+    const before = this.descriptors();
+    await assert.rejects(
+      factory.open.bind(factory, input, this.fixture.archive, this.fixture.signal),
+      {
+        message: 'KATA_NATIVE_POLICY_INVALID',
+      },
+    );
+    assert.deepEqual(this.descriptors(), before);
+    this.fixture.archive!.verify();
+  }
 }
 const suite = new NativePolicyCustodyBoundaries();
 beforeAll(suite.prepare.bind(suite), 300000);
@@ -108,4 +129,12 @@ test(
   'integration: native policy custody rejects closed borrowed archive and preserves other owners',
   suite.closed.bind(suite),
   300000,
+);
+test(
+  'integration: native policy custody preserves unconfigured mode without taking descriptors',
+  suite.compatible.bind(suite),
+);
+test(
+  'integration: native policy custody binds the selected archive hash to genuine borrowed custody',
+  suite.mismatched.bind(suite),
 );
