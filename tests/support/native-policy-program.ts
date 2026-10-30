@@ -47,6 +47,7 @@ class NativePolicyScenario {
   private lease: ProviderLease<Sandbox.KataSandboxHost> | null = null;
   private path = '';
   private bytes: Buffer | null = null;
+  private tampered = false;
   private active = false;
   async run(): Promise<void> {
     const failures = [];
@@ -150,6 +151,7 @@ class NativePolicyScenario {
     assert.equal(created.runner, null);
   }
   private async changed(): Promise<void> {
+    this.tampered = true;
     writeFileSync(this.path, Buffer.concat([this.bytes!, Buffer.from('\n# changed\n')]));
     await assert.rejects(this.lease!.value.ready.bind(this.lease!.value), {
       message: 'KATA_RUNTIME_POLICY_CHANGED',
@@ -161,7 +163,7 @@ class NativePolicyScenario {
     this.active = false;
   }
   private restore(): void {
-    if (this.bytes) writeFileSync(this.path, this.bytes);
+    if (this.tampered && this.bytes) writeFileSync(this.path, this.bytes);
     if (this.previous === undefined) delete process.env.KATA_CONF_FILE;
     else process.env.KATA_CONF_FILE = this.previous;
   }
