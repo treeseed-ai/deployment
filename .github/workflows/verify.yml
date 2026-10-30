@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [foundation, transitions, sources, runtime, git-installed, registered, build-registered]
+        partition: [foundation, kata, transitions, sources, runtime, git-installed, registered, build-registered]
     steps:
       - name: Fetch complete candidate history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -82,7 +82,7 @@ jobs:
           node-version: 24.19.0
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Prepare immutable Kata fixture for the real default backend
-        if: matrix.partition == 'foundation' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: (matrix.partition == 'foundation' || matrix.partition == 'kata') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         run: |
           test -c /dev/kvm
           sudo modprobe vhost_vsock

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Split native Kata smoke into exhaustive bounded CI partitions (#954).
 - Select pinned native Kata policy through bounded task options (#1071).
 - Bind effective Kata bounds to exact root-image address space (#1067).
 - Observe generation-bound Kata boot inputs (#1065).
